@@ -174,3 +174,103 @@ def test_export_cli_forwards_paddle_static_defaults(monkeypatch, tmp_path):
     assert captured["kwargs"]["dynamic"] is False
     assert captured["kwargs"]["batch"] == 1
     assert captured["kwargs"]["simplify"] is True
+
+
+@pytest.mark.parametrize("channels", [2, 3])
+@pytest.mark.parametrize(
+    "arguments",
+    [["model=dummy.pt", "format=onnx"], ["--model", "dummy.pt", "--format", "onnx"]],
+)
+def test_export_cli_reports_histogram_channel_count(
+    monkeypatch, tmp_path, channels, arguments
+):
+    from libreyolo.cli.commands import export
+
+    loaded = _LoadedModel(tmp_path / "model.onnx", {})
+    loaded.input_profile = {"format": "event_histogram"} if channels == 2 else None
+    monkeypatch.setattr(export, "resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr(export, "load_model_or_exit", lambda *args, **kwargs: loaded)
+    result = runner.invoke(_build_app(), [*arguments, "--json"])
+    assert result.exit_code == 0, result.output
+    assert _parse_json_output(result.output)["input_shape"] == [1, channels, 128, 128]
+
+
+@pytest.mark.parametrize(
+    ("native", "exported", "expected"),
+    [
+        ((192, 320), (192, 320), [192, 320]),  # rectangular export (#899)
+        ((192, 320), (320, 320), [320, 320]),  # square fallback for the format
+    ],
+)
+def test_export_cli_reports_the_exported_canvas(
+    monkeypatch, tmp_path, native, exported, expected
+):
+    from libreyolo.cli.commands import export
+
+    class _RectModel(_LoadedModel):
+        def _get_input_size(self):
+            return native
+
+        def export(self, format, **kwargs):
+            self._last_export_imgsz = exported
+            return super().export(format, **kwargs)
+
+    loaded = _RectModel(tmp_path / "model.onnx", {})
+    monkeypatch.setattr(export, "resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr(export, "load_model_or_exit", lambda *args, **kwargs: loaded)
+    result = runner.invoke(_build_app(), ["model=dummy.pt", "format=onnx", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert _parse_json_output(result.output)["input_shape"] == [1, 3, *expected]
+
+
+@pytest.mark.parametrize(
+    ("args", "half", "int8"),
+    [
+        (["quantize=16"], True, False),
+        (["--quantize", "8"], False, True),
+        (["quantize=32"], False, False),
+        (["quantize=16", "half=true"], True, False),
+    ],
+)
+def test_export_cli_quantize_selects_precision(monkeypatch, tmp_path, args, half, int8):
+    from libreyolo.cli.commands import export
+
+    captured = {}
+    monkeypatch.setattr(export, "resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr(
+        export,
+        "load_model_or_exit",
+        lambda out, model, model_path, device: _LoadedModel(
+            tmp_path / "model.onnx", captured
+        ),
+    )
+
+    result = runner.invoke(
+        _build_app(), ["model=dummy.pt", "format=onnx", *args, "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (captured["kwargs"]["half"], captured["kwargs"]["int8"]) == (half, int8)
+    data = _parse_json_output(result.output)
+    assert (data["half"], data["int8"]) == (half, int8)
+
+
+@pytest.mark.parametrize(
+    ("args", "error"),
+    [
+        (["quantize=4"], "config_range_error"),
+        (["quantize=8", "half=true"], "config_conflict"),
+    ],
+)
+def test_export_cli_rejects_bad_quantize(monkeypatch, tmp_path, args, error):
+    from libreyolo.cli.commands import export
+
+    monkeypatch.setattr(export, "resolve_model_or_exit", lambda out, model: model)
+
+    result = runner.invoke(
+        _build_app(), ["model=dummy.pt", "format=onnx", *args, "--json"]
+    )
+
+    assert result.exit_code == 2, result.output
+    assert _parse_json_output(result.output)["error"] == error

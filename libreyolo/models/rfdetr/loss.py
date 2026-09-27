@@ -289,12 +289,10 @@ class SetCriterion(nn.Module):
             src_boxes = outputs["pred_boxes"][idx]
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            iou_targets = torch.diag(
-                box_ops.box_iou(
-                    box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
-                    box_ops.box_cxcywh_to_xyxy(target_boxes),
-                )[0]
-            )
+            iou_targets = box_ops.paired_box_iou(
+                box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
+                box_ops.box_cxcywh_to_xyxy(target_boxes),
+            )[0]
             pos_ious = iou_targets.clone().detach()
             prob = src_logits.sigmoid()
             # init positive weights and negative weights
@@ -318,12 +316,10 @@ class SetCriterion(nn.Module):
             src_boxes = outputs["pred_boxes"][idx]
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            iou_targets = torch.diag(
-                box_ops.box_iou(
-                    box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
-                    box_ops.box_cxcywh_to_xyxy(target_boxes),
-                )[0]
-            )
+            iou_targets = box_ops.paired_box_iou(
+                box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
+                box_ops.box_cxcywh_to_xyxy(target_boxes),
+            )[0]
             pos_ious = iou_targets.clone().detach()
             # pos_ious_func = pos_ious ** 2
             pos_ious_func = pos_ious
@@ -356,12 +352,10 @@ class SetCriterion(nn.Module):
             src_boxes = outputs["pred_boxes"][idx]
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            iou_targets = torch.diag(
-                box_ops.box_iou(
-                    box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
-                    box_ops.box_cxcywh_to_xyxy(target_boxes),
-                )[0]
-            )
+            iou_targets = box_ops.paired_box_iou(
+                box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
+                box_ops.box_cxcywh_to_xyxy(target_boxes),
+            )[0]
             pos_ious = iou_targets.clone().detach()
 
             cls_iou_targets = torch.zeros(
@@ -447,11 +441,9 @@ class SetCriterion(nn.Module):
         losses = {}
         losses["loss_bbox"] = loss_bbox.sum() / num_boxes
 
-        loss_giou = 1 - torch.diag(
-            box_ops.generalized_box_iou(
-                box_ops.box_cxcywh_to_xyxy(src_boxes),
-                box_ops.box_cxcywh_to_xyxy(target_boxes),
-            )
+        loss_giou = 1 - box_ops.paired_generalized_box_iou(
+            box_ops.box_cxcywh_to_xyxy(src_boxes),
+            box_ops.box_cxcywh_to_xyxy(target_boxes),
         )
         losses["loss_giou"] = loss_giou.sum() / num_boxes
         return losses
@@ -565,9 +557,12 @@ class SetCriterion(nn.Module):
                 mode="nearest",
             ).squeeze(1)
 
+        # The jit-scripted losses are annotated ``num_masks: float`` (and are
+        # shared with ec/seg_loss.py), while ``num_boxes`` is a 0-dim tensor
+        # here; run them unnormalized and divide outside — identical math.
         losses = {
-            "loss_mask_ce": sigmoid_ce_loss_jit(point_logits, point_labels, num_boxes),
-            "loss_mask_dice": dice_loss_jit(point_logits, point_labels, num_boxes),
+            "loss_mask_ce": sigmoid_ce_loss_jit(point_logits, point_labels, 1.0) / num_boxes,
+            "loss_mask_dice": dice_loss_jit(point_logits, point_labels, 1.0) / num_boxes,
         }
 
         del src_masks
@@ -596,6 +591,10 @@ class SetCriterion(nn.Module):
                 target_classes.to(src_keypoints.device), self.num_keypoints_per_class
             )
 
+            # Each schema class has ``max(schema)`` keypoint slots; targets are
+            # ``kpt_shape[0]`` rows wide, which is wider when every class uses
+            # fewer rows than the dataset skeleton. Those extra rows are unused.
+            target_keypoints = target_keypoints[:, : max(self.num_keypoints_per_class)]
             loss_l1, loss_findable, loss_visible, loss_nll = compute_l1_keypoint_loss(
                 all_pred_keypoints=src_keypoints,
                 target_keypoints=target_keypoints.to(src_keypoints.device),
@@ -646,14 +645,17 @@ class SetCriterion(nn.Module):
         if not self.sum_group_losses:
             num_boxes *= group_detr
         num_boxes = torch.as_tensor(
-            [num_boxes],
+            float(num_boxes),
             dtype=torch.float,
             device=next(iter(outputs.values())).device,
         )
         if self.distributed_normalize and is_dist_avail_and_initialized():
             torch.distributed.all_reduce(num_boxes)
             num_boxes = num_boxes / get_world_size()
-        return torch.clamp(num_boxes, min=1).item()
+        # Returned as a 0-dim device tensor rather than ``.item()``: the value
+        # is only ever a divisor, and ``.item()`` here cost one full GPU
+        # pipeline drain per training step.
+        return torch.clamp(num_boxes, min=1)
 
     def forward(self, outputs, targets):
         """This performs the loss computation.
@@ -665,8 +667,30 @@ class SetCriterion(nn.Module):
         group_detr = self.group_detr if self.training else 1
         outputs_without_aux = {k: v for k, v in outputs.items() if k != "aux_outputs"}
 
-        # Retrieve the matching between the outputs of the last layer and the targets
-        indices = self.matcher(outputs_without_aux, targets, group_detr=group_detr)
+        # Match the output levels as a depth-2 pipeline: the next level's
+        # cost matrix is enqueued on the GPU before the current one's
+        # ``.cpu()`` drains, so the device never idles across the per-level
+        # transfers (the old flow drained it once per level with nothing
+        # queued behind). Depth 2 rather than enqueue-everything: a cost
+        # matrix is (bs, num_queries, total_targets) fp32 and can reach
+        # hundreds of MB on dense batches, so holding all levels at once
+        # would raise peak VRAM on memory-edge runs.
+        aux_outputs_list = outputs.get("aux_outputs", [])
+        levels = [outputs_without_aux, *aux_outputs_list]
+        if "enc_outputs" in outputs:
+            levels.append(outputs["enc_outputs"])
+        level_indices = []
+        pending_cost = self.matcher.compute_cost_matrix(levels[0], targets)
+        for next_level in levels[1:]:
+            next_cost = self.matcher.compute_cost_matrix(next_level, targets)
+            level_indices.append(
+                self.matcher.solve(pending_cost.cpu(), targets, group_detr=group_detr)
+            )
+            pending_cost = next_cost
+        level_indices.append(
+            self.matcher.solve(pending_cost.cpu(), targets, group_detr=group_detr)
+        )
+        indices = level_indices[0]
 
         # Training uses the global average box count. Rank-0-only validation
         # selects the local path so it never enters a collective while other
@@ -679,21 +703,20 @@ class SetCriterion(nn.Module):
             losses.update(self.get_loss(loss, outputs, targets, indices, num_boxes))
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
-        if "aux_outputs" in outputs:
-            for i, aux_outputs in enumerate(outputs["aux_outputs"]):
-                indices = self.matcher(aux_outputs, targets, group_detr=group_detr)
-                for loss in self.losses:
-                    kwargs = {}
-                    if loss == "labels":
-                        # Logging is enabled only for the last layer
-                        kwargs = {"log": False}
-                    l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, **kwargs)
-                    l_dict = {k + f"_{i}": v for k, v in l_dict.items()}
-                    losses.update(l_dict)
+        for i, aux_outputs in enumerate(aux_outputs_list):
+            indices = level_indices[1 + i]
+            for loss in self.losses:
+                kwargs = {}
+                if loss == "labels":
+                    # Logging is enabled only for the last layer
+                    kwargs = {"log": False}
+                l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, **kwargs)
+                l_dict = {k + f"_{i}": v for k, v in l_dict.items()}
+                losses.update(l_dict)
 
         if "enc_outputs" in outputs:
             enc_outputs = outputs["enc_outputs"]
-            indices = self.matcher(enc_outputs, targets, group_detr=group_detr)
+            indices = level_indices[-1]
             for loss in self.losses:
                 kwargs = {}
                 if loss == "labels":

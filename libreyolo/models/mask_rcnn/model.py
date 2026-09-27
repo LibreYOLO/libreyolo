@@ -78,6 +78,33 @@ class LibreMaskRCNN(LibreFasterRCNN):
     def detect_checkpoint_task(cls, state_dict: dict) -> Optional[str]:
         return "segment" if cls.can_load(state_dict) else None
 
+    @classmethod
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        """Reject the ``-seg`` spelling instead of building a dead URL.
+
+        The hosted repo is suffixless (``LibreYOLO/LibreMaskRCNNr50``), so the
+        base implementation turns ``LibreMaskRCNNr50-seg.pt`` into a URL for a
+        repo that does not exist and the download fails with an HTTP error
+        that reads like an outage. Name the correct spelling instead.
+
+        The size guard matters: ``download_weights`` asks every registered
+        family in turn and takes the first non-None answer, so raising on a
+        filename that is not ours would hijack another family's download.
+        Torchvision spellings (``maskrcnn_resnet50_fpn_v2*``) carry no task
+        suffix and keep resolving through the base implementation.
+        """
+        name = Path(filename).name
+        size = cls.detect_size_from_filename(name)
+        if size is None:
+            return None
+        if cls.detect_task_from_filename(name) is not None:
+            canonical = f"{cls.FILENAME_PREFIX}{size}{cls.WEIGHT_EXT}"
+            raise FileNotFoundError(
+                f"{name}: LibreYOLO hosts {cls.FILENAME_PREFIX} weights without "
+                f"a task suffix. Use '{canonical}' instead."
+            )
+        return super().get_download_url(name)
+
     def _allow_checkpoint_task_mismatch(self, checkpoint_task: str) -> bool:
         """Allow the shared instance-segmentation checkpoint in detect mode."""
         return checkpoint_task == "segment" and self.task == "detect"

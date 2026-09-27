@@ -32,8 +32,10 @@ Required field meanings:
   `dfine`, or `ec`.
 - `size`: model variant within the family, such as `t`, `s`, `r18`, or `atto`.
 - `task`: canonical task, one of `detect`, `segment`, `semantic`, `panoptic`,
-  `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `restore`,
-  `matte`, `ocr`, `embed`, or `mesh`.
+  `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `albedo`, `restore`,
+  `matte`, `ocr`, `embed`, `mesh`, or `detect3d`. The `act` task has no
+  schema-v1 `.pt` form; its checkpoints are directories (see "Optional
+  LibreVLA runtime").
 - `nc`: positive integer class count.
 - `names`: `dict[int, str]` with keys in `0..nc-1`. Official checkpoints
   should write every key. Readers may pad missing keys with `class_i` labels for
@@ -48,12 +50,44 @@ Required field meanings:
   inference sizing follows the family's documented predict and validation
   rules.
 
+Optional family-specific geometry (not required by schema v1.0):
+
+- `letterbox_pad`: `"topleft"` or `"center"`. YOLOv9 only. Official
+  MultimediaTechLab conversions stamp `"center"`. Checkpoints written before
+  this field existed, and every user fine-tune from LibreYOLO ≤1.5, are
+  treated as `"topleft"`. Loaders must not assume a family-wide default other
+  than that unmarked-means-topleft rule. YOLO-NAS is not this field: its
+  official pipeline already pads bottom-right in `preprocess/yolonas.py`.
+
+Optional event-histogram input metadata (YOLO9/RF-DETR detection only):
+
+- `input_profile`: the complete mapping from [Input profiles](input_profiles.md):
+  `format`, `layout`, `polarity`, `encoding`, `scale`, `window_us`.
+- `input_initialization`: required with the profile, either `random` or
+  `rgb_mean`. Readers adapt the actual input convolution to two channels before
+  loading its state dict. They must not infer the representation from weights.
+- YOLO9 also preserves `letterbox_pad` as defined above.
+
+The optional mapping describes one input contract, not nested family/task
+identification. Absent metadata retains the existing RGB checkpoint contract.
+Training, validation and resume require matching dataset metadata. ONNX stores
+`input_profile` as JSON and the other fields as strings. The ONNX reader checks
+the graph channel count and rejects a two-channel graph without the profile.
+
+ConvNeXt V2 published classifiers also carry the optional flat
+`weight_license`, `weight_license_url`, `weight_dataset`,
+`weight_commercial_use`, `source`, `source_commit`, and `source_sha256` fields.
+Its converter and raw importer identify official 224px ImageNet-1K EMA files
+by SHA-256. Save, fine-tune, resume and DDP bootstrap preserve these fields;
+explicit scratch initialization clears inherited weight provenance.
+
 Pose checkpoints additionally include:
 
 - `nc` / `names`: pose is usually single-class (`nc: 1`, `person`), but the
-  YOLO-NAS pose head also supports multi-class pose with a single shared
-  keypoint skeleton (one `kpt_shape` for every class); `nc` and `names` then
-  describe the classes as in detection. Runtime pose exports emit `scores` with
+  YOLO-NAS and RF-DETR pose heads also support multi-class pose over one
+  `kpt_shape` skeleton; RF-DETR can give each class fewer of its keypoints
+  (`num_keypoints_per_class`). `nc` and `names` then describe the classes as
+  in detection. Runtime pose exports emit `scores` with
   shape `[batch, anchors, nc]`.
 - `num_keypoints`: positive integer keypoint count used by the pose head.
 - `keypoint_dim`: pose label dimension from the dataset contract, either `2`
@@ -64,7 +98,10 @@ Pose checkpoints additionally include:
 - `num_keypoints_per_class`: optional list of per-class keypoint counts for
   GroupPose-style heads whose exported keypoint tensor is padded by class. Use
   `0` for classes without keypoints. Runtime backends use this schema to select
-  the active keypoints for the predicted class.
+  the active keypoints for the predicted class. LibreYOLO RF-DETR writes it as
+  `[0, count_0, count_1, ...]`: slot 0 is an empty slot and class `j` is slot
+  `j + 1`, so the head has `nc + 1` class columns. Predicted keypoints are
+  reported `num_keypoints` rows wide, zero-padded past a class's count.
 
 Mesh checkpoints use the task string `mesh`, `nc: 1`, and
 `names: {0: "person"}`. Because parameter layouts differ between body models,
@@ -88,6 +125,23 @@ the dimensions are recorded rather than assumed, the same way pose records
 Depth checkpoints use the task string `depth`, `nc: 1`, and
 `names: {0: "depth"}`. The single class-like slot exists only for checkpoint
 schema compatibility; depth predictions are dense float maps, not classes.
+
+`depth_encoding` may name `inverse_depth` (the default), `depth` or `log_depth`.
+Each is affine-relative in its named space. A family that uses non-default
+encoding must preserve it in results and validation. See ADR 0025.
+
+Albedo checkpoints use `task: "albedo"`, `nc: 1` and `names: {0: "albedo"}`.
+Their output is dense float32 linear RGB, not an RGB preview or semantic class.
+
+Marigold V2 checkpoints store inference trainables and fixed prompt tensors,
+not the frozen Qwen base. They additionally require `variant`, `base_model`
+and `base_revision`; the family rejects unrecognized base revisions and
+variant/task mismatches. The `_marigold_variant` scalar and
+`_marigold_prompt_embeds` / `_marigold_prompt_mask` entries in `model` provide
+state-dict identification and the fixed conditioning. Variant IDs follow the
+order recorded in `models/marigold_v2/config.py`; existing IDs must not be
+reassigned. Omitted upstream training-only tensors are listed explicitly in
+`omitted_training_tensors`.
 
 Edge checkpoints use the task string `edge`, `nc: 1`, and
 `names: {0: "edge"}`. The single class-like slot exists only for checkpoint
@@ -127,6 +181,17 @@ recognizer) key namespaces. OCR checkpoints additionally include:
   orientation classification, image unwarping, textline 0/180 rotation).
   Empty in v1; adding a component later must not break this schema.
 
+U-Net semantic checkpoints keep the whole-frame evaluation size in
+`imgsz` / `imgsz_h` / `imgsz_w` (2048 / 1024 / 2048). Training checkpoints
+add `train_imgsz_h` / `train_imgsz_w` for the actual training crop.
+Weight provenance uses optional flat `weight_license`, `weight_license_url`,
+`weight_dataset`, and boolean `weight_commercial_use` fields. Raw imports of
+the official Cityscapes artifact identify it by its pinned SHA-256 and write
+its Apache-2.0 license terms and class names; an arbitrary U-Net tensor layout
+does not establish a weight license. Fine-tunes and U-Net DDP bootstrap
+checkpoints preserve these fields. Explicit scratch training clears inherited
+weight terms. Other families retain their existing flat DDP bootstrap tensors.
+
 The schema is intentionally flat. Existing LibreYOLO checkpoints and loaders
 already use top-level keys such as `model_family`, `size`, `nc`, `names`, and
 `task`; nesting the metadata would increase migration risk before release.
@@ -141,7 +206,7 @@ convention. Exporters write `imgsz_h` and `imgsz_w` next to the legacy scalar
 silently treat the scalar as a square runtime contract.
 
 Backend support for rectangular runtime metadata is family- and format-scoped.
-YOLO9-family, HRNet, NAFNet, and Real-ESRGAN exports may use non-square
+YOLO9-family, HRNet, NAFNet, QuickSRNet, and Real-ESRGAN exports may use non-square
 `imgsz_h/imgsz_w` in supported runtime formats; families or formats without
 explicit rectangular support must reject the metadata instead of preprocessing
 those artifacts as square inputs. HRNet exports are fixed, batch-one, FP32
@@ -156,12 +221,13 @@ then crops the restored RGB result back to the original image shape. Dynamic
 spatial restore export and tiled exported-runtime inference are deferred for
 NAFNet.
 
-Real-ESRGAN restore exports support dynamic spatial dims: the generators are
-fully convolutional, so ONNX exports may set dynamic `height`/`width` axes on
-both `images` and `restored`. Backend prediction runs at the native image
-resolution (reflect-padded only to the network divisibility factor) and crops
-the restored output to `scale` times the original image shape. The backend
-derives `scale` from the model family and size (`x4`/`x4t` = 4, `x2` = 2).
+Real-ESRGAN and QuickSRNet restore exports support dynamic spatial dims: the
+generators are fully convolutional, so ONNX exports may set dynamic
+`height`/`width` axes on both `images` and `restored`. Backend prediction runs
+at the native image resolution (reflect-padded only when a network requires a
+divisibility factor) and crops the restored output to `scale` times the
+original image shape. The backend derives `scale` from the model family and
+size (Real-ESRGAN `x4`/`x4t` = 4 and `x2` = 2; QuickSRNet `m2` = 2).
 
 SwinIR restore exports use a fixed-resolution v1 contract. ONNX exports emit
 one dense `restored` tensor and force `dynamic=false` because shifted-window
@@ -195,15 +261,22 @@ Pose runtime exports may also write these flat metadata keys:
   consumes one already-extracted person crop rather than a full image and does
   not contain a detector. HRNet runtime exports require this value.
 
-Classification runtime exports (MobileNetV4 / ConvNeXt / EfficientNetV2 /
-ResNet) may also write these flat metadata keys so that exported-backend
-preprocessing reproduces the native model's resize/crop and the logits stay
-bit-identical:
+Classification runtime exports write the family's eval pipeline as flat
+metadata keys, so exported-backend `predict()` and `val()` reproduce the native
+model's preprocessing and the logits stay bit-identical:
 
 - `crop_pct`: float center-crop ratio. The pre-crop resize target is
-  `round(imgsz / crop_pct)`. Readers default to `0.875` when the key is absent.
+  `floor(imgsz / crop_pct)`. Readers default to `0.875` when the key is absent.
 - `interpolation`: resize filter, `"bilinear"` or `"bicubic"`. Readers default
   to `"bilinear"` when the key is absent.
+- `norm_mean`, `norm_std`: optional JSON-encoded RGB lists in `[0, 1]` scale,
+  written by families whose normalization is not ImageNet (CLIP, SigLIP2, PE,
+  ViT). Readers default to the ImageNet statistics.
+- `resize_mode`: optional `"center_crop"` (default) or `"stretch"` (square
+  resize without a crop; SigLIP2, PE).
+
+Exports written before `norm_mean` / `norm_std` / `resize_mode` existed keep
+their family's native values through a reader-side fallback.
 
 ExecuTorch exports write the flat metadata to a required
 `<program>.pte.json` sidecar. The v1 contract is CPU, FP32, batch 1, and a
@@ -242,6 +315,14 @@ standalone post-NMS tensor using the export-time `nms_conf`, `nms_iou`, and
 LibreYOLO backends so they can apply native original-canvas clipping and runtime
 `predict(conf=..., iou=..., max_det=...)` semantics. Third-party consumers that
 want graph-embedded NMS should use the first output.
+
+YOLO9-family runtime exports also write the checkpoint's `letterbox_pad`
+(`"topleft"` or `"center"`). LibreYOLO backends use it to letterbox inputs,
+map boxes and keypoints back to the original canvas, and build validation
+preprocessing; INT8 calibration and DeepStream `symmetric-padding` follow it
+too. Artifacts without the key, including every export written before it
+existed, use top-left. Backends reject any other value. Consumers of the
+embedded-NMS output must undo the same pad.
 
 ## Quantized Checkpoints
 
@@ -318,6 +399,15 @@ distributed as training checkpoints.
 For release compatibility, readers accept legacy best-metric aliases such as
 `best_mAP50_95`, `best_mAP50`, `best_metric`, and `best_metric_name`.
 
+Custom-fitness training writes optional `fitness_source: "callback"` and
+`best_metric_key: "fitness/custom"` in its training and averaged checkpoints.
+`best_metric_value` and the legacy `best_mAP50_95` / `best_metric` aliases then
+contain the custom score, while `best_mAP50` remains the validation mAP50 at
+the selected epoch. The marker stores no callback code or state. Such files
+can be loaded for inference or as weights for a new run, but cannot resume
+training; neither can a default checkpoint resume with a custom scorer.
+Absent `fitness_source` preserves the existing checkpoint/resume contract.
+
 ## External Snapshot Exception
 
 The schema above governs LibreYOLO-authored `.pt` checkpoints. It does not
@@ -368,8 +458,15 @@ remap applied at post-process). A checkpoint is treated as COCO when it:
 A genuine custom 90-class RF-DETR is preserved as `nc = 90`. It is identified
 by a `names`/`class_names` list, an explicit non-80 class count, or a non-COCO
 dataset hint (e.g. `args.dataset_file`), so the bare-checkpoint COCO fallback
-does not fire for it. Empty placeholders (`""`, `{}`, `[]`) are ignored when
-deciding whether a dataset hint is present.
+does not fire for it. Empty dataset placeholders (`""`, `{}`, `[]`) are ignored
+when deciding whether a dataset hint is present.
+
+An empty class-name container alone does not establish COCO identity: an
+otherwise ambiguous 90-class checkpoint retains `nc = 90`. After resolving
+the class count, empty top-level names can use nested `args.class_names` or
+`hyper_parameters.class_names` only when their length matches that count.
+Nested fallback labels cannot establish a different class space. When metadata
+establishes COCO identity but names are empty, wrapping supplies COCO-80 labels.
 
 Schema helpers live in `libreyolo/utils/serialization.py`:
 
@@ -378,3 +475,33 @@ wrap_libreyolo_checkpoint(...)
 unwrap_libreyolo_checkpoint(...)
 validate_checkpoint_metadata(...)
 ```
+
+### Optional LibreVLA runtime
+
+The `act` task reserves the suffix `-act`. `LibreVLA` checkpoints are
+directories, not schema-v1 `.pt` files: the upstream policy files, the saved
+pre and post processor pipelines, and `libreyolo_vla.json` (schema 1) with
+`family`, `size`, `base_repo`, `base_revision`, `data`, `fps`, `cameras`,
+`action_names`, `state_names`, `chunk_size` and `libreyolo_version`. The
+base snapshot is pinned to a Hub commit and never converted. Policies trained
+without a base snapshot store null `base_repo` and `base_revision` and load
+from the saved policy directory. See
+`docs/librevla.md` and ADR 0028.
+
+### Optional WildDet3D runtime
+
+The `detect3d` task reserves the suffix `-detect3d`. The initial
+`LibreWildDet3D` sibling adapter accepts an unchanged upstream full checkpoint,
+either as a local path or from the pinned `LibreYOLO/LibreWildDet3D` mirror.
+The mirrored artifact preserves the upstream filename and serialization and is
+verified by SHA-256. It does not use schema-v1 metadata, attempt conversion, or
+route through the LibreYOLO factory.
+
+### Optional 3D-MOOD runtime
+
+`Libre3DMOOD` likewise accepts unchanged upstream full checkpoints outside
+schema v1. Canonical mirror names are `Libre3DMOODt.pt` and
+`Libre3DMOODb.pt`; the content retains the upstream serialization and is
+verified against a pinned SHA-256. The sibling API requires an explicit size
+when a local upstream filename is supplied and never routes the raw checkpoint
+through `LibreYOLO(...)` or metadata conversion.

@@ -14,7 +14,8 @@ the graph.
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
+
+from ...training.classification import classification_loss
 
 __all__ = ["ClassifyCudaGraphMixin"]
 
@@ -25,6 +26,8 @@ class ClassifyCudaGraphMixin:
     Mixed in ahead of ``BaseTrainer`` so it overrides the base hook, which
     returns ``None`` (eager) for families that have not opted in.
     """
+
+    supports_class_weights = True
 
     def cuda_graph_train_spec(self):
         from libreyolo.training.cuda_graph import (
@@ -43,7 +46,9 @@ class ClassifyCudaGraphMixin:
 
         def assemble(flat, imgs, targets, polygons=None):
             logits = network.rebuild(flat)
-            loss = F.cross_entropy(logits, targets)
+            loss = classification_loss(
+                logits, targets, getattr(self, "class_weights", None)
+            )
             return {"total_loss": loss, "loss_ce": loss.detach()}
 
         return CudaGraphTrainSpec(network=network, assemble=assemble)

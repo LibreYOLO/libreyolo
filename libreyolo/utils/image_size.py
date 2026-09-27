@@ -1,7 +1,10 @@
 """Shared image-size normalization helpers."""
 
+import logging
 from numbers import Integral
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 ImageSize = int | tuple[int, int]
@@ -105,3 +108,58 @@ def imgsz_to_hw(
     if isinstance(normalized, int):
         return normalized, normalized
     return normalized
+
+
+def reject_rectangular_imgsz(model: Any, imgsz: Any, call: str) -> None:
+    """Raise a clear error when ``model`` cannot run ``call`` at a rectangle.
+
+    Families list the calls that need a square ``imgsz`` in
+    ``SQUARE_IMGSZ_CALLS``; without this, their preprocessing crashes deep
+    inside on an ``(h, w)`` tuple.
+    """
+    if call not in getattr(model, "SQUARE_IMGSZ_CALLS", ()):
+        return
+    if isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
+        h, w = int(imgsz[0]), int(imgsz[1])
+        if h != w:
+            family = getattr(model, "family", type(model).__name__)
+            raise ValueError(
+                f"{family} {call}() does not support rectangular input sizes, "
+                f"got ({h}, {w}). Use a square imgsz."
+            )
+
+
+def round_imgsz_to_stride(model: Any, imgsz: Any, call: str) -> Any:
+    """Round ``imgsz`` up to a multiple of the family's ``IMGSZ_STRIDE``.
+
+    Families whose network only runs on stride-aligned inputs set
+    ``IMGSZ_STRIDE``. An unaligned size is rounded up to the next multiple
+    with a warning, as the ecosystem does, instead of failing inside the
+    network. Other values (``None``, malformed sizes) pass through unchanged
+    for the caller's own validation.
+    """
+    stride = int(getattr(model, "IMGSZ_STRIDE", None) or 0)
+    if stride <= 1:
+        return imgsz
+    square = isinstance(imgsz, Integral) and not isinstance(imgsz, bool)
+    if not square and not (isinstance(imgsz, (list, tuple)) and len(imgsz) == 2):
+        return imgsz
+    dims = (imgsz,) if square else imgsz
+    if any(
+        isinstance(d, bool) or not isinstance(d, Integral) or d <= 0 for d in dims
+    ):
+        return imgsz
+    rounded = tuple(-(-int(d) // stride) * stride for d in dims)
+    if rounded == tuple(int(d) for d in dims):
+        return imgsz
+    new = rounded[0] if square else rounded
+    family = getattr(model, "FAMILY", type(model).__name__)
+    logger.warning(
+        "%s %s imgsz=%s is not a multiple of the max stride %d; using imgsz=%s.",
+        family,
+        call,
+        imgsz,
+        stride,
+        new,
+    )
+    return new

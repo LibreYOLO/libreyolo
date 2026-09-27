@@ -41,7 +41,7 @@ class YOLO9E2ETrainer(YOLO9Trainer):
 
         return YOLO9E2EValidationLoss(
             model,
-            max_labels=int(getattr(self.config, "max_labels", 100)),
+            max_labels=int(getattr(self.config, "max_labels", 300)),
         )
 
     def cuda_graph_train_spec(self):

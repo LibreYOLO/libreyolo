@@ -6,7 +6,61 @@ from typing import List, Optional, Tuple, Union
 
 import yaml
 
+from libreyolo.data.utils import normalize_classes_field
 from libreyolo.utils.amp import normalize_amp_dtype
+from libreyolo.utils.plot_samples import (  # noqa: F401  (re-exported)
+    DEFAULT_PLOT_SAMPLES,
+    PLOT_SAMPLES_ALL,
+    validate_plot_samples,
+    wants_more_plot_samples,
+)
+
+
+#: Tasks whose validators draw ``visualize=True`` images (#887).
+VISUALIZE_TASKS = ("detect", "segment", "classify")
+
+#: ``val(project=, name=)`` defaults, shared with the CLI.
+DEFAULT_VAL_PROJECT = "runs/val"
+DEFAULT_VAL_NAME = "exp"
+
+
+def val_save_dir(
+    project: Optional[Union[str, Path]] = None,
+    name: Optional[str] = None,
+    exist_ok: bool = False,
+    *,
+    mkdir: bool = False,
+) -> str:
+    """Directory for a validation run: ``project/name``.
+
+    ``name`` is incremented (``exp``, ``exp2``, ...) when the directory exists,
+    unless ``exist_ok``.
+    """
+    from libreyolo.utils.general import increment_path
+
+    path = Path(project or DEFAULT_VAL_PROJECT) / (name or DEFAULT_VAL_NAME)
+    return str(increment_path(path, exist_ok=bool(exist_ok), mkdir=mkdir))
+
+
+def resolve_val_output_kwargs(
+    kwargs: dict,
+    project: Optional[Union[str, Path]],
+    name: Optional[str],
+    exist_ok: bool,
+) -> None:
+    """Turn ``val(project=, name=, exist_ok=)`` into ``save_dir`` in ``kwargs``.
+
+    Without ``project`` or ``name``, ``save_dir`` (or the validator's default
+    timestamped directory) is left as is.
+    """
+    if project is None and name is None:
+        return
+    if kwargs.get("save_dir") is not None:
+        raise ValueError(
+            "val() takes either save_dir or project/name for its output "
+            "directory, not both."
+        )
+    kwargs["save_dir"] = val_save_dir(project, name, exist_ok)
 
 
 @dataclass
@@ -18,6 +72,7 @@ class ValidationConfig:
         data: Path to data.yaml file containing dataset configuration.
         data_dir: Direct path to dataset directory (alternative to data).
         split: Dataset split to validate on ("val" or "test").
+        single_cls: Evaluate every detection category as class 0.
         batch_size: Batch size for validation.
         imgsz: Image size for validation. Accepts an int (square) or (height, width) tuple.
         conf_thres: Confidence threshold. Use 0.0 or a low value for mAP calculation.
@@ -36,6 +91,16 @@ class ValidationConfig:
             Tasks without COCO detections ignore the flag (OBB logs a warning).
         save_plots: Whether to save validation plots (metrics bar, per-class AP,
             confusion matrix, sample images). Default False.
+        visualize: Draw every validated image to ``save_dir/visualize/``
+            with true positives (green), false positives (red) and false
+            negatives (orange) at confidence 0.25 (or conf_thres if higher)
+            and IoU 0.5, class-aware. Images with any false positive or
+            false negative go to ``visualize/errors/``, the rest to
+            ``visualize/correct/``.
+            Classification draws the label and the top-1 prediction.
+            Detect, segment and classify only. Default False.
+        show_labels: Class names on the ``visualize`` images. Default True.
+        show_conf: Confidence scores on the ``visualize`` images. Default True.
         verbose: Whether to print detailed metrics.
         num_workers: Number of dataloader workers.
         half: Whether to use FP16 inference.
@@ -50,6 +115,14 @@ class ValidationConfig:
     data: Optional[str] = None
     data_dir: Optional[str] = None
     split: str = "val"
+    single_cls: bool = field(default=False, kw_only=True)
+    # Auto-inherited from the checkpoint's saved training config the same
+    # way single_cls is (see DetectionValidator.__init__); rarely set by
+    # hand. Must match the classes= the model was trained with, since the
+    # head size is shared. Accepts a comma-separated string too (CLI
+    # convenience, matching how device="0,1" is written), e.g. "0,3,5" --
+    # normalized to a list of ints by normalize_classes_field below.
+    classes: Optional[Union[List[int], str]] = field(default=None, kw_only=True)
 
     # Inference
     batch_size: int = 16
@@ -85,6 +158,17 @@ class ValidationConfig:
     save_json: bool = False
     verbose: bool = True
     save_plots: bool = field(default=False, kw_only=True)
+    # How many validated images are kept for the sample-image plot.
+    # 0 disables that plot, -1 keeps every image. This is a plotting
+    # budget only: it never changes which images are scored (#830).
+    plot_samples: int = field(default=DEFAULT_PLOT_SAMPLES, kw_only=True)
+    # Draw every validated image with its true positives, false positives
+    # and false negatives to save_dir/visualize/{errors,correct}/ (#887). Same name and
+    # meaning as the ecosystem's val(visualize=True); detect, segment and
+    # classify only. show_labels / show_conf toggle the text on those images.
+    visualize: bool = field(default=False, kw_only=True)
+    show_labels: bool = field(default=True, kw_only=True)
+    show_conf: bool = field(default=True, kw_only=True)
 
     # Workers
     num_workers: int = 4
@@ -118,6 +202,9 @@ class ValidationConfig:
 
     # TTA
     augment: bool = False
+    # Classification eval preprocessing. None keeps the model family's
+    # native crop ratio (what export records), so val() matches predict().
+    crop_pct: Optional[float] = field(default=None, kw_only=True)
 
     # Pose validation
     keypoints_json: Optional[str] = None
@@ -135,6 +222,12 @@ class ValidationConfig:
 
     def __post_init__(self) -> None:
         self.amp_dtype = normalize_amp_dtype(self.amp_dtype)
+        self.plot_samples = validate_plot_samples(self.plot_samples)
+        self.visualize = bool(self.visualize)
+        self.show_labels = bool(self.show_labels)
+        self.show_conf = bool(self.show_conf)
+        self.single_cls = bool(self.single_cls)
+        self.classes = normalize_classes_field(self.classes)
 
         if self.data is None and self.data_dir is None and self.keypoints_json is None:
             raise ValueError(

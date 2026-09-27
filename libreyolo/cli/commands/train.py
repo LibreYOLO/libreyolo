@@ -7,12 +7,16 @@ from typing import Optional
 import typer
 
 from ..command_utils import (
+    exit_if_out_of_range,
+    exit_imgsz_error,
     exit_stage_error,
     exit_with_error,
     get_loaded_model_family,
     get_user_provided_params,
     help_json_callback,
+    is_imgsz_error,
     load_model_or_exit,
+    model_call_error_code,
     parse_imgsz_str,
     resolve_model_or_exit,
 )
@@ -36,7 +40,18 @@ _LORA_TRAIN_FAMILIES = {
     "rtdetrv2",
     "rtdetrv4",
     "ec",
+    "gtr",
     "convnext",
+}
+
+# Always own their train loader; class_balanced never reaches create_dataloader.
+# EC / YOLO-NAS are task-dependent and are rejected at trainer setup instead.
+_CLASS_BALANCED_UNSUPPORTED_FAMILIES = {
+    "dfine",
+    "deim",
+    "deimv2",
+    "fomo",
+    "vjepa2",
 }
 
 
@@ -91,13 +106,15 @@ def _create_explicit_task_train_model(
                 **scratch_kwargs,
             )
 
-    if family not in {"yolo9", "rfdetr", "dfine"} or resume:
+    if family not in {"yolo9", "rfdetr", "dfine", "gtr"} or resume:
         return None
 
     if family == "yolo9":
         from libreyolo.models.yolo9.model import LibreYOLO9 as model_cls
     elif family == "dfine":
         from libreyolo.models.dfine.model import LibreDFINE as model_cls
+    elif family == "gtr":
+        from libreyolo.models.gtr.model import LibreGTR as model_cls
     else:
         from libreyolo.models.rfdetr.model import LibreRFDETR as model_cls
 
@@ -105,7 +122,7 @@ def _create_explicit_task_train_model(
     train_task = normalize_task(task) if task is not None else filename_task
     if train_task is None:
         return None
-    if family == "dfine" and train_task != "segment":
+    if family in ("dfine", "gtr") and train_task != "segment":
         return None
     if task is None and filename_task == train_task and _model_ref_exists(model_path):
         return None
@@ -113,7 +130,7 @@ def _create_explicit_task_train_model(
     size = model_cls.detect_size_from_filename(Path(model_path).name)
     if size is None:
         return None
-    if family == "dfine" and train_task == "segment":
+    if family in ("dfine", "gtr") and train_task == "segment":
         if not _model_ref_exists(model_path):
             # Published weights (LibreDFINEn-seg.pt or a detect checkpoint used
             # as transfer source) must auto-download here; falling through to
@@ -218,16 +235,19 @@ def _create_dfine_segment_from_loaded_detect_model(
     model_path: str,
     device: str,
 ):
-    """Switch an already-loaded D-FINE detect checkpoint to the segment architecture."""
-    if (
-        get_loaded_model_family(loaded_model) != "dfine"
-        or getattr(loaded_model, "task", "detect") != "detect"
-    ):
+    """Switch an already-loaded D-FINE/GTR detect checkpoint to the segment architecture."""
+    family = get_loaded_model_family(loaded_model)
+    if family not in ("dfine", "gtr"):
+        return None
+    if getattr(loaded_model, "task", "detect") != "detect":
         return None
 
-    from libreyolo.models.dfine.model import LibreDFINE
+    if family == "gtr":
+        from libreyolo.models.gtr.model import LibreGTR as model_cls
+    else:
+        from libreyolo.models.dfine.model import LibreDFINE as model_cls
 
-    return LibreDFINE(
+    return model_cls(
         model_path,
         size=getattr(loaded_model, "size", None),
         task="segment",
@@ -248,6 +268,25 @@ def _create_yolo9_task_from_loaded_model(loaded_model, task: str, device: str):
     if size is None:
         return None
     return LibreYOLO9(None, size=size, task=task, device=device)
+
+
+def _resolve_train_task(
+    normalized_task: str | None, loaded_model, family: str | None, model_path: str
+) -> str | None:
+    """Best-effort task for CLI-name resolution (classification vs the rest).
+
+    An explicit ``task=`` wins, then the loaded model, then the family class's
+    filename convention / default task (the dry-run path never loads a model).
+    """
+    if normalized_task is not None:
+        return normalized_task
+    if loaded_model is not None:
+        return getattr(loaded_model, "task", None)
+    model_cls = get_model_class(family) if family is not None else None
+    if model_cls is None:
+        return None
+    from_name = model_cls.detect_task_from_filename(Path(model_path).name)
+    return from_name or getattr(model_cls, "DEFAULT_TASK", None)
 
 
 def _should_use_yolo9_path_as_transfer(model_path: str, task: str | None) -> bool:
@@ -281,6 +320,62 @@ def train_cmd(
     cache: str = typer.Option(
         "false", help="Cache images to speed dataloading: ram, disk, true, false"
     ),
+    min_samples: int = typer.Option(
+        0,
+        help="Epoch-length floor for tiny datasets: when the dataset has "
+        "fewer images, draw this many samples per epoch with replacement "
+        "(0 = off)",
+    ),
+    class_balanced: bool = typer.Option(
+        False,
+        "--class-balanced/--no-class-balanced",
+        help="LVIS-style repeat-factor sampling for long-tailed datasets "
+        "(default: off)",
+    ),
+    cls_pw: float = typer.Option(
+        0.0,
+        min=0.0,
+        max=1.0,
+        help="Classification inverse-frequency weighting power: 0 off, 1 full "
+        "(mean-one class weights; cannot combine with class_weights=True)",
+    ),
+    class_weights: bool = typer.Option(
+        False,
+        "--class-weights/--no-class-weights",
+        help="Legacy sample-normalized classification loss weights (default: off)",
+    ),
+    single_cls: bool = typer.Option(
+        False,
+        "--single-cls/--no-single-cls",
+        help="Train a G0/G1 detector with every label remapped to class 0",
+    ),
+    classes: Optional[str] = typer.Option(
+        None,
+        help="Train a G0/G1 detector on only these original dataset class "
+        "ids, comma-separated (e.g. '0,3,5'); every other class is dropped "
+        "as if unlabeled. Ids are kept as-is, not compacted",
+    ),
+    average_best: int = typer.Option(
+        0,
+        help="Uniform-average the N best checkpoints by the watched metric "
+        "into weights/average.pt at the end of training (0 = off)",
+    ),
+    export_check: bool = typer.Option(
+        False,
+        "--export-check/--no-export-check",
+        help="Export ONNX before epoch 1 and fail the run if export breaks "
+        "(default: off)",
+    ),
+    precise_bn: int = typer.Option(
+        0,
+        help="Recompute BatchNorm running stats from this many train images "
+        "after the last epoch (0 = off)",
+    ),
+    aux_weight: Optional[float] = typer.Option(
+        None,
+        help="YOLO9 only: PGI auxiliary-branch loss weight for fine-tuning "
+        "(default 0.25; 0 trains the main head only)",
+    ),
     seed: int = typer.Option(0, help="Random seed"),
     resume: str = typer.Option("", help="Resume training: true, or path to checkpoint"),
     amp: bool = typer.Option(True, help="Automatic Mixed Precision"),
@@ -293,6 +388,14 @@ def train_cmd(
         help=(
             "Capture the training forward/backward into CUDA graphs "
             "(single-GPU, supported families only; others run eager)"
+        ),
+    ),
+    compile: str = typer.Option(
+        "false",
+        help=(
+            "torch.compile the training network: true, false, default, "
+            "reduce-overhead, max-autotune, max-autotune-no-cudagraphs "
+            "(single CUDA GPU; other runs train eager with a warning)"
         ),
     ),
     pretrained: bool = typer.Option(True, help="Use pretrained weights"),
@@ -337,6 +440,10 @@ def train_cmd(
     mixup: float = typer.Option(1.0, help="Mixup probability"),
     hsv_prob: float = typer.Option(1.0, help="HSV jitter probability"),
     flip_prob: float = typer.Option(0.5, help="Horizontal flip probability"),
+    fliplr: Optional[float] = typer.Option(
+        None, help="Horizontal flip probability (ecosystem alias of flip_prob)"
+    ),
+    flipud: float = typer.Option(0.0, help="Vertical flip probability"),
     degrees: float = typer.Option(10.0, help="Rotation +/- degrees"),
     translate: float = typer.Option(0.1, help="Translation ratio"),
     shear: float = typer.Option(2.0, help="Shear angle"),
@@ -344,6 +451,29 @@ def train_cmd(
     mixup_scale: str = typer.Option("(0.5,1.5)", help="Mixup scale range"),
     no_aug_epochs: int = typer.Option(
         15, help="Disable augmentation for final N epochs"
+    ),
+    # Classification augmentation pack (detection families ignore these)
+    auto_augment: Optional[str] = typer.Option(
+        None,
+        help="Classification auto-augment policy: randaugment, autoaugment, "
+        "augmix (default: none)",
+    ),
+    erasing: float = typer.Option(
+        0.0, help="Classification RandomErasing probability, 0 <= erasing < 1"
+    ),
+    cutmix: float = typer.Option(
+        0.0,
+        help="Classification CutMix probability (soft labels)",
+    ),
+    scale: str = typer.Option(
+        "0.5",
+        help="Classification RandomResizedCrop area range: a float lower bound "
+        "or an explicit (min,max)",
+    ),
+    crop_pct: Optional[float] = typer.Option(
+        None,
+        help="Classification eval resize ratio before the center crop "
+        "(default: the model family's native value)",
     ),
     # EMA
     ema: bool = typer.Option(True, help="Exponential Moving Average"),
@@ -366,6 +496,11 @@ def train_cmd(
     ),
     save_plots: bool = typer.Option(
         False, help="Save final validation plots during training"
+    ),
+    plot_samples: int = typer.Option(
+        8,
+        help="Sample images in the validation sample plot: 0 for none, "
+        "-1 for every validated image (does not change the metrics)",
     ),
     patience: int = typer.Option(50, help="Early stopping patience (0=disabled)"),
     # Output
@@ -395,6 +530,7 @@ def train_cmd(
     import ast
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
+    exit_if_out_of_range(out, epochs=epochs, batch=batch, autobatch=True)
 
     user_provided = get_user_provided_params()
     normalized_task = None
@@ -409,8 +545,38 @@ def train_cmd(
     # Parse tuple/list strings
     try:
         from libreyolo.utils.amp import normalize_amp_dtype
+        from libreyolo.training.config import (
+            normalize_compile,
+            validate_class_weighting,
+        )
 
+        cls_pw = validate_class_weighting(cls_pw, class_weights)
         amp_dtype = normalize_amp_dtype(amp_dtype)
+        compile_val = normalize_compile(compile)
+        from libreyolo.data.augment.classify import (
+            normalize_auto_augment,
+            normalize_crop_scale,
+        )
+
+        auto_augment = normalize_auto_augment(auto_augment)
+        if not 0.0 <= erasing < 1.0:
+            raise ValueError(f"erasing must be in [0, 1), got {erasing}")
+        if fliplr is not None:
+            # Ecosystem spelling of flip_prob; an explicit value wins.
+            flip_prob = fliplr
+            user_provided.add("flip_prob")
+        for knob_name, knob_value in (
+            ("flip_prob", flip_prob),
+            ("flipud", flipud),
+            ("cutmix", cutmix),
+        ):
+            if not 0.0 <= knob_value <= 1.0:
+                raise ValueError(f"{knob_name} must be in [0, 1], got {knob_value}")
+        scale_val = normalize_crop_scale(
+            ast.literal_eval(scale) if isinstance(scale, str) else scale
+        )
+        if crop_pct is not None and not 0.0 < crop_pct <= 1.0:
+            raise ValueError(f"crop_pct must be in (0, 1], got {crop_pct}")
         if max_det < 1:
             raise ValueError(f"max_det must be >= 1, got {max_det}")
         if eval_max_det is not None and eval_max_det < 1:
@@ -460,6 +626,30 @@ def train_cmd(
 
     model_path = resolve_model_or_exit(out, model)
     family = detect_family_from_model_ref(model, model_path, inspect_checkpoint=dry_run)
+
+    if single_cls or classes:
+        # Gate before the model is constructed: building it can fetch weights
+        # (an explicit task derives a task-suffixed checkpoint name), and a
+        # rejected combination must not pay for a download first.
+        from libreyolo.models.registry import group_of
+
+        selected_task = normalized_task
+        model_cls = get_model_class(family) if family is not None else None
+        if selected_task is None and model_cls is not None:
+            selected_task = (
+                model_cls.detect_task_from_filename(Path(model_path).name)
+                or model_cls.DEFAULT_TASK
+            )
+        group = group_of(family) if family is not None else None
+        if group not in {"g0", "g1"} or selected_task != "detect":
+            exit_with_error(
+                out,
+                "config_unsupported",
+                "single_cls=True and classes=... are supported only for "
+                f"G0/G1 detection models; got family={family!r} ({group}), "
+                f"task={selected_task!r}.",
+            )
+
     loaded_model = None
     train_pretrained = pretrained
     if family is None and not dry_run:
@@ -549,11 +739,21 @@ def train_cmd(
         "device": device,
         "workers": workers,
         "cache": cache_val,
+        "min_samples": min_samples,
+        "class_balanced": class_balanced,
+        "class_weights": class_weights,
+        "cls_pw": cls_pw,
+        "single_cls": single_cls,
+        "classes": classes,
+        "average_best": average_best,
+        "export_check": export_check,
+        "precise_bn": precise_bn,
         "seed": seed,
         "resume": resume_val,
         "amp": amp,
         "amp_dtype": amp_dtype,
         "cuda_graph": cuda_graph,
+        "compile": compile_val,
         "lora": lora,
         "freeze": freeze_val,
         "optimizer": optimizer,
@@ -573,12 +773,18 @@ def train_cmd(
         "mixup": mixup,
         "hsv_prob": hsv_prob,
         "flip_prob": flip_prob,
+        "flipud": flipud,
         "degrees": degrees,
         "translate": translate,
         "shear": shear,
         "mosaic_scale": mosaic_scale_val,
         "mixup_scale": mixup_scale_val,
         "no_aug_epochs": no_aug_epochs,
+        "auto_augment": auto_augment,
+        "erasing": erasing,
+        "cutmix": cutmix,
+        "scale": scale_val,
+        "crop_pct": crop_pct,
         "ema": ema,
         "ema_decay": ema_decay,
         "eval_interval": eval_interval,
@@ -586,6 +792,7 @@ def train_cmd(
         "eval_max_det": eval_max_det,
         "faster_coco_eval": faster_coco_eval,
         "save_plots": save_plots,
+        "plot_samples": plot_samples,
         "patience": patience,
         "project": project,
         "name": name,
@@ -599,6 +806,32 @@ def train_cmd(
             params, family, "train", user_provided=user_provided
         )
 
+    train_task = _resolve_train_task(normalized_task, loaded_model, family, model_path)
+    if train_task == "classify" and "mixup" not in user_provided:
+        # The Typer default (1.0) is the detection mixup_prob default. On a
+        # classification model the CLI ``mixup`` is the batch-MixUp knob,
+        # which is off unless requested.
+        params["mixup"] = 0.0
+    if train_task == "classify":
+        from libreyolo.data.augment.classify import validate_mix_probabilities
+
+        try:
+            validate_mix_probabilities(params["mixup"], params["cutmix"])
+        except ValueError as exc:
+            exit_with_error(out, "config_type_error", f"Invalid train option value: {exc}")
+
+    from libreyolo.data.event_histogram import (
+        apply_histogram_cli_defaults,
+        histogram_recipe_defaults,
+    )
+
+    try:
+        histogram_input = apply_histogram_cli_defaults(
+            params, data=data, family=family, user_provided=user_provided
+        )
+    except ValueError as exc:
+        exit_with_error(out, "config_unsupported", str(exc))
+
     if params["lora"] and family is not None and family not in _LORA_TRAIN_FAMILIES:
         exit_with_error(
             out,
@@ -606,14 +839,14 @@ def train_cmd(
             f"LoRA fine-tuning (lora=True) is not supported for {family}.",
             suggestion=(
                 "Use a supported family (RF-DETR, D-FINE, DEIM, DEIMv2, "
-                "RT-DETR v1/v2/v4, EC, ConvNeXt) or remove --lora."
+                "RT-DETR v1/v2/v4, EC, GTR, ConvNeXt) or remove --lora."
             ),
         )
 
     # Warn when explicitly-set params are ignored by the selected family
     # (spec-driven; see libreyolo/data/augment/spec.py).
     ignored_warnings = []
-    unsupported_params = get_unsupported_train_params(family)
+    unsupported_params = get_unsupported_train_params(family, task=train_task)
     if unsupported_params:
         for param_name in unsupported_params:
             if param_name in user_provided:
@@ -625,6 +858,22 @@ def train_cmd(
                 f"Warning: {display_name(family)} ignores these parameters: "
                 f"{', '.join(sorted(ignored_warnings))}"
             )
+
+    if (
+        family in _CLASS_BALANCED_UNSUPPORTED_FAMILIES
+        and "class_balanced" in user_provided
+        and params.get("class_balanced")
+    ):
+        exit_with_error(
+            out,
+            "config_unsupported",
+            f"class_balanced=True is not supported for {family}.",
+            suggestion=(
+                "This family builds its own dataloader. Use a family that "
+                "trains through the shared detection sampler (e.g. YOLO9), "
+                "or omit class_balanced."
+            ),
+        )
 
     # Dry run: validate and show resolved config
     if dry_run:
@@ -640,7 +889,16 @@ def train_cmd(
             "scheduler": params["scheduler"],
             "amp": params["amp"],
             "amp_dtype": params["amp_dtype"],
+            "compile": params["compile"],
             "max_det": params["max_det"],
+            "class_balanced": params["class_balanced"],
+            "class_weights": params["class_weights"],
+            "cls_pw": params["cls_pw"],
+            "single_cls": params["single_cls"],
+            "classes": params["classes"],
+            "average_best": params["average_best"],
+            "export_check": params["export_check"],
+            "precise_bn": params["precise_bn"],
         }
         if params.get("freeze") is not None:
             resolved_config["freeze"] = params["freeze"]
@@ -669,9 +927,18 @@ def train_cmd(
                 "ema_decay": params["ema_decay"],
                 "amp": params["amp"],
                 "amp_dtype": params["amp_dtype"],
+                "compile": params["compile"],
                 "max_det": params["max_det"],
                 "save_period": params["save_period"],
                 "lora": params["lora"],
+                "class_balanced": params["class_balanced"],
+                "class_weights": params["class_weights"],
+                "cls_pw": params["cls_pw"],
+                "single_cls": params["single_cls"],
+                "classes": params["classes"],
+                "average_best": params["average_best"],
+                "export_check": params["export_check"],
+                "precise_bn": params["precise_bn"],
             }
             if params.get("freeze") is not None:
                 resolved_config["freeze"] = params["freeze"]
@@ -690,7 +957,7 @@ def train_cmd(
             import yaml
 
             data_out["_human_text"] = (
-                f"Dry run — resolved config for {model}:\n"
+                f"Dry run: resolved config for {model}:\n"
                 + yaml.dump(data_out["resolved_config"], default_flow_style=False)
             )
         out.result(data_out)
@@ -716,26 +983,58 @@ def train_cmd(
 
     # Build training kwargs, with family-specific translation where needed.
     train_kwargs = build_family_train_kwargs(
-        params, family, model_path=model_path, user_provided=user_provided
+        params,
+        family,
+        model_path=model_path,
+        user_provided=user_provided,
+        task=train_task,
     )
-    if train_pretrained is not None:
-        train_kwargs["pretrained"] = train_pretrained  # Not in TrainConfig
-    if family == "rfdetr":
-        if train_pretrained is not False:
-            train_kwargs.pop("pretrained", None)
-        if not val and "val" in user_provided:
-            out.progress(
-                "Warning: RF-DETR does not support disabling validation via val=false. Ignoring."
+    if aux_weight is not None:
+        if loaded_family != "yolo9":
+            exit_with_error(
+                out,
+                "config_unsupported",
+                f"aux_weight applies to YOLO9 only; got family={loaded_family!r}.",
             )
-    elif not val:
+        train_kwargs["aux_weight"] = aux_weight
+    if histogram_input:
+        train_kwargs.update(histogram_recipe_defaults(family))
+    # pretrained picks initial weights for a new run; a resume continues its
+    # checkpoint, so only an explicit pretrained= reaches train() then.
+    if train_pretrained is not None and (
+        not resume_val or "pretrained" in user_provided
+    ):
+        train_kwargs["pretrained"] = train_pretrained  # Not in TrainConfig
+    if family == "rfdetr" and train_pretrained is not False:
+        train_kwargs.pop("pretrained", None)
+    if not val:
         train_kwargs["eval_interval"] = 0
+    elif resume_val and "val" in user_provided:
+        # A resume restores the run's saved eval_interval; an explicit
+        # val=true must reach train() to turn validation back on.
+        train_kwargs["val"] = True
 
     # Run training
-    out.progress(f"Training {model} on {data} for {params['epochs']} epochs...")
+    if resume_val:
+        out.progress(f"Resuming training of {model} on {data}...")
+    else:
+        out.progress(f"Training {model} on {data} for {params['epochs']} epochs...")
     t0 = time.time()
     try:
         results = loaded_model.train(data=data, **train_kwargs)
     except FileNotFoundError as e:
+        if "checkpoint not found" in str(e).lower():
+            exit_with_error(
+                out,
+                "checkpoint_not_found",
+                str(e),
+                suggestion=(
+                    "Resume a run from its checkpoint: "
+                    "model=<run>/weights/last.pt resume=true."
+                    if resume_val
+                    else None
+                ),
+            )
         exit_with_error(
             out,
             "data_not_found",
@@ -743,7 +1042,11 @@ def train_cmd(
             suggestion=f"Check that '{data}' exists and is a valid YOLO-format dataset YAML.",
         )
     except Exception as e:
-        exit_stage_error(out, stage="Training", detail=e)
+        if "imgsz" in user_provided and is_imgsz_error(e):
+            exit_imgsz_error(out, e)
+        exit_stage_error(
+            out, stage="Training", detail=e, code=model_call_error_code(e)
+        )
 
     training_hours = (time.time() - t0) / 3600
 

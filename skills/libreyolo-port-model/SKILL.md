@@ -22,7 +22,7 @@ follow to write code.
 You have an upstream model. Six questions get you pointed at the right
 scaffold:
 
-1. **Tier**: checkpoint-driven (a `BaseModel` factory family — everything below), or prompt-driven (promptable segmentation, open-vocab detection, VLM)? Prompt-driven models join a **sibling factory** (`LibreSAM` / `LibreOpenVocab` / `LibreVLM`), not the `BaseModel` registry — see §4.1.
+1. **Tier**: checkpoint-driven (a `BaseModel` factory family — everything below), or prompt-driven (promptable segmentation, open-vocab detection, VLM, GUI grounding)? Prompt-driven models join a **sibling factory** (`LibreSAM` / `LibreOpenVocab` / `LibreVLM` / `LibreGround`), not the `BaseModel` registry — see §4.1.
 2. **Architecture**: per-anchor head with NMS (YOLO-grid), set-prediction with Hungarian matching (DETR), or one-to-one head with top-K and no NMS (NMS-free YOLO-grid)?
 3. **Tasks shipped**: detect / pose / segment (this skill's templates), or classify / semantic / depth / restore / point / gaze (clone the merged exemplar family — §10 lists them)?
 4. **Backbone source**: standard PyTorch, vendored separately-licensed (e.g. DINOv3), or loaded from an optional dependency (e.g. transformers — RF-DETR's DINOv2 backbone)?
@@ -161,7 +161,7 @@ Use this decision tree to pick the family you'll clone as your starting point.
 | detect + pose + segment | EC (3-way dispatch in `_init_model`, three converters via `--task` flag) |
 | classify only | MobileNetV4 / ConvNeXt / EfficientNetV2 / ResNet — shared `BaseTrainer` classify path |
 | semantic / depth / restore / point / gaze only | PIDNet + EoMT / Depth Anything V2 / NAFNet / FOMO / L2CS — single-task `BaseModel` families, each with a dedicated validator |
-| open-vocab detect, promptable seg, VLM | not `BaseModel` families — sibling factories `LibreOpenVocab` / `LibreSAM` / `LibreVLM` (§4.1) |
+| open-vocab detect, promptable seg, VLM, GUI grounding | not `BaseModel` families — sibling factories `LibreOpenVocab` / `LibreSAM` / `LibreVLM` / `LibreGround` (§4.1) |
 
 ### 3.3 By non-PyTorch upstream
 
@@ -211,6 +211,7 @@ Compact rows — clone these directly for the newer archetypes:
 | **Darknet lineage: YOLO2/3/4** (`models/darknet/` + thin `models/yolo{2,3,4}/`) | anchor-grid CNN | detect | inference-only | one shared `DarknetFamily` (cfg parser + blocks + anchor decode) serves all three; public-domain upstream; converter `weights/convert_darknet_weights.py`, parity via `weights/parity_darknet.py` |
 | **Darknet lineage: YOLO1** (`models/darknet/` + thin `models/yolo1/`) | dense FC-head CNN | detect | inference-only | shares the `DarknetFamily` engine but the FC head (`[connected]`/`[local]`/`[detection]`) does NOT fit the anchor decode: v1-specific `decode_detection` (7x7x30, VOC-20, fixed 448, square-stretch preprocess). OpenCV can't oracle it, so faithfulness = byte-exact reader + dog/bicycle/car golden. `b` weights on HF; tiny `t` weights lost upstream (code-ready, BYO `.weights`) |
 | **YOLO7** (`models/yolo7/`) | anchor-grid CNN | detect | training evidence recorded in the RF1 skip map + infer | MIT upstream (same repo as the YOLO9 source); own `v7.yaml` + net; converter `weights/convert_yolo7_weights.py`, parity via `weights/parity_yolo7.py`; training via SimOTA loss (`loss.py`) adapted from Apache-2.0 YOLOX |
+| **TinyFormer** (`models/tinyformer/`) | DETR (DEIMv2 derivative) | detect | trainable (DEIMv2Trainer subclass) | Apache-2.0 upstream (mmpmmpmmpjosh/TinyFormer); reuses the vendored DEIMv2 engine + towers; family-local SSA backbone + PBM 4-scale encoder; routing vs DEIMv2 enforced by can_load in both directions (backbone.sda. markers), NOT registry order — importing it pulls in models.deimv2 first; `xl` size code needs multi-char filename precedence; `-visdrone`/`-obj2coco` WEIGHT_VARIANTS |
 | **BiRefNet** (`models/birefnet/`) | Swin v1 + bilateral-reference decoder | matte | inference-only (v1) | MIT upstream; `matte` task (ADR 0010); `MatteValidator` (MAE + S-measure); **family-local Swin v1** (original lineage, NOT the timm `models/swin/` tower, see NOTICE); ASPP deformable conv exports to ONNX `DeformConv` (opset 19) via a registered symbolic; converter `weights/convert_birefnet_weights.py`, parity via `weights/parity_birefnet.py` (max_abs_diff == 0) |
 | **Faster R-CNN** (`models/faster_rcnn/`) | two-stage RPN + RoIAlign + class-wise NMS | detect | inference-only | native port from torchvision v0.26.0 (BSD-3-Clause), sizes n/s/m/l; official state keys load strictly and all four variants have exact eager parity. COCO-91 sparse ids map to contiguous COCO-80. ONNX is batch-1/fixed-square and emits final already-NMSed boxes/scores/labels. Weight mirrors carry BSD-3-Clause on a disclosed implied basis plus torchvision's pretrained-model caveat; `weights/upload_faster_rcnn_hf.py` enforces the five-file contract |
 | **FCN** (`models/fcn/`) | dilated ResNet + primary/auxiliary FCN heads | semantic | inference-only | native port from torchvision v0.26.0 (BSD-3-Clause), sizes r50/r101 at 520; this is not the original VGG FCN-8s graph. Both heads have exact eager parity. Semantic predict/val and ONNX/TorchScript/OpenVINO/TensorRT are validated. Weight mirrors carry BSD-3-Clause on a disclosed implied basis plus torchvision's pretrained-model caveat; `weights/upload_fcn_hf.py` enforces the five-file contract |
@@ -228,6 +229,11 @@ They live in sibling factories with their own contracts:
 - **`LibreSAM`** — promptable segmentation: SAM-1 and SAM-2 (`models/sam/`),
   MobileSAM (`models/mobilesam/`).
 - **`LibreVLM`** (`models/vlm/`) — vision-language models.
+- **`LibreGround`** (`models/ground/`) — instruction → click: screenshot +
+  referring expression returns `Results.points` on the original canvas.
+  Clone an existing snapshot adapter (`florence.py`, `showui.py`, or
+  `qwen3vl.py`). Hosted weights are VLM-style snapshot
+  mirrors under `LibreYOLO/`, not detect-family `.pt` files.
 
 If your port is prompt-driven, clone one of these factories instead of a
 `BaseModel` family. The license gate (§1), parity discipline (§12), and HF-upload rules
@@ -1094,8 +1100,16 @@ clone the merged exemplar family instead of adapting a template:
 - **classify** → `models/{mobilenetv4,convnext,efficientnetv2,resnet}/` — reuse
   the shared `BaseTrainer` classify path (`_setup_classify_data` /
   `_run_classify_validation`), return `{"probs": ...}` from `_postprocess`,
-  set `best_metric_key = "metrics/accuracy_top1"`.
-- **zero-shot classify** → `models/clip/` (`set_classes`, `clip_validator.py`).
+  set `best_metric_key = "metrics/accuracy_top1"`. Build the predict transform
+  with the shared `build_classify_transforms` (`data/augment/classify.py`), not a
+  private copy. Declare the eval pipeline once on the model (`crop_pct`, `interpolation`, and `norm_mean` / `norm_std` /
+  `resize_mode` when it is not ImageNet center-crop). `val()`, INT8
+  calibration and export metadata read it through `_get_eval_transform`;
+  override that method only when those settings cannot express the pipeline.
+  Do not re-declare preprocessing in a validator subclass. Add the family to
+  `tests/unit/test_classify_eval_parity.py`, which fails until you do.
+- **zero-shot classify** → `models/clip/` (`set_classes`; `clip_validator.py`
+  only for the open-vocabulary label indexing, not for preprocessing).
 - **semantic** → `models/pidnet/` (CNN) or `models/eomt/` (ViT).
 - **depth** → `models/depth_anything/`.
 - **restore** → `models/nafnet/` (native-resolution, no letterbox).
@@ -1278,7 +1292,8 @@ In priority order. Each line: *[which family hit it]* — what to do.
   skiplist `_SKIP_FAMILIES`; RF-DETR's bespoke recognizer lives in `autoconvert.py` itself.
 - **Sibling tiers (prompt-driven)**: `models/openvocab/` (Grounding DINO, OWLv2,
   OMDet-Turbo; towers in `models/bert/` + `models/swin/`), `models/sam/` +
-  `models/mobilesam/` (LibreSAM), `models/vlm/` (LibreVLM).
+  `models/mobilesam/` (LibreSAM), `models/vlm/` (LibreVLM),
+  `models/ground/` (LibreGround).
 - **Conversion tier examples**:
   - metadata-wrap (single-task): `weights/convert_dfine_weights.py`, `weights/convert_deim_weights.py`
   - metadata-wrap (multi-task `--task` flag): `weights/convert_ec_weights.py`

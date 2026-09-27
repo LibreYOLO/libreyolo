@@ -1,8 +1,9 @@
-"""Gated end-to-end tests for the LibreBiRefNet matte family.
+"""Gated end-to-end tests for LibreYOLO matte families.
 
 These need real weights. ``LibreBiRefNetl-matte.pt`` auto-downloads from the
 LibreYOLO Hugging Face org (``LibreYOLO/LibreBiRefNetl-matte``); the lite ``t``
 tests use a locally converted ``weights/LibreBiRefNett-matte.pt`` when present.
+``LibreBEN2b-matte.pt`` likewise auto-downloads from its public LibreYOLO repo.
 Each test skips cleanly when its weights cannot be obtained (offline CI).
 """
 
@@ -47,6 +48,24 @@ def test_matte_predict_cutout_save_autodownload(tmp_path):
     assert cut.shape == (h, w, 4) and cut.dtype == np.uint8
 
     out = tmp_path / "cutout.png"
+    res.save(out)
+    saved = Image.open(out)
+    assert saved.mode == "RGBA" and saved.size == (w, h)
+
+
+def test_matte_ben2_predict_cutout_save_autodownload(tmp_path):
+    """BEN2 auto-downloads from HF and preserves the original image canvas."""
+    model = _load("LibreBEN2b-matte.pt", device="auto")
+    assert model.FAMILY == "ben2" and model.size == "b" and model.task == "matte"
+
+    res = model.predict(str(_SAMPLE), verbose=False)[0]
+    assert res.matte is not None
+    w, h = Image.open(_SAMPLE).size
+    matte = res.matte.array
+    assert matte.shape == (h, w)
+    assert 0.0 <= float(matte.min()) and float(matte.max()) <= 1.0
+
+    out = tmp_path / "ben2-cutout.png"
     res.save(out)
     saved = Image.open(out)
     assert saved.mode == "RGBA" and saved.size == (w, h)

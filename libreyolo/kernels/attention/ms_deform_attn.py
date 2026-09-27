@@ -13,9 +13,13 @@ Like the GEMM slots, no reference implementation is registered: every model
 family keeps its own upstream-parity ``grid_sample`` port as the default and
 only consults this slot through :func:`maybe_ms_deform_attn`.
 
-The in-tree provider loads the compiled CUDA kernel published at
+Two accelerated providers share the slot. The in-tree Triton kernel
+(``ms_deform_attn_triton``) needs no extra package and covers CUDA
+fp32/fp16/bf16 inference; it registers first. The Hub provider loads the
+compiled CUDA kernel published at
 ``kernels-community/deformable-detr`` on the Hugging Face Hub (Apache-2.0)
-via the optional ``kernels`` package. Nothing is vendored: the artifact is
+via the optional ``kernels`` package and registers on top, so it wins
+when the extra is installed. Nothing is vendored: the artifact is
 fetched at runtime, pinned to the audited revision in ``_HUB_REVISION`` so
 a moved branch can never swap the binary that runs in-process. When the
 installed ``kernels`` release cannot resolve the pin (its resolver rejects
@@ -43,7 +47,7 @@ from typing import Optional
 
 import torch
 
-from .. import register, resolve
+from .. import clear_cache, iter_impls, register, resolve
 
 logger = logging.getLogger(__name__)
 
@@ -54,24 +58,63 @@ _HUB_REPO = "kernels-community/deformable-detr"
 # (tests/unit/kernels/test_ms_deform_attn.py::test_hub_matches_portable_on_cuda).
 _HUB_REVISION = "4d2393e5d7879f7cf68db04cc7c9c7342272bc05"
 _MAX_IM2COL_STEP = 64
+_SLOT_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 
 _hub_kernel = None
 _hub_failed = False
+_missing_hub_hint_emitted = False
 
 
 def _hub_enabled() -> bool:
     """Hub kernels are on by default; installing the extra is the opt-in.
 
     The runtime fetch only ever happens when the optional ``kernels``
-    package is installed (see :func:`_eligible`), so users who never
-    installed ``libreyolo[hub-kernels]`` are unaffected.
-    ``LIBREYOLO_HUB_KERNELS=0`` is the opt-out.
+    package is installed (see :func:`_eligible`). Without it, an eager CUDA
+    call that falls back emits one install hint.
+    ``LIBREYOLO_HUB_KERNELS=0`` disables the provider and the hint.
     """
     return os.environ.get("LIBREYOLO_HUB_KERNELS", "").strip().lower() not in (
         "0",
         "false",
         "off",
         "no",
+    )
+
+
+def _kernel_selection_disables_acceleration() -> bool:
+    """Whether the global selector explicitly requests the portable path."""
+    forced = os.environ.get("LIBREYOLO_KERNELS", "").strip().lower()
+    if not forced:
+        forced = os.environ.get("LIBREYOLO_QUANT_KERNELS", "").strip().lower()
+    return forced in ("off", "reference")
+
+
+def _hub_client_installed_for_hint() -> bool:
+    """Check discovery without letting an importer error break fallback."""
+    try:
+        return importlib.util.find_spec("kernels") is not None
+    except Exception:
+        # The registry already logs predicate failures. Suppress this optional
+        # install hint rather than raising again or misdiagnosing the package.
+        return True
+
+
+def _warn_missing_hub_kernels_once(value: Optional[torch.Tensor]) -> None:
+    """Hint once when a real CUDA call has no Hub client to accelerate it."""
+    global _missing_hub_hint_emitted
+    if (
+        _missing_hub_hint_emitted
+        or not getattr(value, "is_cuda", False)
+        or not _hub_enabled()
+        or _kernel_selection_disables_acceleration()
+        or _hub_client_installed_for_hint()
+    ):
+        return
+    _missing_hub_hint_emitted = True
+    logger.warning(
+        "No accelerated MSDA provider accepted this CUDA call; using the portable "
+        "path. Install `libreyolo[hub-kernels]` for the compiled kernel, or set "
+        "LIBREYOLO_HUB_KERNELS=0 to silence this hint."
     )
 
 
@@ -172,6 +215,7 @@ def _load_hub_kernel():
             logger.warning("Hub kernel %s unavailable: %s", _HUB_REPO, exc2)
     if _hub_kernel is None:
         _hub_failed = True
+        clear_cache()
     return _hub_kernel
 
 
@@ -250,12 +294,15 @@ def _supported_inputs(
         and spatial_shapes.is_cuda
     ):
         return False
-    # The compiled kernel dispatches on fp32; half inputs (e.g. autocast)
-    # take the portable path.
+    # Half inputs are eligible: the provider upcasts them to fp32 at the
+    # call boundary so autocast runs share the fp32 fused path's numerics
+    # (the compiled kernel also has native fp16/bf16 paths, but autocast
+    # hands the slot a mix — fp16 value with fp32 softmax weights — and a
+    # common fp32 dtype is both required and the more precise choice).
     if not (
-        value.dtype == torch.float32
-        and sampling_locations.dtype == torch.float32
-        and attention_weights.dtype == torch.float32
+        value.dtype in _SLOT_DTYPES
+        and sampling_locations.dtype in _SLOT_DTYPES
+        and attention_weights.dtype in _SLOT_DTYPES
     ):
         return False
     if value.dim() != 4 or sampling_locations.dim() != 6 or attention_weights.dim() != 5:
@@ -291,18 +338,23 @@ def hub_ms_deform_attn(
     step = batch if batch < _MAX_IM2COL_STEP else _MAX_IM2COL_STEP
     shapes = spatial_shapes.to(dtype=torch.int64)
     try:
-        return _MSDeformAttnFunction.apply(
-            value.contiguous(),
+        # ``float()`` is a no-op view of an fp32 tensor and an autograd-tracked
+        # cast otherwise, so half inputs (autocast) run the fp32 kernel and
+        # their gradients flow back in the input dtype.
+        output = _MSDeformAttnFunction.apply(
+            value.float().contiguous(),
             shapes,
             level_start_index(shapes),
-            sampling_locations.contiguous(),
-            attention_weights.contiguous(),
+            sampling_locations.float().contiguous(),
+            attention_weights.float().contiguous(),
             step,
         )
+        return output if value.dtype == torch.float32 else output.to(value.dtype)
     except Exception as exc:
         # A kernel that loads but rejects this torch/GPU combination must
         # never break inference: disable the provider and fall back.
         _hub_failed = True
+        clear_cache()
         logger.warning("Hub kernel %s failed, falling back: %s", _HUB_REPO, exc)
         return None
 
@@ -312,7 +364,7 @@ def _not_exporting() -> bool:
     return False
 
 
-def ms_deform_attn_available() -> bool:
+def ms_deform_attn_available(value: Optional[torch.Tensor] = None) -> bool:
     """Whether the slot could run here, checked before adapting layouts.
 
     Families whose native layout differs from the slot's ask this first so
@@ -321,6 +373,9 @@ def ms_deform_attn_available() -> bool:
     report unavailable: exported graphs must not capture a runtime-fetched
     kernel. ``is_exporting`` covers non-strict ``torch.export``, which traces
     with FakeTensors without setting ``is_compiling``.
+
+    Pass the original value tensor so an actual CUDA fallback can emit the
+    one-time Hub-kernel install hint without warning for CPU model calls.
     """
     if (
         torch.jit.is_tracing()
@@ -329,7 +384,10 @@ def ms_deform_attn_available() -> bool:
         or torch.onnx.is_in_onnx_export()
     ):
         return False
-    return resolve("ms_deform_attn") is not None
+    available = resolve("ms_deform_attn") is not None
+    if not available:
+        _warn_missing_hub_kernels_once(value)
+    return available
 
 
 @functools.lru_cache(maxsize=32)
@@ -370,12 +428,18 @@ def maybe_ms_deform_attn(
     ``torch.export``, which traces with FakeTensors without setting
     ``is_compiling``.
     """
-    if not ms_deform_attn_available():
+    if not ms_deform_attn_available(value):
         return None
-    impl = resolve("ms_deform_attn")
-    if impl is None:
-        return None
-    return impl(value, spatial_shapes, sampling_locations, attention_weights)
+    # Walk eligible providers. Hub is preferred but may return None for an
+    # input or disable itself after a launch failure; Triton must still run.
+    for _name, impl in iter_impls("ms_deform_attn"):
+        output = impl(
+            value, spatial_shapes, sampling_locations, attention_weights
+        )
+        if output is not None:
+            return output
+    _warn_missing_hub_kernels_once(value)
+    return None
 
 
 def maybe_ms_deform_attn_v2(
@@ -394,7 +458,7 @@ def maybe_ms_deform_attn_v2(
     portable path. ``value`` must already be in the slot's
     ``(bs, Len_in, n_heads, c)`` layout.
     """
-    if not ms_deform_attn_available():
+    if not ms_deform_attn_available(value):
         return None
     levels = len(num_points_list)
     if levels == 0 or len(spatial_shapes) != levels:
@@ -409,6 +473,13 @@ def maybe_ms_deform_attn_v2(
         attention_weights.unflatten(3, (levels, points)),
     )
 
+
+# Triton registers first (older); Hub stays preferred when its extra is
+# installed. A missing Triton install must not hide the Hub provider.
+try:
+    from .ms_deform_attn_triton import triton_ms_deform_attn  # noqa: F401
+except Exception as exc:
+    logger.debug("Triton ms_deform_attn unavailable: %s", exc)
 
 register("ms_deform_attn", hub_ms_deform_attn, name="hub", predicate=_eligible)
 

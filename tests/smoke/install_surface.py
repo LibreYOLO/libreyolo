@@ -55,6 +55,7 @@ def _load_json_stdout(result: subprocess.CompletedProcess[str]) -> dict[str, Any
 
 
 def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
+    import cloudpickle
     import libreyolo
     from libreyolo import (
         EdgeMap,
@@ -72,6 +73,19 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         raise AssertionError("LibreYOLO import did not resolve to a callable")
     if Results.__name__ != "Results":
         raise AssertionError("Results import did not resolve correctly")
+    if not callable(cloudpickle.dumps):
+        raise AssertionError("cloudpickle DDP transport dependency is unavailable")
+
+    # This private file is launched by its resolved packaged path during
+    # automatic DDP, so it must be present in wheels and sdists, not only
+    # checkouts.
+    from libreyolo.training._ddp_coordinator import (
+        JOB_PROTOCOL,
+        JOB_PROTOCOL_VERSION,
+    )
+
+    if JOB_PROTOCOL != "libreyolo.ddp.local-job" or JOB_PROTOCOL_VERSION != 2:
+        raise AssertionError("Automatic-DDP coordinator protocol is unavailable")
     if FaceGallery is not Gallery:
         raise AssertionError("FaceGallery did not resolve to the Gallery alias")
     if "Gallery" not in libreyolo.__all__ or "FaceGallery" not in libreyolo.__all__:
@@ -98,14 +112,41 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreKosmos2,
         LibreLFM2VL,
         LibreMODUS,
+        LibreMolmo2,
         LibreModus,
         LibreQwen3VL,
         LibreSmolVLM2,
         LibreVLM,
     )
 
+    from libreyolo import (
+        LibreGround,
+        LibreGroundFlorence2,
+        LibreGroundQwen3VL,
+        LibreShowUI,
+    )
+
+    if not callable(LibreGround):
+        raise AssertionError("LibreGround import did not resolve to a callable")
+    for family in (
+        LibreShowUI,
+        LibreGroundFlorence2,
+        LibreGroundQwen3VL,
+    ):
+        if not isinstance(family, type):
+            raise AssertionError(
+                f"Ground family export did not resolve to a class: {family!r}"
+            )
+
     if not callable(LibreVLM):
         raise AssertionError("LibreVLM import did not resolve to a callable")
+    # The LibreVLA tier is importable without the vla extra (lerobot loads lazily).
+    from libreyolo import Actions, LibreACT, LibreDiffusionPolicy, LibreSmolVLA, LibreVLA
+
+    if not callable(LibreVLA):
+        raise AssertionError("LibreVLA import did not resolve to a callable")
+    if not all(isinstance(cls, type) for cls in (LibreSmolVLA, LibreACT, LibreDiffusionPolicy, Actions)):
+        raise AssertionError("LibreVLA family/payload exports did not resolve to classes")
     for family in (
         LibreQwen3VL,
         LibreLFM2VL,
@@ -114,6 +155,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreFlorence2,
         LibreKosmos2,
         LibreMODUS,
+        LibreMolmo2,
     ):
         if not isinstance(family, type):
             raise AssertionError(
@@ -121,6 +163,14 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
             )
     if LibreModus is not LibreMODUS:
         raise AssertionError("LibreModus compatibility alias did not resolve correctly")
+
+    # LibreLLM is a lazy extra: importing the class must not require openai.
+    from libreyolo import LibreLLM
+
+    if not isinstance(LibreLLM, type):
+        raise AssertionError(
+            f"LibreLLM import did not resolve to a class: {LibreLLM!r}"
+        )
 
     # The open-vocabulary detector tier follows the same lazy-import rule.
     from libreyolo import (

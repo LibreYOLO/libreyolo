@@ -1,0 +1,61 @@
+LibreYOLO LeVJEPA family
+========================
+
+This directory contains an independently implemented PyTorch inference graph
+for the LeVJEPA Large video encoder. No source from LeVJEPA's CC BY-NC 4.0
+``module.py`` or Hugging Face remote-code files was read, copied, adapted, or
+vendored.
+
+Architecture specification
+--------------------------
+
+LeVJEPA: Efficient & Scalable Video Pretraining without the Heuristics
+Lukas Kuhn, Lucas Maes, Giuseppe Serra, Quentin Le Lidec, Yann LeCun,
+Randall Balestriero, Florian Buettner, 2026.
+
+  Paper: https://arxiv.org/abs/2608.27395
+  Repository metadata and paper source:
+    https://github.com/MLO-lab/LeVJEPA
+    commit 941526c428aa513a5bdfa38697724fda794d8496
+  Repository root license: MIT, with an explicit CC BY-NC 4.0 exception for
+    module.py. The excepted file is not a source for this implementation.
+
+The paper supplies the architectural contract used here: a 16-frame ViT with
+per-frame 16x16 patch embedding, a CLS readout, factorized three-dimensional
+rotary embeddings, and attention that is bidirectional within a frame and
+causal across frames. The immutable checkpoint config and tensor names/shapes
+were used as factual compatibility data.
+
+Permissive code source
+----------------------
+
+The factorized rotary operation and standard transformer primitives are based
+on LibreYOLO's existing V-JEPA 2 implementation:
+
+  libreyolo/models/vjepa2/nn.py
+
+That file is adapted from Hugging Face Transformers under Apache-2.0:
+
+  Source: https://github.com/huggingface/transformers
+  Tag: v5.1.0
+  Commit: 3fa4da70f5d1da3ab1a8304bd2339eab7004b157
+  File: src/transformers/models/vjepa2/modeling_vjepa2.py
+  Copyright 2025 The HuggingFace Inc. team. All rights reserved.
+  License: Apache License 2.0
+
+Weight provenance
+-----------------
+
+  Source: galilai-group/LeVJEPA-VideoMix-Large
+  Revision: e831a0347737fcaa660b39c57d41c109de399845
+  License: Creative Commons Attribution-NonCommercial 4.0 International
+  Parameters: 303,099,904 FP32
+
+The converted checkpoint preserves the learned tensors exactly. These weights
+require attribution, are for non-commercial use only, and are not covered by
+LibreYOLO's MIT license. Every hosted model repository must lead its model card
+with that restriction and include the CC BY-NC 4.0 license verbatim.
+
+The released checkpoint was trained on VideoMix, described by its authors as
+1.8 million clips from Kinetics-710, Something-Something v2, Walking Tours, and
+PE-Video. LibreYOLO does not mirror or bundle those datasets.

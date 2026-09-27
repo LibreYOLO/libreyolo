@@ -12,7 +12,8 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 import torch
-import torch.nn.functional as F
+
+from ...training.classification import classification_loss
 
 __all__ = ["ClassifyValidationLoss", "ClassifyValidationLossMixin"]
 
@@ -37,7 +38,9 @@ class ClassifyValidationLossMixin:
     def build_validation_loss_adapter(self, model: torch.nn.Module):
         del model  # The validator feeds the adapter its own forward's logits.
         return ClassifyValidationLoss(
-            device=self.device, family=self.get_model_family()
+            device=self.device,
+            family=self.get_model_family(),
+            weights=getattr(self, "class_weights", None),
         )
 
 
@@ -48,9 +51,10 @@ class ClassifyValidationLoss:
     # so there is no target-capacity floor to raise.
     max_labels = None
 
-    def __init__(self, *, device: torch.device, family: str) -> None:
+    def __init__(self, *, device: torch.device, family: str, weights=None) -> None:
         self.device = device
         self.family = family
+        self.weights = weights
 
     def __call__(
         self,
@@ -64,7 +68,7 @@ class ClassifyValidationLoss:
         labels = self._labels(
             targets, batch=logits.shape[0], num_classes=logits.shape[1]
         )
-        loss = F.cross_entropy(logits, labels)
+        loss = classification_loss(logits, labels, self.weights)
         return {"loss": loss, "loss/ce": loss}
 
     def _logits(self, predictions: Any) -> torch.Tensor:

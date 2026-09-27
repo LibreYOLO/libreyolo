@@ -71,7 +71,7 @@ def _msda(value, shapes_list, sampling_locations, attention_weights):
     optional accelerated ``ms_deform_attn`` slot resolves it takes over
     (see ``libreyolo/kernels/attention/ms_deform_attn.py``).
     """
-    if ms_deform_attn_available():
+    if ms_deform_attn_available(value):
         accelerated = maybe_ms_deform_attn(
             value,
             spatial_shapes_tensor(shapes_list, value.device),

@@ -25,6 +25,12 @@ class LibreKosmos2(LibreVLMModel):
     FAMILY = "kosmos2"
     FILENAME_PREFIX = "LibreKosmos2"
 
+    TRAIN_UNSUPPORTED_REASON = (
+        "Kosmos-2 has no established fine-tuning recipe, and its 224px input "
+        "with a 32x32 patch-index grid caps localization quality. Use "
+        "qwen3-vl for trainable VLM detection."
+    )
+
     HF_REPOS: ClassVar[Dict[str, str]] = {
         "224": "microsoft/kosmos-2-patch14-224",
     }

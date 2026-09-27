@@ -402,20 +402,45 @@ class DFINECriterion(nn.Module):
                 for idx1, idx2 in zip(indices.copy(), indices_aux.copy())
             ]
 
-        for ind in [
-            torch.cat([idx[0][:, None], idx[1][:, None]], 1) for idx in indices
-        ]:
-            unique, counts = torch.unique(ind, return_counts=True, dim=0)
-            count_sort_indices = torch.argsort(counts, descending=True)
-            unique_sorted = unique[count_sort_indices]
+        # One unique over the whole batch (image id prepended) instead of one
+        # per image: unique(dim=0) sorts rows lexicographically, so each
+        # image's segment reproduces its per-image unique output exactly,
+        # while paying one data-dependent-shape sync instead of bs.
+        ind_all = torch.cat(
+            [
+                torch.stack([torch.full_like(idx[0], i), idx[0], idx[1]], dim=1)
+                for i, idx in enumerate(indices)
+            ]
+        )
+        device = ind_all.device
+        unique_all, counts_all = torch.unique(ind_all, return_counts=True, dim=0)
+        seg_sizes = torch.bincount(unique_all[:, 0], minlength=len(indices)).tolist()
+
+        # Per-image count-descending sort (same op on the same values as the
+        # per-image form), coalesced into one batched GPU->CPU transfer;
+        # upstream's per-element .item() loop costs two device syncs per
+        # unique pair (~1,200/step).
+        sorted_pairs = []
+        offset = 0
+        for size in seg_sizes:
+            seg_counts = counts_all[offset : offset + size]
+            sorted_pairs.append(
+                unique_all[offset : offset + size, 1:][
+                    torch.argsort(seg_counts, descending=True)
+                ]
+            )
+            offset += size
+        all_pairs = torch.cat(sorted_pairs).tolist()
+
+        offset = 0
+        for size in seg_sizes:
             column_to_row = {}
-            # One batched GPU->CPU transfer; upstream's per-element .item()
-            # loop costs two device syncs per unique pair (~1,200/step).
-            for row_idx, col_idx in unique_sorted.tolist():
+            for row_idx, col_idx in all_pairs[offset : offset + size]:
                 if row_idx not in column_to_row:
                     column_to_row[row_idx] = col_idx
-            final_rows = torch.tensor(list(column_to_row.keys()), device=ind.device)
-            final_cols = torch.tensor(list(column_to_row.values()), device=ind.device)
+            offset += size
+            final_rows = torch.tensor(list(column_to_row.keys()), device=device)
+            final_cols = torch.tensor(list(column_to_row.values()), device=device)
             results.append((final_rows.long(), final_cols.long()))
         return results
 
@@ -438,24 +463,26 @@ class DFINECriterion(nn.Module):
         assert loss in loss_map, f"do you really want to compute {loss} loss?"
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
 
-    def _normalizer(self, count: int, device: torch.device) -> float:
+    def _normalizer(self, count: int, device: torch.device) -> torch.Tensor:
         """Return the box-count divisor for training or rank-local validation.
 
         Training averages the count across ranks so DDP's gradient averaging
         matches single-GPU. Rank-0-only validation selects the local path
         because it cannot enter a collective while the other ranks wait at the
         validation barrier.
+
+        Returned as a 0-dim device tensor rather than ``.item()``: the value
+        is only ever a divisor (or scaled by a host int), and ``.item()`` here
+        cost one full GPU pipeline drain per call, twice per step.
         """
-        value = torch.as_tensor([count], dtype=torch.float, device=device)
+        value = torch.as_tensor(count, dtype=torch.float, device=device)
         if self.distributed_normalize and _is_dist_available_and_initialized():
             torch.distributed.all_reduce(value)
-            return torch.clamp(value / _get_world_size(), min=1).item()
-        return torch.clamp(value, min=1).item()
+            return torch.clamp(value / _get_world_size(), min=1)
+        return torch.clamp(value, min=1)
 
     def forward(self, outputs, targets, **kwargs):
         outputs_without_aux = {k: v for k, v in outputs.items() if "aux" not in k}
-
-        indices = self.matcher(outputs_without_aux, targets)["indices"]
         self._clear_cache()
 
         if "aux_outputs" not in outputs:
@@ -466,15 +493,31 @@ class DFINECriterion(nn.Module):
                 "training output. Got keys: " + str(list(outputs.keys()))
             )
 
-        indices_aux_list, cached_indices, cached_indices_enc = [], [], []
-        for aux_outputs in outputs["aux_outputs"] + [outputs["pre_outputs"]]:
-            indices_aux = self.matcher(aux_outputs, targets)["indices"]
-            cached_indices.append(indices_aux)
-            indices_aux_list.append(indices_aux)
-        for aux_outputs in outputs["enc_aux_outputs"]:
-            indices_enc = self.matcher(aux_outputs, targets)["indices"]
-            cached_indices_enc.append(indices_enc)
-            indices_aux_list.append(indices_enc)
+        # Match the output levels as a depth-2 pipeline: the next level's
+        # cost matrix is enqueued on the device before the current one's
+        # ``.cpu()`` drains, so the transfer overlaps the next level's compute
+        # instead of stalling once per level with nothing queued behind.
+        # Depth 2 rather than enqueue-everything: a cost matrix is
+        # (bs, num_queries, total_targets) fp32, and holding every level at
+        # once raises peak VRAM on dense batches.
+        aux_levels = outputs["aux_outputs"] + [outputs["pre_outputs"]]
+        levels = [outputs_without_aux, *aux_levels, *outputs["enc_aux_outputs"]]
+        level_indices = []
+        pending_cost = self.matcher.compute_cost_matrix(levels[0], targets)
+        for next_level in levels[1:]:
+            next_cost = self.matcher.compute_cost_matrix(next_level, targets)
+            level_indices.append(
+                self.matcher.solve(pending_cost.cpu(), targets)["indices"]
+            )
+            pending_cost = next_cost
+        level_indices.append(
+            self.matcher.solve(pending_cost.cpu(), targets)["indices"]
+        )
+
+        indices = level_indices[0]
+        cached_indices = level_indices[1 : 1 + len(aux_levels)]
+        cached_indices_enc = level_indices[1 + len(aux_levels) :]
+        indices_aux_list = cached_indices + cached_indices_enc
         indices_go = self._get_go_indices(indices, indices_aux_list)
 
         device = next(iter(outputs.values())).device
@@ -580,8 +623,10 @@ class DFINECriterion(nn.Module):
         if "dn_outputs" in outputs:
             assert "dn_meta" in outputs, ""
             indices_dn = self.get_cdn_matched_indices(outputs["dn_meta"], targets)
-            dn_num_boxes = num_boxes * outputs["dn_meta"]["dn_num_group"]
-            dn_num_boxes = dn_num_boxes if dn_num_boxes > 0 else 1
+            dn_num_group = outputs["dn_meta"]["dn_num_group"]
+            # num_boxes is clamped to >= 1, so the positivity guard reduces to
+            # a host-side check on the group count (no device sync).
+            dn_num_boxes = num_boxes * dn_num_group if dn_num_group > 0 else 1
 
             for i, aux_outputs in enumerate(outputs["dn_outputs"]):
                 aux_outputs["is_dn"] = True

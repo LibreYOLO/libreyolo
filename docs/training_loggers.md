@@ -26,19 +26,76 @@ any subset of `on_train_start`, `on_train_epoch_end`, `on_train_end`,
 `on_train_exception`:
 
 ```python
-from libreyolo import LibreYOLO9
+from libreyolo import LibreYOLO
 from libreyolo.training import TrainEpochEvent
 
 def on_epoch(e: TrainEpochEvent):
     print(f"epoch {e.epoch}/{e.total_epochs} loss={e.train_loss:.4f}")
 
-model = LibreYOLO9("yolo9-s.pt")
+model = LibreYOLO("LibreYOLO9s.pt")
 model.train(data="coco8.yaml", epochs=10, callbacks=on_epoch)
 ```
 
 Callbacks fire on rank 0 only under DDP. For multi-GPU spawn
 (`device="0,1"`), callbacks must be picklable: define them as a
-module-level class, not a closure or lambda.
+module-level function or class, not a closure or lambda.
+Automatic spawn works from both guarded and ordinary unguarded top-level
+Python scripts. Guarded-script model classes and callbacks are transported to
+the ranks, but arbitrary top-level runtime side effects are not replayed there.
+Put code needed by every rank in importable model or trainer execution paths
+and key it from the rank environment variables instead of relying on a guarded
+script to run again in each rank. A rare callback that standard pickle can
+reference but cannot be transported by value (for example, one that captures a
+write-only file handle) uses the guarded-script compatibility launcher and
+emits a warning; keep that call under the `__main__` guard.
+
+### Custom fitness
+
+For families using the shared `BaseTrainer`, including YOLO9 and RF-DETR,
+one callback object may define `fitness(metrics)`. Its finite real scalar
+return value selects `best.pt` and drives the existing `patience` setting;
+higher is better. Plain functions remain epoch observers. No CLI code loader
+is provided: this hook is a Python callable.
+
+```python
+class ValidationLossFitness:
+    def fitness(self, metrics):
+        return -metrics["metrics/loss"]
+
+model.train(
+    data="coco8.yaml", val_loss=True, patience=10,
+    callbacks=ValidationLossFitness(),
+)
+```
+
+The scorer receives a read-only copy of the scalar validation metrics, with
+the same names as `TrainEpochEvent.val_metrics`. Use the metrics your task
+actually reports; missing keys raise normally. It runs on rank zero before
+checkpoint selection and epoch observers, once for each validation result
+used for selection. Skipped validation does not call it. Precise-BN
+revalidation and final averaged-weight validation also use it. Keep the
+scorer deterministic and independent of invocation count.
+
+Events and checkpoints name the selected score `fitness/custom`; validation
+metrics keep their original values. `average_best` ranks snapshots by the
+same score. Ties keep the earlier best, and patience still counts epochs
+since improvement, including epochs without validation. Multiple scorers,
+non-numeric results, booleans, non-scalar tensors, NaN and infinity raise
+before updating best state or writing that epoch's checkpoint.
+
+The returned training result's legacy `best_mAP50_95` field also contains the
+selected score, as it already does for non-detection task metrics. Read raw
+accuracy values from `val_metrics`; `epoch_metrics` pairs `current_metric`
+and `best_metric` with their metric names.
+
+Custom-fitness training does not support `resume`. Callback code and state
+are not serialized, and the library cannot establish whether a new scorer
+is comparable with historical scores. Resuming with a scorer or from a
+custom-fitness checkpoint raises. To continue from its weights, load that
+checkpoint and start a new run with `resume=False` and a new output directory;
+this starts fresh optimizer, best-score and patience tracking. Ordinary
+training and ordinary resume are unchanged. VLM and VLA trainers do not
+support this scorer.
 
 ## Built-in loggers
 
@@ -136,14 +193,15 @@ monitor overlays it like every other family.
 This option is off by default because target assignment adds work and memory
 to validation. It runs under `torch.no_grad()` with the evaluation/EMA model,
 and distributed training computes it locally on rank 0 without collectives.
-Best-checkpoint selection remains based on the configured accuracy metric.
+Best-checkpoint selection uses the task's default metric unless a custom
+fitness callback is supplied.
 Augmented validation, a task a family has not implemented it for, and
 inference-only (`g3`/`g4`) families all raise a clear configuration error.
 
 ### TensorBoard
 
 ```
-pip install libreyolo[tensorboard]
+pip install "libreyolo[tensorboard]"
 ```
 
 `TensorBoardLogger(log_dir=None)` — event files default to
@@ -152,7 +210,7 @@ pip install libreyolo[tensorboard]
 ### MLflow
 
 ```
-pip install libreyolo[mlflow]
+pip install "libreyolo[mlflow]"
 ```
 
 `MLflowLogger(tracking_uri=None, experiment_name=None, run_name=None,
@@ -171,7 +229,7 @@ pass a database URI instead, e.g.
 ### Weights & Biases
 
 ```
-pip install libreyolo[wandb]
+pip install "libreyolo[wandb]"
 ```
 
 `WandbLogger(project=None, name=None, entity=None,
@@ -184,7 +242,7 @@ Run names default to `<family><size>-<task>` (e.g. `yolo9s-detect`).
 ### Comet
 
 ```
-pip install libreyolo[comet]
+pip install "libreyolo[comet]"
 ```
 
 `CometLogger(project_name=None, workspace=None, name=None, api_key=None,
@@ -196,7 +254,7 @@ online=None, log_artifacts=True, log_checkpoints=False)` uses the current
 ### ClearML
 
 ```
-pip install libreyolo[clearml]
+pip install "libreyolo[clearml]"
 ```
 
 `ClearMLLogger(project_name="LibreYOLO", task_name=None, tags=None,
@@ -209,7 +267,7 @@ and credentials are otherwise used normally.
 ### Neptune
 
 ```
-pip install libreyolo[neptune]
+pip install "libreyolo[neptune]"
 ```
 
 `NeptuneLogger(project=None, api_token=None, name=None, run_id=None,
@@ -227,7 +285,7 @@ without the TFLite extra.
 ### DVCLive / DVC
 
 ```
-pip install libreyolo[dvclive]  # or libreyolo[dvc]
+pip install "libreyolo[dvclive]"  # or "libreyolo[dvc]"
 ```
 
 `DVCLiveLogger(log_dir=None, resume=None, report=None, save_dvc_exp=False,
@@ -260,7 +318,7 @@ without a third-party account or tailing the full log.
 
 | File | Written | Contents |
 |---|---|---|
-| `status.json` | rewritten atomically every epoch (+ on start/end/failure) | live snapshot: `state` (`running`/`completed`/`failed`), `current_epoch`, `total_epochs`, `progress`, `eta_seconds`, latest `metrics`, `best_metric`/`best_epoch`, and on failure an `error` `{type, message}` |
+| `status.json` | rewritten atomically every epoch (+ on start/end/failure) | live snapshot: `state` (`running`/`completed`/`failed`), `current_epoch` (one-based, the epoch that last finished), `completed_epochs`, `total_epochs`, `progress`, `eta_seconds`, latest `metrics`, `best_metric`/`best_epoch`, and on failure an `error` `{type, message}` |
 | `metrics.jsonl` | appended once per epoch | one JSON row per epoch (same schema as the family `results.csv`), the full history for charts |
 | `train.log` | tee'd live | the run's `libreyolo` console output |
 

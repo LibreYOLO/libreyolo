@@ -79,7 +79,7 @@ def deformable_attention_core_func(
     # optional accelerated ``ms_deform_attn`` slot resolves it takes over
     # (see ``libreyolo/kernels/attention/ms_deform_attn.py``). The layout here
     # is already the slot's, so only the spatial shapes need normalizing.
-    if ms_deform_attn_available():
+    if ms_deform_attn_available(value):
         accelerated = maybe_ms_deform_attn(
             value,
             spatial_shapes_tensor(value_spatial_shapes, value.device),

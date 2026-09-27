@@ -1,0 +1,46 @@
+GTR (Gated Token Recurrence)
+Source: https://github.com/Intellindust-AI-Lab/GTR
+Revision: 782e737efe2e6437ac537fbdcee089673d3376c1
+License: MIT (LICENSE in this directory)
+Copyright (c) 2026 Intellindust-AI-Lab / The GTR Authors.
+
+Ported backbone, spatial SwiGLU, feature projector, decoder, matching, loss,
+scheduler, Mosaic and batch MixUp, and the depth head and SILog loss in
+libreyolo/models/gtr/.
+GTRSeg instance-segmentation model (configs/seg) in libreyolo/models/gtr/.
+The pose decoder reuses LibreYOLO's ECPose port (libreyolo/models/ec/) and
+adapts GTR's pose decoder layer in libreyolo/models/gtr/pose.py.
+Ported the oriented-box (OBB) decoder, rotated-box operations, oriented
+denoising, criterion and matcher from engine/gtr/obb/, and the OBB flip and
+rotation augmentation from engine/data/transforms/obb_transforms.py, as
+libreyolo/models/gtr/obb_*.py.
+Semantic segmentation head, loss and sliding-window evaluation
+(engine/gtr/semseg, engine/solver/semseg_solver.py) in sem.py and
+sem_trainer.py; Cityscapes weights from Phoenix8125/GTR semseg/.
+Modified for native LibreYOLO construction, portable attention, local imports,
+strict checkpoints, and validation loss output/normalization.
+
+Retained source notices identify these Apache-2.0 components:
+- Depth-Anything-V2 (DPT depth head, SILog loss; code only):
+  https://github.com/DepthAnything/Depth-Anything-V2
+  Copyright (c) 2024 Depth Anything V2 authors.
+- DEIM (Mosaic, batch MixUp): https://github.com/Intellindust-AI-Lab/DEIM
+  Copyright (c) 2024 The DEIM Authors.
+- DETRPose (pose decoder): https://github.com/SebastianJanampa/DETRPose
+  Copyright (c) the DETRPose authors.
+- Conditional DETR (pose decoder): https://github.com/Atten4Vis/ConditionalDETR
+  Copyright (c) 2021 Microsoft.
+- D-FINE: https://github.com/Peterande/D-FINE
+  Copyright (c) 2024 D-FINE Authors.
+- RT-DETR: https://github.com/lyuwenyu/RT-DETR
+  Copyright (c) 2023 lyuwenyu.
+- DETR: https://github.com/facebookresearch/detr
+  Copyright (c) Facebook, Inc. and its affiliates.
+- RF-DETR segmentation helpers used by the upstream decoder/criterion:
+  https://github.com/roboflow/rf-detr
+  Copyright (c) 2025 Roboflow.
+Their upstream-derived portions retain Apache-2.0; see LICENSE-APACHE.md.
+
+Optional flash-linear-attention runtime acceleration is not vendored.
+Source: https://github.com/fla-org/flash-linear-attention (MIT).
+The portable recurrence is implemented directly in attention.py.

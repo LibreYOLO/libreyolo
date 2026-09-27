@@ -1,10 +1,16 @@
 """Unit tests for the ByteTrack tracking module."""
 
-import pytest
+import io
+import warnings
+from pathlib import Path
+
 import numpy as np
+import pytest
 import torch
 from PIL import Image
 
+from libreyolo.models.base.inference import InferenceRunner
+from libreyolo.models.base.model import BaseModel
 from libreyolo.tracking.config import TrackConfig
 from libreyolo.tracking.kalman_filter import KalmanFilterXYAH
 from libreyolo.tracking.matching import (
@@ -15,7 +21,7 @@ from libreyolo.tracking.matching import (
 )
 from libreyolo.tracking.strack import STrack, TrackState
 from libreyolo.tracking.tracker import ByteTracker
-from libreyolo.models.base.model import BaseModel
+from libreyolo.utils.image_loader import ImageLoader
 from libreyolo.utils.results import Boxes, Masks, Results
 
 pytestmark = pytest.mark.unit
@@ -533,3 +539,703 @@ class TestDrawBoxesWithTrackIds:
 
         draw_boxes(img, [[10, 10, 90, 90]], [0.9], [0], track_ids=[1])
         assert np.array_equal(np.array(img), original_arr)
+
+
+# --------------------------------------------------------------------------
+# track() over image sequences, not just video files
+# --------------------------------------------------------------------------
+
+
+class _StubTrackModel:
+    """Minimal stand-in for a BaseModel driving BaseModel.track().
+
+    Always reports one fixed-position detection, which is enough for
+    ByteTrack to assign and keep a single, stable track_id across frames.
+    """
+
+    task = "detect"
+    names = {0: "thing"}
+    device = torch.device("cpu")
+
+    def __init__(self, box=(1.0, 1.0, 5.0, 5.0), score=0.9):
+        self._box = list(box)
+        self._score = score
+
+    def _get_input_size(self):
+        return 32
+
+    def _get_model_name(self):
+        return "stub"
+
+    def _preprocess(self, image, color_format="auto", input_size=None):
+        pil = ImageLoader.load(image, color_format=color_format)
+        return torch.zeros(1, 3, 32, 32), pil, pil.size, 1.0
+
+    def _forward(self, tensor):
+        return tensor
+
+    def _postprocess(
+        self,
+        output,
+        conf,
+        iou,
+        original_size,
+        max_det=300,
+        ratio=1.0,
+        classes=None,
+        **kwargs,
+    ):
+        return {
+            "boxes": [self._box],
+            "scores": [self._score],
+            "classes": [0],
+            "num_detections": 1,
+        }
+
+    @property
+    def _runner(self):
+        if getattr(self, "_runner_instance", None) is None:
+            self._runner_instance = InferenceRunner(self)
+        return self._runner_instance
+
+
+def _make_frames(n, size=(20, 16), color=(50, 50, 50)):
+    return [Image.new("RGB", size, color) for _ in range(n)]
+
+
+class TestTrackImageSequences:
+    def test_tracks_a_list_of_pil_images(self):
+        model = _StubTrackModel()
+
+        results = list(BaseModel.track(model, _make_frames(4)))
+
+        assert len(results) == 4
+        assert [r.frame_idx for r in results] == [0, 1, 2, 3]
+        assert all(r.path is None for r in results)
+        # The fixed-position detection matches itself frame over frame, so
+        # ByteTrack keeps assigning it the same identity.
+        assert [int(r.track_id[0]) for r in results] == [1, 1, 1, 1]
+
+    def test_tracks_a_directory_of_images_in_sorted_order(self, tmp_path):
+        for i in range(3):
+            Image.new("RGB", (20, 16), (i * 40, 0, 0)).save(tmp_path / f"{i:03d}.png")
+        model = _StubTrackModel()
+
+        results = list(BaseModel.track(model, tmp_path))
+
+        assert len(results) == 3
+        assert [Path(r.path).name for r in results] == [
+            "000.png",
+            "001.png",
+            "002.png",
+        ]
+
+    def test_tracks_a_lazy_generator_without_materializing_it(self):
+        model = _StubTrackModel()
+        pulled = []
+
+        def frames():
+            for i in range(1000):
+                pulled.append(i)
+                yield Image.new("RGB", (20, 16))
+
+        gen = BaseModel.track(model, frames())
+        first_three = [next(gen) for _ in range(3)]
+
+        assert len(first_three) == 3
+        # Only as many source frames were pulled as were actually consumed
+        # from the tracking generator -- the iterator must stay lazy.
+        assert len(pulled) == 3
+
+    def test_tracks_a_single_image_as_a_one_frame_sequence(self):
+        model = _StubTrackModel()
+
+        results = list(BaseModel.track(model, Image.new("RGB", (20, 16))))
+
+        assert len(results) == 1
+
+    def test_tracks_a_single_bytesio_image(self):
+        buffer = io.BytesIO()
+        Image.new("RGB", (20, 16)).save(buffer, format="PNG")
+        buffer.seek(0)
+        model = _StubTrackModel()
+
+        results = list(BaseModel.track(model, buffer))
+
+        assert len(results) == 1
+
+    def test_bgr_numpy_frames_reach_the_model_as_rgb(self):
+        model = _StubTrackModel()
+        seen_pixels = []
+        original_preprocess = model._preprocess
+
+        def capture_preprocess(image, color_format="auto", input_size=None):
+            seen_pixels.append(np.asarray(image)[0, 0].tolist())
+            return original_preprocess(
+                image, color_format=color_format, input_size=input_size
+            )
+
+        model._preprocess = capture_preprocess
+        frame_bgr = np.zeros((16, 20, 3), dtype=np.uint8)
+        frame_bgr[:] = [0, 0, 255]
+
+        list(BaseModel.track(model, [frame_bgr], color_format="bgr"))
+
+        assert seen_pixels == [[255, 0, 0]]
+
+    def test_empty_directory_yields_no_results(self, tmp_path):
+        model = _StubTrackModel()
+
+        assert list(BaseModel.track(model, tmp_path)) == []
+
+    def test_live_stream_sources_are_not_yet_supported(self):
+        model = _StubTrackModel()
+
+        with pytest.raises(NotImplementedError, match="stream"):
+            next(BaseModel.track(model, 0))
+
+    def test_save_writes_output_video_for_an_image_list(self, tmp_path):
+        pytest.importorskip("cv2", reason="opencv-python required for video tests")
+        model = _StubTrackModel()
+        output_path = tmp_path / "tracked.mp4"
+
+        results = list(
+            BaseModel.track(
+                model, _make_frames(3), save=True, output_path=str(output_path)
+            )
+        )
+
+        assert len(results) == 3
+        assert output_path.exists()
+
+    def test_save_rejects_images_with_changed_dimensions(self, tmp_path):
+        pytest.importorskip("cv2", reason="opencv-python required for video tests")
+        model = _StubTrackModel()
+        output_path = tmp_path / "tracked.mp4"
+        frames = [
+            Image.new("RGB", (20, 16)),
+            Image.new("RGB", (30, 24)),
+        ]
+
+        with pytest.raises(ValueError, match="frame size changed"):
+            list(
+                BaseModel.track(
+                    model, frames, save=True, output_path=str(output_path)
+                )
+            )
+
+    @pytest.mark.parametrize("fps", [0, -1, np.nan, np.inf])
+    def test_rejects_invalid_image_sequence_fps(self, fps):
+        model = _StubTrackModel()
+
+        with pytest.raises(ValueError, match="fps must be a finite value > 0"):
+            list(BaseModel.track(model, _make_frames(1), fps=fps))
+
+    def test_fps_seeds_bytetrack_frame_rate_for_image_sequences(self, monkeypatch):
+        captured = {}
+        original = TrackConfig.from_kwargs.__func__
+
+        def spy(cls, **kwargs):
+            captured.update(kwargs)
+            return original(cls, **kwargs)
+
+        monkeypatch.setattr(TrackConfig, "from_kwargs", classmethod(spy))
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(2), fps=12.0))
+
+        assert captured["frame_rate"] == 12
+
+    def test_fps_seeds_frame_rate_at_the_retained_frame_cadence(self, monkeypatch):
+        # tracker.update() only ever sees retained frames, so frame_rate
+        # must be scaled by vid_stride -- not the raw fps -- or a lost
+        # track's real-world expiry stretches out by vid_stride times.
+        captured = {}
+        original = TrackConfig.from_kwargs.__func__
+
+        def spy(cls, **kwargs):
+            captured.update(kwargs)
+            return original(cls, **kwargs)
+
+        monkeypatch.setattr(TrackConfig, "from_kwargs", classmethod(spy))
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(6), fps=30.0, vid_stride=3))
+
+        assert captured["frame_rate"] == 10
+
+    def test_fps_is_not_pre_rounded_before_reaching_track_config(self, monkeypatch):
+        # tracker.py truncates (int()) frame_rate itself; pre-rounding here
+        # too would double-round and can shift max_time_lost by a frame at
+        # the boundary (e.g. an exact 6.6 cadence: round()->7, int()->6).
+        captured = {}
+        original = TrackConfig.from_kwargs.__func__
+
+        def spy(cls, **kwargs):
+            captured.update(kwargs)
+            return original(cls, **kwargs)
+
+        monkeypatch.setattr(TrackConfig, "from_kwargs", classmethod(spy))
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(6), fps=33.0, vid_stride=5))
+
+        assert captured["frame_rate"] == pytest.approx(6.6)
+
+    def test_explicit_frame_rate_kwarg_overrides_fps(self, monkeypatch):
+        captured = {}
+        original = TrackConfig.from_kwargs.__func__
+
+        def spy(cls, **kwargs):
+            captured.update(kwargs)
+            return original(cls, **kwargs)
+
+        monkeypatch.setattr(TrackConfig, "from_kwargs", classmethod(spy))
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(2), fps=12.0, frame_rate=5))
+
+        assert captured["frame_rate"] == 5
+
+    def test_fps_does_not_seed_frame_rate_for_video_sources(self, tmp_path, monkeypatch):
+        cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
+        path = str(tmp_path / "clip.mp4")
+        writer = cv2.VideoWriter(
+            path, cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16)
+        )
+        for _ in range(2):
+            writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
+        writer.release()
+
+        captured = {}
+        original = TrackConfig.from_kwargs.__func__
+
+        def spy(cls, **kwargs):
+            captured.update(kwargs)
+            return original(cls, **kwargs)
+
+        monkeypatch.setattr(TrackConfig, "from_kwargs", classmethod(spy))
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, path, fps=12.0))
+
+        assert "frame_rate" not in captured
+
+    def test_fps_does_not_leak_into_ocsort_config(self):
+        # OCSortConfig has no frame_rate field; passing it through would
+        # otherwise trigger a spurious "unknown config key" warning.
+        model = _StubTrackModel()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            list(BaseModel.track(model, _make_frames(2), fps=12.0, tracker="ocsort"))
+
+    def test_mismatched_typed_tracker_config_frame_rate_warns(self):
+        # tracker_config is never silently overwritten (same contract as
+        # track_conf), but its frame_rate silently governs lost-track
+        # timing for this sequence, so a mismatch must not stay quiet.
+        model = _StubTrackModel()
+        config = TrackConfig()  # frame_rate=30, left at the class default
+
+        with pytest.warns(UserWarning, match="frame_rate"):
+            list(
+                BaseModel.track(
+                    model,
+                    _make_frames(6),
+                    fps=30.0,
+                    vid_stride=3,  # retained rate is 10, not config's 30
+                    tracker_config=config,
+                )
+            )
+
+        # tracker_config itself is never mutated.
+        assert config.frame_rate == 30
+
+    def test_typed_tracker_config_frame_rate_already_matching_is_quiet(self):
+        model = _StubTrackModel()
+        config = TrackConfig(frame_rate=10)  # caller already did the math
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            list(
+                BaseModel.track(
+                    model,
+                    _make_frames(6),
+                    fps=30.0,
+                    vid_stride=3,
+                    tracker_config=config,
+                )
+            )
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["cam.mts", "cam.m2ts", "cam.flv", "cam.3gp", "cam.h264", "cam.dav", "cam.bin", "cam"],
+)
+def test_tracks_video_files_with_uncommon_or_missing_extensions(tmp_path, name):
+    cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
+    clip = tmp_path / "clip.mp4"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16))
+    for _ in range(3):
+        writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
+    writer.release()
+    source = clip.rename(tmp_path / name)
+
+    results = list(BaseModel.track(_StubTrackModel(), str(source)))
+
+    assert [r.frame_idx for r in results] == [0, 1, 2]
+
+
+_NEAR_BOX = (1.0, 1.0, 5.0, 5.0)
+_FAR_BOX = (12.0, 9.0, 18.0, 15.0)
+
+
+def _ids_per_call(model, boxes, **kwargs):
+    """One single-frame track() call per box, as in a per-frame loop."""
+    ids = []
+    for box in boxes:
+        model._box = list(box)
+        (result,) = list(BaseModel.track(model, _make_frames(1), **kwargs))
+        ids.append(result.track_id.tolist())
+    return ids
+
+
+@pytest.mark.parametrize(
+    "tracker", ["bytetrack.yaml", "botsort.yaml", "ocsort.yml", "ByteTrack.YAML"]
+)
+def test_builtin_tracker_accepts_the_yaml_spelling(tracker, tmp_path, monkeypatch):
+    """The ecosystem names its trackers bytetrack.yaml / botsort.yaml; those
+    raised 'Unknown tracker'."""
+    monkeypatch.chdir(tmp_path)
+    (result,) = list(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=tracker))
+    assert result.track_id.tolist() == [1]
+
+
+def test_tracker_yaml_that_is_a_local_file_is_not_silently_ignored(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bytetrack.yaml").write_text("track_buffer: 60\n")
+    with pytest.raises(ValueError, match="does not read tracker yaml files"):
+        next(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker="bytetrack.yaml"))
+
+
+class TestTrackPersist:
+    def test_persist_keeps_the_tracker_across_calls(self):
+        boxes = [_NEAR_BOX, _FAR_BOX, _NEAR_BOX]
+
+        # A fresh tracker per call numbers every first sighting 1 ...
+        assert _ids_per_call(_StubTrackModel(), boxes) == [[1], [1], [1]]
+        # ... while a kept tracker opens a second track for the far box and
+        # recovers the first one when it reappears.
+        assert _ids_per_call(_StubTrackModel(), boxes, persist=True) == [
+            [1],
+            [2],
+            [1],
+        ]
+
+    def test_persist_is_not_forwarded_as_a_tracker_config_key(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _ids_per_call(_StubTrackModel(), [_NEAR_BOX], persist=True)
+        assert not [w for w in caught if "Unknown tracking config" in str(w.message)]
+
+    def test_persist_false_starts_fresh_and_drops_the_kept_tracker(self):
+        model = _StubTrackModel()
+        _ids_per_call(model, [_NEAR_BOX], persist=True)
+
+        assert _ids_per_call(model, [_FAR_BOX]) == [[1]]
+        assert _ids_per_call(model, [_NEAR_BOX], persist=True) == [[1]]
+        assert _ids_per_call(model, [_FAR_BOX], persist=True) == [[2]]
+
+    def test_persist_resets_on_a_new_tracker_config(self):
+        model = _StubTrackModel()
+        _ids_per_call(model, [_NEAR_BOX], persist=True)
+
+        assert _ids_per_call(model, [_FAR_BOX], persist=True, track_buffer=10) == [
+            [1]
+        ]
+
+    def test_persist_resets_on_a_new_directory_source(self, tmp_path):
+        first, second = tmp_path / "a", tmp_path / "b"
+        for folder in (first, second):
+            folder.mkdir()
+            Image.new("RGB", (20, 16)).save(folder / "000.png")
+        model = _StubTrackModel()
+
+        def track_dir(folder, box):
+            model._box = list(box)
+            (result,) = list(BaseModel.track(model, folder, persist=True))
+            return result.track_id.tolist()
+
+        assert track_dir(first, _NEAR_BOX) == [1]
+        assert track_dir(first, _FAR_BOX) == [2]
+        assert track_dir(second, _FAR_BOX) == [1]
+
+    def test_persist_does_not_reset_a_custom_tracker(self):
+        tracker = _CustomTracker()
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(1), tracker=tracker, persist=True))
+        list(BaseModel.track(model, _make_frames(1), tracker=tracker, persist=True))
+        assert tracker.resets == 1
+        assert len(tracker.images) == 2
+
+        list(BaseModel.track(model, _make_frames(1), tracker=tracker))
+        assert tracker.resets == 2
+
+
+class _CustomTracker:
+    def __init__(self):
+        self.resets = 0
+        self.images = []
+
+    def reset(self):
+        self.resets += 1
+        self.images.clear()
+
+    def update(self, results, image=None):
+        self.images.append(image)
+        results.track_id = torch.full(
+            (len(results),), 42, dtype=torch.int64, device=results.boxes.xyxy.device
+        )
+        return results
+
+
+class TestCustomTracker:
+    def test_lifecycle_images_ids_and_reuse(self):
+        tracker = _CustomTracker()
+        run = BaseModel.track(_StubTrackModel(), iter(_make_frames(3)), tracker=tracker)
+        assert tracker.resets == 0  # The generator has not started.
+        results = list(run)
+        assert tracker.resets == 1
+        assert len(tracker.images) == 3
+        assert all(image.mode == "RGB" for image in tracker.images)
+        assert [r.track_id.tolist() for r in results] == [[42]] * 3
+        assert all(r.boxes.id is r.track_id for r in results)
+        assert [r.frame_idx for r in results] == [0, 1, 2]
+        list(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=tracker))
+        assert tracker.resets == 2
+        assert len(tracker.images) == 1
+
+    def test_detector_threshold_and_empty_frames(self):
+        model = _StubTrackModel()
+        seen = []
+
+        def predict(image, **kwargs):
+            seen.append(kwargs["conf"])
+            return _make_results([], [], [])
+
+        model._runner_instance = predict
+        tracker = _CustomTracker()
+        results = list(
+            BaseModel.track(model, _make_frames(2), tracker=tracker, track_conf=0.07)
+        )
+        assert seen == [0.07, 0.07]
+        assert len(tracker.images) == 2
+        assert all(r.track_id.shape == (0,) for r in results)
+
+    def test_stride_only_updates_retained_frames(self):
+        tracker = _CustomTracker()
+        results = list(
+            BaseModel.track(
+                _StubTrackModel(), _make_frames(5), tracker=tracker, vid_stride=2
+            )
+        )
+        assert len(tracker.images) == len(results) == 3
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"tracker_config": TrackConfig()},
+            {"track_buffer": 10},
+        ],
+    )
+    def test_conflicting_configuration_rejected(self, kwargs):
+        tracker = _CustomTracker()
+        with pytest.raises(ValueError, match="Configure a custom tracker"):
+            next(
+                BaseModel.track(
+                    _StubTrackModel(), _make_frames(1), tracker=tracker, **kwargs
+                )
+            )
+        assert tracker.resets == 0
+
+    @pytest.mark.parametrize("tracker", [object(), _CustomTracker, 123])
+    def test_invalid_tracker_rejected(self, tracker):
+        with pytest.raises(TypeError, match="instance with"):
+            next(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=tracker))
+
+    @pytest.mark.parametrize("conf", [-0.1, 1.1, float("nan"), float("inf")])
+    def test_invalid_confidence_rejected(self, conf):
+        with pytest.raises(ValueError, match="track_conf"):
+            next(
+                BaseModel.track(
+                    _StubTrackModel(),
+                    _make_frames(1),
+                    tracker=_CustomTracker(),
+                    track_conf=conf,
+                )
+            )
+
+    @pytest.mark.parametrize(
+        "ids",
+        [None, [1], torch.tensor([[1]]), torch.tensor([1, 2]), torch.tensor([1.5])],
+    )
+    def test_invalid_ids_rejected(self, ids):
+        class BadIDs(_CustomTracker):
+            def update(self, results, image=None):
+                results.track_id = ids
+                return results
+
+        with pytest.raises(ValueError, match="track_id"):
+            next(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=BadIDs()))
+
+    def test_invalid_result_rejected(self):
+        class BadResult(_CustomTracker):
+            def update(self, results, image=None):
+                return None
+
+        with pytest.raises(TypeError, match="must return Results"):
+            next(
+                BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=BadResult())
+            )
+
+    @pytest.mark.parametrize("numpy_output", [False, True])
+    def test_selected_masks_keypoints_and_ids_stay_aligned(self, numpy_output):
+        from libreyolo.utils.results import Keypoints
+
+        incoming = _make_results([[1, 1, 5, 5], [8, 8, 12, 12]], [0.9, 0.8], [0, 1])
+        incoming.masks = Masks(
+            torch.stack([torch.zeros(16, 20), torch.ones(16, 20)]), (16, 20)
+        )
+        incoming.keypoints = Keypoints(
+            torch.tensor([[[1.0, 2.0, 1.0]], [[8.0, 9.0, 1.0]]]), (16, 20)
+        )
+        model = _StubTrackModel()
+        model._runner_instance = lambda *args, **kwargs: incoming
+
+        class SelectingTracker(_CustomTracker):
+            def update(self, results, image=None):
+                selected = results[[1, 0]]
+                selected.track_id = torch.tensor([22, 11])
+                return selected.numpy() if numpy_output else selected
+
+        result = next(
+            BaseModel.track(model, _make_frames(1), tracker=SelectingTracker())
+        )
+        assert result.track_id.tolist() == [22, 11]
+        assert result.boxes.id.tolist() == [22, 11]
+        assert result.boxes.cls.tolist() == [1, 0]
+        assert result.masks.data[0].sum() == 320
+        assert result.keypoints.data[:, 0, 0].tolist() == [8, 1]
+
+    def test_custom_tracker_on_video(self, tmp_path, monkeypatch):
+        path = tmp_path / "input.avi"
+        path.touch()
+
+        def video_frames(source, predict_fn, **kwargs):
+            assert source == path
+            for frame in _make_frames(3):
+                yield predict_fn(frame)
+
+        monkeypatch.setattr("libreyolo.utils.video.run_video_inference", video_frames)
+        tracker = _CustomTracker()
+        results = list(BaseModel.track(_StubTrackModel(), path, tracker=tracker))
+        assert len(results) == len(tracker.images) == 3
+        assert tracker.resets == 1
+
+    def test_mixed_result_backends_rejected(self):
+        class MixedTracker(_CustomTracker):
+            def update(self, results, image=None):
+                results.track_id = np.array([1], dtype=np.int64)
+                return results
+
+        with pytest.raises(ValueError, match="same backend"):
+            next(
+                BaseModel.track(
+                    _StubTrackModel(), _make_frames(1), tracker=MixedTracker()
+                )
+            )
+
+    def test_flagship_models_expose_custom_entry(self):
+        pytest.importorskip("transformers")
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+        from libreyolo.models.yolo9.model import LibreYOLO9
+
+        for model_class in (LibreYOLO9, LibreRFDETR):
+            result = next(
+                model_class.track(
+                    _StubTrackModel(), _make_frames(1), tracker=_CustomTracker()
+                )
+            )
+            assert result.boxes.id.tolist() == [42]
+
+    def test_save_annotated_custom_results(self, tmp_path, monkeypatch):
+        from unittest.mock import Mock
+
+        output = tmp_path / "tracked.mp4"
+        writer = Mock()
+        writer_factory = Mock(return_value=writer)
+        monkeypatch.setattr("libreyolo.utils.video.VideoWriter", writer_factory)
+        results = list(
+            BaseModel.track(
+                _StubTrackModel(),
+                _make_frames(3, size=(64, 64)),
+                tracker=_CustomTracker(),
+                save=True,
+                output_path=str(output),
+            )
+        )
+        assert len(results) == 3
+        writer_factory.assert_called_once()
+        assert writer.write_frame.call_count == 3
+        for call in writer.write_frame.call_args_list:
+            frame = call.args[0]
+            assert frame.shape == (64, 64, 3)
+            assert frame.dtype == np.uint8
+            assert np.any(frame != 50)  # Boxes and IDs were drawn.
+        writer.release.assert_called_once()
+
+    def test_public_tracker_annotation_resolves_at_runtime(self):
+        from typing import get_type_hints
+
+        from libreyolo.tracking import Tracker
+
+        assert get_type_hints(BaseModel.track)["tracker"] == str | Tracker
+
+
+class TestTrackDetectionConf:
+    """track(conf=...) is the ecosystem's detection threshold, shared with predict."""
+
+    class _Stub(_StubTrackModel):
+        def _postprocess(self, output, conf, iou, original_size, **kwargs):
+            self.seen_conf.append(conf)
+            keep = self._score >= conf
+            return {
+                "boxes": [self._box] if keep else [],
+                "scores": [self._score] if keep else [],
+                "classes": [0] if keep else [],
+                "num_detections": int(keep),
+            }
+
+    def _run(self, **kwargs):
+        model = self._Stub(score=0.3)
+        model.seen_conf = []
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # no "Unknown tracking config keys"
+            results = list(BaseModel.track(model, _make_frames(1), **kwargs))
+        return model.seen_conf, results
+
+    def test_conf_sets_the_detection_threshold(self):
+        """conf=0.5 was warned about and ignored; detection stayed at 0.1."""
+        seen, results = self._run(conf=0.5)
+        assert seen == [0.5]
+        assert len(results[0]) == 0  # the 0.3 detection is below conf
+
+    def test_default_keeps_the_tracker_low_threshold(self):
+        seen, results = self._run()
+        assert seen == [0.1]
+        assert results[0].track_id.tolist() == [1]
+
+    def test_conf_out_of_range_is_rejected(self):
+        with pytest.raises(ValueError, match="conf must be"):
+            self._run(conf=1.5)

@@ -71,6 +71,33 @@ jobs:
           -m "${{ env.PR_GATE_MARKERS }} and not distributed"
           -n auto --dist loadfile --durations=25
 
+  # Optional-dependency job for the FiftyOne integration. Linux only and in its
+  # own job for two reasons: fiftyone starts a local MongoDB, and it pulls
+  # opencv-python-headless, which overwrites the cv2 the rest of the suite
+  # expects to be GUI-capable. The tests here use synthetic data, so nothing is
+  # downloaded.
+  fiftyone-integration:
+    name: fiftyone integration (linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Create virtual environment
+        run: uv venv --python 3.10
+
+      - name: Install dependencies
+        run: uv pip install --no-sources --torch-backend cpu --group dev -e ".[fiftyone]"
+
+      - name: Run FiftyOne integration tests
+        run: uv run --no-sync pytest tests/unit/test_integrations_fiftyone.py -m "unit or fiftyone" --durations=25
+
   # Multi-rank gloo tests. Serial, and Linux only.
   #
   # Linux only: they cover distributed-training math, which is platform

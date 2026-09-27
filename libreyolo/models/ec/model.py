@@ -27,6 +27,7 @@ class LibreEC(BaseModel):
     """LibreYOLO wrapper for EdgeCrafter EC / ECPose / ECSeg."""
 
     FAMILY = "ec"
+    RESUME_RESTORES_TRAIN_ARGS = True
     FILENAME_PREFIX = "LibreEC"
     INPUT_SIZES = {"s": 640, "m": 640, "l": 640, "x": 640}
     POSE_INPUT_SIZES = {"s": 640, "m": 640, "l": 640, "x": 640}
@@ -41,6 +42,7 @@ class LibreEC(BaseModel):
         "pose": POSE_INPUT_SIZES,
         "segment": SEG_INPUT_SIZES,
     }
+    WEIGHT_VARIANTS = ("obj2coco",)
     POSE_NUM_KEYPOINTS = 17
     KEYPOINT_DIM = 3
     val_preprocessor_class = ECValPreprocessor
@@ -89,6 +91,18 @@ class LibreEC(BaseModel):
         # already points where we want.  ``_GH_RELEASE_BASE`` stays as a
         # documented fallback for direct-download scripts.
         return super().get_download_url(filename)
+
+    @classmethod
+    def get_download_notice(cls, filename: str, url: str) -> Optional[str]:
+        if cls.detect_variant_from_filename(filename) != "obj2coco":
+            return None
+        return (
+            f"{Path(filename).name} contains Objects365-pretrained EdgeCrafter "
+            "weights distributed for NON-COMMERCIAL USE ONLY under the "
+            "EdgeCrafter License. Commercial use requires a separate upstream "
+            "license. See the LICENSE and NOTICE in the weight repository; "
+            "these weights are not covered by LibreYOLO's MIT license."
+        )
 
     @staticmethod
     def _detect_pose(model_path) -> bool:
@@ -162,6 +176,7 @@ class LibreEC(BaseModel):
         task: str | None = None,
         **kwargs,
     ):
+        checkpoint = model_path if isinstance(model_path, dict) else None
         if isinstance(model_path, dict):
             model_path = unwrap_ec_checkpoint(model_path)
         resolved_task = normalize_task(task) if task is not None else None
@@ -179,6 +194,8 @@ class LibreEC(BaseModel):
             task=resolved_task,
             **kwargs,
         )
+        if checkpoint is not None:
+            self._cache_checkpoint_train_config(checkpoint)
         if self.task == "pose":
             self.names = {0: "person"}
         if isinstance(model_path, str):
@@ -359,7 +376,11 @@ class LibreEC(BaseModel):
             )
 
         try:
-            data_config = load_data_config(data, autodownload=True)
+            data_config = load_data_config(
+                data,
+                autodownload=True,
+                single_cls=bool(kwargs.get("single_cls", False)),
+            )
             data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
@@ -409,10 +430,8 @@ class LibreEC(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError("resume=True requires a checkpoint. Load one first.")
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()
@@ -562,10 +581,8 @@ class LibreEC(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError("resume=True requires a checkpoint. Load one first.")
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()
@@ -599,6 +616,7 @@ class LibreEC(BaseModel):
 
         try:
             loaded = torch.load(model_path, map_location="cpu", weights_only=False)
+            self._cache_checkpoint_train_config(loaded)
             state_dict = unwrap_ec_checkpoint(loaded)
             state_dict = self._strip_ddp_prefix(dict(state_dict))
 

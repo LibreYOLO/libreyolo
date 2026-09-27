@@ -246,6 +246,15 @@ def log_saved_result(result, save_path: Union[str, Path]) -> str:
 # =============================================================================
 
 
+def check_overlap_ratio(overlap_ratio: float) -> None:
+    """Reject a tile overlap outside ``[0, 1)``; at 1 or more tiles never advance."""
+    if not 0 <= overlap_ratio < 1:
+        raise ValueError(
+            f"overlap_ratio must be in [0, 1), got {overlap_ratio}. It is the "
+            "fraction of each tile shared with its neighbour."
+        )
+
+
 def get_slice_bboxes(
     image_width: int,
     image_height: int,
@@ -259,11 +268,13 @@ def get_slice_bboxes(
         image_width: Width of the original image.
         image_height: Height of the original image.
         slice_size: Size of each square tile (default: 640).
-        overlap_ratio: Fractional overlap between tiles (default: 0.2).
+        overlap_ratio: Fractional overlap between tiles, in ``[0, 1)``
+            (default: 0.2).
 
     Returns:
         List of (x1, y1, x2, y2) tuples representing tile coordinates.
     """
+    check_overlap_ratio(overlap_ratio)
     slices = []
     overlap = int(slice_size * overlap_ratio)
     step = slice_size - overlap

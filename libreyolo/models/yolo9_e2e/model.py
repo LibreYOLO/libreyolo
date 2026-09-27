@@ -139,6 +139,24 @@ class LibreYOLO9E2E(LibreYOLO9):
         head._loss_fn = None
         head.to(next(self.model.parameters()).device)
 
+    def _prepare_model_for_state_dict(self, state_dict: dict) -> None:
+        """Also match the one-to-one class towers' width to the checkpoint."""
+        super()._prepare_model_for_state_dict(state_dict)
+        hidden_key = "head.one2one_cv3.0.0.conv.weight"
+        if hidden_key not in state_dict:
+            return
+        head = self.model.head
+        checkpoint_hidden = int(state_dict[hidden_key].shape[0])
+        if int(head.one2one_cv3[0][0].conv.weight.shape[0]) == checkpoint_hidden:
+            return
+        channels = [int(seq[0].conv.weight.shape[1]) for seq in head.one2one_cv3]
+        head.one2one_cv3 = head._build_class_towers(
+            channels, checkpoint_hidden, self.nb_classes
+        )
+        head._init_one2one_bias()
+        head._loss_fn = None
+        head.to(next(self.model.parameters()).device)
+
     # =====================================================================
     # Inference pipeline
     # =====================================================================
@@ -152,7 +170,7 @@ class LibreYOLO9E2E(LibreYOLO9):
         max_det: int = 300,
         **kwargs,
     ) -> Dict:
-        actual_input_size = kwargs.get("input_size", 640)
+        actual_input_size = kwargs.get("input_size", self._get_input_size())
         return postprocess(
             output,
             conf_thres=conf_thres,
@@ -161,6 +179,7 @@ class LibreYOLO9E2E(LibreYOLO9):
             original_size=original_size,
             max_det=max_det,
             letterbox=kwargs.get("letterbox", True),
+            letterbox_pad=getattr(self, "letterbox_pad", None),
         )
 
     # =====================================================================
@@ -183,7 +202,7 @@ class LibreYOLO9E2E(LibreYOLO9):
         project: str = _TRAIN_DEFAULTS.project,
         name: str = "yolo9_e2e_exp",
         exist_ok: bool = _TRAIN_DEFAULTS.exist_ok,
-        resume: bool = _TRAIN_DEFAULTS.resume,
+        resume: bool | str | Path = _TRAIN_DEFAULTS.resume,
         amp: bool = _TRAIN_DEFAULTS.amp,
         patience: int = _TRAIN_DEFAULTS.patience,
         allow_download_scripts: bool = False,
@@ -206,7 +225,9 @@ class LibreYOLO9E2E(LibreYOLO9):
             project: Root directory for training runs.
             name: Experiment name.
             exist_ok: If True, overwrite existing experiment directory.
-            resume: If True, resume training from checkpoint.
+            resume: True resumes the loaded training checkpoint, a path
+                resumes that one, with its saved training arguments and run
+                directory; explicit arguments override the saved ones.
             amp: Enable automatic mixed precision training.
             patience: Early stopping patience.
             allow_download_scripts: Allow embedded Python in dataset YAML downloads.
@@ -221,9 +242,13 @@ class LibreYOLO9E2E(LibreYOLO9):
 
         from .trainer import YOLO9E2ETrainer
 
+        resume_path = self._resume_checkpoint(resume) if resume else None
         try:
             data_config = load_data_config(
-                data, autodownload=True, allow_scripts=allow_download_scripts
+                data,
+                autodownload=True,
+                allow_scripts=allow_download_scripts,
+                single_cls=bool(kwargs.get("single_cls", False)),
             )
             data = data_config.get("yaml_file", data)
         except Exception as e:
@@ -270,7 +295,7 @@ class LibreYOLO9E2E(LibreYOLO9):
             project=project,
             name=name,
             exist_ok=exist_ok,
-            resume=resume,
+            resume=bool(resume_path),
             amp=amp,
             patience=patience,
             allow_download_scripts=allow_download_scripts,
@@ -279,15 +304,9 @@ class LibreYOLO9E2E(LibreYOLO9):
             **kwargs,
         )
 
-        if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLO9E2E('path/to/last.pt', size='t'); "
-                    "model.train(data=..., resume=True)"
-                )
+        if resume_path:
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(resume_path)
 
         results = trainer.train()
 

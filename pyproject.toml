@@ -1,7 +1,33 @@
 [project]
 name = "libreyolo"
-version = "1.5.0"
-description = "Libre YOLO - An open source YOLO library with MIT license."
+version = "1.6.0"
+description = "MIT-licensed computer vision library: one Python API for YOLO, RF-DETR, RT-DETR and dozens more model families, with training and export where a family supports them."
+keywords = [
+    "yolo",
+    "object-detection",
+    "computer-vision",
+    "pytorch",
+    "deep-learning",
+    "instance-segmentation",
+    "pose-estimation",
+    "rf-detr",
+    "rt-detr",
+    "yolov9",
+    "yolox",
+    "onnx",
+    "mit-license",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -30,6 +56,10 @@ dependencies = [
     "click>=8.0.0",
     "safetensors>=0.4.0",
     "scipy>=1.7.0",
+    # Ephemeral automatic-DDP job transport. Standard pickle validation still
+    # rejects lambdas/closures; cloudpickle carries transportable __main__
+    # callbacks without importing and re-running the user's training script.
+    "cloudpickle>=3.0.0",
 ]
 
 [dependency-groups]
@@ -42,6 +72,13 @@ dev = [
 ]
 
 [project.optional-dependencies]
+marigold = [
+    "diffusers==0.38.0",
+    "peft==0.18.1",
+    "accelerate==1.13.0",
+    "transformers==5.4.0",
+    "bitsandbytes==0.49.2; platform_system == 'Linux' or platform_system == 'Windows'",
+]
 stream = [
     # YouTube page URLs are resolved lazily to direct media URLs. Webcam,
     # RTSP/RTMP/TCP/UDP, HLS, and local multi-stream inputs need no extra.
@@ -50,7 +87,8 @@ stream = [
 onnx = [
     "onnx>=1.14.0",
     "onnxsim>=0.4.0",
-    "onnxruntime>=1.16.0",
+    # Opset-21 runtime floor required by the embedded OpenCV Zoo LaMa graph.
+    "onnxruntime>=1.18.0",
 ]
 triton = [
     # HTTP/HTTPS V2 inference only. gRPC and shared-memory extras are excluded.
@@ -95,8 +133,31 @@ fast-eval = [
     # platform without one must not be able to break a plain `pip install`.
     "faster-coco-eval>=1.7.0",
 ]
+vla = [
+    # LibreVLA loads vision-language-action policies through the Apache-2.0
+    # lerobot package (policy classes, processor pipelines, LeRobot datasets).
+    # lerobot requires Python >= 3.12, so the extra installs nothing on older
+    # interpreters and the tier raises an ImportError that says so. Kept out
+    # of `all` for the same reason.
+    "lerobot[smolvla,diffusion,dataset]>=0.6.1; python_version >= '3.12'",
+]
+llm = [
+    # LibreLLM talks to OpenAI-compatible Responses / Chat Completions
+    # endpoints through the official Apache-2.0 OpenAI Python SDK.
+    "openai>=1.66.0",
+]
+ground = [
+    # LibreGround (instruction → click) shares the VLM extra stack.
+    "libreyolo[vlm]",
+]
+molmo2 = [
+    # Pinned Molmo2 remote code uses Transformers 4 processor and RoPE APIs.
+    "transformers==4.57.1",
+    "einops>=0.8.0",
+    "accelerate>=0.26.0",
+]
 vlm = [
-    # VLM-as-detector families load through transformers.
+    # VLM-as-detector and LibreGround families load through transformers.
     # huggingface_hub (used for snapshot download) ships with transformers.
     "transformers>=5.1.0",
     # SmolVLM2's processor requires num2words.
@@ -105,6 +166,13 @@ vlm = [
     "decord==0.6.0",
     "lmdb>=1.7.0",
     "peft>=0.12.0",
+]
+vlm-train = [
+    # VLM detection fine-tuning: the vlm inference stack plus PEFT for LoRA.
+    # peft>=0.17 is the floor the LoRA-adapter save/load contract was
+    # validated against.
+    "libreyolo[vlm]",
+    "peft>=0.17.0",
 ]
 sam = [
     # Promptable-segmentation families load through transformers;
@@ -234,6 +302,17 @@ siglip2-convert = [
 coreml = [
     "coremltools>=8.0",
 ]
+fiftyone = [
+    # Dataset curation and prediction analysis (Apache-2.0). Deliberately kept
+    # out of `all`: fiftyone depends on opencv-python-headless while LibreYOLO
+    # depends on opencv-python, and both ship the same `cv2` module, so
+    # installing them together leaves whichever landed last in place. See
+    # docs/fiftyone.md.
+    "fiftyone>=1.0.0",
+    # graphql-core 3.3.0 (2026-09-27) removed graphql.execution.ExecutionContext,
+    # which strawberry-graphql imports, so `import fiftyone` fails with it.
+    "graphql-core<3.3",
+]
 tensorboard = [
     "tensorboard>=2.13.0",
 ]
@@ -258,6 +337,11 @@ dvclive = [
 dvc = [
     "libreyolo[dvclive]",
 ]
+hf = [
+    # Hugging Face Hub loading (LibreYOLO("owner/repo")) and push_to_hub.
+    # v1 adds dry-run byte metadata used to bound gated model downloads.
+    "huggingface_hub>=1.0.0",
+]
 all = [
     "libreyolo[stream]",
     "libreyolo[onnx]",
@@ -280,6 +364,7 @@ all = [
     "libreyolo[siglip2]",
     "libreyolo[coreml]",
     "libreyolo[vlm]",
+    "libreyolo[llm]",
     "libreyolo[sam]",
     "libreyolo[label]",
     "libreyolo[openvocab]",
@@ -291,6 +376,7 @@ all = [
     "libreyolo[comet]",
     "libreyolo[clearml]",
     "libreyolo[dvclive]",
+    "libreyolo[hf]",
     # Keep Neptune separate: stable neptune-scale requires protobuf<7 while
     # the TFLite/onnx2tf extra included above requires protobuf 7.
 ]
@@ -299,8 +385,11 @@ all = [
 libreyolo = "libreyolo.cli:entrypoint"
 
 [project.urls]
-Homepage = "https://github.com/LibreYOLO"
+Homepage = "https://www.libreyolo.com"
+Documentation = "https://www.libreyolo.com/docs"
 Repository = "https://github.com/LibreYOLO/libreyolo"
+Issues = "https://github.com/LibreYOLO/libreyolo/issues"
+Changelog = "https://www.libreyolo.com/docs/changelog"
 
 [tool.setuptools]
 include-package-data = true
@@ -340,6 +429,22 @@ build-backend = "setuptools.build_meta"
 # Requires NVIDIA driver >= 555 (CUDA 12.8 runtime) on the host.
 [tool.uv]
 conflicts = [
+    [{ extra = "molmo2" }, { extra = "hf" }],
+    [{ extra = "molmo2" }, { extra = "all" }],
+    [{ extra = "molmo2" }, { extra = "eomt" }],
+    [{ extra = "molmo2" }, { extra = "ground" }],
+    [{ extra = "molmo2" }, { extra = "label" }],
+    [{ extra = "molmo2" }, { extra = "lora" }],
+    [{ extra = "molmo2" }, { extra = "marigold" }],
+    [{ extra = "molmo2" }, { extra = "modus" }],
+    [{ extra = "molmo2" }, { extra = "openvocab" }],
+    [{ extra = "molmo2" }, { extra = "rfdetr" }],
+    [{ extra = "molmo2" }, { extra = "sam" }],
+    [{ extra = "molmo2" }, { extra = "sensenova" }],
+    [{ extra = "molmo2" }, { extra = "siglip2-convert" }],
+    [{ extra = "molmo2" }, { extra = "vlm" }],
+    [{ extra = "molmo2" }, { extra = "vlm-train" }],
+
     [{ extra = "neptune" }, { extra = "tflite" }],
     [{ extra = "neptune" }, { extra = "litert" }],
     [{ extra = "neptune" }, { extra = "all" }],
@@ -423,9 +528,16 @@ testpaths = ["tests"]
 # the e2e target sets, so unit runs stay unbounded.
 timeout_method = "thread"
 markers = [
+    "marigold_v2: Marigold V2 dense prediction tests",
+    "detany3d: optional DetAny3D promptable 3D detection integration",
+    "fcos3d: native FCOS3D calibrated 3D detection",
+    "wilddet3d: optional WildDet3D 3D detection integration",
+    "mood3d: optional 3D-MOOD open-set 3D detection integration",
     "unit: fast tests that avoid external weights or large files",
     "vit: tests covering the ViT classification family",
     "swin: tests covering the Swin classification family",
+    "vjepa2: tests covering the V-JEPA 2 video embedding and classification family",
+    "levjepa: tests covering the LeVJEPA video embedding family",
     "external_data: tests that require external datasets, weights, or staged large files",
     "network: tests that intentionally use non-local network access",
     "e2e: end-to-end tests requiring full model loading and inference",
@@ -450,14 +562,17 @@ markers = [
     "tflite: tests requiring TensorFlow Lite export",
     "paddle: tests requiring PaddlePaddle export/runtime",
     "coreml: tests requiring CoreML (macOS only)",
+    "fiftyone: tests requiring the optional FiftyOne integration (fiftyone starts a local MongoDB)",
     "yolox: tests covering the YOLOX model family",
     "yolo7: tests covering the YOLOv7 model family",
     "yolo9: tests covering the YOLO9 model family",
     "yolo9_e2e: tests covering the YOLOv9-E2E model family",
     "yolonas: tests covering the YOLO-NAS model family",
+    "ppyoloe: tests covering the PP-YOLOE model family",
     "rfdetr: tests covering the RF-DETR model family",
     "detr: tests covering the original DETR model family",
     "deit: tests covering the DeiT image-classification family",
+    "convnextv2: tests covering the ConvNeXt V2 classification family",
     "deeplabv3: tests covering the DeepLabv3 semantic segmentation family",
     "lwdetr: tests covering the LW-DETR model family",
     "faster_rcnn: tests covering the Faster R-CNN model family",
@@ -465,6 +580,8 @@ markers = [
     "ssd: tests covering the SSD model family",
     "mask_rcnn: tests covering the Mask R-CNN model family",
     "fcn: tests covering the FCN semantic-segmentation family",
+    "ppliteseg: tests covering the PP-LiteSeg semantic-segmentation family",
+    "unet: tests covering the U-Net semantic-segmentation family",
     "fcos: tests covering the FCOS model family",
     "deformable_detr: tests covering the Deformable DETR model family",
     "dinodetr: tests covering the DINO-DETR model family",
@@ -473,7 +590,9 @@ markers = [
     "domedetr: tests covering the Dome-DETR tiny-object model family",
     "deim: tests covering the DEIM model family",
     "deimv2: tests covering the DEIMv2 model family",
+    "tinyformer: tests covering the TinyFormer model family",
     "ec: tests covering the ECDet model family",
+    "gtr: tests covering the GTR model family",
     "rtdetr: tests covering the RT-DETR model family",
     "rtdetrv2: tests covering the RT-DETRv2 model family",
     "rtdetrv4: tests covering the RT-DETRv4 model family",
@@ -482,17 +601,26 @@ markers = [
     "rtmdet: tests covering the RTMDet model family",
     "l2cs: tests covering the L2CS gaze estimation family",
     "hrnet: tests covering the HRNet top-down pose family",
+    "dekr: tests covering the DEKR bottom-up pose family",
     "fomo: tests covering the LibreFOMO point-localizer family",
     "alexnet: tests covering the LibreAlexNet image-classification family",
     "vgg: tests covering the LibreVGG classification family",
     "vlm: tests covering the LibreVLM (VLM-as-detector) tier",
+    "llm: tests covering the LibreLLM OpenAI-compatible client",
+    "vla: tests covering the LibreVLA (vision-language-action) tier",
     "sam: tests covering the LibreSAM (promptable-segmentation) tier",
     "openvocab: tests covering the LibreOpenVocab detector tier",
     "sensenova: tests covering the LibreSenseNovaVision unified multimodal family",
     "modus: tests covering the external-weight LibreMODUS any-to-any family",
     "clip: tests covering the LibreCLIP zero-shot open-vocabulary classifier family",
     "siglip2: tests covering the LibreSigLIP2 zero-shot open-vocabulary classifier family",
+    "pe: tests covering the LibrePE Perception Encoder Core zero-shot / embedding family",
     "midas: tests covering the MiDaS relative-depth family",
+    "quicksrnet: tests covering the QuickSRNet super-resolution family",
+    "ddcolor: tests covering the DDColor automatic-colorization family",
+    "hvi_cidnet: tests covering the HVI-CIDNet low-light restoration family",
+    "lama: tests covering the LaMa mask-guided inpainting family",
+    "vitmatte: tests covering the ViTMatte trimap-guided matting family",
     "distributed: multi-rank gloo tests that mp.spawn a process group. Linux-only in the PR gate: they exercise distributed-training math, which is platform-independent, while dist.init_process_group(backend='gloo') costs ~105s per test on the macOS runner (a bare 2-rank scalar all-reduce takes 109s there vs 3.9s on Linux). They also compare a parent-process reference gradient against child-process gradients at a BLAS-sensitive tolerance, so running them on every OS yields flakes rather than coverage. The spawn-plumbing tests are deliberately NOT marked: they cover spawn-only failure modes that Linux's fork never hits.",
     "rf1: RF1 training tests",
     "rf5: RF5 training benchmark tests",

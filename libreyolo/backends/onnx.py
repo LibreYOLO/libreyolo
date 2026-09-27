@@ -1,16 +1,22 @@
 """ONNX runtime inference backend for LibreYOLO."""
 
+import json
 import logging
 from pathlib import Path
 
 import numpy as np
 
 from ..tasks import resolve_task
-from ..utils.serialization import warn_on_metadata_schema_version
+from ..utils.serialization import (
+    reject_unsupported_input_kind,
+    warn_on_metadata_schema_version,
+)
 from .base import (
+    classify_eval_kwargs,
     BaseBackend,
     ImageSize,
     MetadataImageSizeError,
+    _imgsz_hw,
     _read_pose_metadata,
 )
 from .metadata import parse_export_metadata
@@ -81,6 +87,12 @@ class OnnxBackend(BaseBackend):
 
         self.session = ort.InferenceSession(onnx_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
+        # export(half=True) graphs take float16 input; preprocessing yields
+        # float32, so inputs are cast to the graph's float type.
+        self._input_float_dtype = {
+            "tensor(float16)": np.float16,
+            "tensor(float)": np.float32,
+        }.get(self.session.get_inputs()[0].type)
         self.output_names = [output.name for output in self.session.get_outputs()]
         try:
             runtime_metadata = dict(
@@ -126,6 +138,9 @@ class OnnxBackend(BaseBackend):
             not isinstance(input_shape[2], int) or not isinstance(input_shape[3], int)
         )
         static_imgsz = self._read_static_input_imgsz(input_shape)
+        self._fixed_input_hw = (
+            _imgsz_hw(static_imgsz) if static_imgsz is not None else None
+        )
         if static_imgsz is not None:
             imgsz = static_imgsz
         elif metadata_imgsz is not None:
@@ -139,6 +154,23 @@ class OnnxBackend(BaseBackend):
             supported_tasks=supported_tasks,
         )
 
+        from ..utils.event_histogram import validate_input_profile
+
+        self.input_profile = validate_input_profile(
+            json.loads(runtime_metadata["input_profile"])
+            if "input_profile" in runtime_metadata else None,
+            family=model_family,
+            task=resolved_task,
+        )
+        self.input_initialization = runtime_metadata.get("input_initialization")
+        if self.input_profile is not None:
+            if len(input_shape) != 4 or input_shape[1] != 2:
+                raise ValueError("Histogram ONNX graph must consume NCHW with two channels")
+            if self.input_initialization not in {"random", "rgb_mean"}:
+                raise ValueError("Histogram ONNX metadata requires input_initialization")
+        elif len(input_shape) == 4 and input_shape[1] == 2:
+            raise ValueError("Two-channel ONNX graph is missing input_profile metadata")
+
         super().__init__(
             model_path=onnx_path,
             nb_classes=nb_classes if names is None else len(names),
@@ -150,12 +182,8 @@ class OnnxBackend(BaseBackend):
             task=resolved_task,
             supported_tasks=supported_tasks,
             default_task=default_task,
-            crop_pct=(
-                float(runtime_metadata["crop_pct"])
-                if runtime_metadata.get("crop_pct")
-                else None
-            ),
-            interpolation=runtime_metadata.get("interpolation"),
+            **classify_eval_kwargs(runtime_metadata),
+            letterbox_pad=runtime_metadata.get("letterbox_pad"),
             num_bins=(
                 int(runtime_metadata["num_bins"])
                 if runtime_metadata.get("num_bins")
@@ -206,6 +234,9 @@ class OnnxBackend(BaseBackend):
                 meta,
                 artifact=f"ONNX metadata for {onnx_path}",
                 logger=logger,
+            )
+            reject_unsupported_input_kind(
+                meta, artifact=f"ONNX metadata for {onnx_path}"
             )
             parsed = parse_export_metadata(
                 meta,
@@ -266,5 +297,23 @@ class OnnxBackend(BaseBackend):
         return self._dynamic_batch_axis and not self.embedded_nms
 
     def _run_inference(self, blob: np.ndarray) -> list:
-        """Run ONNX Runtime inference."""
-        return self.session.run(None, {self.input_name: blob})
+        """Run ONNX Runtime inference.
+
+        Float inputs are cast to the graph's input float type, and float16
+        outputs back to float32, so FP16 exports postprocess like FP32 ones.
+        """
+        self._check_fixed_input_size(blob, "ONNX")
+        input_dtype = getattr(self, "_input_float_dtype", None)
+        if (
+            input_dtype is not None
+            and np.issubdtype(blob.dtype, np.floating)
+            and blob.dtype != input_dtype
+        ):
+            blob = blob.astype(input_dtype)
+        outputs = self.session.run(None, {self.input_name: blob})
+        return [
+            output.astype(np.float32)
+            if isinstance(output, np.ndarray) and output.dtype == np.float16
+            else output
+            for output in outputs
+        ]

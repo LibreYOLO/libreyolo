@@ -1,0 +1,48 @@
+LibreLWDETR includes code ported from LW-DETR:
+
+Source: https://github.com/Atten4Vis/LW-DETR
+Commit: d5e6e6c4add2d24dafb965ced8b50163c50b9788
+License: Apache License 2.0.
+Copyright (c) 2024 Baidu. All Rights Reserved.
+
+The upstream source headers carry notices for work modified from ViTDet,
+Conditional DETR, DETR, and Deformable DETR; those headers are preserved in
+the ported modules:
+
+ViTDet
+Source: https://github.com/facebookresearch/detectron2/tree/main/projects/ViTDet
+License: Apache License 2.0.
+Copyright (c) Facebook, Inc. and its affiliates.
+
+Conditional DETR
+Source: https://github.com/Atten4Vis/ConditionalDETR
+License: Apache License 2.0.
+Copyright (c) 2021 Microsoft. All Rights Reserved.
+
+DETR
+Source: https://github.com/facebookresearch/detr
+License: Apache License 2.0.
+Copyright (c) Facebook, Inc. and its affiliates.
+
+Deformable DETR
+Source: https://github.com/fundamentalvision/Deformable-DETR
+License: Apache License 2.0.
+Copyright (c) 2020 SenseTime. All Rights Reserved.
+
+LibreYOLO ports the plain-ViT encoder with interleaved window/global
+attention, the multi-scale projector, and the shallow deformable DETR decoder
+for the five released sizes. Module and attribute names mirror upstream so
+the official Apache-2.0 COCO checkpoints load unchanged, and ported outputs
+are bit-exact against the official implementation (max_abs_diff == 0.0 on
+pred_logits and pred_boxes for all five sizes). Ported inference only: the
+Group-DETR one-to-many training recipe (query groups in self-attention,
+Hungarian matching, the IoU-aware classification loss) is not included,
+although the checkpoint's query groups and per-group two-stage heads are
+materialised so upstream weights load strictly.
+
+Official weights are converted from the upstream Apache-2.0 releases
+(https://huggingface.co/xbsu/LW-DETR) and rehosted at
+LibreYOLO/LibreLWDETR{t,s,m,l,x}. Exact source files, SHA-256 hashes, and
+parity evidence are recorded in docs/provenance/lwdetr.md.
+
+The Apache-2.0 license text is at ``licenses/Apache-2.0.txt``.

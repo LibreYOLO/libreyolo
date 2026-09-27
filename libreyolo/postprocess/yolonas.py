@@ -25,7 +25,11 @@ torchvision = lazy_module("torchvision")
 
 YOLO_NAS_RESIZE_SIZE = 636
 YOLO_NAS_POSE_RESIZE_SIZE = 640
+YOLO_NAS_OBB_RESIZE_SIZE = 1024
 YOLO_NAS_PRE_NMS_TOP_K = 1000
+# Upstream YoloNASRPostPredictionCallback keeps at most 1000 candidates before
+# rotated NMS (recipes/.../dota_yolo_nas_r_s.yaml).
+YOLO_NAS_OBB_PRE_NMS_TOP_K = 1000
 
 
 def _extract_decoded_predictions(output):
@@ -207,7 +211,9 @@ def postprocess_pose(
         scores = output["scores"]
         pose_xy = output["keypoints_xy"]
         pose_conf = output["keypoints_conf"]
-    elif isinstance(output, tuple) and len(output) == 2 and isinstance(output[0], tuple):
+    elif (
+        isinstance(output, tuple) and len(output) == 2 and isinstance(output[0], tuple)
+    ):
         bboxes, scores, pose_xy, pose_conf = output[0]
     else:
         bboxes, scores, pose_xy, pose_conf = output
@@ -319,4 +325,151 @@ def postprocess_pose(
         "classes": classes,
         "num_detections": int(keep.numel()),
         "keypoints": keypoints,
+    }
+
+
+# ---------------------------------------------------------------------------
+# OBB postprocess (YOLO-NAS-R)
+# ---------------------------------------------------------------------------
+
+
+def _extract_obb_predictions(output):
+    """Accept the eager ``(decoded, raw)`` pair, the traced pair, or a dict."""
+    if isinstance(output, dict):
+        return output["boxes"], output["scores"]
+    if isinstance(output, tuple):
+        if len(output) == 2 and isinstance(output[0], tuple):
+            return output[0]
+        if len(output) == 2:
+            return output
+    raise TypeError(
+        f"Unsupported YOLO-NAS OBB output format for postprocess: {type(output)!r}"
+    )
+
+
+def postprocess_obb(
+    output,
+    conf_thres: float = 0.1,
+    iou_thres: float = 0.25,
+    input_size: int = 1024,
+    original_size: Tuple[int, int] | None = None,
+    max_det: int = 300,
+    letterbox: bool = True,
+    resize_size: int = YOLO_NAS_OBB_RESIZE_SIZE,
+    pre_nms_top_k: int = YOLO_NAS_OBB_PRE_NMS_TOP_K,
+    **kwargs,
+):
+    """Decode YOLO-NAS-R rotated predictions into the public OBB contract.
+
+    The head emits ``boxes [B, A, 5]`` as ``cx, cy, w, h, r`` in *model input*
+    pixels with the upstream angle range ``[-3*pi/4, pi/4]``, plus sigmoid
+    ``scores [B, A, C]``. This function:
+
+    1. thresholds on confidence and keeps at most ``pre_nms_top_k`` candidates
+       (upstream default 1000);
+    2. maps boxes back onto the original image canvas by undoing the
+       longest-side rescale and bottom-right padding (a uniform scale, so the
+       rectangle stays a rectangle and the angle is unchanged);
+    3. canonicalises to LibreYOLO's long-side ``[-pi/2, pi/2)`` contract --
+       a representation change only, the polygon is untouched;
+    4. runs the shared exact rotated NMS.
+
+    Note this is *not* upstream's Gaussian matrix soft-NMS: LibreYOLO's OBB
+    contract uses one exact rotated NMS across families (see
+    ``libreyolo/postprocess/obb_ops.py``). Raw pre-NMS parity against upstream
+    is what ``weights/parity_yolonas_obb.py`` gates on.
+    """
+    from .obb_ops import (
+        canonicalize_xywhr_tensor,
+        rotated_nms_keep_indices,
+        xywhr_to_xyxy,
+    )
+
+    empty = {
+        "boxes": [],
+        "scores": [],
+        "classes": [],
+        "obb": [],
+        "num_detections": 0,
+    }
+
+    boxes, scores = _extract_obb_predictions(output)
+    if boxes.dim() == 3:
+        boxes = boxes[0]
+    if scores.dim() == 3:
+        scores = scores[0]
+
+    max_scores, class_ids = torch.max(scores, dim=1)
+    # ``>=`` matches upstream YoloNASRPostPredictionCallback's boundary.
+    mask = max_scores >= conf_thres
+    if not mask.any():
+        return empty
+
+    xywhr = boxes[mask].float()
+    max_scores = max_scores[mask].float()
+    class_ids = class_ids[mask]
+
+    if pre_nms_top_k and max_scores.numel() > pre_nms_top_k:
+        topk = max_scores.topk(pre_nms_top_k)
+        max_scores = topk.values
+        xywhr = xywhr[topk.indices]
+        class_ids = class_ids[topk.indices]
+
+    if original_size is not None:
+        input_h, input_w = _input_size_hw(input_size)
+        if letterbox:
+            orig_w, orig_h = original_size
+            effective_resize = min(resize_size, input_h, input_w)
+            ratio = min(effective_resize / orig_h, effective_resize / orig_w)
+            # Bottom-right padding: no offset to subtract, and the rescale is
+            # uniform, so centres and sides scale while the angle is invariant.
+            xywhr = xywhr.clone()
+            xywhr[:, :4] = xywhr[:, :4] / ratio
+        else:
+            scale_x = original_size[0] / input_w
+            scale_y = original_size[1] / input_h
+            if abs(scale_x - scale_y) > 1e-6:
+                raise ValueError(
+                    "YOLO-NAS OBB requires an aspect-preserving resize: "
+                    "non-uniform x/y scaling turns a rotated rectangle into a "
+                    "parallelogram. Use letterbox=True."
+                )
+            xywhr = xywhr.clone()
+            xywhr[:, :4] *= scale_x
+
+        xywhr[:, 0].clamp_(0, original_size[0])
+        xywhr[:, 1].clamp_(0, original_size[1])
+
+    valid = (xywhr[:, 2] > 0) & (xywhr[:, 3] > 0)
+    if not valid.any():
+        return empty
+    if not valid.all():
+        xywhr = xywhr[valid]
+        max_scores = max_scores[valid]
+        class_ids = class_ids[valid]
+
+    xywhr = canonicalize_xywhr_tensor(xywhr)
+
+    keep = rotated_nms_keep_indices(xywhr, max_scores, class_ids, iou_thres, max_det)
+    if len(keep) == 0:
+        return empty
+
+    xywhr = xywhr[keep]
+    scores_out = max_scores[keep]
+    classes_out = class_ids[keep]
+
+    aabb = xywhr_to_xyxy(xywhr)
+    if original_size is not None:
+        aabb[:, [0, 2]] = torch.clamp(aabb[:, [0, 2]], 0, original_size[0])
+        aabb[:, [1, 3]] = torch.clamp(aabb[:, [1, 3]], 0, original_size[1])
+
+    obb_out = torch.cat(
+        (xywhr, scores_out[:, None], classes_out[:, None].float()), dim=1
+    )
+    return {
+        "boxes": aabb.detach().cpu(),
+        "scores": scores_out.detach().cpu(),
+        "classes": classes_out.detach().cpu().long(),
+        "obb": obb_out.detach().cpu(),
+        "num_detections": int(xywhr.shape[0]),
     }

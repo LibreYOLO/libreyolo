@@ -1,6 +1,6 @@
 # LibreYOLO Testing Strategy
 
-Version: 3.0
+Version: 3.1
 
 This is the CI/test contract for LibreYOLO. Times are UTC.
 
@@ -65,6 +65,14 @@ contract, prefer a local fixture or mock. If real external data is essential,
 move the coverage to the appropriate e2e, nightly, or manual suite.
 
 ### Native-port parity gates
+
+ConvNeXt V2: `tests/unit/test_convnextv2_parity.py` compares all eight
+official 224px classifiers to the pinned Meta graph (set
+`CONVNEXTV2_UPSTREAM` and `CONVNEXTV2_CHECKPOINTS`). Local unit tests cover
+checkpoint, training/resume, and ONNX/TorchScript behavior.
+`tests/e2e/test_convnextv2.py -m e2e` checks real weights and smoke10
+fine-tuning; it is not added to the detection-only nightly catalog.
+Evidence and limits: [ConvNeXt V2](provenance/convnextv2.md).
 
 A ported architecture must have a pinned-reference tensor parity test in
 addition to ordinary shape and API tests. The reference checkout and any
@@ -253,13 +261,15 @@ make test_nightly
 make test_e2e E2E_TIMEOUT=1800
 ```
 
-V3.0 contract:
+V3.1 contract:
 
-- `general_nightly`: a curated matrix of the smallest public checkpoint for 14
+- `general_nightly`: a curated matrix of the smallest public checkpoint for 16
   detector families. It checks stable native inference and batched/sequential
-  parity, plus two open-vocabulary smoke cases; currently 30 tests.
-- `flagship_nightly`: native YOLO9/RF-DETR validation, video, tracking, CLI, and
-  one RF1 training/reload size per flagship family; currently 44 tests. The full
+  parity, plus two open-vocabulary smoke cases; currently 34 tests.
+- `flagship_nightly`: native YOLO9/RF-DETR validation, input equivalence
+  (path/PIL/NumPy sources, mixed-size lists, original-image coordinates), video,
+  tracking, CLI, and one RF1 training/reload size per flagship family; currently
+  58 tests. The full
   RF1 size matrix remains available under `-m rf1` for manual or future
   full-matrix runs.
 - `training_nightly`: opt-in training-time GPU coverage for CUDA graph capture.

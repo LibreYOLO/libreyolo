@@ -96,3 +96,29 @@ def test_bfloat16_validation_uses_explicit_cuda_autocast_dtype(monkeypatch):
         pass
 
     assert calls == [("cuda", torch.bfloat16)]
+
+
+@pytest.mark.parametrize(
+    ("requested", "expected"), [("meta", "meta"), ("auto", "cpu"), (None, "cpu")]
+)
+def test_val_device_moves_model_to_validator_device(monkeypatch, requested, expected):
+    """val(device=...) must run the weights where the validator sends inputs."""
+    from libreyolo import LibreYOLO9
+
+    seen = {}
+
+    class _RecordingValidator:
+        def __init__(self, model, config):
+            seen["config"] = config.device
+            seen["weights"] = next(model.model.parameters()).device.type
+
+        def __call__(self):
+            return {}
+
+    monkeypatch.setattr("libreyolo.validation.DetectionValidator", _RecordingValidator)
+    model = LibreYOLO9._from_scratch(size="t", nb_classes=2, device="cpu")
+
+    model.val(data="x.yaml", device=requested)
+
+    assert seen == {"config": expected, "weights": expected}
+    assert model.device.type == expected

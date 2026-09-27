@@ -223,6 +223,12 @@ class _SegDataset:
     def __len__(self):
         return self.n
 
+    def load_anno(self, idx):
+        return np.array(
+            [[10.0, 12.0, 45.0, 50.0, 1.0], [30.0, 25.0, 70.0, 60.0, 2.0]],
+            dtype=np.float32,
+        )
+
     def pull_item(self, idx):
         r = np.random.RandomState(100 + idx % 4)
         img = r.randint(0, 255, (70, 90, 3), dtype=np.uint8)

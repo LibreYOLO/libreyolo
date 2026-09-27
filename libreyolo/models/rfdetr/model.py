@@ -1,5 +1,6 @@
 """LibreRFDETR implementation for LibreYOLO."""
 
+import logging
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, Tuple
 
@@ -11,8 +12,10 @@ from PIL import Image
 
 from ...training.callbacks import TrainCallbacks
 from ..base import BaseModel
+from ..base.model import _drop_disabled_eval_interval
 from ...data import load_data_config
-from ...tasks import normalize_task
+from ...data.pose_metadata import keypoints_per_class
+from ...tasks import normalize_task, task_to_suffix
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
 from .nn import (
@@ -28,12 +31,23 @@ from .utils import IMAGENET_MEAN, IMAGENET_STD, preprocess_numpy
 from .trainer import RFDETRTrainer
 from ...validation.preprocessors import RFDETRValPreprocessor
 
+logger = logging.getLogger(__name__)
+
 # COCO 91-class to 80-class mapping.
 # RF-DETR pretrained models output 91 COCO category IDs (1-90),
 # but YOLO-format labels use a contiguous 80-class scheme (0-79).
 # Canonical definition lives in libreyolo.utils.coco — LW-DETR (RF-DETR's
 # ancestor) has the same 91-wide head. Aliased here for backward compat.
 _COCO91_TO_COCO80 = COCO91_TO_COCO80
+
+_TRAIN_DEFAULTS = RFDETRConfig()
+# RF-DETR train() spellings of TrainConfig fields.
+_TRAIN_ARG_ALIASES = {
+    "num_workers": "workers",
+    "use_ema": "ema",
+    "checkpoint_interval": "save_period",
+    "early_stopping_patience": "patience",
+}
 
 
 _RFDETR_UPSTREAM_WEIGHT_URLS = {
@@ -75,10 +89,9 @@ class LibreRFDETR(BaseModel):
     multi-scale deformable attention. Segmentation variants add a
     lightweight mask head for instance segmentation.
 
-    autobatch_fraction is lower than the default 0.60 because the probe's
-    fake backward underestimates RF-DETR's real training memory (the loss
-    backward runs through SetCriterion and 6 aux-loss decoder layers), and
-    DDP adds gradient buckets on top.
+    autobatch_fraction is lower than the default 0.60: the probe runs the real
+    loss step at the largest multi-scale canvas, but optimizer/EMA state and
+    DDP gradient buckets are allocated only once training starts.
 
     Args:
         model_path: Path to weights, pre-loaded state_dict, or None for pretrained.
@@ -97,6 +110,14 @@ class LibreRFDETR(BaseModel):
     # Class-level metadata
     FAMILY: ClassVar[str] = "rfdetr"
     FILENAME_PREFIX: ClassVar[str] = "LibreRFDETR"
+    # Dataset-variant weights: ``-ui`` is the class-agnostic UI element
+    # detector (UI-DETR-1, racineai, MIT), an RF-DETR-M fine-tune.
+    WEIGHT_VARIANTS: ClassVar[tuple[str, ...]] = ("ui",)
+    # The filename regex parses any size/task/variant combination; only these
+    # (size, task, variant) artifacts are published.
+    PUBLISHED_WEIGHT_VARIANTS: ClassVar[frozenset[tuple[str, str, str]]] = frozenset(
+        {("m", "detect", "ui")}
+    )
     # Forward is pure tensor work with no host sync, verified to capture and
     # replay bit-identically (tests/unit/test_cuda_graph_families.py).
     SUPPORTS_CUDA_GRAPH = True
@@ -325,6 +346,20 @@ class LibreRFDETR(BaseModel):
         upstream_url = _RFDETR_UPSTREAM_WEIGHT_URLS.get(Path(filename).name.lower())
         if upstream_url is not None:
             return upstream_url
+        variant = cls.detect_variant_from_filename(filename)
+        if variant is not None:
+            size = cls.detect_size_from_filename(filename)
+            task = cls.detect_task_from_filename(filename) or "detect"
+            if (size, task, variant) not in cls.PUBLISHED_WEIGHT_VARIANTS:
+                published = ", ".join(
+                    f"{cls.FILENAME_PREFIX}{s}"
+                    f"{'-' + task_to_suffix(t) if task_to_suffix(t) else ''}-{v}.pt"
+                    for s, t, v in sorted(cls.PUBLISHED_WEIGHT_VARIANTS)
+                )
+                raise FileNotFoundError(
+                    f"No published RF-DETR weights for {Path(filename).name}. "
+                    f"Published dataset variants: {published}."
+                )
         return super().get_download_url(filename)
 
     # =========================================================================
@@ -451,6 +486,10 @@ class LibreRFDETR(BaseModel):
         if weight_source is not None:
             self._load_weights(weight_source)
             self.model.eval()
+        if isinstance(model_path, str):
+            # Record the checkpoint as the factory does, so resume=True (also
+            # in DDP workers, which construct directly) finds the loaded run.
+            self.model_path = weight_source
         if self._is_pose and self.nb_classes == 1 and self.names.get(0) == "class_0":
             self.names = {0: "person"}
 
@@ -740,7 +779,11 @@ class LibreRFDETR(BaseModel):
             chw = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
             chw = F.interpolate(
                 chw,
-                size=(effective_res, effective_res),
+                size=(
+                    tuple(effective_res)
+                    if isinstance(effective_res, (list, tuple))
+                    else (effective_res, effective_res)
+                ),
                 mode="bilinear",
                 align_corners=False,
                 antialias=True,
@@ -834,6 +877,17 @@ class LibreRFDETR(BaseModel):
         keypoint_precision = result.get("keypoint_precision_cholesky")
         obb = result.get("obb")
 
+        if is_grouppose and keypoints is not None:
+            # Keypoint slots are ``max(schema)`` wide; report ``kpt_shape[0]``
+            # rows, zero-padded, when no class uses the full skeleton.
+            missing = int(self.num_keypoints) - int(keypoints.shape[1])
+            if missing > 0:
+                keypoints = torch.nn.functional.pad(keypoints, (0, 0, 0, missing))
+                if keypoint_precision is not None:
+                    keypoint_precision = torch.nn.functional.pad(
+                        keypoint_precision, (0, 0, 0, missing), value=float("nan")
+                    )
+
         keep = scores > conf_thres
         scores = scores[keep]
         labels = labels[keep]
@@ -907,6 +961,8 @@ class LibreRFDETR(BaseModel):
 
             if not isinstance(loaded, dict):
                 raise TypeError("RF-DETR checkpoints must be dictionaries")
+            self._cache_checkpoint_train_config(loaded)
+            checkpoint_input_metadata = loaded
 
             ckpt_family = loaded.get("model_family", "")
             if ckpt_family and ckpt_family != self.FAMILY:
@@ -989,6 +1045,8 @@ class LibreRFDETR(BaseModel):
 
                 apply_quant_structure(self, quant_manifest)
 
+            from ...utils.event_histogram import restore_input
+            restore_input(self, checkpoint_input_metadata)
             missing, unexpected = self.model.load_state_dict(loaded, strict=False)
             if unexpected:
                 raise RuntimeError(
@@ -1052,13 +1110,12 @@ class LibreRFDETR(BaseModel):
                 if isinstance(args, dict)
                 else getattr(args, "class_names", None)
             )
-            if class_names:
+            # Pose checkpoint metadata is authoritative; legacy args are a fallback.
+            if class_names and (ckpt_names is None or not self._is_pose):
                 self.names = {
                     i: str(name)
                     for i, name in enumerate(class_names[: self.nb_classes])
                 }
-            if self._is_pose and self.nb_classes == 1:
-                self.names = {0: "person"}
 
             if missing:
                 # ``strict=False`` is expected for class/head adaptation and older
@@ -1166,6 +1223,20 @@ class LibreRFDETR(BaseModel):
         if model is not None and hasattr(model, "eval"):
             model.eval()
 
+    def _resume_saved_settings(self, resume_path: str | Path) -> dict[str, Any]:
+        """Training settings saved in a resume checkpoint, minus the ones a
+        resume never restores (architecture, device, run directory, data)."""
+        from dataclasses import fields
+
+        from ..base.model import _RESUME_UNRESTORED_KEYS
+
+        valid = {field.name for field in fields(RFDETRConfig)}
+        return {
+            key: value
+            for key, value in self._checkpoint_train_config(resume_path).items()
+            if key in valid and key != "data" and key not in _RESUME_UNRESTORED_KEYS
+        }
+
     def _resume_checkpoint_uses_lora(self, resume_path: str | Path) -> bool:
         """Return True when a resume checkpoint needs a LoRA-wrapped graph."""
         path = Path(resume_path)
@@ -1194,11 +1265,11 @@ class LibreRFDETR(BaseModel):
     @ddp_aware(batch_key="batch_size")
     def train(
         self,
-        data: str,
-        epochs: int = 100,
+        data: str | None = None,
+        epochs: int | None = None,
         batch_size: int | None = None,
         lr: float | None = None,
-        output_dir: str = "runs/train",
+        output_dir: str | None = None,
         resume: str | Path | bool | None = None,
         callbacks: TrainCallbacks = None,
         loggers=None,
@@ -1207,28 +1278,89 @@ class LibreRFDETR(BaseModel):
         """Fine-tune RF-DETR through LibreYOLO's native trainer.
 
         Args:
-            data: Path to the dataset YAML file.
-            epochs: Number of epochs to train.
+            data: Path to the dataset YAML file. Optional when resuming: the
+                dataset saved in the resume checkpoint is used.
+            epochs: Number of epochs to train (default 100).
             batch_size: Batch size (alias of ``batch=`` passed via kwargs).
             lr: Initial learning rate (alias of ``lr0=`` passed via kwargs).
-            output_dir: Directory for training runs and checkpoints.
+            output_dir: Directory for training runs and checkpoints, split into
+                ``project`` (parent) and ``name`` (leaf). Defaults to
+                ``<RFDETRConfig.project>/<RFDETRConfig.name>`` when omitted;
+                ``project=`` / ``name=`` kwargs take precedence over this split.
             resume: Checkpoint path, or True to resume the loaded checkpoint.
-            callbacks: Optional training callback or iterable of callbacks.
+                The run continues with its saved training settings; arguments
+                passed explicitly override them.
+            callbacks: Optional callback or iterable. One object may define
+                fitness(metrics) to select best.pt and drive patience; custom
+                fitness requires a new run (resume=False).
             loggers: Optional built-in experiment loggers: a registered name,
                 a configured logger instance, or an iterable mixing both.
         """
-        output_path = Path(output_dir)
         train_kwargs = dict(kwargs)
         project = train_kwargs.pop("project", None)
         name = train_kwargs.pop("name", None)
-        exist_ok = train_kwargs.pop("exist_ok", True)
+        exist_ok_given = "exist_ok" in train_kwargs
+        exist_ok = train_kwargs.pop("exist_ok", _TRAIN_DEFAULTS.exist_ok)
         batch = train_kwargs.pop("batch", None)
         lr0 = train_kwargs.pop("lr0", None)
-        if project is None:
-            project = output_path.parent
-        if name is None:
-            name = output_path.name
+        resume_checkpoint = None
+        resumes_own_run = False
+        if resume and output_dir is None and project is None and name is None:
+            # A run checkpoint (<run>/weights/*.pt), loaded or passed as a
+            # path, keeps writing into its own run.
+            resume_checkpoint = self._loaded_run_checkpoint(
+                None if resume is True else resume
+            )
+            if resume_checkpoint is not None and resume_checkpoint.parent.parent.name:
+                project = resume_checkpoint.parent.parent.parent
+                name = resume_checkpoint.parent.parent.name
+                resumes_own_run = True
+        if output_dir is not None:
+            output_path = Path(output_dir)
+            if project is None:
+                project = output_path.parent
+            if name is None:
+                name = output_path.name
+        else:
+            if project is None:
+                project = _TRAIN_DEFAULTS.project
+            if name is None:
+                name = _TRAIN_DEFAULTS.name
         run_dir = Path(project) / str(name)
+        if (resume is True or resumes_own_run) and not exist_ok_given:
+            # The resumed run is this exact run_dir; keep writing there unless
+            # exist_ok=False asks for a new run.
+            exist_ok = True
+
+        resume_path = None
+        if resume:
+            if resume_checkpoint is not None:
+                resume_path = resume_checkpoint
+            else:
+                resume_path = (
+                    run_dir / "weights" / "last.pt" if resume is True else resume
+                )
+            # Continue with the run's saved settings; explicit arguments win.
+            saved = self._resume_saved_settings(resume_path)
+            _drop_disabled_eval_interval(saved, train_kwargs.get("val"))
+            if data is None:
+                data = self._checkpoint_train_config(resume_path).get("data")
+            if epochs is None:
+                epochs = saved.get("epochs")
+            if batch is None and batch_size is None:
+                batch = saved.get("batch")
+            if lr0 is None and lr is None:
+                lr0 = saved.get("lr0")
+            explicit = set(train_kwargs) | {
+                canonical
+                for alias, canonical in _TRAIN_ARG_ALIASES.items()
+                if alias in train_kwargs
+            }
+            for key, value in saved.items():
+                if key not in explicit and key not in ("epochs", "batch", "lr0"):
+                    train_kwargs[key] = value
+        if epochs is None:
+            epochs = _TRAIN_DEFAULTS.epochs
 
         if batch is not None and batch_size is not None and batch != batch_size:
             raise ValueError(
@@ -1243,6 +1375,11 @@ class LibreRFDETR(BaseModel):
             resolved_batch = 4
         if resolved_lr0 is None:
             resolved_lr0 = 1e-4
+        if not data:
+            raise ValueError(
+                "RF-DETR train() needs data= (a dataset yaml)"
+                + ("; the resume checkpoint saved none." if resume else ".")
+            )
 
         pose_train_metadata = {}
         if self._is_pose:
@@ -1259,29 +1396,56 @@ class LibreRFDETR(BaseModel):
                 raise ValueError(
                     f"RF-DETR pose training supports keypoint_dim 2 or 3, got {keypoint_dim}"
                 )
-            data_nc = int(data_cfg.get("nc", 1))
-            if data_nc != 1:
+            names = data_cfg.get("names")
+            data_nc = int(
+                data_cfg.get("nc", len(names) if names is not None else 1)
+            )
+            if data_nc > 1 and not names:
+                # The pose validator builds its categories from ``names``.
                 raise ValueError(
-                    f"RF-DETR pose training expects a person-only dataset with nc=1, got nc={data_nc}"
+                    f"RF-DETR pose training on nc={data_nc} classes needs "
+                    "``names`` in the dataset yaml"
                 )
-            if self.model.num_keypoints != num_keypoints:
+            counts = keypoints_per_class(data_cfg, data_nc, num_keypoints)
+            if not any(counts):
+                raise ValueError(
+                    "RF-DETR pose training needs at least one class with "
+                    "keypoints; kpt_names declares none"
+                )
+            narrowed = {
+                j: count for j, count in enumerate(counts) if count < num_keypoints
+            }
+            if narrowed:
+                logger.warning(
+                    "kpt_names narrows RF-DETR pose classes to fewer than the "
+                    "%d kpt_shape keypoints (class id: keypoints used): %s",
+                    num_keypoints,
+                    narrowed,
+                )
+            if getattr(self.model.model, "use_grouppose_keypoints", False):
+                # GroupPose schema: a leading empty slot, then one keypoint
+                # count per contiguous class (``[0, 17]`` for person-only).
+                target_schema = [0, *counts]
+                if list(self.model.model.get_num_keypoints_per_class()) != target_schema:
+                    self.model.model.reinitialize_keypoint_head(target_schema)
+                self.model.num_keypoints_per_class = target_schema
+                self.model.args.num_keypoints_per_class = target_schema
+                self.model.num_keypoints = num_keypoints
+                self.model.args.num_keypoints = num_keypoints
+            elif self.model.num_keypoints != num_keypoints:
                 self.model.model.reinitialize_keypoint_head(num_keypoints)
                 self.model.num_keypoints = num_keypoints
                 self.model.args.num_keypoints = num_keypoints
-                # --- GroupPose keypoint additions (adapted from RF-DETR v1.8.0). ---
-                # reinitialize_keypoint_head resizes the inner model's GroupPose
-                # schema (e.g. [0, 17] -> [0, K]); propagate the resized schema to
-                # the wrapper and args so the grouppose postprocess (which reads
-                # the schema) and the criterion build (from args) match the new
-                # 2*K keypoint slots instead of the stale [0, 17].
-                if getattr(self.model.model, "use_grouppose_keypoints", False):
-                    resized_schema = list(self.model.model.get_num_keypoints_per_class())
-                    self.model.num_keypoints_per_class = resized_schema
-                    self.model.args.num_keypoints_per_class = resized_schema
             self.num_keypoints = num_keypoints
             self.keypoint_dim = keypoint_dim
-            self.nb_classes = 1
-            self.names = {0: "person"}
+            self.nb_classes = data_nc
+            if isinstance(names, (list, tuple)):
+                names = dict(enumerate(names))
+            self.names = (
+                self._sanitize_names(names, data_nc)
+                if names
+                else {0: "person"} if data_nc == 1 else self._sanitize_names({}, data_nc)
+            )
             oks_sigmas = train_kwargs.get(
                 "oks_sigmas",
                 data_cfg.get("oks_sigmas", data_cfg.get("sigmas")),
@@ -1289,7 +1453,7 @@ class LibreRFDETR(BaseModel):
             pose_train_metadata = {
                 "num_keypoints": num_keypoints,
                 "keypoint_dim": keypoint_dim,
-                "num_classes": 1,
+                "num_classes": data_nc,
             }
             if oks_sigmas is not None:
                 pose_train_metadata["oks_sigmas"] = oks_sigmas
@@ -1316,20 +1480,16 @@ class LibreRFDETR(BaseModel):
                 name="RF-DETR train imgsz",
             )
 
-        aliases = {
-            "num_workers": "workers",
-            "use_ema": "ema",
-            "checkpoint_interval": "save_period",
-            "early_stopping_patience": "patience",
-        }
-        for src, dst in aliases.items():
+        for src, dst in _TRAIN_ARG_ALIASES.items():
             if src in train_kwargs:
                 train_kwargs[dst] = train_kwargs.pop(src)
         train_kwargs.pop("early_stopping", None)
 
-        resume_path = None
         if resume:
-            resume_path = run_dir / "weights" / "last.pt" if resume is True else resume
+            if not train_kwargs.get("single_cls", False):
+                checkpoint_config = self._checkpoint_train_config(resume_path)
+                if bool(checkpoint_config.get("single_cls", False)):
+                    train_kwargs["single_cls"] = True
             if not train_kwargs.get(
                 "lora", False
             ) and self._resume_checkpoint_uses_lora(resume_path):

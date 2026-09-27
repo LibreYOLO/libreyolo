@@ -6,7 +6,7 @@ DeepStream's `nvinfer` element (Jetson and x86 dGPU):
 ```python
 from libreyolo import LibreYOLO9
 
-model = LibreYOLO9("libreyolo9s.pt", size="s")
+model = LibreYOLO9("LibreYOLO9s.pt", size="s")
 model.export(format="onnx", deepstream=True)
 ```
 
@@ -31,13 +31,33 @@ model-specific engine filename.
 `nvinfer` needs a custom bounding-box parser for this output layout. The
 generated config targets `NvDsInferParseYolo` from the MIT-licensed
 [DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo)
-project. Build it once per device:
+project. Build it once per device, **inside the DeepStream container**.
+A host-side `CUDA_VER=12.8 make` is not enough: on the validated
+`nvcr.io/nvidia/deepstream:8.0-samples-multiarch` image, `/usr/local/cuda-12`
+is a stub (`fatal error: crt/host_defines.h: No such file or directory`)
+and the image ships `libcublas.so.12` but not the unversioned
+`libcublas.so` that `-lcublas` needs.
 
 ```bash
-git clone https://github.com/marcoslucianops/DeepStream-Yolo
-cd DeepStream-Yolo
-# CUDA_VER: see /usr/local/cuda/version.json (Jetson and x86 differ)
-CUDA_VER=12.8 make -C nvdsinfer_custom_impl_Yolo
+git clone --depth 1 https://github.com/marcoslucianops/DeepStream-Yolo.git
+
+# Prefer a toolkit that actually carries the CUDA headers. On the 8.0
+# image that is cuda-12.5, not the cuda-12 stub.
+CUDA_DIR=$(readlink -f /usr/local/cuda)
+[ -f "$CUDA_DIR/include/crt/host_defines.h" ] || \
+  CUDA_DIR=$(ls -d /usr/local/cuda-*.* | sort -Vr | \
+             while read d; do [ -f "$d/include/crt/host_defines.h" ] && echo "$d" && break; done)
+
+# Give the linker the unversioned sonames it asks for.
+mkdir -p /tmp/cudalibs
+for lib in cublas cublasLt cudart; do
+  real=$(find /usr/local -name "lib${lib}.so.1*" | grep -v stubs | sort -V | tail -1)
+  ln -sf "$real" "/tmp/cudalibs/lib${lib}.so"
+done
+export LIBRARY_PATH="/tmp/cudalibs:$LIBRARY_PATH"
+
+make -C DeepStream-Yolo/nvdsinfer_custom_impl_Yolo \
+  CUDA_VER="${CUDA_DIR##*/cuda-}"
 ```
 
 Adjust `custom-lib-path` in the generated config to the built
@@ -65,13 +85,15 @@ as a secondary classifier behind a detector.
 
 **Instance segmentation** (`network-type=3`, needs the *seg* parser build):
 rfdetr, dfine, ec. Rows are the detection row followed by that instance's
-mask, flattened at `(netH / 4, netW / 4)` — the resolution the seg parser
-hardcodes — as probabilities for `segmentation-threshold`. This parser is a
-separate MIT project and a separate build:
+mask, flattened at `(netH / 4, netW / 4)` (the resolution the seg parser
+hardcodes) as probabilities for `segmentation-threshold`. This parser is a
+separate MIT project and a separate build, using the same CUDA_DIR and
+LIBRARY_PATH setup as the detector parser:
 
 ```bash
-git clone https://github.com/marcoslucianops/DeepStream-Yolo-Seg
-CUDA_VER=12.8 make -C DeepStream-Yolo-Seg/nvdsinfer_custom_impl_Yolo_seg
+git clone --depth 1 https://github.com/marcoslucianops/DeepStream-Yolo-Seg.git
+make -C DeepStream-Yolo-Seg/nvdsinfer_custom_impl_Yolo_seg \
+  CUDA_VER="${CUDA_DIR##*/cuda-}"
 ```
 
 LibreYOLO's seg families export per-query masks directly, so the graph only
@@ -102,7 +124,7 @@ regular ONNX export. No labels file is written.
 |---|---|
 | Depth | depth_anything, zipdepth |
 | Pose | yolo9, yolonas, rfdetr, ec |
-| Restoration | nafnet, realesrgan, swinir |
+| Restoration | nafnet, quicksrnet, realesrgan, swinir |
 | Matting | birefnet |
 | Gaze | l2cs |
 
@@ -124,7 +146,8 @@ Known deviations from the native Python pipelines, documented here for
 benchmark accounting:
 
 - Letterbox families (yolo9, yolox, yolonas, rtmdet, yolo2/3/4/7) pad with
-  gray natively; `nvinfer` pads black.
+  gray natively; `nvinfer` pads black. YOLO9-family configs set
+  `symmetric-padding=1` when the checkpoint's `letterbox_pad` is `center`.
 - yolonas detection natively resizes the longest side to 636 inside its 640
   canvas; `nvinfer`'s `maintain-aspect-ratio` uses the full 640. Yolonas pose
   already uses the full 640, BGR input, and bottom/right padding; its generated

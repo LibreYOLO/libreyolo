@@ -81,17 +81,20 @@ class YOLO9E2ELoss:
         dfl_loss = loss_many["dfl_loss"] + loss_one["dfl_loss"]
         cls_loss = loss_many["cls_loss"] + loss_one["cls_loss"]
 
+        # Logging values stay detached 0-dim tensors: the per-key ``.item()``
+        # calls here were GPU pipeline drains every step (issue #763). Float
+        # conversion happens once, batched, in ``get_loss_components``.
         num_fg = loss_many.get("num_fg", 0) + loss_one.get("num_fg", 0)
         if isinstance(num_fg, Tensor):
-            num_fg = num_fg.item()
+            num_fg = num_fg.detach()
 
         return {
             "total_loss": total_loss,
             "box_loss": box_loss,
             "dfl_loss": dfl_loss,
             "cls_loss": cls_loss,
-            "box": box_loss.item() if isinstance(box_loss, Tensor) else box_loss,
-            "dfl": dfl_loss.item() if isinstance(dfl_loss, Tensor) else dfl_loss,
-            "cls": cls_loss.item() if isinstance(cls_loss, Tensor) else cls_loss,
+            "box": box_loss.detach(),
+            "dfl": dfl_loss.detach(),
+            "cls": cls_loss.detach(),
             "num_fg": num_fg,
         }

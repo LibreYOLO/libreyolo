@@ -132,8 +132,23 @@ class LibreL2CS(BaseModel):
         # (large-file confirm-token flow), so auto-download is handled in
         # _load_weights via gdown rather than the shared requests-based path.
         # It is never mirrored on the LibreYOLO HF org — the Gaze360 license
-        # forbids redistributing models derived from the dataset.
-        return None
+        # forbids redistributing models derived from the dataset. Raise for
+        # our own names so the factory reports that instead of "no URL".
+        size = cls.detect_size_from_filename(filename)
+        if size is None:
+            return None
+        if size != "r50":
+            raise FileNotFoundError(
+                f"{Path(filename).name}: upstream L2CS released only the "
+                "ResNet-50 Gaze360 checkpoint (r50); pass a local checkpoint "
+                f"for size {size}."
+            )
+        raise FileNotFoundError(
+            f"{Path(filename).name}: LibreYOLO does not host L2CS weights (the "
+            "Gaze360 license forbids redistribution). Pass the path to a local "
+            "L2CSNet_gaze360.pkl, or use LibreL2CS('LibreL2CSr50.pt'), which "
+            f"tries the upstream download: {cls._WEIGHTS_URL}"
+        )
 
     @classmethod
     def supports_autodownload(cls, filename: str) -> bool:

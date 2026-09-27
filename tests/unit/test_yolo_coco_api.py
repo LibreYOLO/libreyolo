@@ -9,6 +9,41 @@ from libreyolo.data import YOLOCocoAPI, create_yolo_coco_api, parse_yolo_label_l
 pytestmark = pytest.mark.unit
 
 
+def test_result_ids_do_not_allow_duplicate_detections_to_rematch_ground_truth():
+    """COCO uses zero as its unmatched sentinel, including detection ids."""
+    from copy import deepcopy
+
+    import numpy as np
+    from pycocotools.coco import COCO
+    from pycocotools.cocoeval import COCOeval
+
+    gt = COCO()
+    gt.dataset = {
+        "images": [{"id": 1, "height": 100, "width": 100}],
+        "categories": [{"id": 0, "name": "object"}],
+        "annotations": [
+            {"id": 1, "image_id": 1, "category_id": 0, "bbox": [10, 10, 20, 20], "area": 400, "iscrowd": 0},
+            {"id": 2, "image_id": 1, "category_id": 0, "bbox": [60, 60, 20, 20], "area": 400, "iscrowd": 0},
+        ],
+    }
+    gt.createIndex()
+    adapter = YOLOCocoAPI.__new__(YOLOCocoAPI)
+    for key in ("dataset", "imgs", "cats", "anns", "imgToAnns"):
+        setattr(adapter, key, getattr(gt, key))
+    predictions = [
+        {"image_id": 1, "category_id": 0, "bbox": [10, 10, 20, 20], "score": .9},
+        {"image_id": 1, "category_id": 0, "bbox": [10, 10, 20, 20], "score": .8},
+    ]
+    candidate = COCOeval(gt, adapter.loadRes(deepcopy(predictions)), "bbox")
+    reference = COCOeval(gt, gt.loadRes(deepcopy(predictions)), "bbox")
+    for evaluator in (candidate, reference):
+        evaluator.evaluate()
+        evaluator.accumulate()
+    np.testing.assert_array_equal(candidate.eval["recall"], reference.eval["recall"])
+    np.testing.assert_array_equal(candidate.eval["precision"], reference.eval["precision"])
+    assert candidate.eval["recall"].max() == .5
+
+
 class TestParseYOLOLabelLine:
     """Test YOLO label parsing."""
 

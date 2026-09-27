@@ -38,10 +38,15 @@ class LibreSAM1(LibreSAMModel):
 
     FAMILY = "sam"
     FILENAME_PREFIX = "LibreSAM"
+    # SAM-1's weights are Apache-2.0, which permits redistribution, so these are
+    # mirrored on the LibreYOLO org rather than fetched from Meta. The mirrors
+    # carry Meta's weights and config byte for byte, plus the licence and a
+    # NOTICE; upstream's duplicate pytorch_model.bin and tf_model.h5 are not
+    # mirrored because the loader reads the safetensors file.
     HF_REPOS = {
-        "base": "facebook/sam-vit-base",
-        "large": "facebook/sam-vit-large",
-        "huge": "facebook/sam-vit-huge",
+        "base": "LibreYOLO/LibreSAMbase",
+        "large": "LibreYOLO/LibreSAMlarge",
+        "huge": "LibreYOLO/LibreSAMhuge",
     }
     INPUT_SIZES = {"base": 1024, "large": 1024, "huge": 1024}
 

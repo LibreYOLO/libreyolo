@@ -10,11 +10,19 @@ The practical consequence is that the upstream package is an optional
 dependency the user installs themselves. LibreYOLO ships no SAM-licensed bytes,
 and a user who never touches the mesh task never encounters those terms. The
 weights are a separate matter: the SAM License does permit redistribution with
-passthrough, so they are mirrored on the LibreYOLO org behind the same kind of
-gate Meta uses.
+passthrough, so they are mirrored on the LibreYOLO org behind an automatic
+gate that records license acceptance plus self-attested identity and
+jurisdiction. It is not manual approval or screening by Meta.
 
 The body model underneath is MHR, which is Apache 2.0 and fetched from its
 public release by :func:`~libreyolo.models.sam3dbody.mhr_body.ensure_mhr_model`.
+
+Security boundary: the upstream public constructor accepts checkpoint and MHR
+pathnames, not already-open descriptors. LibreYOLO hashes both exact file sets
+immediately before and after construction and rejects linked parent chains,
+but a same-user process could still perform a transient valid-to-invalid-to-
+valid replacement between those checks. These paths therefore must be on a
+trusted, quiescent local filesystem while the model is being constructed.
 """
 
 from __future__ import annotations
@@ -29,13 +37,23 @@ import torch
 import torch.nn as nn
 
 from ..base.model import BaseModel
-from .mhr_body import ensure_mhr_model
+from .mhr_body import ensure_mhr_model, inspect_mhr_model
 from .person import PersonDetector, resolve_person_detector
+from .snapshot import (
+    acquire_sam_snapshot,
+    inspect_sam_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
 UPSTREAM_REPO = "https://github.com/facebookresearch/sam-3d-body"
-SAM_LICENSE_URL = f"{UPSTREAM_REPO}/blob/main/LICENSE"
+UPSTREAM_REVISION = "b5c765a0d89d789985e186d396315e7590887b94"
+UPSTREAM_SOURCE_URL = f"{UPSTREAM_REPO}/tree/{UPSTREAM_REVISION}"
+SAM_LICENSE_URL = f"{UPSTREAM_REPO}/blob/{UPSTREAM_REVISION}/LICENSE"
+UPSTREAM_PATH_TRUST_BOUNDARY = (
+    "checkpoint and MHR paths must be on a trusted, quiescent same-user local "
+    "filesystem while the upstream path-only constructor runs"
+)
 
 
 class LibreSAM3DBody(BaseModel):
@@ -79,7 +97,9 @@ class LibreSAM3DBody(BaseModel):
         )
         self.names = {0: "person"}
         self.person_detector = (
-            resolve_person_detector(person_detector) if person_detector is not None else None
+            resolve_person_detector(person_detector)
+            if person_detector is not None
+            else None
         )
         self.model.eval()
 
@@ -110,74 +130,90 @@ class LibreSAM3DBody(BaseModel):
                 "License rather than a permissive one.\n\n"
                 "Install it yourself:\n"
                 f"  git clone {UPSTREAM_REPO}\n"
+                f"  git -C sam-3d-body checkout --detach {UPSTREAM_REVISION}\n"
                 "  pip install roma einops yacs omegaconf braceexpand "
                 "pytorch-lightning timm\n\n"
+                "For automatic checkpoint acquisition, also install\n"
+                '  pip install "libreyolo[hf]"\n\n'
                 "Then point LibreYOLO at the clone, either with\n"
                 "  LibreSAM3DBody(..., sam_3d_body_path='/path/to/sam-3d-body')\n"
                 "or by setting the SAM_3D_BODY_PATH environment variable.\n\n"
                 f"Its terms, which you accept by using it: {SAM_LICENSE_URL}"
             ) from e
 
-    @classmethod
-    def _resolve_checkpoint(cls, model_path, size: str) -> Path:
-        """Locate the upstream checkpoint, downloading from the mirror if needed."""
+    def _resolve_checkpoint(self, model_path, size: str) -> Path:
+        """Locate and byte-validate the exact reviewed upstream checkpoint."""
         if model_path is not None:
-            path = Path(model_path)
+            path = Path(model_path).absolute()
             if path.is_dir():
-                path = path / "model.ckpt"
-            if not path.exists():
+                root = path
+            else:
+                if path.name != "model.ckpt":
+                    raise ValueError(
+                        "SAM 3D Body explicit checkpoints must be named model.ckpt "
+                        "and sit beside their reviewed model_config.yaml and LICENSE"
+                    )
+                root = path.parent
+            if not os.path.lexists(path):
                 raise FileNotFoundError(f"SAM 3D Body checkpoint not found: {path}")
-            return path
-
-        cache = Path.home() / ".cache" / "libreyolo" / "sam3dbody" / size
-        ckpt = cache / "model.ckpt"
-        if ckpt.exists():
-            return ckpt
-        return cls._download_checkpoint(cache, size)
+            identity = inspect_sam_snapshot(root, size, managed=False)
+        else:
+            identity = acquire_sam_snapshot(size)
+        self._checkpoint_snapshot_identity = identity
+        return identity.root / "model.ckpt"
 
     @classmethod
     def _download_checkpoint(cls, cache: Path, size: str) -> Path:
-        """Fetch the checkpoint and its config from the gated LibreYOLO mirror."""
-        repo = f"LibreYOLO/{cls.FILENAME_PREFIX}{size}-mesh"
-        try:
-            from huggingface_hub import hf_hub_download
-        except ImportError as e:
-            raise ImportError(
-                "huggingface_hub is required to download SAM 3D Body weights."
-            ) from e
-
-        cache.mkdir(parents=True, exist_ok=True)
-        try:
-            # The config must sit beside the checkpoint: upstream's loader looks
-            # for model_config.yaml next to (or one level above) the weights.
-            for filename in ("model_config.yaml", "LICENSE", "model.ckpt"):
-                hf_hub_download(repo_id=repo, filename=filename, local_dir=str(cache))
-        except Exception as e:  # noqa: BLE001 - surface the gate, whatever the cause
-            raise RuntimeError(
-                f"Could not download SAM 3D Body weights from {repo}.\n\n"
-                "These weights are redistributed under Meta's SAM License, and "
-                "the mirror is gated: you must accept the license terms on the "
-                f"model page (https://huggingface.co/{repo}) and authenticate "
-                "with `hf auth login`.\n\n"
-                f"Underlying error: {e}"
-            ) from e
-        return cache / "model.ckpt"
+        """Fetch a revision-keyed checkpoint view (legacy private helper)."""
+        identity = acquire_sam_snapshot(size, cache_root=cache)
+        return identity.root / "model.ckpt"
 
     # =========================================================================
     # BaseModel surface
     # =========================================================================
 
     def _init_model(self) -> nn.Module:
+        """Construct upstream under the documented path-only trust boundary."""
         self._import_upstream()
         from sam_3d_body import load_sam_3d_body
 
-        mhr = Path(self._mhr_path) if self._mhr_path else ensure_mhr_model()
+        mhr = (
+            Path(self._mhr_path).absolute()
+            if self._mhr_path is not None
+            else ensure_mhr_model()
+        )
+        mhr_before = inspect_mhr_model(mhr)
+        before = inspect_sam_snapshot(
+            self._checkpoint_snapshot_identity.root,
+            self.size,
+            managed=None,
+        )
+        if before != self._checkpoint_snapshot_identity:
+            raise RuntimeError(
+                "SAM 3D Body checkpoint/config bytes changed before the upstream "
+                "loader could construct the model"
+            )
         # Honour the caller's device rather than grabbing any available GPU:
         # device="cpu" on a CUDA machine is a legitimate request, and silently
         # overriding it would also desynchronize the guard in estimate().
         model, cfg = load_sam_3d_body(
             str(self._ckpt_path), device=str(self.device), mhr_path=str(mhr)
         )
+        mhr_observed = inspect_mhr_model(mhr)
+        if mhr_observed != mhr_before:
+            raise RuntimeError(
+                "MHR bytes changed while the upstream loader was constructing the model"
+            )
+        observed = inspect_sam_snapshot(
+            self._checkpoint_snapshot_identity.root,
+            self.size,
+            managed=None,
+        )
+        if observed != self._checkpoint_snapshot_identity:
+            raise RuntimeError(
+                "SAM 3D Body checkpoint/config bytes changed while the upstream "
+                "loader was constructing the model"
+            )
         self._cfg = cfg
         return model
 
@@ -232,14 +268,20 @@ class LibreSAM3DBody(BaseModel):
         if focal_length is not None:
             h, w = image_rgb.shape[:2]
             cam_int = torch.tensor(
-                [[[float(focal_length), 0.0, w / 2.0],
-                  [0.0, float(focal_length), h / 2.0],
-                  [0.0, 0.0, 1.0]]],
+                [
+                    [
+                        [float(focal_length), 0.0, w / 2.0],
+                        [0.0, float(focal_length), h / 2.0],
+                        [0.0, 0.0, 1.0],
+                    ]
+                ],
                 dtype=torch.float32,
             )
         return self.estimator.process_one_image(
-            image_rgb, bboxes=np.asarray(boxes_xyxy, dtype=np.float32),
-            cam_int=cam_int, inference_type="body",
+            image_rgb,
+            bboxes=np.asarray(boxes_xyxy, dtype=np.float32),
+            cam_int=cam_int,
+            inference_type="body",
         )
 
     @property
@@ -302,7 +344,7 @@ class LibreSAM3DBody(BaseModel):
     def train(self, *args, **kwargs):
         raise NotImplementedError(
             "Training is out of scope for LibreSAM3DBody. Train upstream at "
-            f"{UPSTREAM_REPO}."
+            f"{UPSTREAM_SOURCE_URL}."
         )
 
     def export(self, format: str = "onnx", **kwargs) -> str:

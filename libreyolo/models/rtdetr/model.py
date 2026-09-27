@@ -150,6 +150,7 @@ class LibreRTDETR(BaseModel):
         "x": 640,
     }
     TRAIN_CONFIG = RTDETRConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = RTDETRValPreprocessor
 
     # =========================================================================
@@ -284,6 +285,25 @@ class LibreRTDETR(BaseModel):
         return 80  # default COCO
 
     @classmethod
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        # Legacy size inference below accepts tokens such as "-l" anywhere.
+        # Autodownload must not mistake another family's "-log" or "-layered"
+        # variant for RT-DETR-L. Keep that inference only for local checkpoints.
+        basename = os.path.basename(filename)
+        # Ecosystem names (rtdetr-l.pt) and the hyphenated LibreRTDETR-l.pt
+        # download the canonical LibreRTDETR<size>.pt, as in 1.5.0.
+        alias = re.fullmatch(
+            r"(?:rtdetr|librertdetr)-([a-z0-9]+)\.pt", basename.lower()
+        )
+        if alias is not None and alias.group(1) in cls.INPUT_SIZES:
+            basename = f"{cls.FILENAME_PREFIX}{alias.group(1)}.pt"
+        pattern = cls._filename_regex()
+        if pattern is None or pattern.fullmatch(basename.lower()) is None:
+            return None
+        canonical = cls.FILENAME_PREFIX + basename[len(cls.FILENAME_PREFIX) :].lower()
+        return super().get_download_url(canonical)
+
+    @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         """Override to handle multi-char size codes like r18, r34, r50, r50m, r101."""
         sizes = list(cls.INPUT_SIZES.keys())
@@ -294,12 +314,16 @@ class LibreRTDETR(BaseModel):
             pattern = rf"{cls.FILENAME_PREFIX}[-_]?{re.escape(size)}[^a-z0-9]"
             if re.search(pattern, basename):
                 return size
-            # Also try just the size code anywhere in the filename
-            if (
-                f"-{size}" in basename
-                or f"_{size}" in basename
-                or basename.startswith(f"{size}")
-            ):
+            # Also try just the size code anywhere in the filename.
+            # The basename.startswith() branch is restricted to multi-char
+            # sizes (r18, r34, r50, r50m, r101): single-char codes like "l"
+            # and "x" match arbitrary English filenames ("last.pt",
+            # "xlnet.pt") and would misroute unrelated checkpoints here.
+            # Require a non-alphanumeric delimiter after the size code so
+            # substrings like "_x" inside "model_xlnet.pt" do not match.
+            if re.search(rf"(?:-|_){re.escape(size)}[^a-z0-9]", basename):
+                return size
+            if len(size) > 1 and basename.startswith(f"{size}"):
                 return size
         return None
 
@@ -556,6 +580,7 @@ class LibreRTDETR(BaseModel):
                 data,
                 autodownload=True,
                 allow_scripts=allow_download_scripts,
+                single_cls=bool(kwargs.get("single_cls", False)),
             )
             data = data_config.get("yaml_file", data)
         except Exception as e:
@@ -611,13 +636,8 @@ class LibreRTDETR(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreRTDETR('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
 
         results = trainer.train()
 

@@ -4,16 +4,20 @@ import inspect
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Optional
+from typing import NoReturn, Optional
 
 import typer
 
 from ..command_utils import (
+    exit_if_out_of_range,
+    exit_imgsz_error,
+    exit_stage_error,
     exit_with_error,
     get_loaded_model_family,
     get_loaded_model_input_size,
     get_user_provided_params,
     help_json_callback,
+    is_imgsz_error,
     load_model_or_exit,
     parse_imgsz_str,
     resolve_model_or_exit,
@@ -21,7 +25,13 @@ from ..command_utils import (
 from ..output import OutputHandler
 
 
-_NATIVE_ONLY_PREDICT_KWARGS = {"tiling", "overlap_ratio", "output_file_format"}
+_NATIVE_ONLY_PREDICT_KWARGS = {
+    "tiling",
+    "overlap_ratio",
+    "output_file_format",
+    "mask",
+    "trimap",
+}
 
 
 def _call_accepts_kwarg(callable_obj, name: str) -> bool:
@@ -36,6 +46,28 @@ def _call_accepts_kwarg(callable_obj, name: str) -> bool:
             return True
 
     return name in signature.parameters
+
+
+def _exit_inference_error(
+    out: OutputHandler, exc: Exception, *, imgsz_provided: bool
+) -> NoReturn:
+    """Map a failure inside the model call to the documented exit code."""
+    from PIL import UnidentifiedImageError
+
+    message = str(exc)
+    if imgsz_provided and is_imgsz_error(exc):
+        exit_imgsz_error(out, exc)
+    if isinstance(exc, (FileNotFoundError, ConnectionError)) or message.startswith(
+        "Failed to load image from"
+    ):
+        exit_with_error(out, "source_not_found", message)
+    if (
+        isinstance(exc, UnidentifiedImageError)
+        or message.startswith("Failed to decode image")
+        or (isinstance(exc, OSError) and "truncated" in message.lower())
+    ):
+        exit_with_error(out, "data_invalid", f"Cannot read the source image: {message}")
+    exit_stage_error(out, stage="Inference", detail=exc)
 
 
 def _build_predict_kwargs(
@@ -56,6 +88,8 @@ def _build_predict_kwargs(
     show: bool,
     output_path: Optional[str],
     color_format: str,
+    mask: Optional[str],
+    trimap: Optional[str],
     tiling: bool,
     overlap_ratio: float,
     output_file_format: Optional[str],
@@ -79,6 +113,10 @@ def _build_predict_kwargs(
         "overlap_ratio": overlap_ratio,
         "output_file_format": output_file_format,
     }
+    if mask is not None:
+        kwargs["mask"] = mask
+    if trimap is not None:
+        kwargs["trimap"] = trimap
 
     call = loaded_model.__call__
     unsupported = {name for name in kwargs if not _call_accepts_kwarg(call, name)}
@@ -92,6 +130,9 @@ def _build_predict_kwargs(
         requested_unsupported.append("output_file_format")
     if "overlap_ratio" in unsupported and "overlap_ratio" in user_provided:
         requested_unsupported.append("overlap_ratio")
+    for name in ("mask", "trimap"):
+        if name in unsupported and name in kwargs:
+            requested_unsupported.append(name)
 
     if requested_unsupported:
         names = ", ".join(sorted(requested_unsupported))
@@ -143,6 +184,16 @@ def predict_cmd(
     output_file_format: Optional[str] = typer.Option(
         None, help="Output format: jpg, png, webp"
     ),
+    mask: Optional[str] = typer.Option(
+        None,
+        "--mask",
+        help="Single-image binary inpainting mask for models that require it",
+    ),
+    trimap: Optional[str] = typer.Option(
+        None,
+        "--trimap",
+        help="Single-image three-level trimap for guided matting models",
+    ),
     device: str = typer.Option("auto", help="Device: 0, cpu, mps, auto"),
     face_detector: Optional[str] = typer.Option(
         None,
@@ -182,6 +233,7 @@ def predict_cmd(
         imgsz = parse_imgsz_str(imgsz) if imgsz is not None else None
     except ValueError as exc:
         exit_with_error(out, "invalid_imgsz", str(exc))
+    exit_if_out_of_range(out, conf=conf, iou=iou, max_det=max_det, batch=batch)
 
     # Classify before path validation so webcam indices and RTSP-style URLs do
     # not fall through as nonexistent image files.
@@ -328,6 +380,8 @@ def predict_cmd(
         show=show,
         output_path=output_path,
         color_format=color_format,
+        mask=mask,
+        trimap=trimap,
         tiling=tiling,
         overlap_ratio=overlap_ratio,
         output_file_format=output_file_format,
@@ -337,7 +391,10 @@ def predict_cmd(
     if gallery_obj is not None:
         predict_kwargs["gallery"] = gallery_obj
         predict_kwargs["threshold"] = gallery_threshold
-    results = loaded_model(runtime_source, **predict_kwargs)
+    try:
+        results = loaded_model(runtime_source, **predict_kwargs)
+    except Exception as exc:
+        _exit_inference_error(out, exc, imgsz_provided=imgsz is not None)
     elapsed = time.time() - t0
 
     if effective_stream and isinstance(results, Iterator):
@@ -380,6 +437,8 @@ def predict_cmd(
                 out.result(data)
         except KeyboardInterrupt:
             out.progress("Inference stopped.")
+        except Exception as exc:
+            _exit_inference_error(out, exc, imgsz_provided=imgsz is not None)
         finally:
             close = getattr(results, "close", None)
             if close is not None:
@@ -472,6 +531,12 @@ def predict_cmd(
                     "dtype": str(restored.dtype),
                 }
                 summary = "restored"
+            elif getattr(r, "albedo", None) is not None:
+                result_data["albedo"] = {
+                    "shape": list(r.albedo.data.shape),
+                    "color_space": "linear_rgb",
+                }
+                summary = "albedo"
             elif getattr(r, "depth_map", None) is not None:
                 depth_map = r.depth_map
                 result_data["depth"] = {
@@ -479,6 +544,8 @@ def predict_cmd(
                     "min": round(float(depth_map.min), 4),
                     "max": round(float(depth_map.max), 4),
                     "mean": round(float(depth_map.mean), 4),
+                    **({"encoding": depth_map.encoding}
+                       if depth_map.encoding != "inverse_depth" else {}),
                 }
                 summary = (
                     f"depth min={depth_map.min:.4g} "

@@ -114,8 +114,15 @@ def test_filename_and_download_routing():
     assert LibreMiDaS.detect_size_from_filename("LibreMiDaSl-depth.pt") == "l"
     assert LibreMiDaS.detect_task_from_filename("LibreMiDaSl-depth.pt") == "depth"
     assert LibreMiDaS.detect_size_from_filename("LibreMiDaSs.pt") is None
-    assert LibreMiDaS.get_download_url("LibreMiDaSs-depth.pt") == UPSTREAM_URLS["s"]
-    assert LibreMiDaS.get_download_url("LibreMiDaSl-depth.pt") == UPSTREAM_URLS["l"]
+    # Mirrored sizes resolve to the LibreYOLO org; anything not mirrored still
+    # falls back to the official upstream asset.
+    for size in ("s", "l"):
+        url = LibreMiDaS.get_download_url(f"LibreMiDaS{size}-depth.pt")
+        assert url == (
+            f"https://huggingface.co/LibreYOLO/LibreMiDaS{size}-depth"
+            f"/resolve/main/LibreMiDaS{size}-depth.pt"
+        )
+        assert url != UPSTREAM_URLS[size]
     assert LibreMiDaS.get_download_url("LibreMiDaSs.pt") is None
 
 
@@ -160,6 +167,46 @@ def test_preprocess_is_rgb_float_and_multiple_of_32(size: str):
     assert chw.shape[2] % 32 == 0
     assert np.isfinite(chw).all()
     assert ratio == 1.0
+
+
+@pytest.mark.parametrize(
+    ("family", "size", "canvas"),
+    [("midas", "s", 64), ("midas", "l", 96), ("depth_anything", "s", 70)],
+)
+def test_exported_backend_resizes_square_images_like_native(family, size, canvas):
+    # A square image needs no aspect approximation, so the exported input must
+    # be the native one, including the bicubic float resize.
+    from libreyolo.backends.base import BaseBackend
+    from libreyolo.models.depth_anything.utils import (
+        preprocess_numpy as depth_anything_preprocess,
+    )
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = StubBackend(
+        model_path="fixture.onnx",
+        nb_classes=1,
+        device="cpu",
+        imgsz=canvas,
+        model_family=family,
+        model_size=size,
+        names={0: "depth"},
+        task="depth",
+        supported_tasks=("depth",),
+        default_task="depth",
+    )
+    image = np.random.default_rng(11).integers(0, 256, (150, 150, 3), dtype=np.uint8)
+    tensor, _, original_size, _ = backend._preprocess(image, canvas, "rgb")
+    if family == "midas":
+        native, _ = preprocess_numpy(image, canvas, size)
+    else:
+        native, _ = depth_anything_preprocess(image, canvas)
+
+    assert original_size == (150, 150)
+    assert tuple(tensor.shape) == (1, *native.shape)
+    np.testing.assert_allclose(tensor[0].numpy(), native, atol=1e-6)
 
 
 def test_upstream_wrap_has_strict_depth_metadata():

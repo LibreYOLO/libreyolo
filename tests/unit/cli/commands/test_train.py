@@ -194,6 +194,90 @@ def test_train_dry_run_rfdetr_lora_flag_is_visible():
     assert data["resolved_config"]["lora"] is True
 
 
+@pytest.mark.parametrize("model", ["LibreYOLO9t.pt", "LibreRFDETRn.pt"])
+def test_train_dry_run_single_cls_is_visible_for_g0_detectors(model):
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            f"model={model}",
+            "single_cls=true",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["resolved_config"]["single_cls"] is True
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        # Unsupported family (G2), detect task.
+        ["model=LibreYOLOXn.pt", "single_cls=true"],
+        # Supported family, unsupported task. Uses a published checkpoint plus
+        # an explicit task so the PR gate never needs to fetch weights.
+        ["model=LibreRFDETRm.pt", "task=segment", "single_cls=true"],
+    ],
+)
+def test_train_dry_run_rejects_single_cls_outside_g0_g1_detection(args):
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        ["data=coco8.yaml", *args, "--dry-run", "--json"],
+    )
+
+    assert result.exit_code == 2
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_unsupported"
+    assert "G0/G1 detection" in data["message"]
+
+
+@pytest.mark.parametrize("model", ["LibreYOLO9t.pt", "LibreRFDETRn.pt"])
+def test_train_dry_run_classes_is_visible_for_g0_detectors(model):
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            f"model={model}",
+            "classes=0,3,5",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["resolved_config"]["classes"] == "0,3,5"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        # Unsupported family (G2), detect task.
+        ["model=LibreYOLOXn.pt", "classes=0,1"],
+        # Supported family, unsupported task. Uses a published checkpoint plus
+        # an explicit task so the PR gate never needs to fetch weights.
+        ["model=LibreRFDETRm.pt", "task=segment", "classes=0,1"],
+    ],
+)
+def test_train_dry_run_rejects_classes_outside_g0_g1_detection(args):
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        ["data=coco8.yaml", *args, "--dry-run", "--json"],
+    )
+
+    assert result.exit_code == 2
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_unsupported"
+    assert "G0/G1 detection" in data["message"]
+
+
 def test_train_dry_run_rfdetr_freeze_flag_is_visible():
     app = _make_app()
     result = runner.invoke(
@@ -232,6 +316,105 @@ def test_train_dry_run_rejects_ambiguous_freeze_true():
     data = json.loads(result.stdout)
     assert data["error"] == "config_type_error"
     assert "freeze=True is ambiguous" in data["message"]
+
+
+@pytest.mark.parametrize("model_name", ["LibreDFINEs.pt"])
+def test_train_dry_run_rejects_class_balanced_on_custom_loaders(model_name):
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            f"model={model_name}",
+            "class_balanced=true",
+            "--dry-run",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 2, result.stdout
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_unsupported"
+    assert "class_balanced" in data["message"]
+
+
+def test_train_dry_run_accepts_class_balanced_for_rfdetr_detection(monkeypatch):
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train._create_explicit_task_train_model",
+        lambda **_kwargs: None,
+    )
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            "model=rfdetr-n",
+            "task=detect",
+            "class_balanced=true",
+            "--dry-run",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    config = json.loads(result.stdout)["resolved_config"]
+    assert config["class_balanced"] is True
+
+
+def test_train_dry_run_optin_helpers_both_grammars():
+    """New #768 knobs parse in both CLI grammars and stay off by default."""
+    app = _make_app()
+
+    default = runner.invoke(
+        app,
+        ["data=coco8.yaml", "model=LibreYOLO9t.pt", "--dry-run", "--json"],
+    )
+    assert default.exit_code == 0, default.stdout
+    default_cfg = json.loads(default.stdout)["resolved_config"]
+    assert default_cfg["class_balanced"] is False
+    assert default_cfg["average_best"] == 0
+    assert default_cfg["export_check"] is False
+    assert default_cfg["precise_bn"] == 0
+
+    kv = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            "model=LibreYOLO9t.pt",
+            "class_balanced=true",
+            "average_best=5",
+            "export_check=true",
+            "precise_bn=128",
+            "--dry-run",
+            "--json",
+        ],
+    )
+    assert kv.exit_code == 0, kv.stdout
+    kv_cfg = json.loads(kv.stdout)["resolved_config"]
+    assert kv_cfg["class_balanced"] is True
+    assert kv_cfg["average_best"] == 5
+    assert kv_cfg["export_check"] is True
+    assert kv_cfg["precise_bn"] == 128
+
+    dashed = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            "model=LibreYOLO9t.pt",
+            "--class-balanced",
+            "--average-best",
+            "5",
+            "--export-check",
+            "--precise-bn",
+            "128",
+            "--dry-run",
+            "--json",
+        ],
+    )
+    assert dashed.exit_code == 0, dashed.stdout
+    dashed_cfg = json.loads(dashed.stdout)["resolved_config"]
+    assert dashed_cfg["class_balanced"] is True
+    assert dashed_cfg["average_best"] == 5
+    assert dashed_cfg["export_check"] is True
+    assert dashed_cfg["precise_bn"] == 128
 
 
 def test_train_dry_run_distill_model_is_visible():
@@ -392,6 +575,36 @@ def test_train_rfdetr_scheduler_override_reaches_trainer(monkeypatch, tmp_path):
     assert "ignores these parameters" not in result.output
 
 
+@pytest.mark.parametrize("val_args", [["val=false"], ["--no-val"]])
+def test_train_rfdetr_val_false_disables_validation(monkeypatch, tmp_path, val_args):
+    """RF-DETR's trainer honours eval_interval=0; the CLI used to drop
+    val=false for it while the Python API applied it."""
+    captured = {}
+
+    class _RFDETRLike:
+        FAMILY = "rfdetr"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"output_dir": str(tmp_path / "rfdetr_exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda out, model, model_path, device: _RFDETRLike(),
+    )
+
+    result = runner.invoke(
+        _make_app(),
+        ["data=dummy.yaml", "model=LibreRFDETRm.pt", f"project={tmp_path}",
+         "exist_ok=true", *val_args, "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["eval_interval"] == 0
+    assert "does not support disabling validation" not in result.output
+
+
 def test_train_rfdetr_lora_flag_reaches_trainer(monkeypatch, tmp_path):
     app = _make_app()
     captured = {}
@@ -424,6 +637,82 @@ def test_train_rfdetr_lora_flag_reaches_trainer(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert captured["kwargs"]["lora"] is True
     assert "ignores these parameters" not in result.output
+
+
+def test_train_rfdetr_single_cls_reaches_trainer(monkeypatch, tmp_path):
+    app = _make_app()
+    captured = {}
+
+    class _RFDETRLike:
+        FAMILY = "rfdetr"
+        DEFAULT_TASK = "detect"
+        device = "cpu"
+
+        @classmethod
+        def detect_task_from_filename(cls, filename):
+            return None
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"output_dir": str(tmp_path / "rfdetr_exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda out, model, model_path, device: _RFDETRLike(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "data=dummy.yaml",
+            "model=LibreRFDETRm.pt",
+            "single_cls=true",
+            f"project={tmp_path}",
+            "exist_ok=true",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["kwargs"]["single_cls"] is True
+
+
+def test_train_rfdetr_classes_reaches_trainer(monkeypatch, tmp_path):
+    app = _make_app()
+    captured = {}
+
+    class _RFDETRLike:
+        FAMILY = "rfdetr"
+        DEFAULT_TASK = "detect"
+        device = "cpu"
+
+        @classmethod
+        def detect_task_from_filename(cls, filename):
+            return None
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"output_dir": str(tmp_path / "rfdetr_exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda out, model, model_path, device: _RFDETRLike(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "data=dummy.yaml",
+            "model=LibreRFDETRm.pt",
+            "classes=0,3,5",
+            f"project={tmp_path}",
+            "exist_ok=true",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["kwargs"]["classes"] == "0,3,5"
 
 
 def test_train_rfdetr_lr_drop_override_reaches_trainer(monkeypatch, tmp_path):
@@ -708,5 +997,812 @@ def test_train_rfdetr_detect_checkpoint_switches_to_obb_architecture(
     assert data["epochs_completed"] == 1
 
 
+@pytest.mark.parametrize(
+    "option",
+    [
+        ["class_weights=true"],
+        ["--class-weights"],
+        ["class_weights=false"],
+        ["--no-class-weights"],
+    ],
+)
+@pytest.mark.parametrize("model", ["LibreResNet18-cls.pt", "LibreDINOv2s-cls.pt"])
+def test_class_weights_cli_grammars(option, model):
+    result = runner.invoke(
+        _make_app(),
+        [f"model={model}", "data=unused", *option, "--dry-run", "--json", "--quiet"],
+    )
+    assert result.exit_code == 0, result.output
+    cfg = json.loads(result.stdout)["resolved_config"]
+    assert cfg["class_weights"] is (
+        option[0] in ("class_weights=true", "--class-weights")
+    )
 
 
+def test_class_weights_help_json():
+    result = runner.invoke(_make_app(), ["--help-json"])
+    assert result.exit_code == 0, result.output
+    assert "class_weights" in result.stdout or "class-weights" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [([], 0.0), (["cls_pw=0.5"], 0.5), (["--cls-pw", "0.5"], 0.5), (["cls_pw=1"], 1.0)],
+)
+@pytest.mark.parametrize("model", ["LibreResNet18-cls.pt", "LibreDINOv2s-cls.pt"])
+def test_cls_pw_cli_grammars_and_default(option, value, model):
+    result = runner.invoke(
+        _make_app(),
+        [f"model={model}", "data=unused", *option, "--dry-run", "--json", "--quiet"],
+    )
+    assert result.exit_code == 0, result.output
+    cfg = json.loads(result.stdout)["resolved_config"]
+    assert cfg["cls_pw"] == value
+    assert cfg["class_weights"] is False
+
+
+@pytest.mark.parametrize("value", ["-0.1", "1.1", "nan", "inf", "-inf", "true"])
+def test_cls_pw_cli_rejects_invalid_values(value):
+    from click import unstyle
+
+    result = runner.invoke(
+        _make_app(),
+        [
+            "model=LibreResNet18-cls.pt",
+            "data=unused",
+            f"cls_pw={value}",
+            "--dry-run",
+            "--json",
+        ],
+        color=True,
+    )
+    assert result.exit_code != 0
+    output = unstyle(result.output)
+    assert "cls_pw" in output or "cls-pw" in output
+    assert "Traceback" not in result.output
+
+
+def test_cls_pw_cli_rejects_enabled_legacy_conflict():
+    result = runner.invoke(
+        _make_app(),
+        [
+            "model=LibreResNet18-cls.pt",
+            "data=unused",
+            "cls_pw=0.5",
+            "class_weights=true",
+            "--dry-run",
+            "--json",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not both" in result.output
+
+
+@pytest.mark.parametrize(
+    "family,model",
+    [("resnet", "LibreResNet18-cls.pt"), ("dinov2", "LibreDINOv2s-cls.pt")],
+)
+@pytest.mark.parametrize("option", [["cls_pw=0.5"], ["--cls-pw", "0.5"]])
+def test_cls_pw_cli_forwards_numeric_strength(
+    monkeypatch, tmp_path, family, model, option
+):
+    captured = {}
+
+    class Classifier:
+        FAMILY = family
+        device = "cpu"
+        task = "classify"
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs)
+            return {"output_dir": str(tmp_path)}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda *args, **kwargs: Classifier(),
+    )
+    result = runner.invoke(
+        _make_app(), [f"model={model}", "data=unused", *option, "--json", "--quiet"]
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["cls_pw"] == 0.5
+    assert captured["class_weights"] is False
+
+
+def test_cls_pw_help_json_exposes_numeric_default():
+    result = runner.invoke(_make_app(), ["--help-json"])
+    assert result.exit_code == 0, result.output
+    schema = json.loads(result.stdout)
+    assert "cls_pw" in result.stdout
+
+    parameter = next(p for p in schema["parameters"] if p["name"] == "cls_pw")
+    assert parameter["default"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Classification augmentation pack on the CLI (#870)
+# ---------------------------------------------------------------------------
+
+
+class _ClassifyLike:
+    """Minimal classification model capturing the kwargs the CLI forwards."""
+
+    FAMILY = "convnext"
+    device = "cpu"
+
+    def __init__(self, captured, tmp_path):
+        self._captured = captured
+        self._tmp_path = tmp_path
+
+    def train(self, data, **kwargs):
+        self._captured["kwargs"] = kwargs
+        return {"output_dir": str(self._tmp_path / "classify_exp")}
+
+
+def _run_classify_train(monkeypatch, tmp_path, extra_args):
+    app = _make_app()
+    captured = {}
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda out, model, model_path, device: _ClassifyLike(captured, tmp_path),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "data=imagenette",
+            "model=LibreConvNeXtt-cls.pt",
+            *extra_args,
+            f"project={tmp_path}",
+            "exist_ok=true",
+            "--json",
+        ],
+    )
+    return result, captured
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["auto_augment=randaugment"],
+        ["--auto-augment", "randaugment"],
+    ],
+    ids=["key_value", "flag"],
+)
+def test_auto_augment_reaches_trainer_in_both_grammars(
+    monkeypatch, tmp_path, args
+):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, args)
+    assert result.exit_code == 0
+    assert captured["kwargs"]["auto_augment"] == "randaugment"
+
+
+def test_erasing_reaches_trainer(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, ["erasing=0.25"])
+    assert result.exit_code == 0
+    assert captured["kwargs"]["erasing"] == pytest.approx(0.25)
+
+
+def test_classification_pack_defaults_are_unchanged(monkeypatch, tmp_path):
+    """Not passing the knobs must leave training behavior exactly as before."""
+    result, captured = _run_classify_train(monkeypatch, tmp_path, [])
+    assert result.exit_code == 0
+    assert captured["kwargs"]["auto_augment"] is None
+    assert captured["kwargs"]["erasing"] == pytest.approx(0.0)
+
+
+def test_auto_augment_is_case_insensitive(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(
+        monkeypatch, tmp_path, ["auto_augment=RandAugment"]
+    )
+    assert result.exit_code == 0
+    assert captured["kwargs"]["auto_augment"] == "randaugment"
+
+
+def test_invalid_auto_augment_is_a_clean_error(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(
+        monkeypatch, tmp_path, ["auto_augment=nope"]
+    )
+    assert result.exit_code != 0
+    assert "kwargs" not in captured
+    assert "randaugment" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_invalid_erasing_is_a_clean_error(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, ["erasing=1.5"])
+    assert result.exit_code != 0
+    assert "kwargs" not in captured
+    assert "Traceback" not in result.output
+
+
+def test_auto_augment_appears_in_help_json():
+    """--help-json is generated from the declared Typer parameters."""
+    app = _make_app()
+    result = runner.invoke(app, ["--help-json"])
+    assert result.exit_code == 0
+    params = json.loads(result.stdout)["parameters"]
+    by_name = {p["name"]: p for p in params}
+    assert "auto_augment" in by_name
+    assert by_name["auto_augment"].get("default") is None
+    assert by_name["erasing"]["default"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        (["scale=0.9"], (0.9, 1.0)),
+        (["--scale", "0.9"], (0.9, 1.0)),
+        (["scale=(0.3,0.8)"], (0.3, 0.8)),
+    ],
+    ids=["key_value", "flag", "explicit_pair"],
+)
+def test_crop_scale_reaches_trainer(monkeypatch, tmp_path, args, expected):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, args)
+    assert result.exit_code == 0
+    assert tuple(captured["kwargs"]["scale"]) == expected
+
+
+def test_crop_pct_reaches_trainer(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, ["crop_pct=1.0"])
+    assert result.exit_code == 0
+    assert captured["kwargs"]["crop_pct"] == pytest.approx(1.0)
+
+
+def test_crop_defaults_are_unchanged(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, [])
+    assert result.exit_code == 0
+    assert tuple(captured["kwargs"]["scale"]) == (0.5, 1.0)
+    assert captured["kwargs"]["crop_pct"] is None
+
+
+@pytest.mark.parametrize("bad", ["scale=2.0", "scale=(0.8,0.3)", "crop_pct=0"])
+def test_invalid_crop_args_are_clean_errors(monkeypatch, tmp_path, bad):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, [bad])
+    assert result.exit_code != 0
+    assert "kwargs" not in captured
+    assert "Traceback" not in result.output
+
+
+def test_detection_family_warns_that_crop_knobs_are_ignored(caplog):
+    """Accepted-and-silently-ignored is the failure mode this guards."""
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        result = runner.invoke(
+            _make_app(),
+            ["data=coco8.yaml", "model=LibreYOLO9t.pt", "scale=0.9", "--dry-run"],
+        )
+    assert result.exit_code == 0
+    assert "ignores these parameters" in caplog.text
+    assert "scale" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Classification augmentation base: ecosystem names, task-aware mixup, cutmix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        (["fliplr=0.3"], 0.3),
+        (["--fliplr", "0.3"], 0.3),
+        (["flip_prob=0.2"], 0.2),
+        (["fliplr=0.1", "flip_prob=0.9"], 0.1),
+    ],
+    ids=["fliplr_kv", "fliplr_flag", "flip_prob", "fliplr_wins"],
+)
+def test_flip_knobs_reach_classification_training(monkeypatch, tmp_path, args, expected):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, args)
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["flip_prob"] == pytest.approx(expected)
+
+
+def test_flipud_reaches_classification_training(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, ["flipud=0.25"])
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["flipud"] == pytest.approx(0.25)
+
+
+def test_classification_mixup_defaults_off_despite_the_detection_default(
+    monkeypatch, tmp_path
+):
+    """The Typer default for --mixup is the detection 1.0; a classifier must
+    not inherit it as its batch-MixUp probability."""
+    result, captured = _run_classify_train(monkeypatch, tmp_path, [])
+    assert result.exit_code == 0, result.output
+    kwargs = captured["kwargs"]
+    assert kwargs["mixup"] == pytest.approx(0.0)
+    assert kwargs["cutmix"] == pytest.approx(0.0)
+    assert "mixup_prob" not in kwargs
+
+
+def test_classification_mixup_and_cutmix_reach_the_classification_fields(
+    monkeypatch, tmp_path, caplog
+):
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        result, captured = _run_classify_train(
+            monkeypatch, tmp_path, ["mixup=0.4", "cutmix=0.3"]
+        )
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["mixup"] == pytest.approx(0.4)
+    assert captured["kwargs"]["cutmix"] == pytest.approx(0.3)
+    assert "mixup_prob" not in captured["kwargs"]
+    assert "ignores these parameters" not in caplog.text
+
+
+def test_detection_mixup_still_maps_to_mixup_prob():
+    from libreyolo.cli.config import build_train_kwargs
+
+    params = {"mixup": 0.4, "cutmix": 0.3, "flip_prob": 0.2, "flipud": 0.1}
+    det = build_train_kwargs(params)
+    assert det["mixup_prob"] == 0.4 and "mixup" not in det
+    assert det["cutmix"] == 0.3 and det["flipud"] == 0.1
+    cls = build_train_kwargs(params, task="classify")
+    assert cls["mixup"] == 0.4 and "mixup_prob" not in cls
+
+
+def test_detection_family_warns_that_cutmix_is_ignored(caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        result = runner.invoke(
+            _make_app(),
+            ["data=coco8.yaml", "model=LibreYOLO9t.pt", "cutmix=0.3", "--dry-run"],
+        )
+    assert result.exit_code == 0, result.output
+    assert "ignores these parameters" in caplog.text
+    assert "cutmix" in caplog.text
+
+
+def test_detection_family_does_not_warn_for_flipud(caplog):
+    """YOLO9 honours flipud, so exposing it on the CLI must not trip the warning."""
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        result = runner.invoke(
+            _make_app(),
+            ["data=coco8.yaml", "model=LibreYOLO9t.pt", "flipud=0.2", "--dry-run"],
+        )
+    assert result.exit_code == 0, result.output
+    assert "flipud" not in caplog.text
+
+
+@pytest.mark.parametrize("arg", ["cutmix=1.5", "flipud=-0.1", "fliplr=2"])
+def test_invalid_flip_and_cutmix_values_are_clean_errors(monkeypatch, tmp_path, arg):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, [arg])
+    assert result.exit_code != 0
+    assert "kwargs" not in captured
+    assert "Traceback" not in result.output
+
+
+def test_classification_mix_sum_above_one_is_a_clean_error(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(
+        monkeypatch, tmp_path, ["mixup=0.8", "cutmix=0.5"]
+    )
+    assert result.exit_code != 0
+    assert "kwargs" not in captured
+    assert "mixup + cutmix" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_detection_model_is_not_subject_to_the_classification_mix_sum(caplog):
+    """On detection --mixup is mixup_prob (default 1.0); cutmix is merely ignored."""
+    result = runner.invoke(
+        _make_app(),
+        ["data=coco8.yaml", "model=LibreYOLO9t.pt", "cutmix=0.5", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_auto_augment_none_spelling_is_accepted(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, ["auto_augment=none"])
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["auto_augment"] is None
+
+
+def test_new_knobs_appear_in_help_json():
+    result = runner.invoke(_make_app(), ["--help-json"])
+    assert result.exit_code == 0
+    by_name = {p["name"]: p for p in json.loads(result.stdout)["parameters"]}
+    assert by_name["fliplr"].get("default") is None
+    assert by_name["flipud"]["default"] == pytest.approx(0.0)
+    assert by_name["cutmix"]["default"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize('syntax', ['key_value', 'flags'])
+@pytest.mark.parametrize('resume,expected', [
+    ('true', 'LibreGTRs.pt'), ('false', False), ('/tmp/gtr-last.pt', '/tmp/gtr-last.pt'),
+])
+def test_gtr_resume_reaches_training(monkeypatch, tmp_path, syntax, resume, expected):
+    captured = {}
+
+    class GTRLike:
+        FAMILY = 'gtr'
+        task = 'detect'
+        device = 'cpu'
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs)
+            return {'save_dir': str(tmp_path)}
+
+    monkeypatch.setattr('libreyolo.cli.commands.train.load_model_or_exit',
+                        lambda **kwargs: GTRLike())
+    args = ['model=LibreGTRs.pt', 'data=dummy.yaml', '--json']
+    args += [f'resume={resume}'] if syntax == 'key_value' else ['--resume', resume]
+    result = runner.invoke(_make_app(), args)
+    assert result.exit_code == 0, result.output
+    assert captured['resume'] == expected
+    # Unspecified Typer defaults must not override saved resume settings.
+    assert not {'imgsz', 'batch', 'lr0', 'weight_decay', 'ema'} & captured.keys()
+
+
+@pytest.mark.parametrize('syntax', ['key_value', 'flags'])
+def test_yolo9_resume_forwards_only_user_options(monkeypatch, tmp_path, syntax):
+    """Typer defaults (pretrained=True, epochs, imgsz, ...) must not reach a
+    resume: pretrained=True was rejected with resume, and the rest overrode
+    the run's saved arguments."""
+    captured = {}
+    last = tmp_path / 'run' / 'weights' / 'last.pt'
+    last.parent.mkdir(parents=True)
+    last.write_bytes(b'')
+
+    class YOLO9Like:
+        FAMILY = 'yolo9'
+        task = 'detect'
+        device = 'cpu'
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs, data=data)
+            return {'save_dir': str(last.parent.parent), 'epoch_losses': [1.0]}
+
+    monkeypatch.setattr('libreyolo.cli.commands.train.load_model_or_exit',
+                        lambda *args, **kwargs: YOLO9Like())
+    options = {'model': str(last), 'data': 'coco8.yaml', 'resume': 'true', 'epochs': '2'}
+    if syntax == 'key_value':
+        args = [f'{key}={value}' for key, value in options.items()]
+    else:
+        args = [part for key, value in options.items() for part in (f'--{key}', value)]
+    result = runner.invoke(_make_app(), args + ['--json'])
+
+    assert result.exit_code == 0, result.output
+    assert (captured['resume'], captured['epochs']) == (True, 2)
+    assert not {'pretrained', 'imgsz', 'batch', 'lr0', 'optimizer', 'project',
+                'name', 'val', 'eval_interval'} & captured.keys()
+
+    # An explicit val=true reaches train(), so it can turn validation back on
+    # for a run saved with val=false.
+    captured.clear()
+    extra = ['val=true'] if syntax == 'key_value' else ['--val']
+    result = runner.invoke(_make_app(), args + extra + ['--json'])
+    assert result.exit_code == 0, result.output
+    assert captured['val'] is True and 'eval_interval' not in captured
+
+
+@pytest.mark.parametrize('syntax', ['key_value', 'flags'])
+def test_dinov2_resume_forwards_only_user_options(monkeypatch, tmp_path, syntax):
+    """The CLI sent its defaults (epochs 100, batch 4, lr0, imgsz 640, project,
+    name) on a DINOv2 resume, so the loaded run was not continued and its
+    saved settings were overridden."""
+    captured = {}
+    last = tmp_path / 'runs' / 'train' / 'dinov2_exp2' / 'weights' / 'last.pt'
+    last.parent.mkdir(parents=True)
+    last.write_bytes(b'')
+
+    class DINOv2Like:
+        FAMILY = 'dinov2'
+        task = 'semantic'
+        device = 'cpu'
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs, data=data)
+            return {'save_dir': str(last.parent.parent)}
+
+    monkeypatch.setattr('libreyolo.cli.commands.train.load_model_or_exit',
+                        lambda *args, **kwargs: DINOv2Like())
+    options = {'model': str(last), 'data': 'seg.yaml', 'resume': 'true', 'workers': '0'}
+    if syntax == 'key_value':
+        args = [f'{key}={value}' for key, value in options.items()]
+    else:
+        args = [part for key, value in options.items() for part in (f'--{key}', value)]
+    result = runner.invoke(_make_app(), args + ['--json'])
+
+    assert result.exit_code == 0, result.output
+    assert (captured['resume'], captured['workers'], captured['data']) == (True, 0, 'seg.yaml')
+    assert not {'epochs', 'imgsz', 'batch', 'lr0', 'project', 'name',
+                'exist_ok'} & captured.keys()
+
+
+@pytest.mark.parametrize(
+    "model,args,expected",
+    [
+        ("LibreYOLO9t.pt", ["compile=true"], "default"),
+        ("LibreYOLO9t.pt", ["--compile", "max-autotune-no-cudagraphs"], "max-autotune-no-cudagraphs"),
+        ("LibreRFDETRn.pt", ["compile=reduce-overhead"], "reduce-overhead"),
+        ("LibreRFDETRn.pt", [], False),
+    ],
+)
+def test_train_dry_run_resolves_compile(model, args, expected):
+    result = runner.invoke(
+        _make_app(),
+        ["data=coco8.yaml", f"model={model}", *args, "--dry-run", "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout)["resolved_config"]["compile"] == expected
+
+
+def test_train_dry_run_rejects_unknown_compile_mode():
+    result = runner.invoke(
+        _make_app(),
+        ["data=coco8.yaml", "model=LibreYOLO9t.pt", "compile=fast", "--dry-run", "--json"],
+    )
+
+    assert result.exit_code == 2
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_type_error"
+    assert "compile must be" in data["message"]
+
+
+@pytest.mark.parametrize(
+    "grammar", [["aux_weight=0"], ["--aux-weight", "0"]], ids=["key=value", "--flag"]
+)
+def test_train_aux_weight_reaches_yolo9_train(monkeypatch, tmp_path, grammar):
+    app = _make_app()
+    captured = {}
+
+    class _YOLO9Like:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"save_dir": str(tmp_path / "exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLO9Like(),
+    )
+    result = runner.invoke(
+        app,
+        ["data=dummy.yaml", "model=LibreYOLO9t.pt", f"project={tmp_path}", *grammar, "--json"],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert captured["kwargs"]["aux_weight"] == 0.0
+
+
+def test_train_aux_weight_rejected_outside_yolo9(monkeypatch, tmp_path):
+    app = _make_app()
+
+    class _YOLOXLike:
+        FAMILY = "yolox"
+        device = "cpu"
+
+        def train(self, data, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("train() must not be reached")
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLOXLike(),
+    )
+    result = runner.invoke(
+        app,
+        ["data=dummy.yaml", "model=LibreYOLOXs.pt", f"project={tmp_path}", "aux_weight=0", "--json"],
+    )
+    assert result.exit_code != 0
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_unsupported"
+    assert "aux_weight" in data["message"]
+
+
+def test_gtr_semantic_cli_train_accepts_the_pretrained_flag(monkeypatch, tmp_path):
+    """The CLI always forwards ``pretrained``; GTR semantic must not reject it."""
+    from libreyolo import LibreGTR
+
+    captured = {}
+
+    class _FakeSemTrainer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def train(self):
+            return {"save_dir": str(tmp_path / "sem")}
+
+    monkeypatch.setattr(
+        "libreyolo.models.gtr.sem_trainer.GTRSemTrainer", _FakeSemTrainer
+    )
+    model = LibreGTR(None, size="s", nb_classes=2, device="cpu", task="semantic")
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **_kwargs: model
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["model=LibreGTRs-sem.pt", "data=dummy.yaml", "epochs=1", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["data"] == "dummy.yaml"
+    assert captured["epochs"] == 1
+    assert "pretrained" not in captured
+
+
+@pytest.mark.parametrize(
+    "args,expected_imgsz",
+    [
+        ([], (768, 768)),
+        (["imgsz=512x1024"], (512, 1024)),
+        (["--imgsz", "512x1024"], (512, 1024)),
+    ],
+    ids=["default", "key_value", "flag"],
+)
+def test_ppliteseg_cli_train_keeps_the_size_aware_recipe(
+    monkeypatch, tmp_path, args, expected_imgsz
+):
+    """t75 trains on its 768x768 crop unless imgsz is passed; no Typer defaults leak."""
+    from libreyolo.models.ppliteseg.model import LibrePPLiteSeg
+
+    captured = {}
+
+    class _FakeTrainer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def train(self):
+            return {"save_dir": str(tmp_path / "pp")}
+
+    monkeypatch.setattr(
+        "libreyolo.models.ppliteseg.trainer.PPLiteSegTrainer", _FakeTrainer
+    )
+    model = LibrePPLiteSeg(size="t75", device="cpu")
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **_kwargs: model
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["model=LibrePPLiteSegt75-sem.pt", "data=dummy.yaml", *args, "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["imgsz"] == expected_imgsz
+    assert (captured["epochs"], captured["batch"], captured["amp"]) == (800, 8, False)
+    # The recipe's poly schedule, momentum and augmentation come from
+    # PPLiteSegConfig, not from the generic CLI defaults.
+    leaked = {"scheduler", "optimizer", "lr0", "momentum", "warmup_epochs", "mosaic_prob"}
+    assert not leaked & captured.keys()
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        ([], {"optimizer": "AdamW", "lr0": 5e-5, "amp": False, "epochs": 100}),
+        (
+            ["lr0=0.001", "amp=true", "optimizer=sgd"],
+            {"optimizer": "sgd", "lr0": 0.001, "amp": True, "epochs": 100},
+        ),
+        (
+            ["--lr0", "0.001", "--amp", "--optimizer", "sgd"],
+            {"optimizer": "sgd", "lr0": 0.001, "amp": True, "epochs": 100},
+        ),
+    ],
+    ids=["default", "key_value", "flag"],
+)
+def test_yolonas_obb_cli_train_keeps_the_obb_recipe(monkeypatch, args, expected):
+    """Generic CLI defaults (SGD, lr0=0.01, AMP) must not replace the OBB recipe."""
+    from libreyolo import LibreYOLONAS
+
+    captured = {}
+
+    def _capture_train_obb(self, data, **kwargs):
+        captured.update(kwargs)
+        return {"save_dir": "runs/train/yolonas_obb_exp"}
+
+    monkeypatch.setattr(LibreYOLONAS, "_train_obb", _capture_train_obb)
+    model = LibreYOLONAS(None, size="s", device="cpu", task="obb")
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **_kwargs: model
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["model=LibreYOLONASs-obb.pt", "data=dummy.yaml", *args, "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert {key: captured[key] for key in expected} == expected
+    assert captured["name"] == "yolonas_obb_exp"
+    # Weight decay, schedule, warmup and augmentation come from YOLONASOBBConfig.
+    leaked = {"momentum", "weight_decay", "scheduler", "warmup_epochs", "mosaic_prob"}
+    assert not leaked & captured.keys()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"train: [x\n", b"names: {0: a\n", b"- a\n- b\n", b"\xff\xd8\xff\xe0jpeg"],
+    ids=["flow-list", "flow-map", "top-level-list", "binary"],
+)
+def test_train_unreadable_data_yaml_reports_data_not_found(monkeypatch, tmp_path, content):
+    """A malformed dataset YAML reaches the loader's data error, not a traceback."""
+    data = tmp_path / "bad.yaml"
+    data.write_bytes(content)
+
+    class _YOLO9Like:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': bad")
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train._create_explicit_task_train_model",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLO9Like(),
+    )
+    result = runner.invoke(
+        _make_app(),
+        [f"data={data}", "model=LibreYOLO9t.pt", f"project={tmp_path}", "epochs=1", "--json"],
+    )
+    assert result.exit_code == 3, result.output
+    payload = json.loads(result.stdout)
+    assert payload["error"] == "data_not_found"
+    assert payload["suggestion"]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"train: [x\n", b"- a\n- b\n", b"\xff\xd8\xff\xe0jpeg"],
+    ids=["flow-list", "top-level-list", "binary"],
+)
+def test_histogram_training_prep_leaves_unreadable_yaml_to_the_loader(tmp_path, content):
+    """The early histogram check must not preempt the family's dataset error."""
+    from types import SimpleNamespace
+
+    from libreyolo.data.event_histogram import prepare_histogram_training
+
+    data = tmp_path / "bad.yaml"
+    data.write_bytes(content)
+    wrapper = SimpleNamespace(FAMILY="yolo9", task="detect", input_profile=None)
+    assert prepare_histogram_training(wrapper, (), {"data": str(data)}) is None
+
+
+@pytest.mark.parametrize(
+    "exc,code,exit_code",
+    [
+        (ValueError("lr0 must be positive"), "config_type_error", 2),
+        (TypeError("train() got an unexpected keyword argument 'foo'"), "config_unknown_key", 2),
+        (TypeError("Unsupported GTR semantic training arguments: ['foo']"), "config_unknown_key", 2),
+        (TypeError("freeze must be None, an int, or a list"), "config_type_error", 2),
+        (NotImplementedError("Rectangular training is not supported"), "config_unsupported", 2),
+        (
+            NotImplementedError(
+                "The operator 'aten::foo' is not currently implemented for the MPS device."
+            ),
+            "device_not_available",
+            1,
+        ),
+        (OSError("No space left on device"), "io_error", 1),
+        (RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB"), "cuda_oom", 1),
+    ],
+    ids=["value", "kwarg", "unsupported-args", "type", "unsupported", "device", "os", "oom"],
+)
+def test_train_failures_report_their_error_type(monkeypatch, tmp_path, exc, code, exit_code):
+    class _Failing:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            raise exc
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda *a, **k: _Failing(),
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["data=dummy.yaml", "model=LibreYOLO9t.pt", f"project={tmp_path}", "--json"],
+    )
+
+    assert result.exit_code == exit_code, result.output
+    data = json.loads(result.stdout)
+    assert data["error"] == code
+    assert str(exc) in data["message"]

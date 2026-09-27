@@ -94,6 +94,26 @@ batches (hence the coco128 default: with it, YOLO9-t lands within about one
 mAP point of fp32). The chosen algorithm is recorded in the checkpoint
 manifest.
 
+Two histogram-based algorithms complement those. `mse` sweeps candidate
+clipping thresholds over a 2048-bin histogram of absolute activation values
+and picks the threshold minimizing the quantization reconstruction error, so
+it only clips as far as squared error actually improves; on clean
+distributions it lands next to minmax. The sweep simulates the affine
+codebook the calibrated layer actually deploys: activations that never
+cross zero (post-ReLU layers) keep all 256 int8 codes on one side, so they
+are judged at that doubled resolution rather than a symmetric stand-in. `entropy` picks the threshold
+minimizing the KL divergence between the original and quantized activation
+distributions, which clips more aggressively because it optimizes
+information preservation rather than squared error. Both help on layers
+whose activations carry rare large outliers that would otherwise stretch the
+int8 range and crush resolution for the bulk of values. Their cost is
+histogram collection during the calibration pass plus a threshold sweep per
+layer at the end; calibration takes somewhat longer, inference is unchanged.
+Both set the per-tensor activation range only; weight scales stay
+per-channel absolute-max under every algorithm. The same caution as
+percentile applies to transformer families, where clipping activation
+outliers can cost accuracy: validate with `val()` before deploying.
+
 ## Execution tiers
 
 v1 executes quantized arithmetic in **simulation** (fake-quantization with
@@ -101,7 +121,8 @@ straight-through-estimator gradients, computed in fp32 islands even under
 AMP). Simulation is numerics-true: a `val()` score on any device is a real
 claim about the quantized arithmetic. It is not a speed claim; packed
 low-bit kernels are a separate deployment concern. The `fp16` and `bf16`
-casts are the exception: they execute natively.
+casts are the exception: they execute natively. Apple MPS implements neither
+the fake-quantize ops nor float8, so on a Mac the other recipes run on CPU.
 
 **Native fp8 tier** (finalized checkpoints on fp8 tensor cores, Ada sm_89 /
 Hopper / Blackwell): finalized fp8 `QuantLinear` modules run their GEMM
@@ -167,8 +188,10 @@ scales; nvfp4 as two-codes-per-byte E2M1 payload + E4M3 block scales),
 strip the masters, and cast the non-quantized remainder to fp16
 (`remainder="fp32"` keeps it exact). Measured: YOLO9-s int8 29.5 to 9.6 MB,
 RF-DETR-n nvfp4 122 to 26 MB. The packing invariant: unpacking reproduces
-the simulation bit for bit on the device you finalized on, so the finalized
-file scores exactly what you validated. Loading one gives an
+the simulation bit for bit on the device you finalized on, so a
+`remainder="fp32"` file scores exactly what you validated. The default fp16
+remainder adds half-precision rounding on top; re-run `val()` on the
+finalized file if you need its exact score. Loading one gives an
 inference-ready model; `train()` on it re-prepares masters from the packed
 weights automatically (QAT-from-PTQ); ONNX export from it re-prepares
 internally and emits the same QDQ graph. The packed layout is documented in
@@ -204,10 +227,12 @@ noise. The CLI equivalent is
 ## QAT and QAD mechanics
 
 Quantized modules keep fp32 master weights; fake-quantization applies STE so
-gradients flow to the masters. The existing trainers work unchanged: EMA,
-AMP, checkpoint resume, and the `distill_*` kwargs (MGD/CWD) all compose.
-`fp16`-quantized models are inference-only; the trainer rejects them with a
-pointer to `amp=True`.
+gradients flow to the masters. AMP, checkpoint resume, and the `distill_*`
+kwargs (MGD/CWD) compose with QAT. At setup, QAT automatically disables EMA
+and SyncBatchNorm and logs the changes because both can interfere with
+fake-quant observer and scale state. Float training is unchanged.
+`fp16`- and `bf16`-quantized models are inference-only; the trainer rejects
+them with a pointer to `amp=True`.
 
 QAT is a finetune of an already-trained model: use finetune learning rates
 (for example `lr0=1e-4` for yolo9), not the from-scratch defaults, or the

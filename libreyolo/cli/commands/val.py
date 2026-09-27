@@ -1,14 +1,17 @@
 """Val command: evaluate a model on a dataset."""
 
-from pathlib import Path
 from typing import Optional
 
 import typer
 
 from ..command_utils import (
+    exit_if_out_of_range,
+    exit_imgsz_error,
     exit_stage_error,
     exit_with_error,
+    get_loaded_model_family,
     help_json_callback,
+    is_imgsz_error,
     load_model_or_exit,
     parse_imgsz_str,
     resolve_model_or_exit,
@@ -40,6 +43,18 @@ def val_cmd(
     ),
     data_dir: Optional[str] = typer.Option(None, help="Direct dataset directory"),
     split: str = typer.Option("val", help="Dataset split: val, test, train"),
+    classes: Optional[str] = typer.Option(
+        None,
+        help="Evaluate on only these original dataset class ids, "
+        "comma-separated (e.g. '0,3,5'); every other class's boxes are "
+        "dropped from ground truth and predictions. Defaults to the "
+        "classes= the checkpoint was trained with, if any",
+    ),
+    single_cls: bool = typer.Option(
+        False,
+        "--single-cls/--no-single-cls",
+        help="Evaluate a G0/G1 detector with every class merged into class 0",
+    ),
     batch: int = typer.Option(16, help="Batch size"),
     imgsz: Optional[str] = typer.Option(
         None, help="Image size: 640 (square) or 480x640 (HxW)"
@@ -58,6 +73,11 @@ def val_cmd(
         "(default: on when installed; falls back to pycocotools)",
     ),
     half: bool = typer.Option(False, help="FP16 inference"),
+    crop_pct: Optional[float] = typer.Option(
+        None,
+        help="Classification eval resize ratio before the center crop "
+        "(default: the model family's native value)",
+    ),
     amp_dtype: str = typer.Option(
         "float16", help="CUDA autocast dtype when half=true: float16 or bfloat16"
     ),
@@ -65,6 +85,23 @@ def val_cmd(
     save_plots: bool = typer.Option(
         False,
         help="Save validation plots (metrics, per-class AP, confusion matrix, samples)",
+    ),
+    plot_samples: int = typer.Option(
+        8,
+        help="Sample images in the validation sample plot: 0 for none, "
+        "-1 for every validated image (does not change the metrics)",
+    ),
+    visualize: bool = typer.Option(
+        False,
+        help="Draw every validated image with its true positives, false "
+        "positives and false negatives to visualize/errors/ (any mistake) and "
+        "visualize/correct/ (detect, segment; classify draws label vs top-1)",
+    ),
+    show_labels: bool = typer.Option(
+        True, help="Class names on the --visualize images"
+    ),
+    show_conf: bool = typer.Option(
+        True, help="Confidence scores on the --visualize images"
     ),
     workers: int = typer.Option(4, help="Dataloader workers"),
     device: str = typer.Option("auto", help="Device"),
@@ -90,13 +127,14 @@ def val_cmd(
 ) -> None:
     """Evaluate a model on a dataset."""
     from libreyolo.utils.amp import normalize_amp_dtype
-    from libreyolo.utils.general import increment_path
+    from libreyolo.validation.config import val_save_dir
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
     try:
         imgsz = parse_imgsz_str(imgsz)
     except ValueError as exc:
         exit_with_error(out, "invalid_imgsz", str(exc))
+    exit_if_out_of_range(out, conf=conf, iou=iou, batch=batch)
     try:
         amp_dtype = normalize_amp_dtype(amp_dtype)
         if max_det < 1:
@@ -105,6 +143,8 @@ def val_cmd(
             raise ValueError(
                 f"eval_max_det must be >= 1, got {eval_max_det}"
             )
+        if crop_pct is not None and not 0.0 < crop_pct <= 1.0:
+            raise ValueError(f"crop_pct must be in (0, 1], got {crop_pct}")
     except ValueError as exc:
         exit_with_error(out, "config_type_error", str(exc))
     model_path = resolve_model_or_exit(out, model)
@@ -119,8 +159,30 @@ def val_cmd(
         out, model=model, model_path=model_path, device=device
     )
 
+    if single_cls:
+        from libreyolo.models.registry import group_of
+
+        family = get_loaded_model_family(loaded_model)
+        task = getattr(loaded_model, "task", "detect")
+        if group_of(family) not in {"g0", "g1"} or task != "detect":
+            exit_with_error(
+                out,
+                "config_unsupported",
+                "single_cls=True is supported only for G0/G1 detection models; "
+                f"got family={family!r}, task={task!r}.",
+            )
+
+    # crop_pct is classification eval preprocessing; say so rather than accept
+    # it and change nothing (#878).
+    if crop_pct is not None and getattr(loaded_model, "task", "detect") != "classify":
+        out.warning(
+            f"{getattr(loaded_model, 'FAMILY', 'This model')} is not a "
+            "classification model and ignores crop_pct; it only affects the "
+            "classification eval resize and center crop."
+        )
+
     # Resolve save directory
-    save_dir = str(increment_path(Path(project) / name, exist_ok=exist_ok, mkdir=True))
+    save_dir = val_save_dir(project, name, exist_ok, mkdir=True)
 
     # Run validation
     out.progress(f"Validating {model} on {data} ({split} split)...")
@@ -135,6 +197,7 @@ def val_cmd(
             allow_download_scripts=allow_download_scripts,
             device=device,
             split=split,
+            classes=classes,
             save_json=save_json,
             save_plots=save_plots,
             verbose=verbose and not quiet,
@@ -145,31 +208,46 @@ def val_cmd(
             max_det=max_det,
             eval_max_det=eval_max_det,
             faster_coco_eval=faster_coco_eval,
+            plot_samples=plot_samples,
+            crop_pct=crop_pct,
+            # Only when set: some families' val() reject unknown kwargs.
+            **({"single_cls": True} if single_cls else {}),
+            **({"visualize": True} if visualize else {}),
+            **({"show_labels": False} if not show_labels else {}),
+            **({"show_conf": False} if not show_conf else {}),
         )
     except FileNotFoundError as e:
         exit_with_error(out, "data_not_found", str(e))
     except Exception as e:
+        if imgsz is not None and is_imgsz_error(e):
+            exit_imgsz_error(out, e)
         exit_stage_error(out, stage="Validation", detail=e)
 
     if getattr(loaded_model, "task", "detect") == "classify":
         top1 = metrics.get("metrics/accuracy_top1", 0.0)
         top5 = metrics.get("metrics/accuracy_top5", 0.0)
+        classify_metrics = {
+            "accuracy_top1": round(float(top1), 4),
+            "accuracy_top5": round(float(top5), 4),
+        }
+        human_line = f"  top1: {float(top1):.4f}  top5: {float(top5):.4f}"
+        for metric_name in ("precision", "recall", "f1"):
+            value = _rounded_metric(metrics, f"metrics/{metric_name}")
+            if value is not None:
+                classify_metrics[metric_name] = value
+                human_line += f"  {metric_name}: {value:.4f}"
         data_out = {
             "model": model,
             "model_family": loaded_model.FAMILY,
             "data": data,
             "split": split,
             "device": str(loaded_model.device),
-            "metrics": {
-                "accuracy_top1": round(float(top1), 4),
-                "accuracy_top5": round(float(top5), 4),
-            },
+            "metrics": classify_metrics,
         }
         if not json_output:
             data_out["_human_text"] = (
                 f"Validating {loaded_model.FAMILY}-{loaded_model.size} "
-                f"on {data} ({split}):\n"
-                f"  top1: {float(top1):.4f}  top5: {float(top5):.4f}"
+                f"on {data} ({split}):\n" + human_line
             )
         out.result(data_out)
         return

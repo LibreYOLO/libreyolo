@@ -28,7 +28,7 @@ layer before touching anything; most CLI bugs live at its edges.
   label doctor`) are one module each under `commands/`; `profile` is a
   Typer sub-app (command group) - use that pattern for any new
   multi-subcommand tool.
-- `commands/command_utils.py`, `output.py`, `errors.py`: shared option
+- `command_utils.py`, `output.py`, `errors.py`: shared option
   handling, machine-readable output, and error rendering. Reuse; don't
   reimplement `--json` printing or error exits per command.
 - `aliases.py`: mode-aware translation of user-facing shorthand to internal
@@ -67,7 +67,9 @@ layer before touching anything; most CLI bugs live at its edges.
    silently loses `key=value` support, which users will file as a bug.
 3. Support the output contract: `--json` (machine-readable to stdout,
    nothing else on stdout), `--quiet`, and correct exit codes via the
-   shared error helpers. Agents and scripts consume these; they are part of
+   shared error helpers. Map an exception raised by a model call with
+   `model_call_error_code()`, so a `ValueError` exits 2 as a config error
+   rather than 1 as `io_error`. Agents and scripts consume these; they are part of
    why the CLI is self-describing.
 4. Keep imports inside the command function or module lazy where heavy
    (torch etc.): `libreyolo --help` must stay fast, and the entrypoint's

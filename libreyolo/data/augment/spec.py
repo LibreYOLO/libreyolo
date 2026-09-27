@@ -66,8 +66,10 @@ AUG_KNOBS: Dict[str, str] = {
     # ignore these).
     "auto_augment": "Classification AutoAugment policy (randaugment/autoaugment/augmix).",
     "erasing": "Classification RandomErasing probability.",
-    "mixup": "Classification batch-MixUp probability (soft labels).",
+    "mixup": "Classification batch-MixUp probability (soft labels); mixup + cutmix <= 1.",
     "cutmix": "Classification batch-CutMix probability (soft labels).",
+    "scale": "Classification RandomResizedCrop area range for training.",
+    "crop_pct": "Classification eval shorter-side resize ratio before the center crop.",
 }
 
 # Human-facing family names for warnings and docs.
@@ -82,20 +84,25 @@ FAMILY_DISPLAY_NAMES: Dict[str, str] = {
     "rtdetrv2": "RT-DETRv2",
     "rtdetrv4": "RT-DETRv4",
     "dfine": "D-FINE",
+    "gtr": "GTR",
     "domedetr": "Dome-DETR",
     "deim": "DEIM",
     "deimv2": "DEIMv2",
+    "tinyformer": "TinyFormer",
     "ec": "EC",
     "rtmdet": "RTMDet",
     "picodet": "PICODET",
+    "ppyoloe": "PP-YOLOE",
     "rfdetr": "RF-DETR",
     "fomo": "FOMO",
     "resnet": "ResNet",
     "convnext": "ConvNeXt",
+    "convnextv2": "ConvNeXt V2",
     "mobilenetv4": "MobileNetV4",
     "efficientnetv2": "EfficientNetV2",
     "dinov2": "DINOv2",
     "segformer": "SegFormer",
+    "unet": "U-Net",
     "nafnet": "NAFNet",
 }
 
@@ -115,8 +122,10 @@ def _i(note: str = "") -> Support:
 _CLS_KNOBS_IGNORED = {
     "auto_augment": _i("Classification-only knob."),
     "erasing": _i("Classification-only knob."),
-    "mixup": _i("Classification-only knob (API-only; the CLI --mixup is the detection mixup_prob alias)."),
+    "mixup": _i("Classification-only knob (on detection models the CLI --mixup is the mixup_prob alias)."),
     "cutmix": _i("Classification-only knob."),
+    "scale": _i("Classification-only knob (detection affine scale is mosaic_scale)."),
+    "crop_pct": _i("Classification-only knob."),
 }
 
 # YOLOX-style pipeline: per-sample preproc applies HSV + flips; affine and
@@ -163,19 +172,21 @@ _CLASSIFY_STYLE = {
     "mosaic_prob": _i("Classification pipeline has no mosaic."),
     "mixup_prob": _i("Detection MixUp; classification uses the 'mixup' field instead."),
     "hsv_prob": _i("Classification pipeline has no HSV jitter."),
-    "flip_prob": _i("Classification flip is a fixed RandomHorizontalFlip(0.5)."),
+    "flip_prob": _u("RandomHorizontalFlip(p=flip_prob) on the train crop."),
     "degrees": _i("Classification pipeline has no affine warp."),
     "translate": _i("Classification pipeline has no affine warp."),
     "mosaic_scale": _i("Classification pipeline has no affine warp."),
     "mixup_scale": _i("Classification pipeline has no detection MixUp."),
     "shear": _i("Classification pipeline has no affine warp."),
     "perspective": _i("Classification pipeline has no affine warp."),
-    "flipud": _i("Classification pipeline has no vertical flip."),
-    "no_aug_epochs": _u("Shapes the scheduler's plateau tail."),
+    "flipud": _u("RandomVerticalFlip(p=flipud) on the train crop."),
+    "no_aug_epochs": _u("Switches off auto_augment/erasing/mixup/cutmix for the final epochs."),
     "auto_augment": _u(),
     "erasing": _u(),
-    "mixup": _u("API-only: the CLI --mixup is the detection mixup_prob alias."),
+    "mixup": _u("Batch MixUp; the CLI --mixup maps here for classification models."),
     "cutmix": _u(),
+    "scale": _u("RandomResizedCrop area range."),
+    "crop_pct": _u("Eval resize ratio; None keeps the family's native value."),
 }
 
 FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
@@ -222,8 +233,41 @@ FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
         "no_aug_epochs": _u("Disables the affine and MixUp for the final epochs."),
         **_CLS_KNOBS_IGNORED,
     },
+    # PP-YOLOE reuses YOLO-NAS's affine + MixUp wrapper, so the geometric
+    # knobs behave the same. Its own transform adds the source recipe's
+    # rot90 and RGB-to-BGR swap, which have their own config fields rather
+    # than shared knobs.
+    "ppyoloe": {
+        "mosaic_prob": _i("The source recipe uses a per-sample affine, not mosaic."),
+        "mixup_prob": _u("MixUp is independent of mosaic here."),
+        "hsv_prob": _u(),
+        "flip_prob": _u(),
+        "degrees": _u("Applied by the always-on per-sample affine."),
+        "translate": _u("Applied by the always-on per-sample affine."),
+        "mosaic_scale": _u("Reused as the per-sample affine scale range."),
+        "mixup_scale": _u(),
+        "shear": _u("Applied by the always-on per-sample affine."),
+        "perspective": _u("Applied by the always-on per-sample affine."),
+        "flipud": _i(
+            "The source recipe has no vertical flip; it uses a random "
+            "90-degree rotation (rot90_prob) instead."
+        ),
+        "no_aug_epochs": _u("Disables the affine and MixUp for the final epochs."),
+        **_CLS_KNOBS_IGNORED,
+    },
     # --- DETR-style pass-through pipelines ------------------------------
     "dfine": dict(_DETR_STYLE),
+    "gtr": {
+        **_DETR_STYLE,
+        "mosaic_prob": _u("Upstream cached Mosaic for the first mosaic_epochs epochs."),
+        "mixup_prob": _u("Upstream batch MixUp for the first mosaic_epochs epochs."),
+        "degrees": _u("Rotation of the post-Mosaic affine; OBB: random rotation range."),
+        "translate": _u("Translation of the post-Mosaic affine."),
+        "mosaic_scale": _u("Scale range of the post-Mosaic affine."),
+        "mixup_scale": _i("Batch MixUp blends at a fixed 0.45-0.55 ratio without rescaling."),
+        "no_aug_epochs": _u("Stops strong augmentations and controls the final LR plateau."),
+        "flip_prob": _u("Horizontal flip; OBB: one horizontal, vertical or diagonal flip."),
+    },
     # Dome-DETR inherits DFINETrainer.create_transforms unchanged, so its
     # knob support is D-FINE's. Multi-scale is the one thing it cannot
     # take (MWAS needs the stride-8 map divisible by the window size), and
@@ -231,6 +275,8 @@ FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
     "domedetr": dict(_DETR_STYLE),
     "deim": dict(_DETR_STYLE),
     "deimv2": dict(_DETR_STYLE),
+    # TinyFormer trains through DEIMv2's transform path unchanged.
+    "tinyformer": dict(_DETR_STYLE),
     # EC is multi-task (detect/segment/pose). Its pose pipeline honors
     # hsv_prob/degrees/translate, so those cannot be marked IGNORED for the
     # family as a whole; the CLI warning must never be wrong for any task.
@@ -264,12 +310,28 @@ FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
     # --- Classification-only families -----------------------------------
     "resnet": dict(_CLASSIFY_STYLE),
     "convnext": dict(_CLASSIFY_STYLE),
+    "convnextv2": dict(_CLASSIFY_STYLE),
     "mobilenetv4": dict(_CLASSIFY_STYLE),
     "efficientnetv2": dict(_CLASSIFY_STYLE),
     # --- Semantic-only: the semantic pipeline reads family class
     # attributes (semantic_scale_jitter / semantic_hsv_prob), not config
     # knobs; horizontal flip is a fixed 0.5.
     "segformer": {
+        "mosaic_prob": _i("Semantic pipeline has no mosaic."),
+        "mixup_prob": _i("Semantic pipeline has no MixUp."),
+        "hsv_prob": _i("Semantic HSV comes from the family's semantic_hsv_prob class attribute."),
+        "flip_prob": _i("Semantic flip is a fixed 0.5."),
+        "degrees": _i("Semantic pipeline has no affine warp."),
+        "translate": _i("Semantic pipeline has no affine warp."),
+        "mosaic_scale": _i("Semantic scale jitter comes from the family's semantic_scale_jitter class attribute."),
+        "mixup_scale": _i("Semantic pipeline has no MixUp."),
+        "shear": _i("Semantic pipeline has no affine warp."),
+        "perspective": _i("Semantic pipeline has no affine warp."),
+        "flipud": _i("Semantic pipeline has no vertical flip."),
+        "no_aug_epochs": _u("Shapes the scheduler's tail."),
+        **_CLS_KNOBS_IGNORED,
+    },
+    "unet": {
         "mosaic_prob": _i("Semantic pipeline has no mosaic."),
         "mixup_prob": _i("Semantic pipeline has no MixUp."),
         "hsv_prob": _i("Semantic HSV comes from the family's semantic_hsv_prob class attribute."),

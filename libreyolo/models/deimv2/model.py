@@ -37,12 +37,14 @@ class LibreDEIMv2(BaseModel):
     """
 
     FAMILY = "deimv2"
+    SQUARE_IMGSZ_CALLS = frozenset({"predict", "val"})
     FILENAME_PREFIX = "LibreDEIMv2"
     # Forward is pure tensor work with no host sync, verified to capture and
     # replay bit-identically (tests/unit/test_cuda_graph_families.py).
     SUPPORTS_CUDA_GRAPH = True
     INPUT_SIZES = {size: int(cfg["input_size"]) for size, cfg in SIZE_CONFIGS.items()}
     TRAIN_CONFIG = DEIMv2Config
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = DEIMv2ValPreprocessor
     TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
     IMGSZ_DIVISOR = 32
@@ -64,6 +66,14 @@ class LibreDEIMv2(BaseModel):
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
+        # TinyFormer (a DEIMv2 derivative) shares the backbone.dinov3.* keys
+        # but carries its own SSA markers (backbone.sda./backbone.proj_c1.);
+        # routing between the two families is enforced here in both directions
+        # (LibreTinyFormer.can_load requires those markers), not by registry
+        # order — importing models.tinyformer pulls in models.deimv2 first, so
+        # DEIMv2 registers earlier regardless of import position.
+        if any(k.startswith("backbone.sda.") for k in weights_dict):
+            return False
         return any(
             "swish_ffn" in k
             or k.startswith("backbone.dinov3.")
@@ -128,6 +138,7 @@ class LibreDEIMv2(BaseModel):
         **kwargs,
     ):
         size = normalize_size(size)
+        checkpoint = model_path if isinstance(model_path, dict) else None
         pending_state_dict = None
         if isinstance(model_path, dict):
             pending_state_dict = self._prepare_state_dict(
@@ -141,6 +152,8 @@ class LibreDEIMv2(BaseModel):
             device=device,
             **kwargs,
         )
+        if checkpoint is not None:
+            self._cache_checkpoint_train_config(checkpoint)
         if pending_state_dict is not None:
             self._load_state_dict_checked(pending_state_dict)
             self.model.eval()
@@ -269,7 +282,11 @@ class LibreDEIMv2(BaseModel):
             imgsz = self._validate_imgsz(imgsz, context="DEIMv2 training imgsz")
 
         try:
-            data_config = load_data_config(data, autodownload=True)
+            data_config = load_data_config(
+                data,
+                autodownload=True,
+                single_cls=bool(kwargs.get("single_cls", False)),
+            )
             data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
@@ -324,14 +341,8 @@ class LibreDEIMv2(BaseModel):
         trainer = DEIMv2Trainer(**trainer_kwargs)
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreDEIMv2('path/to/last.pt'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()
@@ -451,6 +462,7 @@ class LibreDEIMv2(BaseModel):
 
         try:
             if Path(model_path).suffix == ".safetensors":
+                self._cache_checkpoint_train_config({})
                 self._load_safetensors_weights(model_path)
                 return
 
@@ -459,6 +471,7 @@ class LibreDEIMv2(BaseModel):
                 map_location="cpu",
                 context="DEIMv2 model weights",
             )
+            self._cache_checkpoint_train_config(loaded)
             state_dict = unwrap_deim_checkpoint(loaded)
             state_dict = self._prepare_state_dict(state_dict, self.size)
 

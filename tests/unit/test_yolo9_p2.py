@@ -234,5 +234,5 @@ def test_yolo9_p2_trainer_metadata():
     assert YOLO9P2Trainer._config_class() is YOLO9P2Config
     assert YOLO9P2Trainer.artifact_model_families == ("yolo9_p2",)
     cfg = YOLO9P2Config(size="t")
-    assert cfg.max_labels == 100
+    assert cfg.max_labels == 300
     assert "elan_up3" in YOLO9P2Trainer._NECK_FREEZE_MODULES

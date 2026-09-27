@@ -130,3 +130,43 @@ def test_backend_uses_efficientdet_validation_preprocessor():
     backend = _BackendFixture()
     preprocessor = backend._get_val_preprocessor()
     assert type(preprocessor).__name__ == "EfficientDetValPreprocessor"
+
+
+def test_same_padding_survives_dynamic_batch_onnx_simplify(tmp_path):
+    # export() defaults to a dynamic batch axis plus onnxsim. Traced SAME-pad
+    # shape arithmetic used to be folded into wrong Conv pads there.
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    onnxsim = pytest.importorskip("onnxsim")
+
+    from libreyolo.models.efficientdet.nn import Conv2dSame, MaxPool2dSame
+
+    torch.manual_seed(0)
+    net = nn.Sequential(
+        Conv2dSame(3, 4, 3, stride=2),
+        Conv2dSame(4, 4, 3, stride=2),
+        MaxPool2dSame(3, 2),
+        Conv2dSame(4, 4, 3, stride=2),
+    ).eval()
+    x = torch.randn(1, 3, 64, 64)
+    with torch.no_grad():
+        expected = net(x).numpy()
+
+    path = tmp_path / "same.onnx"
+    torch.onnx.export(
+        net,
+        x,
+        str(path),
+        input_names=["images"],
+        output_names=["features"],
+        dynamic_axes={"images": {0: "batch"}, "features": {0: "batch"}},
+        opset_version=13,
+        dynamo=False,
+    )
+    simplified, ok = onnxsim.simplify(onnx.load(str(path)))
+    assert ok
+    sess = ort.InferenceSession(
+        simplified.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
+    actual = sess.run(None, {"images": x.numpy()})[0]
+    np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-5)

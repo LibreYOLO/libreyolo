@@ -7,10 +7,13 @@ Provides shared functionality for all YOLO model variants.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import functools
 import inspect
 import logging
+import math
 import re
+import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import (
@@ -19,6 +22,7 @@ from typing import (
     ClassVar,
     Dict,
     Generator,
+    Iterator,
     List,
     Optional,
     Tuple,
@@ -26,6 +30,7 @@ from typing import (
     Union,
 )
 
+import numpy as np
 import torch
 import torch.nn as nn
 from PIL import Image
@@ -38,7 +43,8 @@ from ...tasks import (
     task_suffix_pattern,
     task_to_suffix,
 )
-from ...training.config import TrainConfig, load_train_cfg
+from ...tracking.protocol import Tracker
+from ...training.config import TrainConfig, apply_train_aliases, load_train_cfg
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.logging import ensure_default_logging
@@ -66,6 +72,36 @@ logger = logging.getLogger(__name__)
 # both, so a user-generated starter yaml hits this naturally.
 _WRAPPER_OWNED_CFG_KEYS = frozenset({"size", "num_classes"})
 
+# Built-in trackers selectable by name in track().
+_BUILTIN_TRACKERS = frozenset({"bytetrack", "botsort", "ocsort", "deepocsort"})
+
+# Saved training arguments a resume does not restore: the wrapper owns the
+# architecture keys (pose trainers also take the keypoint layout from the
+# dataset), ``device`` follows the call, the run directory comes from the
+# checkpoint path, and a checkpoint must not opt a call into running dataset
+# download scripts.
+_RESUME_UNRESTORED_KEYS = _WRAPPER_OWNED_CFG_KEYS | {
+    "num_keypoints",
+    "keypoint_dim",
+    "resume",
+    "device",
+    "project",
+    "name",
+    "exist_ok",
+    "allow_download_scripts",
+}
+
+
+def _drop_disabled_eval_interval(saved: dict[str, Any], requested_val: Any) -> None:
+    """Let an explicit ``val=True`` on resume turn validation back on.
+
+    ``val=False`` is saved as ``eval_interval=0``. Restoring that alongside
+    ``val=True`` would keep validation off, so the family default interval
+    applies instead.
+    """
+    if requested_val and (saved.get("eval_interval") or 0) <= 0:
+        saved.pop("eval_interval", None)
+
 
 def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
     """Add shared config-file and scratch-initialization handling to ``train()``.
@@ -86,12 +122,54 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
 
     @functools.wraps(train_fn)
     def wrapper(self, *args, cfg=None, **user_kwargs):
+        # CLI/ecosystem spellings (mosaic, fliplr, mixup on detection) name
+        # their fields per source, before cfg= and resume merge, so a call's
+        # mosaic=0 overrides a saved mosaic_prob instead of conflicting with it.
+        task = getattr(self, "task", None)
+        user_kwargs = apply_train_aliases(user_kwargs, task=task)
         merged = dict(user_kwargs)
         if cfg is not None:
-            cfg_kwargs = load_train_cfg(cfg)
+            cfg_kwargs = apply_train_aliases(load_train_cfg(cfg), task=task)
             consumed = set(pos_names[: len(args)]) | _WRAPPER_OWNED_CFG_KEYS
             merged = {k: v for k, v in cfg_kwargs.items() if k not in consumed}
             merged.update(user_kwargs)
+
+        resume = merged.get("resume", False)
+        resumes_optimizer = "optimizer" in sig.parameters and "optimizer" not in merged
+        if resume and (
+            not merged.get("single_cls", False)
+            or not merged.get("classes")
+            or resumes_optimizer
+        ):
+            resume_source = (
+                resume
+                if isinstance(resume, (str, Path)) and not isinstance(resume, bool)
+                else None
+            )
+            checkpoint_config = self._checkpoint_train_config(resume_source)
+            # The saved optimizer state only fits the optimizer that wrote it
+            # (AdamW groups carry no ``momentum``), so resume the saved one.
+            saved_optimizer = checkpoint_config.get("optimizer")
+            if resumes_optimizer and isinstance(saved_optimizer, str) and saved_optimizer:
+                merged["optimizer"] = saved_optimizer
+            if not merged.get("single_cls", False) and bool(
+                checkpoint_config.get("single_cls", False)
+            ):
+                merged["single_cls"] = True
+            if not merged.get("classes") and checkpoint_config.get("classes"):
+                merged["classes"] = checkpoint_config["classes"]
+
+        if merged.get("single_cls") or merged.get("classes"):
+            from ..registry import group_of
+
+            group = group_of(self.FAMILY)
+            task = getattr(self, "task", "detect")
+            if group not in {"g0", "g1"} or task != "detect":
+                raise ValueError(
+                    "single_cls=True and classes=[...] are supported only for "
+                    "G0/G1 detection models; got family="
+                    f"{self.FAMILY!r} ({group}), task={task!r}."
+                )
 
         if merged.get("pretrained") is False:
             from ..registry import group_of
@@ -115,6 +193,21 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
                 if "pretrained" not in sig.parameters:
                     merged.pop("pretrained")
 
+        if resume and getattr(self, "RESUME_RESTORES_TRAIN_ARGS", False):
+            given = set(merged) | set(pos_names[: len(args)])
+            accepts_any = any(
+                p.kind == p.VAR_KEYWORD for p in sig.parameters.values()
+            )
+            restored = self._resume_train_args(resume, given)
+            _drop_disabled_eval_interval(restored, merged.get("val"))
+            merged.update(
+                (key, value)
+                for key, value in restored.items()
+                if accepts_any or key in sig.parameters
+            )
+
+        from ...data.event_histogram import prepare_histogram_training
+        prepare_histogram_training(self, args, merged)
         return train_fn(self, *args, **merged)
 
     wrapper._libreyolo_cfg_wrapped = True  # type: ignore[attr-defined]
@@ -152,6 +245,11 @@ class BaseModel(ABC):
     REQUIRE_TASK_SUFFIX: ClassVar[bool] = False
     TASK_INPUT_SIZES: ClassVar[dict[str, dict[str, int]]] = {}
     TRAIN_CONFIG: ClassVar[Optional[type[TrainConfig]]] = None
+    # True when ``train()`` resumes through ``BaseTrainer.resume()`` from
+    # ``_resume_checkpoint()``: ``resume=True`` or a checkpoint path then
+    # restores the run's saved ``TRAIN_CONFIG`` arguments (explicit arguments
+    # win) and keeps writing into that run's directory.
+    RESUME_RESTORES_TRAIN_ARGS: ClassVar[bool] = False
     val_preprocessor_class = StandardValPreprocessor
     validator_class: ClassVar[Optional[type]] = None
     # Dataset-variant weight suffixes (e.g. "visdrone" accepts
@@ -159,6 +257,10 @@ class BaseModel(ABC):
     # trained on a non-default dataset opt in; the variant stays part of the
     # Hugging Face repo name in ``get_download_url``.
     WEIGHT_VARIANTS: ClassVar[tuple[str, ...]] = ()
+    # Weight stems the filename grammar accepts but LibreYOLO does not publish
+    # (e.g. {"LibreYOLO1t": "The tiny weights are lost upstream."}), mapped to
+    # the reason shown instead of attempting a download that would 404.
+    UNPUBLISHED_WEIGHTS: ClassVar[dict[str, str]] = {}
 
     # Batched-predict policy: True when ``_preprocess`` yields stackable
     # (1, C, H, W) tensors and every tensor in the ``_forward`` output keeps
@@ -166,11 +268,39 @@ class BaseModel(ABC):
     # on). Set False where that does not hold (e.g. generative VLMs).
     SUPPORTS_BATCHED_PREDICT: ClassVar[bool] = True
 
+    # Family-specific inputs consumed while preparing one prediction image.
+    # Guided families opt in explicitly (for example with ``("mask",)`` or
+    # ``("trimap",)``); ordinary families accept no auxiliary image inputs.
+    # Required keys must also appear in PREDICT_INPUT_KWARGS.
+    PREDICT_INPUT_KWARGS: ClassVar[tuple[str, ...]] = ()
+    REQUIRED_PREDICT_INPUT_KWARGS: ClassVar[tuple[str, ...]] = ()
+
     # CUDA-graph policy: True once a family's ``_forward`` is verified to
     # capture and replay bit-identically. Capture forbids host-visible work
     # mid-forward (``.item()``, ``.cpu()``, writing a Python int into a CUDA
     # tensor), so families opt in only after a parity test covers them.
     SUPPORTS_CUDA_GRAPH: ClassVar[bool] = False
+
+    # Calls ("predict", "val") that need a square ``imgsz``. Families whose
+    # preprocessing resizes to a single side list the calls a rectangular
+    # ``imgsz=(h, w)`` would otherwise crash in deep inside, so users get a
+    # clear error instead.
+    SQUARE_IMGSZ_CALLS: ClassVar[frozenset[str]] = frozenset()
+
+    # Largest network stride for families that only run on stride-aligned
+    # inputs. When set, predict, val, export and train round an unaligned
+    # ``imgsz`` up to a multiple of it with a warning (utils/image_size.py).
+    IMGSZ_STRIDE: ClassVar[int | None] = None
+
+    # How a family embeds a finite video under task="embed".
+    #   "frames" (default) — one Results per decoded frame, the historical
+    #       behavior every existing family keeps.
+    #   "clip"            — one Results for the whole clip: frames are sampled
+    #       uniformly, encoded, and pooled by the family into a single row.
+    # Families opt in explicitly; the generic runner takes the clip path only
+    # when the resolved task is "embed", the source is a finite video, and the
+    # family declares clip support.
+    VIDEO_EMBED_MODE: ClassVar[str] = "frames"
 
     # TTA policy — subclasses may override
     TTA_ENABLED: ClassVar[bool] = True
@@ -215,6 +345,7 @@ class BaseModel(ABC):
     ):
         ensure_default_logging()
         scratch_init = bool(kwargs.pop("_scratch_init", False))
+        requested_input_profile = kwargs.pop("input_profile", None)
         self.family = self.FAMILY
         self.task = self._resolve_task(task)
         valid_sizes = self._get_valid_sizes()
@@ -240,6 +371,7 @@ class BaseModel(ABC):
         self.size = size
         self.nb_classes = nb_classes
         self.input_size = self._get_task_input_sizes()[size]
+        self._loaded_checkpoint_train_config: dict[str, Any] | None = None
         # Built lazily on the first cuda_graph=True call so models that never
         # ask for capture pay nothing.
         self._graph_runner: Optional["GraphRunner"] = None
@@ -273,8 +405,10 @@ class BaseModel(ABC):
             self.model_path = None
         elif isinstance(model_path, dict):
             self.model_path = None
+            self._cache_checkpoint_train_config(model_path)
             state_dict = self._prepare_state_dict(self._strip_ddp_prefix(model_path))
             self._validate_loaded_state_dict_for_task(state_dict, model_path)
+            self._prepare_model_for_state_dict(state_dict)
             self._load_state_dict_logged(state_dict, source="state dict")
         else:
             self.model_path = model_path
@@ -284,6 +418,9 @@ class BaseModel(ABC):
         else:
             self.model.eval()
         self.model.to(self.device)
+        if requested_input_profile is not None:
+            from ...utils.event_histogram import configure_input
+            configure_input(self, requested_input_profile)
 
     @classmethod
     def _from_scratch(
@@ -370,6 +507,30 @@ class BaseModel(ABC):
         """
         pass
 
+    def _preprocess_predict(
+        self,
+        image: ImageInput,
+        color_format: str = "auto",
+        input_size: Optional[int] = None,
+        **predict_input_kwargs,
+    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
+        """Preprocess one public prediction input.
+
+        The default keeps every existing family on its established
+        ``_preprocess`` path. Families that declare auxiliary prediction
+        inputs may override this hook to prepare the image and its guide
+        together.
+        """
+        if getattr(self, "input_profile", None) is not None:
+            from ...utils.event_histogram import predict_histogram
+            return predict_histogram(self, image, input_size, color_format)
+        return self._preprocess(
+            image,
+            color_format,
+            input_size=input_size,
+            **predict_input_kwargs,
+        )
+
     @abstractmethod
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         """Run model forward pass."""
@@ -424,7 +585,10 @@ class BaseModel(ABC):
             self._cuda_graph_mode = previous
 
     def capture_graph(
-        self, imgsz: Optional[int] = None, batch: int = 1, dtype: Any = None
+        self,
+        imgsz: Optional[int | tuple[int, int]] = None,
+        batch: int = 1,
+        dtype: Any = None,
     ) -> None:
         """Capture a CUDA graph now for the given input shape.
 
@@ -434,7 +598,8 @@ class BaseModel(ABC):
         captured graph.
 
         Args:
-            imgsz: Input resolution. Defaults to the model's input size.
+            imgsz: Square size or (height, width). Defaults to the model's
+                input size.
             batch: Batch size the graph is captured for. A graph is valid only
                 for the exact shape it captured, so this must match how you
                 call predict.
@@ -445,10 +610,14 @@ class BaseModel(ABC):
             CudaGraphUnavailable: If capture is impossible or fails.
         """
         self._require_cuda_graph_support()
-        size = imgsz or self.input_size
+        from ...utils.image_size import imgsz_to_hw
+
+        height, width = imgsz_to_hw(imgsz or self.input_size)
         if dtype is None:
             dtype = next(self.model.parameters()).dtype
-        dummy = torch.zeros((batch, 3, size, size), dtype=dtype, device=self.device)
+        dummy = torch.zeros(
+            (batch, 3, height, width), dtype=dtype, device=self.device
+        )
         with torch.no_grad():
             self._get_graph_runner().capture(dummy)
 
@@ -558,6 +727,111 @@ class BaseModel(ABC):
         """
         return state_dict
 
+    def _checkpoint_train_config(
+        self, source: str | Path | dict | None = None
+    ) -> dict[str, Any]:
+        """Return the saved training config for a checkpoint, if available."""
+        if source is None:
+            cached = getattr(self, "_loaded_checkpoint_train_config", None)
+            if cached is not None:
+                return dict(cached)
+            source = getattr(self, "model_path", None) or getattr(
+                self, "_weight_source", None
+            )
+        if source is None:
+            return {}
+        if isinstance(source, dict):
+            checkpoint = source
+        else:
+            path = Path(source)
+            if not path.exists():
+                return {}
+            try:
+                checkpoint = load_untrusted_torch_file(
+                    path,
+                    map_location="cpu",
+                    context="checkpoint training-config probe",
+                )
+            except Exception:
+                return {}
+        return self._cache_checkpoint_train_config(checkpoint)
+
+    def _loaded_run_checkpoint(self, source: str | Path | None = None) -> Path | None:
+        """The run checkpoint (``<run>/weights/*.pt``) this model was loaded from.
+
+        ``resume=True`` means "resume the loaded checkpoint". Families whose
+        default run directory increments cannot recover that run from the
+        defaults alone, so they resume from, and keep writing into, this run.
+        ``source`` checks an explicit resume checkpoint the same way.
+        """
+        if source is None:
+            source = getattr(self, "model_path", None)
+        if not isinstance(source, (str, Path)):
+            return None
+        path = Path(source)
+        if path.suffix != ".pt" or path.parent.name != "weights" or not path.is_file():
+            return None
+        return path
+
+    def _resume_checkpoint(self, resume: bool | str | Path) -> str:
+        """The checkpoint a ``resume`` request continues: its path, or the loaded one."""
+        if isinstance(resume, (str, Path)) and not isinstance(resume, bool):
+            source = resume
+        else:
+            source = getattr(self, "model_path", None)
+        if not isinstance(source, (str, Path)) or not str(source):
+            raise ValueError(
+                "resume=True requires a checkpoint to continue. Load one first "
+                f"(model = {type(self).__name__}('path/to/last.pt')) or pass "
+                "its path: model.train(resume='path/to/last.pt')."
+            )
+        return str(source)
+
+    def _resume_train_args(
+        self, resume: bool | str | Path, given: set[str]
+    ) -> dict[str, Any]:
+        """Saved training arguments and run directory for a resumed ``train()``.
+
+        Arguments in ``given`` were passed explicitly and are left out, so
+        they override the checkpoint's. A ``<run>/weights/*.pt`` checkpoint
+        keeps writing into ``<run>`` unless ``project``/``name`` are given.
+        """
+        source = self._resume_checkpoint(resume)
+        if not Path(source).is_file():
+            raise FileNotFoundError(f"Resume checkpoint not found: {source}")
+        # Read the file itself: the cached config may describe an earlier run.
+        saved = self._checkpoint_train_config(source)
+        if not saved:
+            raise ValueError(
+                f"Cannot resume from {source}: it holds no training state. "
+                "Released weights start a new run: train without resume, "
+                "e.g. model.train(data=...)."
+            )
+        if self.TRAIN_CONFIG is not None:
+            # Drop keys an older release saved that this config no longer has.
+            valid = {field.name for field in dataclasses.fields(self.TRAIN_CONFIG)}
+            saved = {key: value for key, value in saved.items() if key in valid}
+        restored = {
+            key: value
+            for key, value in saved.items()
+            if key not in _RESUME_UNRESTORED_KEYS and key not in given
+        }
+        run_checkpoint = self._loaded_run_checkpoint(source)
+        run_dir = run_checkpoint.parent.parent if run_checkpoint is not None else None
+        if run_dir is not None and run_dir.name and not {"project", "name"} & given:
+            restored.update(project=str(run_dir.parent), name=run_dir.name)
+            # Continue in that directory unless exist_ok=False asks for a new one.
+            if "exist_ok" not in given:
+                restored["exist_ok"] = True
+        return restored
+
+    def _cache_checkpoint_train_config(self, checkpoint: Any) -> dict[str, Any]:
+        """Cache and return checkpoint training config metadata."""
+        config = checkpoint.get("config") if isinstance(checkpoint, dict) else None
+        cached = dict(config) if isinstance(config, dict) else {}
+        self._loaded_checkpoint_train_config = cached
+        return dict(cached)
+
     def _adapt_checkpoint_num_classes(
         self,
         ckpt_nc: int | None,
@@ -605,6 +879,9 @@ class BaseModel(ABC):
 
         self.model = model
         self.model_path = None
+        if getattr(self, "input_profile", None) is not None:
+            self.input_profile = None
+            self.__dict__.pop("input_initialization", None)
         self._training_from_scratch = True
         self.names = (
             {i: name for i, name in enumerate(COCO_CLASSES)}
@@ -627,6 +904,9 @@ class BaseModel(ABC):
         finally:
             self._in_rebuild = False
 
+        if getattr(self, "input_profile", None) is not None:
+            from ...utils.event_histogram import configure_input
+            configure_input(self, self.input_profile, initialization=self.input_initialization)
         new_state = self.model.state_dict()
         for key in old_state:
             if key in new_state and old_state[key].shape == new_state[key].shape:
@@ -722,7 +1002,9 @@ class BaseModel(ABC):
         return dict(state_dict) if cls.can_load(state_dict) else None
 
     @classmethod
-    def default_checkpoint_names(cls, nc: int) -> Optional[Dict[int, str]]:
+    def default_checkpoint_names(
+        cls, nc: int, task: Optional[str] = None
+    ) -> Optional[Dict[int, str]]:
         """Return known upstream labels when a raw checkpoint has no metadata."""
         return None
 
@@ -743,6 +1025,12 @@ class BaseModel(ABC):
         variant = cls.detect_variant_from_filename(filename)
         variant_suffix = f"-{variant}" if variant else ""
         name = f"{cls.FILENAME_PREFIX}{size}{suffix}{variant_suffix}"
+        reason = cls.UNPUBLISHED_WEIGHTS.get(name)
+        if reason is not None:
+            raise FileNotFoundError(
+                f"{Path(filename).name}: LibreYOLO publishes no "
+                f"{name}{cls.WEIGHT_EXT}. {reason}"
+            )
         return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}{cls.WEIGHT_EXT}"
 
     @classmethod
@@ -763,9 +1051,62 @@ class BaseModel(ABC):
 
     def _get_val_preprocessor(self, img_size: int | None = None):
         """Return the validation preprocessor for this model."""
+        if getattr(self, "input_profile", None) is not None:
+            from ...utils.event_histogram import val_transform
+            return val_transform(self)
         if img_size is None:
             img_size = self._get_input_size()
-        return self.val_preprocessor_class(img_size=(img_size, img_size))
+        from ...utils.image_size import imgsz_to_hw
+
+        return self.val_preprocessor_class(img_size=imgsz_to_hw(img_size))
+
+    def _get_eval_transform(
+        self, img_size: int | None = None, crop_pct: float | None = None
+    ):
+        """Return the classification eval transform (RGB PIL -> CHW tensor).
+
+        The classification counterpart of :meth:`_get_val_preprocessor`: the
+        validator, exported-backend validation and INT8 calibration take the
+        family's eval pipeline from here, so they score the model on what its
+        ``predict()`` runs. Built from the family's declared eval settings:
+        ``crop_pct``, ``interpolation``, ``norm_mean`` / ``norm_std`` (default
+        ImageNet) and ``resize_mode`` (``"center_crop"`` default, or
+        ``"stretch"`` for a square resize). ``crop_pct`` overrides the family
+        value (``val(crop_pct=...)``) and switches ``"stretch"`` back to the
+        center crop. Families whose pipeline these settings cannot express
+        override this method.
+        """
+        from ...data.augment.classify import (
+            DEFAULT_CROP_PCT,
+            IMAGENET_MEAN,
+            IMAGENET_STD,
+            build_classify_transforms,
+        )
+
+        if img_size is None:
+            img_size = self._get_input_size()
+        if isinstance(img_size, (list, tuple)):
+            if len(img_size) == 2 and img_size[0] != img_size[1]:
+                raise NotImplementedError(
+                    "Classification validation supports square imgsz only."
+                )
+            img_size = img_size[0]
+        return build_classify_transforms(
+            int(img_size),
+            augment=False,
+            mean=getattr(self, "norm_mean", IMAGENET_MEAN),
+            std=getattr(self, "norm_std", IMAGENET_STD),
+            crop_pct=(
+                getattr(self, "crop_pct", DEFAULT_CROP_PCT)
+                if crop_pct is None
+                else crop_pct
+            ),
+            interpolation=getattr(self, "interpolation", "bilinear"),
+            square_resize=(
+                getattr(self, "resize_mode", "center_crop") == "stretch"
+                and crop_pct is None
+            ),
+        )
 
     # =========================================================================
     # Weight loading internals
@@ -821,6 +1162,7 @@ class BaseModel(ABC):
                 map_location="cpu",
                 context="model weights",
             )
+            self._cache_checkpoint_train_config(loaded)
 
             if isinstance(loaded, dict):
                 metadata_keys = set(REQUIRED_CHECKPOINT_METADATA_KEYS) - {"model"}
@@ -900,10 +1242,13 @@ class BaseModel(ABC):
                 effective_nc = ckpt_nc if ckpt_nc is not None else self.nb_classes
                 if ckpt_names is not None:
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
+                self._restore_checkpoint_input_size(loaded)
                 self._validate_loaded_state_dict_for_task(state_dict, loaded)
             else:
                 state_dict = self._prepare_state_dict(loaded)
 
+            from ...utils.event_histogram import restore_input
+            restore_input(self, loaded)
             quant_manifest = loaded.get("quant") if isinstance(loaded, dict) else None
             if quant_manifest:
                 from ...quant import apply_quant_structure
@@ -917,6 +1262,64 @@ class BaseModel(ABC):
             raise RuntimeError(
                 f"Failed to load model weights from {model_path}: {e}"
             ) from e
+
+    def _restore_checkpoint_input_size(self, loaded: dict) -> None:
+        """Adopt the rectangular input size a checkpoint was saved at (#899).
+
+        Rectangular checkpoints dual-write ``imgsz_h``/``imgsz_w`` next to the
+        legacy scalar ``imgsz`` (docs/checkpoint_schema.md), and readers that
+        understand the pair must prefer it. Without this, a model trained at
+        ``imgsz=(384, 640)`` reloaded at the family's square default and
+        letterboxed every frame back to 640x640. Square checkpoints keep the
+        family's native size, as before.
+        """
+        has_h = "imgsz_h" in loaded
+        has_w = "imgsz_w" in loaded
+        if not has_h and not has_w:
+            # A square checkpoint loaded into a model that restored a
+            # rectangular size earlier (e.g. ``train(imgsz=640)`` from a
+            # rectangular fine-tune) must not keep that stale size.
+            if getattr(self, "_input_size_from_checkpoint", False):
+                self.input_size = self._get_task_input_sizes()[self.size]
+                self._input_size_from_checkpoint = False
+            return
+        if has_h != has_w:
+            raise ValueError(
+                "Checkpoint must define both imgsz_h and imgsz_w, or neither."
+            )
+        from ...utils.image_size import normalize_imgsz
+
+        self.input_size = normalize_imgsz(
+            (loaded["imgsz_h"], loaded["imgsz_w"]), name="checkpoint imgsz_h/imgsz_w"
+        )
+        # Natively rectangular families (e.g. HRNet) store their own fixed
+        # canvas here; only a square family's override needs undoing later.
+        family_default = self._get_task_input_sizes().get(self.size)
+        self._input_size_from_checkpoint = not isinstance(
+            family_default, (tuple, list)
+        ) and self.input_size != family_default
+
+    def _adopt_trained_input_size(self, imgsz) -> None:
+        """Leave the live model at the size a reload of its new checkpoint gives.
+
+        Families that do not reload ``best.pt`` after training would otherwise
+        keep predicting at a stale size: the family default after a
+        rectangular run, or an earlier checkpoint's rectangle after a square
+        one. Natively rectangular families own their sizing and are skipped.
+        """
+        if imgsz is None or isinstance(
+            self._get_task_input_sizes().get(self.size), (tuple, list)
+        ):
+            return
+        from ...utils.image_size import normalize_imgsz
+
+        trained = normalize_imgsz(imgsz, name="imgsz", allow_string=True)
+        if isinstance(trained, tuple):
+            self.input_size = trained
+            self._input_size_from_checkpoint = True
+        elif getattr(self, "_input_size_from_checkpoint", False):
+            self.input_size = self._get_task_input_sizes()[self.size]
+            self._input_size_from_checkpoint = False
 
     def _load_state_dict_logged(self, state_dict: dict, source: str) -> None:
         """Load with the family's strictness, making silent key drops visible.
@@ -1098,6 +1501,8 @@ class BaseModel(ABC):
                 "Test-time augmentation does not support surface normals yet. "
                 "Use augment=False for normal models."
             )
+        if getattr(self, "task", "detect") == "albedo":
+            raise ValueError("Test-time augmentation does not support albedo maps yet.")
         if getattr(self, "task", "detect") == "edge":
             raise ValueError(
                 "Test-time augmentation does not support edge detection yet. "
@@ -1116,6 +1521,8 @@ class BaseModel(ABC):
 
         from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader
+        from ...utils.predict_args import postprocess_max_det
+        from ...utils.results import keep_source
 
         effective_imgsz = imgsz if imgsz is not None else self._get_input_size()
         img_pil = ImageLoader.load(image, color_format=color_format)
@@ -1123,7 +1530,7 @@ class BaseModel(ABC):
         orig_w, orig_h = img_pil.size
 
         if getattr(self, "task", "detect") == "semantic":
-            return self._predict_augment_semantic(
+            result = self._predict_augment_semantic(
                 img_pil,
                 image_path,
                 (orig_w, orig_h),
@@ -1131,9 +1538,10 @@ class BaseModel(ABC):
                 color_format,
                 **kwargs,
             )
+            return keep_source(result, img_pil, image_path)
 
         if getattr(self, "task", "detect") == "panoptic":
-            return self._predict_augment_panoptic(
+            result = self._predict_augment_panoptic(
                 img_pil,
                 image_path,
                 (orig_w, orig_h),
@@ -1141,8 +1549,12 @@ class BaseModel(ABC):
                 color_format,
                 **kwargs,
             )
+            return keep_source(result, img_pil, image_path)
 
         scales = (1.0,) if self.TTA_FIXED_SIZE else self.TTA_SCALES
+        # Undo the letterbox at the canvas each view was preprocessed at, as
+        # the non-TTA predict path does; family defaults can differ from it.
+        kwargs.setdefault("input_size", effective_imgsz)
 
         aug_dets = []
         for scale in scales:
@@ -1165,14 +1577,24 @@ class BaseModel(ABC):
                 with torch.no_grad():
                     raw = self._forward(tensor.to(self.device))
                 det = self._postprocess(
-                    raw, conf, iou, orig_size, max_det=max_det, ratio=ratio, **kwargs
+                    raw,
+                    conf,
+                    iou,
+                    orig_size,
+                    max_det=postprocess_max_det(max_det, classes),
+                    ratio=ratio,
+                    **kwargs,
                 )
                 aug_dets.append((det, orig_size, is_flipped, scale))
 
         if getattr(self, "task", "detect") == "classify":
-            return self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
-
-        return self._merge_tta(aug_dets, iou, image_path, (orig_w, orig_h), classes)
+            result = self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
+        else:
+            result = self._merge_tta(
+                aug_dets, iou, image_path, (orig_w, orig_h), classes, max_det
+            )
+        # Keep the decoded source so plot()/save never fetch the input again.
+        return keep_source(result, img_pil, image_path)
 
     def _postprocess_semantic_logits(
         self,
@@ -1300,8 +1722,13 @@ class BaseModel(ABC):
         image_path,
         original_size: Tuple[int, int],
         classes: Optional[List[int]] = None,
+        max_det: Optional[int] = None,
     ) -> Results:
-        """Merge TTA detections from multiple augmented views via per-class NMS."""
+        """Merge TTA detections from multiple augmented views via per-class NMS.
+
+        ``classes`` filters the merged boxes, then ``max_det`` keeps the
+        highest-scoring ones.
+        """
         from ...utils.results import Boxes, Masks, Results
 
         orig_w, orig_h = original_size
@@ -1410,6 +1837,12 @@ class BaseModel(ABC):
             final_scores = final_scores[cls_mask]
             final_classes = final_classes[cls_mask]
             keep = keep[cls_mask]
+        if max_det is not None and 0 <= max_det < len(keep):
+            # batched_nms returns indices in descending score order.
+            final_boxes = final_boxes[:max_det]
+            final_scores = final_scores[:max_det]
+            final_classes = final_classes[:max_det]
+            keep = keep[:max_det]
 
         masks_obj = None
         if masks_cat is not None:
@@ -1425,9 +1858,15 @@ class BaseModel(ABC):
 
     def track(
         self,
-        source: str | Path,
+        source: Union[
+            ImageInput,
+            List[ImageInput],
+            Tuple[ImageInput, ...],
+            Iterator[ImageInput],
+        ],
         *,
         track_conf: float = 0.25,
+        conf: Optional[float] = None,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
         classes: Optional[List[int]] = None,
@@ -1435,13 +1874,16 @@ class BaseModel(ABC):
         save: bool = False,
         show: bool = False,
         vid_stride: int = 1,
+        fps: float = 30.0,
+        color_format: str = "auto",
         output_path: Optional[str] = None,
-        tracker: str = "bytetrack",
+        tracker: str | Tracker = "bytetrack",
         tracker_config=None,
         augment: bool = False,
+        persist: bool = False,
         **tracker_kwargs,
     ) -> Generator[Results, None, None]:
-        """Track objects across video frames.
+        """Track objects across video frames or an image sequence.
 
         Runs detection on each frame and associates detections across time.
         Four trackers are available via ``tracker``: ByteTrack (default) and
@@ -1453,7 +1895,17 @@ class BaseModel(ABC):
         with ``track_id`` set.
 
         Args:
-            source: Path to a video file.
+            source: A video file path, a directory of images (sorted by
+                name), a finite list/tuple of already-loaded images (paths,
+                PIL Images, NumPy arrays, or tensors), or an iterator/
+                generator yielding images one at a time for incremental,
+                unbounded tracking. In every case, items are treated as
+                consecutive frames of one logical video and tracked in
+                order.
+            conf: Detection confidence threshold, as in predict():
+                detections below it never reach the tracker. By default the
+                detector runs at the tracker's own low threshold so
+                low-confidence detections stay available for recovery.
             track_conf: Confidence threshold for the tracker's first
                 association stage — ``track_high_thresh`` for ByteTrack and
                 BoT-SORT, ``det_thresh`` for OC-SORT and Deep OC-SORT. For the
@@ -1462,7 +1914,9 @@ class BaseModel(ABC):
                 recovery. For ByteTrack and BoT-SORT it must be >=
                 ``track_low_thresh`` (default 0.1). Ignored when
                 *tracker_config* is given, or when the matching key is passed
-                explicitly in ``tracker_kwargs``.
+                explicitly in ``tracker_kwargs``. For a custom tracker instance,
+                this is the detector confidence threshold; choose a value low
+                enough for the custom association algorithm.
             iou: IoU threshold for NMS during detection.
             imgsz: Override input image size.
             classes: Filter to specific class IDs.
@@ -1470,15 +1924,48 @@ class BaseModel(ABC):
             save: If True, save annotated video to *output_path*.
             show: Display tracked frames in a window.
             vid_stride: Process every N-th frame.
+            fps: Frame rate to assume when *source* is an image sequence
+                (directory, list, or iterator) rather than a video file,
+                since those have no real capture rate of their own. Affects
+                the fps written into a saved output video, and — for
+                ByteTrack/BoT-SORT only — the lost-track buffer timing
+                (OC-SORT/Deep OC-SORT count lost-track age in frames, not
+                time, so *fps* doesn't affect them). With *vid_stride* > 1,
+                the buffer is timed against ``fps / vid_stride`` — the rate
+                at which frames are actually retained and reach the tracker.
+                Ignored for video files, which use their own detected fps.
+                A typed *tracker_config* keeps its explicit ``frame_rate`` for
+                tracker timing, while *fps* and *vid_stride* still control
+                image-sequence sampling and saved-video playback. A mismatch
+                emits a warning rather than overwriting the explicit config.
+            color_format: Channel order of NumPy image-sequence items:
+                ``"auto"`` (default) and ``"bgr"`` read them as BGR (OpenCV),
+                ``"rgb"`` as RGB. PIL images and tensors are always RGB.
+                Ignored for video files.
             output_path: Path for saved video. Defaults to
-                ``runs/track/<video_stem>.mp4``.
+                ``runs/track/<video_stem>.mp4`` for a video file, or
+                ``runs/track/<name>.mp4`` for an image sequence.
             tracker: Which tracker to use: ``"bytetrack"``, ``"botsort"``,
                 ``"ocsort"`` or ``"deepocsort"``. Ignored when
                 *tracker_config* is given (the config type selects the tracker).
+                Alternatively, pass a ``libreyolo.tracking.Tracker`` instance.
+                Its ``reset()`` is called once when iteration begins (unless
+                *persist* continues it), then
+                ``update(results, image=rgb_pil_image)`` once per retained frame.
+                Do not share an instance between concurrent runs/cameras.
             tracker_config: A ``TrackConfig`` (ByteTrack), ``BoTSortConfig``
                 (BoT-SORT), ``OCSortConfig`` (OC-SORT), or
                 ``DeepOCSortConfig`` (Deep OC-SORT) instance, or None to build
-                one from **tracker_kwargs.
+                one from **tracker_kwargs. Cannot be combined with a custom
+                tracker instance; configure that instance before passing it.
+            persist: Keep the tracker, and so the track IDs, from the previous
+                ``track()`` call on this model, for per-frame loops such as
+                ``model.track(frame, persist=True)``. The tracker still
+                resets when the tracker or its configuration changes, or when
+                the source is a different video file or directory. Default
+                False: the call starts a fresh tracker and drops the kept
+                one. Only pass consecutive frames of one stream with
+                ``persist=True``.
             **tracker_kwargs: Forwarded to the selected tracker's
                 ``from_kwargs`` (``TrackConfig``, ``BoTSortConfig``,
                 ``OCSortConfig`` or ``DeepOCSortConfig``).
@@ -1511,6 +1998,8 @@ class BaseModel(ABC):
                 "Tracking does not support surface-normal maps. "
                 "Use predict() for normal models."
             )
+        if task == "albedo":
+            raise NotImplementedError("Tracking does not support albedo maps. Use predict().")
         if task == "edge":
             raise NotImplementedError(
                 "Tracking does not support edge maps. Use predict() for edge models."
@@ -1552,60 +2041,232 @@ class BaseModel(ABC):
             TrackConfig,
         )
         from ...utils.drawing import draw_boxes, draw_masks
+        from ...utils.image_loader import ImageLoader
+        from ...utils.source import ImageSequenceSource, SourceKind, classify_source
         from ...utils.video import run_video_inference
 
-        # A provided config picks the tracker; otherwise honour the selector.
-        if isinstance(tracker_config, BoTSortConfig):
-            # BoTSortConfig subclasses TrackConfig, so it must be checked first.
-            tracker = "botsort"
-        elif isinstance(tracker_config, DeepOCSortConfig):
-            tracker = "deepocsort"
-        elif isinstance(tracker_config, OCSortConfig):
-            tracker = "ocsort"
-        elif isinstance(tracker_config, TrackConfig):
-            tracker = "bytetrack"
-        tracker = (tracker or "bytetrack").lower()
+        # Classified up front (rather than after the tracker is built) so a
+        # non-video source can seed the tracker's frame_rate default below.
+        source_spec = classify_source(source)
+        image_sequence_kinds = {
+            SourceKind.IMAGE,
+            SourceKind.IMAGE_BATCH,
+            SourceKind.IMAGE_SEQUENCE,
+            SourceKind.DIRECTORY,
+        }
+        if source_spec.kind in image_sequence_kinds:
+            try:
+                fps = float(fps)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"fps must be a finite value > 0, got {fps!r}"
+                ) from exc
+            if not math.isfinite(fps) or fps <= 0:
+                raise ValueError(f"fps must be a finite value > 0, got {fps!r}")
 
-        if tracker == "deepocsort":
-            if tracker_config is None:
-                tracker_kwargs.setdefault("det_thresh", track_conf)
-                tracker_config = DeepOCSortConfig.from_kwargs(**tracker_kwargs)
-            # Deep OC-SORT has no low-score recovery band; the detector only
-            # needs to produce boxes down to det_thresh.
-            effective_conf = tracker_config.det_thresh
-            tracker_obj = DeepOCSortTracker(
-                config=tracker_config, device=str(self.device)
-            )
-        elif tracker == "ocsort":
-            if tracker_config is None:
-                tracker_kwargs.setdefault("det_thresh", track_conf)
-                tracker_config = OCSortConfig.from_kwargs(**tracker_kwargs)
-            # OC-SORT consumes low-score detections (>0.1) for recovery.
-            effective_conf = min(0.1, tracker_config.det_thresh)
-            tracker_obj = OCSortTracker(config=tracker_config)
-        elif tracker == "botsort":
-            if tracker_config is None:
-                tracker_kwargs.setdefault("track_high_thresh", track_conf)
-                tracker_config = BoTSortConfig.from_kwargs(**tracker_kwargs)
-            # BoT-SORT keeps ByteTrack's low-confidence recovery stage.
-            effective_conf = tracker_config.track_low_thresh
-            tracker_obj = BoTSortTracker(config=tracker_config)
-        elif tracker == "bytetrack":
-            if tracker_config is None:
-                tracker_kwargs.setdefault("track_high_thresh", track_conf)
-                tracker_config = TrackConfig.from_kwargs(**tracker_kwargs)
-            # ByteTrack needs to see low-confidence detections.
-            effective_conf = tracker_config.track_low_thresh
-            tracker_obj = ByteTracker(config=tracker_config)
+        # persist=True continues the tracker kept by the previous persist=True
+        # call (per-frame loops); a different tracker or config, or a different
+        # video file/directory, starts a fresh one. In-memory frames and image
+        # paths carry no stream identity, so they continue the stream.
+        # persist=False always starts fresh and drops the kept tracker.
+        source_key = (
+            str(Path(source_spec.source).resolve())
+            if source_spec.kind in (SourceKind.VIDEO, SourceKind.DIRECTORY)
+            else None
+        )
+        kept = getattr(self, "_track_state", None) if persist else None
+        if kept is not None and kept["source"] != source_key:
+            kept = None
+
+        custom_tracker = tracker is not None and not isinstance(tracker, str)
+        if custom_tracker:
+            if isinstance(tracker, type) or not all(
+                callable(getattr(tracker, method, None))
+                for method in ("update", "reset")
+            ):
+                raise TypeError(
+                    "tracker must be a built-in name or an instance with "
+                    "update(results, image=None) and reset() methods."
+                )
+            if tracker_config is not None or tracker_kwargs:
+                raise ValueError(
+                    "Configure a custom tracker instance directly; tracker_config "
+                    "and tracker kwargs cannot be used with it."
+                )
+            if not math.isfinite(track_conf) or not 0 <= track_conf <= 1:
+                raise ValueError("track_conf must be finite and between 0 and 1.")
+            tracker_obj = tracker
+            effective_conf = track_conf
+            tracker_key = tracker_obj
+            reused = kept is not None and kept["key"] is tracker_obj
         else:
-            raise ValueError(
-                f"Unknown tracker {tracker!r}; "
-                "choose 'bytetrack', 'botsort', 'ocsort' or 'deepocsort'."
+            # A provided config picks the tracker; otherwise honour the selector.
+            if isinstance(tracker_config, BoTSortConfig):
+                # BoTSortConfig subclasses TrackConfig, so it must be checked first.
+                tracker = "botsort"
+            elif isinstance(tracker_config, DeepOCSortConfig):
+                tracker = "deepocsort"
+            elif isinstance(tracker_config, OCSortConfig):
+                tracker = "ocsort"
+            elif isinstance(tracker_config, TrackConfig):
+                tracker = "bytetrack"
+            tracker = (tracker or "bytetrack").lower()
+            tracker_file = Path(tracker)
+            if (
+                tracker_file.suffix in (".yaml", ".yml")
+                and tracker_file.parent == Path(".")
+                and tracker_file.stem in _BUILTIN_TRACKERS
+            ):
+                # The ecosystem names its built-in trackers by config file.
+                if tracker_file.is_file():
+                    raise ValueError(
+                        f"tracker={tracker!r} names a local file; LibreYOLO does not "
+                        f"read tracker yaml files. Use tracker={tracker_file.stem!r} "
+                        "and pass its settings as keyword arguments or tracker_config."
+                    )
+                tracker = tracker_file.stem
+
+            if (
+                tracker in ("bytetrack", "botsort")
+                and source_spec.kind in image_sequence_kinds
+            ):
+                # update() runs once per retained frame, so frame_rate must be
+                # fps / vid_stride.
+                retained_fps = fps / max(1, vid_stride)
+                if tracker_config is None:
+                    # Pass the exact fraction: tracker.py already truncates via
+                    # int(), so pre-rounding here would double-round and can
+                    # shift max_time_lost by a frame at the expiry boundary.
+                    tracker_kwargs.setdefault("frame_rate", retained_fps)
+                else:
+                    # frame_rate is a typed int field, so compare against the
+                    # nearest achievable value rather than the exact fraction.
+                    nearest_retained_fps = max(1, round(retained_fps))
+                    current = getattr(tracker_config, "frame_rate", nearest_retained_fps)
+                    if current != nearest_retained_fps:
+                        # tracker_config always wins and is never overwritten --
+                        # just warn so a silent mismatch doesn't linger.
+                        warnings.warn(
+                            f"tracker_config.frame_rate={tracker_config.frame_rate} does "
+                            f"not match this image sequence's retained-frame rate "
+                            f"(fps / vid_stride ≈ {nearest_retained_fps}). "
+                            "tracker_config is used as-is for tracker timing, so lost "
+                            "tracks will be kept recoverable for the wrong duration "
+                            "unless "
+                            f"you set frame_rate={nearest_retained_fps} on it yourself.",
+                            stacklevel=2,
+                        )
+
+            if tracker == "deepocsort":
+                if tracker_config is None:
+                    tracker_kwargs.setdefault("det_thresh", track_conf)
+                    tracker_config = DeepOCSortConfig.from_kwargs(**tracker_kwargs)
+                # Deep OC-SORT has no low-score recovery band; the detector only
+                # needs to produce boxes down to det_thresh.
+                effective_conf = tracker_config.det_thresh
+                tracker_cls = functools.partial(
+                    DeepOCSortTracker, device=str(self.device)
+                )
+            elif tracker == "ocsort":
+                if tracker_config is None:
+                    tracker_kwargs.setdefault("det_thresh", track_conf)
+                    tracker_config = OCSortConfig.from_kwargs(**tracker_kwargs)
+                # OC-SORT consumes low-score detections (>0.1) for recovery.
+                effective_conf = min(0.1, tracker_config.det_thresh)
+                tracker_cls = OCSortTracker
+            elif tracker == "botsort":
+                if tracker_config is None:
+                    tracker_kwargs.setdefault("track_high_thresh", track_conf)
+                    tracker_config = BoTSortConfig.from_kwargs(**tracker_kwargs)
+                # BoT-SORT keeps ByteTrack's low-confidence recovery stage.
+                effective_conf = tracker_config.track_low_thresh
+                tracker_cls = BoTSortTracker
+            elif tracker == "bytetrack":
+                if tracker_config is None:
+                    tracker_kwargs.setdefault("track_high_thresh", track_conf)
+                    tracker_config = TrackConfig.from_kwargs(**tracker_kwargs)
+                # ByteTrack needs to see low-confidence detections.
+                effective_conf = tracker_config.track_low_thresh
+                tracker_cls = ByteTracker
+            else:
+                raise ValueError(
+                    f"Unknown tracker {tracker!r}; "
+                    "choose 'bytetrack', 'botsort', 'ocsort' or 'deepocsort' "
+                    "(a .yaml suffix is accepted)."
+                )
+            tracker_key = (
+                tracker,
+                tracker_config,
+                str(self.device) if tracker == "deepocsort" else None,
+            )
+            reused = kept is not None and kept["key"] == tracker_key
+            tracker_obj = (
+                kept["tracker"] if reused else tracker_cls(config=tracker_config)
             )
 
-        source = Path(source)
-        if not source.exists():
-            raise FileNotFoundError(f"Video file not found: {source}")
+        default_stem = "sequence"
+        if source_spec.kind == SourceKind.VIDEO:
+            frame_source: Union[Path, ImageSequenceSource] = Path(source_spec.source)
+            if not frame_source.exists():
+                raise FileNotFoundError(f"Video file not found: {frame_source}")
+            default_stem = frame_source.stem
+        elif source_spec.kind == SourceKind.DIRECTORY:
+            images = ImageLoader.collect_images(source_spec.source)
+            if not images:
+                return
+            default_stem = Path(source_spec.source).name
+            frame_source = ImageSequenceSource(
+                images,
+                vid_stride=vid_stride,
+                fps=fps,
+                save_name=default_stem,
+                color_format=color_format,
+            )
+        elif source_spec.kind == SourceKind.IMAGE_BATCH:
+            frame_source = ImageSequenceSource(
+                list(source_spec.items),
+                vid_stride=vid_stride,
+                fps=fps,
+                save_name=default_stem,
+                color_format=color_format,
+            )
+        elif source_spec.kind == SourceKind.IMAGE_SEQUENCE:
+            frame_source = ImageSequenceSource(
+                source_spec.source,
+                vid_stride=vid_stride,
+                fps=fps,
+                save_name=default_stem,
+                color_format=color_format,
+            )
+        elif source_spec.kind == SourceKind.IMAGE:
+            # A single already-loaded image or path, treated as a one-frame
+            # sequence so predict()-style single-image inputs also work.
+            frame_source = ImageSequenceSource(
+                [source_spec.source],
+                vid_stride=vid_stride,
+                fps=fps,
+                save_name=default_stem,
+                color_format=color_format,
+            )
+        else:
+            raise NotImplementedError(
+                f"track() does not yet support {source_spec.kind.value!r} sources. "
+                "Pass a video file, a directory or list of images, or an "
+                "image iterator."
+            )
+
+        if custom_tracker and not reused:
+            tracker_obj.reset()
+        self._track_state = (
+            {"key": tracker_key, "source": source_key, "tracker": tracker_obj}
+            if persist
+            else None
+        )
+
+        if conf is not None:
+            if not math.isfinite(conf) or not 0 <= conf <= 1:
+                raise ValueError("conf must be finite and between 0 and 1.")
+            effective_conf = conf
 
         model_names = self.names
 
@@ -1619,6 +2280,35 @@ class BaseModel(ABC):
                 max_det=max_det,
                 color_format="rgb",
             )
+            if custom_tracker:
+                tracked = tracker_obj.update(result, image=pil_img)
+                if not isinstance(tracked, Results):
+                    raise TypeError("Custom tracker update() must return Results.")
+                ids = tracked.track_id
+                if (
+                    not isinstance(ids, (torch.Tensor, np.ndarray))
+                    or ids.ndim != 1
+                    or len(ids) != len(tracked)
+                ):
+                    raise ValueError(
+                        "Custom tracker Results.track_id must be a one-dimensional "
+                        "integer tensor/array aligned with the result rows."
+                    )
+                if isinstance(ids, torch.Tensor):
+                    integer_ids = ids.dtype in (
+                        torch.int8, torch.int16, torch.int32, torch.int64, torch.uint8
+                    )
+                else:
+                    integer_ids = ids.dtype.kind in "iu"
+                if not integer_ids:
+                    raise ValueError("Custom tracker track_id must contain integers.")
+                boxes = tracked.boxes.xyxy
+                if isinstance(ids, torch.Tensor) != isinstance(boxes, torch.Tensor):
+                    raise ValueError("Custom tracker IDs and boxes must use the same backend.")
+                if isinstance(ids, torch.Tensor) and ids.device != boxes.device:
+                    raise ValueError("Custom tracker IDs and boxes must use the same device.")
+                tracked.boxes._id = ids
+                return tracked
             if isinstance(tracker_obj, (BoTSortTracker, DeepOCSortTracker)):
                 # BoT-SORT needs pixels for camera motion; Deep OC-SORT needs
                 # them for ReID crops.
@@ -1651,13 +2341,13 @@ class BaseModel(ABC):
 
             track_output = str(
                 increment_path(
-                    Path("runs") / "track" / f"{source.stem}.mp4",
+                    Path("runs") / "track" / f"{default_stem}.mp4",
                     exist_ok=False,
                 )
             )
 
         yield from run_video_inference(
-            source,
+            frame_source,
             predict_and_track,
             vid_stride=vid_stride,
             save=save,
@@ -1697,8 +2387,11 @@ class BaseModel(ABC):
             algorithm: Activation range estimation: "minmax" (absolute
                 extremes across batches; the measured best default),
                 "percentile" (mean of per-batch 0.1/99.9 percentiles; measured
-                to degrade transformer families), or "auto"
-                (minmax).
+                to degrade transformer families), "mse" (histogram sweep
+                minimizing quantization reconstruction error), "entropy"
+                (histogram sweep minimizing KL divergence between the float
+                and quantized distributions), or "auto" (minmax). Weight
+                scales stay per-channel absolute-max in every case.
             keep_high_precision: Substring patterns of module names kept in
                 float. Defaults to the family policy (first layer + heads).
             allow_download_scripts: Allow embedded Python in dataset YAML
@@ -1775,6 +2468,12 @@ class BaseModel(ABC):
             rectangular_metadata = {"imgsz_h": imgsz_h, "imgsz_w": imgsz_w}
         else:
             checkpoint_imgsz = int(native_imgsz)
+        extra_metadata = {}
+        save_extra = getattr(self, "_save_extra_metadata", None)
+        if callable(save_extra):
+            extra_metadata = dict(save_extra() or {})
+        from ...utils.event_histogram import input_metadata
+        extra_metadata.update(input_metadata(self))
         checkpoint = wrap_libreyolo_checkpoint(
             state_dict,
             model_family=self._get_model_name(),
@@ -1784,6 +2483,7 @@ class BaseModel(ABC):
             names=self.names,
             imgsz=checkpoint_imgsz,
             **rectangular_metadata,
+            **extra_metadata,
         )
         quant_manifest = getattr(self, "_quant_manifest", None)
         if quant_manifest:
@@ -1795,6 +2495,54 @@ class BaseModel(ABC):
         torch.save(checkpoint, out)
         logger.info("Saved checkpoint to %s", out)
         return str(out)
+
+    def push_to_hub(
+        self,
+        repo_id: str,
+        *,
+        private: bool = False,
+        token: Optional[str] = None,
+        commit_message: Optional[str] = None,
+        license: Optional[str] = None,
+        metrics: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Upload this model to a Hugging Face Hub repository.
+
+        Saves the model as a schema v1.0 checkpoint (``model.pt``) and pushes
+        it together with an auto-generated model card. The repo is created if
+        it does not exist. Anyone can then load it back with
+        ``LibreYOLO("owner/repo")``.
+
+        Requires the optional huggingface_hub package
+        (``pip install libreyolo[hf]``) and Hub authentication with write
+        scope (``hf auth login`` or the ``HF_TOKEN`` environment variable, or
+        pass ``token=``).
+
+        Args:
+            repo_id: Target repository as ``"owner/name"``.
+            private: Create the repo as private (existing repos keep their
+                visibility).
+            token: Hub token overriding the ambient login.
+            commit_message: Custom commit message for the checkpoint upload.
+            license: License identifier for the model card front matter
+                (e.g. ``"mit"``). Omitted from the card when None.
+            metrics: Optional metric name -> value mapping rendered into the
+                model card.
+
+        Returns:
+            The repository URL.
+        """
+        from libreyolo.utils.hf_hub import push_model_to_hub
+
+        return push_model_to_hub(
+            self,
+            repo_id,
+            private=private,
+            token=token,
+            commit_message=commit_message,
+            license_id=license,
+            metrics=metrics,
+        )
 
     def export(self, format: str = "onnx", **kwargs) -> str:
         """Export model to deployment format.
@@ -1840,12 +2588,16 @@ class BaseModel(ABC):
         verbose: bool = True,
         *,
         plots: bool | None = None,
+        project: str | None = None,
+        name: str | None = None,
+        exist_ok: bool = False,
         **kwargs,
     ) -> Dict:
         """Run validation on a dataset.
 
         Args:
-            data: Path to data.yaml file.
+            data: Path to data.yaml file. Defaults to the dataset the
+                checkpoint was trained on, when it saved one.
             batch: Batch size.
             imgsz: Square image size or ``(height, width)`` tuple. Defaults to
                 the model's native input size.
@@ -1853,11 +2605,29 @@ class BaseModel(ABC):
             iou: IoU threshold for NMS.
             workers: Number of dataloader workers.
             allow_download_scripts: Allow embedded Python in dataset YAML downloads.
-            device: Device to use (default: same as model).
+            device: Device to validate on. Moves the model there, as
+                ``predict(device=...)`` does (default: the model's device).
             split: Dataset split ("val", "test").
             save_json: Save predictions in COCO JSON format.
             plots: Alias for save_plots.
+            project: Directory that holds validation runs (default
+                ``runs/val`` when ``name`` is given).
+            name: Run subdirectory inside ``project`` (default ``exp``),
+                incremented (``exp2``, ...) if it exists. Without ``project``
+                or ``name``, outputs go to a timestamped ``runs/val/``
+                directory.
+            exist_ok: Reuse an existing ``project/name`` instead of
+                incrementing.
             verbose: Print detailed metrics.
+            visualize: (kwarg) Draw every validated image to
+                ``save_dir/visualize/errors/`` (any false positive or false
+                negative) or ``visualize/correct/``, with true positives,
+                false positives and false negatives (confidence 0.25, or
+                ``conf`` if higher; IoU 0.5; class-aware);
+                classification draws the label and top-1 prediction. Detect,
+                segment and classify only. Default False.
+            show_labels: (kwarg) Class names on ``visualize`` images.
+            show_conf: (kwarg) Confidence scores on ``visualize`` images.
             faster_coco_eval: (kwarg) Use the faster-coco-eval C++ backend
                 for COCO metrics. Default True; falls back to pycocotools
                 if the package is unavailable. Pass False (or set
@@ -1865,8 +2635,32 @@ class BaseModel(ABC):
                 backend used is surfaced as ``model.last_eval_backend``.
 
         Returns:
-            Dictionary with metrics/precision, metrics/recall,
-            metrics/mAP50, metrics/mAP50-95.
+            Flat dictionary of metric name to finite number, with
+            metrics/precision, metrics/recall, metrics/mAP50,
+            metrics/mAP50-95.
+
+            Detection validation additionally reports the F1-optimal
+            confidence threshold as a free by-product of the COCO matching:
+            ``metrics/best_conf`` (global, micro-averaged over classes) with
+            ``metrics/best_conf_f1`` the F1 reached there, and
+            ``box.best_conf_per_class`` (class name to threshold) on the
+            result. F1 is defined at IoU 0.50 matching; crowd/ignore regions
+            count as neither TP nor FP. Use it as a data-driven ``conf=`` for
+            deployment instead of a folklore default. A threshold and F1 of
+            0.0 mean no threshold reaches F1 > 0 (no predictions, no ground
+            truth, or all false positives).
+
+            Detect and segment results also carry ``box.image_metrics``: image
+            filename to ``precision``, ``recall``, ``f1``, ``tp``, ``fp`` and
+            ``fn`` at IoU 0.5, counting predictions at the ``visualize``
+            confidence (0.25, or ``conf`` if higher). Filter it on ``fp`` or
+            ``fn`` to list the images the model got wrong.
+
+            For ``task="classify"``, the dictionary instead holds
+            ``metrics/accuracy_top1``, ``metrics/accuracy_top5``,
+            macro-averaged ``metrics/precision``, ``metrics/recall`` and
+            ``metrics/f1`` (the mean over classes present in the validation
+            targets), and ``fitness`` (top-1 accuracy).
         """
         from libreyolo.validation import (
             ClassifyValidator,
@@ -1888,8 +2682,22 @@ class BaseModel(ABC):
 
         if imgsz is None:
             imgsz = self._get_input_size()
+        from ...utils.image_size import reject_rectangular_imgsz, round_imgsz_to_stride
+
+        reject_rectangular_imgsz(self, imgsz, "val")
+        imgsz = round_imgsz_to_stride(self, imgsz, "val")
+        from libreyolo.validation.config import resolve_val_output_kwargs
+
+        resolve_val_output_kwargs(kwargs, project, name, exist_ok)
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
+        from libreyolo.validation.config import VISUALIZE_TASKS
+
+        if kwargs.get("visualize") and self.task not in VISUALIZE_TASKS:
+            raise ValueError(
+                f"visualize=True is not supported for task '{self.task}'; "
+                f"it covers {', '.join(VISUALIZE_TASKS)}"
+            )
         if augment and self.task == "obb":
             raise ValueError(
                 "Augmented validation does not support oriented boxes yet. "
@@ -1915,6 +2723,8 @@ class BaseModel(ABC):
                 "Augmented validation does not support surface normals yet. "
                 "Use augment=False for normal models."
             )
+        if augment and self.task == "albedo":
+            raise ValueError("Augmented validation does not support albedo maps yet.")
         if augment and self.task == "edge":
             raise ValueError(
                 "Augmented validation does not support edge detection yet. "
@@ -1943,6 +2753,24 @@ class BaseModel(ABC):
                 "Use augment=False for OCR models."
             )
 
+        if device is not None and str(device) != str(self.device):
+            # Same contract as predict(device=...): move the model, so the
+            # validator's inputs and the weights end up on one device.
+            self._runner._set_device(device)
+
+        if data is None and not any(
+            kwargs.get(key) for key in ("data_dir", "keypoints_json")
+        ):
+            # As in the ecosystem, a trained model validates on the dataset
+            # it was trained on.
+            data = self._checkpoint_train_config().get("data")
+            if not data:
+                raise ValueError(
+                    "val() needs data= (a dataset yaml): this model carries no "
+                    "training dataset to reuse, e.g. released weights."
+                )
+            logger.info("Validating on the training dataset %s", data)
+
         config = ValidationConfig(
             data=data,
             batch_size=batch,
@@ -1951,7 +2779,7 @@ class BaseModel(ABC):
             iou_thres=iou,
             num_workers=workers,
             allow_download_scripts=allow_download_scripts,
-            device=device or str(self.device),
+            device=str(self.device),
             split=split,
             augment=augment,
             save_json=save_json,
@@ -1989,6 +2817,10 @@ class BaseModel(ABC):
             validator_cls = DepthValidator
         elif self.task == "normal":
             validator_cls = NormalValidator
+        elif self.task == "albedo":
+            from ...validation.albedo_validator import AlbedoValidator
+
+            validator_cls = AlbedoValidator
         elif self.task == "edge":
             validator_cls = EdgeValidator
         elif self.task == "restore":
@@ -2009,4 +2841,6 @@ class BaseModel(ABC):
         # (e.g. "faster-coco-eval 1.7.2" / "pycocotools 2.0.10"; None for
         # validators that don't run COCO evaluation).
         self.last_eval_backend = getattr(validator, "eval_backend", None)
-        return metrics
+        from libreyolo.validation.base import with_image_metrics
+
+        return with_image_metrics(metrics, validator)

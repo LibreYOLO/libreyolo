@@ -20,35 +20,38 @@ from . import as_batched_input
 def preprocess_numpy(
     img_rgb_hwc: np.ndarray,
     input_size: ImageSize = 640,
+    letterbox_pad: str | None = None,
 ) -> Tuple[np.ndarray, float]:
     """
     Preprocess RGB HWC uint8 image for YOLOv9 inference.
 
-    Letterbox resize + normalize to 0-1 range.
+    Letterbox resize + normalize to 0-1 range. Pad defaults to top-left
+    (LibreYOLO <=1.5). Pass ``letterbox_pad="center"`` for official MTL
+    geometry.
 
     Args:
         img_rgb_hwc: Input image as RGB HWC uint8 numpy array.
         input_size: Target size for the model as int or (height, width).
+        letterbox_pad: ``topleft`` (default) or ``center``.
 
     Returns:
         Tuple of (preprocessed CHW float32 array in RGB 0-1, ratio).
     """
-    orig_h, orig_w = img_rgb_hwc.shape[:2]
+    from .letterbox import apply_letterbox_hwc
+
     input_h, input_w = _input_size_hw(input_size)
-    ratio = min(input_h / orig_h, input_w / orig_w)
-    new_h = max(int(orig_h * ratio), 1)
-    new_w = max(int(orig_w * ratio), 1)
-
-    resized = cv2.resize(img_rgb_hwc, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-    padded = np.full((input_h, input_w, 3), 114, dtype=np.uint8)
-    padded[:new_h, :new_w] = resized
-
+    padded, ratio, _pad_left, _pad_top = apply_letterbox_hwc(
+        img_rgb_hwc, input_h, input_w, pad=letterbox_pad, fill=114
+    )
     arr = np.ascontiguousarray(padded, dtype=np.float32) / 255.0
     return arr.transpose(2, 0, 1), ratio
 
 
 def preprocess_image(
-    image: ImageInput, input_size: ImageSize = 640, color_format: str = "auto"
+    image: ImageInput,
+    input_size: ImageSize = 640,
+    color_format: str = "auto",
+    letterbox_pad: str | None = None,
 ):
     """
     Preprocess image for YOLOv9 inference.
@@ -57,6 +60,7 @@ def preprocess_image(
         image: Input image (path, PIL, numpy, tensor, bytes, etc.)
         input_size: Target size for resizing as int or (height, width).
         color_format: Color format hint ("auto", "rgb", "bgr")
+        letterbox_pad: ``topleft`` (default) or ``center``.
 
     Returns:
         Tuple of (preprocessed_tensor, original_image, original_size)
@@ -65,7 +69,9 @@ def preprocess_image(
     original_size = img.size  # (width, height)
     original_img = img.copy()
 
-    img_chw, _ = preprocess_numpy(np.array(img), input_size)
+    img_chw, _ = preprocess_numpy(
+        np.array(img), input_size, letterbox_pad=letterbox_pad
+    )
     return as_batched_input(img_chw), original_img, original_size
 
 

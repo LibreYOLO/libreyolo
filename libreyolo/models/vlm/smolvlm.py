@@ -23,6 +23,12 @@ class LibreSmolVLM2(LibreVLMModel):
     FAMILY = "smolvlm2"
     FILENAME_PREFIX = "LibreSmolVLM2"
 
+    TRAIN_UNSUPPORTED_REASON = (
+        "SmolVLM2 is not grounding-pretrained, so detection fine-tuning cannot "
+        "reliably teach box emission. Use a grounding-pretrained family such "
+        "as qwen3-vl."
+    )
+
     HF_REPOS: ClassVar[Dict[str, str]] = {
         "2.2b": "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
         "500m": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",

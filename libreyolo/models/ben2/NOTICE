@@ -1,0 +1,40 @@
+LibreBEN2 includes code ported from BEN2 Base:
+
+Source: https://github.com/PramaLLC/BEN2
+Commit: 2c99a5da477b5523585bfa5c893888a6e818a8f6
+License: MIT
+Copyright (c) 2025 Prama LLC
+
+Released weights:
+
+Source: https://huggingface.co/PramaLLC/BEN2
+Revision: e48a20765fb421d19dcdb0bf3cc61e802ca5ec8f
+License: MIT, as declared by the upstream model card.
+
+Training data provenance (upstream): DIS5K and Prama LLC's proprietary 22K
+segmentation dataset. LibreYOLO redistributes no training data.
+
+The port covers only the public BEN2 Base mask network. It retains the released
+state-dict layout, replaces einops reshapes with equivalent native PyTorch
+operations, removes import-time random-seed/cuDNN mutations, returns the raw
+logit required by LibreYOLO's matte contract, and adds checkpoint metadata,
+predict/val integration, and fixed-resolution export.
+
+BEN2's cross-attention and multi-field refinement modules follow MVANet:
+
+Source: https://github.com/qianyu-dlut/MVANet
+Commit: edecec5db30c1c40d5204c630ec3779a428795ee
+License: MIT
+Copyright (c) 2024 qianyu-dlut
+
+The encoder follows Swin Transformer v1. LibreBEN2 reuses LibreYOLO's audited
+family-local Swin-v1 primitive from libreyolo/models/birefnet/nn.py because the
+BEN2 checkpoint keys and fp32 encoder outputs match it exactly. The Swin
+lineage and license are recorded in the BiRefNet NOTICE and root notices.
+
+Excluded surface:
+
+The upstream optional foreground-colour refinement helper is not included. It
+is separately attributed upstream to a repository with no declared license and
+is not needed by the BEN2 Base mask network. Upstream video encoding and media
+helpers are also outside this model-family port.

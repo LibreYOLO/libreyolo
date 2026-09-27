@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 
-from libreyolo.training.distributed import all_reduce_avg_scalar
+from libreyolo.training.distributed import all_reduce_avg_scalar_tensor
 
 try:
     from scipy.optimize import linear_sum_assignment
@@ -54,14 +54,17 @@ class HungarianMatcher(nn.Module):
         )
 
     @torch.no_grad()
-    def forward(self, outputs, targets):
-        """
-        Args:
-            outputs: dict with 'pred_logits' [B, Q, C] and 'pred_boxes' [B, Q, 4]
-            targets: list of dicts with 'labels' and 'boxes'
+    def compute_cost_matrix(self, outputs, targets):
+        """Build the pairwise matching cost on the predictions' device.
+
+        Split out from :meth:`forward` so a caller matching several output
+        levels (main + aux) can enqueue the next level's cost on the GPU
+        before the current one's host transfer drains the pipeline (see
+        ``SetCriterion.forward``; issue #763).
 
         Returns:
-            List of (pred_indices, target_indices) tuples per batch element.
+            Cost matrix of dim [batch_size, num_queries, total_num_targets]
+            on the predictions' device, or None when there are no targets.
         """
         bs, num_queries = outputs["pred_logits"].shape[:2]
 
@@ -76,13 +79,7 @@ class HungarianMatcher(nn.Module):
         tgt_bbox = torch.cat([v["boxes"] for v in targets])
 
         if len(tgt_ids) == 0:
-            return [
-                (
-                    torch.as_tensor([], dtype=torch.int64),
-                    torch.as_tensor([], dtype=torch.int64),
-                )
-                for _ in range(bs)
-            ]
+            return None
 
         # Classification cost
         if self.use_focal_loss:
@@ -99,8 +96,10 @@ class HungarianMatcher(nn.Module):
         else:
             cost_class = -out_prob[:, tgt_ids]
 
-        # L1 cost
-        cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
+        # L1 cost. The broadcast form is bit-identical to ``torch.cdist(
+        # out_bbox, tgt_bbox, p=1)`` but avoids cdist's slow one-thread-per-
+        # pair p=1 CUDA kernel (issue #763; measured on rfdetr in PR #761).
+        cost_bbox = (out_bbox[:, None, :] - tgt_bbox[None, :, :]).abs().sum(-1)
 
         # GIoU cost
         cost_giou = -generalized_box_iou(
@@ -113,11 +112,34 @@ class HungarianMatcher(nn.Module):
             + self.cost_class * cost_class
             + self.cost_giou * cost_giou
         )
-        C = C.view(bs, num_queries, -1).cpu()
+        return C.view(bs, num_queries, -1)
+
+    @torch.no_grad()
+    def solve(self, cost_matrix, targets):
+        """Run the Hungarian assignment on a host-side cost matrix.
+
+        Args:
+            cost_matrix: [batch_size, num_queries, total_num_targets] CPU
+                tensor from :meth:`compute_cost_matrix` (after ``.cpu()``),
+                or None when there are no targets.
+            targets: Same target list the cost matrix was built from.
+
+        Returns:
+            List of (pred_indices, target_indices) tuples per batch element.
+        """
+        if cost_matrix is None:
+            return [
+                (
+                    torch.as_tensor([], dtype=torch.int64),
+                    torch.as_tensor([], dtype=torch.int64),
+                )
+                for _ in targets
+            ]
 
         sizes = [len(v["boxes"]) for v in targets]
         indices = [
-            linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))
+            linear_sum_assignment(c[i])
+            for i, c in enumerate(cost_matrix.split(sizes, -1))
         ]
         return [
             (
@@ -126,6 +148,19 @@ class HungarianMatcher(nn.Module):
             )
             for i, j in indices
         ]
+
+    @torch.no_grad()
+    def forward(self, outputs, targets):
+        """
+        Args:
+            outputs: dict with 'pred_logits' [B, Q, C] and 'pred_boxes' [B, Q, 4]
+            targets: list of dicts with 'labels' and 'boxes'
+
+        Returns:
+            List of (pred_indices, target_indices) tuples per batch element.
+        """
+        C = self.compute_cost_matrix(outputs, targets)
+        return self.solve(C.cpu() if C is not None else None, targets)
 
 
 # =============================================================================
@@ -167,11 +202,18 @@ class SetCriterion(nn.Module):
         self.alpha = alpha
         self.gamma = gamma
 
-    def _normalizer(self, count, *, device) -> float:
-        """Box-count divisor: DDP-averaged for training, local for validation."""
+    def _normalizer(self, count, *, device) -> torch.Tensor:
+        """Box-count divisor: DDP-averaged for training, local for validation.
+
+        Returned as a 0-dim device tensor rather than a Python float: the
+        value is only ever a divisor, and the ``.item()`` inside the float
+        form cost one full pipeline drain per step (issue #763).
+        """
         if self.distributed_normalize:
-            return all_reduce_avg_scalar(count, device=device)
-        return float(max(float(count), 1.0))
+            return all_reduce_avg_scalar_tensor(count, device=device)
+        return torch.as_tensor(
+            float(count), dtype=torch.float32, device=device
+        ).clamp_min(1.0)
 
     def loss_labels_vfl(self, outputs, targets, indices, num_boxes, log=True):
         """Varifocal Loss — IoU-aware classification."""
@@ -320,8 +362,33 @@ class SetCriterion(nn.Module):
             k: v for k, v in outputs.items() if "aux" not in k and k != "dn_meta"
         }
 
-        # Match last layer outputs to targets
-        indices = self.matcher(outputs_without_aux, targets)
+        # Match the output levels (last decoder layer + aux layers) as a
+        # depth-2 pipeline: the next level's cost matrix is enqueued on the
+        # GPU before the current one's ``.cpu()`` drains, so the device never
+        # idles across the per-level transfers (the old flow drained it once
+        # per level with nothing queued behind). Depth 2 rather than
+        # enqueue-everything: a cost matrix is (bs, num_queries,
+        # total_targets) fp32, so holding all levels at once would raise peak
+        # VRAM on dense batches (issue #763; same shape as rfdetr's PR #762).
+        aux_outputs_list = outputs.get("aux_outputs", [])
+        levels = [outputs_without_aux, *aux_outputs_list]
+        level_indices = []
+        pending_cost = self.matcher.compute_cost_matrix(levels[0], targets)
+        for next_level in levels[1:]:
+            next_cost = self.matcher.compute_cost_matrix(next_level, targets)
+            level_indices.append(
+                self.matcher.solve(
+                    pending_cost.cpu() if pending_cost is not None else None,
+                    targets,
+                )
+            )
+            pending_cost = next_cost
+        level_indices.append(
+            self.matcher.solve(
+                pending_cost.cpu() if pending_cost is not None else None, targets
+            )
+        )
+        indices = level_indices[0]
 
         # Compute number of target boxes for normalization.
         # Under DDP, all-reduce and divide by world_size (the average per-rank
@@ -347,9 +414,9 @@ class SetCriterion(nn.Module):
             losses.update(l_dict)
 
         # Auxiliary losses (intermediate decoder layers)
-        if "aux_outputs" in outputs:
-            for i, aux_outputs in enumerate(outputs["aux_outputs"]):
-                indices = self.matcher(aux_outputs, targets)
+        if aux_outputs_list:
+            for i, aux_outputs in enumerate(aux_outputs_list):
+                indices = level_indices[1 + i]
                 for loss in self.losses:
                     kwargs = {}
                     l_dict = self.get_loss(

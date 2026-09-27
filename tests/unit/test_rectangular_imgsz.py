@@ -359,3 +359,339 @@ def test_yolonas_val_preprocessor_rejects_rect():
     img = np.zeros((100, 500, 3), dtype=np.uint8)
     with pytest.raises(ValueError, match="rectangular"):
         pre(img, np.zeros((0, 5), dtype=np.float32), (64, 320))
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint reload (#899)
+# ---------------------------------------------------------------------------
+
+
+def _family_checkpoint(tmp_path, family, **imgsz_meta):
+    """Write a schema-v1 checkpoint for a tiny fresh model of ``family``."""
+    from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
+    if family == "yolo9":
+        from libreyolo.models.yolo9.model import LibreYOLO9 as cls
+
+        size = "t"
+    else:
+        from libreyolo.models.yolox.model import LibreYOLOX as cls
+
+        size = "n"
+    fresh = cls(None, size=size, nb_classes=2, device="cpu")
+    ckpt = wrap_libreyolo_checkpoint(
+        fresh.model.state_dict(),
+        model_family=family,
+        size=size,
+        task="detect",
+        nc=2,
+        names={0: "a", 1: "b"},
+        **imgsz_meta,
+    )
+    path = tmp_path / f"{family}.pt"
+    torch.save(ckpt, path)
+    return cls, size, path
+
+
+@pytest.mark.parametrize("family", ["yolo9", "yolox"])
+def test_rect_checkpoint_restores_input_size(tmp_path, family):
+    cls, size, path = _family_checkpoint(
+        tmp_path, family, imgsz=320, imgsz_h=192, imgsz_w=320
+    )
+    model = cls(str(path), size=size, nb_classes=2, device="cpu")
+
+    assert model.input_size == (192, 320)
+    assert model._get_val_preprocessor().img_size == (192, 320)
+    tensor, *_ = model._preprocess(np.zeros((1080, 1920, 3), dtype=np.uint8))
+    assert tuple(tensor.shape[-2:]) == (192, 320)
+
+    from libreyolo.utils.serialization import load_untrusted_torch_file
+
+    saved = model.save(str(tmp_path / "resave.pt"))
+    resaved = load_untrusted_torch_file(saved, map_location="cpu", context="test")
+    assert (resaved["imgsz"], resaved["imgsz_h"], resaved["imgsz_w"]) == (320, 192, 320)
+    assert cls(saved, size=size, nb_classes=2, device="cpu").input_size == (192, 320)
+
+
+def test_square_checkpoint_keeps_native_input_size(tmp_path):
+    cls, size, path = _family_checkpoint(tmp_path, "yolo9", imgsz=640)
+    model = cls(str(path), size=size, nb_classes=2, device="cpu")
+
+    assert model.input_size == 640
+    assert model._get_val_preprocessor().img_size == (640, 640)
+
+
+def test_half_rect_checkpoint_pair_is_rejected(tmp_path):
+    cls, size, path = _family_checkpoint(tmp_path, "yolo9", imgsz=320, imgsz_h=192)
+    with pytest.raises(RuntimeError, match="both imgsz_h and imgsz_w"):
+        cls(str(path), size=size, nb_classes=2, device="cpu")
+
+
+def test_square_checkpoint_after_rect_one_resets_input_size(tmp_path):
+    cls, size, rect_path = _family_checkpoint(
+        tmp_path, "yolox", imgsz=320, imgsz_h=192, imgsz_w=320
+    )
+    model = cls(str(rect_path), size=size, nb_classes=2, device="cpu")
+    assert model.input_size == (192, 320)
+
+    square_dir = tmp_path / "square"
+    square_dir.mkdir()
+    _cls, _size, square_path = _family_checkpoint(square_dir, "yolox", imgsz=640)
+    model._load_weights(str(square_path))
+
+    assert model.input_size == cls.INPUT_SIZES[size]
+
+
+def test_square_family_default_pair_is_not_an_override(tmp_path):
+    cls, size, path = _family_checkpoint(
+        tmp_path, "yolo9", imgsz=640, imgsz_h=640, imgsz_w=640
+    )
+    model = cls(str(path), size=size, nb_classes=2, device="cpu")
+
+    assert model.input_size == 640
+    assert not model._input_size_from_checkpoint
+
+
+def test_trained_input_size_matches_what_a_reload_gives():
+    from libreyolo.models.yolox.model import LibreYOLOX
+
+    model = LibreYOLOX(None, size="n", nb_classes=2, device="cpu")
+    native = LibreYOLOX.INPUT_SIZES["n"]
+
+    model._adopt_trained_input_size(640)  # square run on a fresh model: no-op
+    assert model.input_size == native
+    model._adopt_trained_input_size((192, 320))  # rectangular run
+    assert model.input_size == (192, 320)
+    model._adopt_trained_input_size("640")  # later square run drops it
+    assert model.input_size == native
+
+
+def test_natively_rect_family_ignores_trained_size_sync():
+    from libreyolo.models.hrnet.model import LibreHRNet
+
+    model = LibreHRNet(None, size="w32", device="cpu")
+    native = model.input_size
+    model._adopt_trained_input_size((64, 128))
+
+    assert model.input_size == native
+
+
+def test_yolox_postprocess_accepts_rect_size_at_unit_ratio():
+    # The validator never passes ``ratio``; YOLOX recomputes it from the size.
+    from libreyolo.models.yolox.model import LibreYOLOX
+
+    model = LibreYOLOX(None, size="n", nb_classes=2, device="cpu")
+    model.input_size = (192, 320)
+    model.model.eval()
+    result = model.predict(np.zeros((192, 320, 3), dtype=np.uint8), conf=0.99)
+
+    assert result.orig_shape == (192, 320)
+
+
+@pytest.mark.parametrize("imgsz", [[64, 64], [64, 96]])
+def test_yolo9_predict_accepts_list_imgsz(imgsz):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+    from libreyolo.postprocess.yolo9 import _input_size_hw as yolo9_input_size_hw
+
+    assert yolo9_input_size_hw(imgsz) == tuple(imgsz)
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    model.model.eval()
+
+    result = model.predict(np.zeros((60, 90, 3), dtype=np.uint8), imgsz=imgsz)
+
+    assert result.orig_shape == (60, 90)
+
+
+def test_export_accepts_list_imgsz():
+    from libreyolo.export.exporter import OnnxExporter
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    imgsz, _, _ = OnnxExporter(model)._resolve_params(
+        output_path=None, imgsz=[320, 320], device="cpu", half=False, int8=False
+    )
+
+    assert imgsz == (320, 320)
+
+
+# ---------------------------------------------------------------------------
+# Stride rounding (IMGSZ_STRIDE): unaligned sizes round up with a warning
+# ---------------------------------------------------------------------------
+
+
+class _Strided:
+    FAMILY = "strided"
+    IMGSZ_STRIDE = 32
+
+
+@pytest.mark.parametrize(
+    "imgsz, expected",
+    [
+        (333, 352),
+        ((333, 500), (352, 512)),
+        ([320, 330], (320, 352)),
+        (320, 320),
+        ((320, 640), (320, 640)),
+        ([320, 640], [320, 640]),
+        (None, None),
+        (0, 0),
+        ("640", "640"),
+    ],
+)
+def test_round_imgsz_to_stride(imgsz, expected):
+    from libreyolo.utils.image_size import round_imgsz_to_stride
+
+    assert round_imgsz_to_stride(_Strided(), imgsz, "predict") == expected
+
+
+def test_round_imgsz_to_stride_warns_only_when_it_changes_the_size(caplog):
+    import logging
+
+    from libreyolo.utils.image_size import round_imgsz_to_stride
+
+    with caplog.at_level(logging.WARNING, logger="libreyolo.utils.image_size"):
+        round_imgsz_to_stride(_Strided(), 320, "val")
+        assert not caplog.records
+        round_imgsz_to_stride(_Strided(), 333, "val")
+    assert "imgsz=333" in caplog.text and "imgsz=352" in caplog.text
+
+
+def test_round_imgsz_to_stride_ignores_families_without_a_stride():
+    from libreyolo.utils.image_size import round_imgsz_to_stride
+
+    assert round_imgsz_to_stride(object(), 333, "predict") == 333
+
+
+@pytest.mark.parametrize("imgsz", [40, (40, 70)])
+def test_yolo9_predict_rounds_unaligned_imgsz(imgsz):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    model.model.eval()
+
+    result = model.predict(np.zeros((50, 60, 3), dtype=np.uint8), imgsz=imgsz)
+
+    assert result.orig_shape == (50, 60)
+
+
+def test_yolo9_val_export_and_train_round_unaligned_imgsz(monkeypatch):
+    import torch.nn as nn
+
+    import libreyolo.validation as validation
+    from libreyolo.export.exporter import OnnxExporter
+    from libreyolo.models.yolo9.model import LibreYOLO9
+    from libreyolo.models.yolo9.trainer import YOLO9Trainer
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+
+    imgsz, _, _ = OnnxExporter(model)._resolve_params(
+        output_path=None, imgsz=333, device="cpu", half=False, int8=False
+    )
+    assert imgsz == (352, 352)
+
+    trainer = YOLO9Trainer(model=nn.Identity(), wrapper_model=model, imgsz=333)
+    assert trainer.config.imgsz == 352
+
+    seen = {}
+
+    class _Stop(Exception):
+        pass
+
+    def fake_config(**kwargs):
+        seen["imgsz"] = kwargs["imgsz"]
+        raise _Stop
+
+    monkeypatch.setattr(validation, "ValidationConfig", fake_config)
+    with pytest.raises(_Stop):
+        model.val(data="unused.yaml", imgsz=(333, 400))
+    assert seen["imgsz"] == (352, 416)
+
+
+def test_tta_postprocess_uses_the_preprocessed_canvas(monkeypatch):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    model.model.eval()
+    seen = []
+    original = model._postprocess
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("input_size"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(model, "_postprocess", spy)
+    model.predict(np.zeros((120, 200, 3), dtype=np.uint8), imgsz=320, augment=True)
+
+    assert seen and set(seen) == {320}
+
+
+def test_yolo9_e2e_postprocess_defaults_to_model_input_size(monkeypatch):
+    import libreyolo.models.yolo9_e2e.model as e2e_module
+
+    model = e2e_module.LibreYOLO9E2E(None, size="t", nb_classes=2, device="cpu")
+    model.input_size = (192, 320)
+    seen = {}
+    monkeypatch.setattr(
+        e2e_module,
+        "postprocess",
+        lambda output, **kwargs: seen.update(kwargs) or {},
+    )
+    model._postprocess(None, 0.25, 0.45, (320, 192))
+
+    assert seen["input_size"] == (192, 320)
+
+
+def test_tiling_uses_long_side_for_restored_rect_size(tmp_path, monkeypatch):
+    cls, size, path = _family_checkpoint(
+        tmp_path, "yolo9", imgsz=320, imgsz_h=192, imgsz_w=320
+    )
+    model = cls(str(path), size=size, nb_classes=2, device="cpu")
+    image = np.zeros((700, 900, 3), dtype=np.uint8)
+    canvases = []
+    original = model._preprocess
+
+    def spy(*args, input_size=None, **kwargs):
+        canvases.append(input_size)
+        return original(*args, input_size=input_size, **kwargs)
+
+    monkeypatch.setattr(model, "_preprocess", spy)
+
+    assert model.predict(image, tiling=True, conf=0.99).orig_shape == (700, 900)
+    # Each 320x320 tile is inferred at 320, not shrunk into the 192x320 canvas.
+    assert canvases and set(canvases) == {320}
+    with pytest.raises(ValueError, match="square imgsz"):
+        model.predict(image, tiling=True, imgsz=(192, 320))
+
+
+def test_tiling_small_image_uses_the_tile_canvas(tmp_path, monkeypatch):
+    cls, size, path = _family_checkpoint(
+        tmp_path, "yolo9", imgsz=320, imgsz_h=192, imgsz_w=320
+    )
+    model = cls(str(path), size=size, nb_classes=2, device="cpu")
+    canvases = []
+    original = model._preprocess
+
+    def spy(*args, input_size=None, **kwargs):
+        canvases.append(input_size)
+        return original(*args, input_size=input_size, **kwargs)
+
+    monkeypatch.setattr(model, "_preprocess", spy)
+    model.predict(np.zeros((256, 256, 3), dtype=np.uint8), tiling=True, conf=0.99)
+
+    assert canvases == [320]
+
+
+@pytest.mark.parametrize("family", ["yolox", "rtmdet"])
+def test_letterbox_gt_rescale_accepts_rect_size(family):
+    # Validation plots and visualize=True invert the letterbox per image; the
+    # shared default used to divide the (h, w) pair by an int (#899).
+    from libreyolo.validation.preprocessors import (
+        RTMDetValPreprocessor,
+        YOLOXValPreprocessor,
+    )
+
+    cls = YOLOXValPreprocessor if family == "yolox" else RTMDetValPreprocessor
+    r, off_x, off_y = cls(img_size=(192, 320)).letterbox_scale(1080, 1920, (192, 320))
+
+    assert r == pytest.approx(min(192 / 1080, 320 / 1920))
+    assert (off_x, off_y) == (0.0, 0.0)

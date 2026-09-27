@@ -22,7 +22,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import math
-from typing import List, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -99,6 +99,7 @@ def autobatch(
     max_probe: int = _DEFAULT_MAX_PROBE,
     *,
     amp_dtype: str = "float16",
+    step: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
 ) -> int:
     """Estimate the optimal *global* batch size for the given model and image size.
 
@@ -116,6 +117,8 @@ def autobatch(
         default: Fallback batch size for non-CUDA devices or probe failures.
         max_probe: Largest batch size to probe (default 64; set to nbs).
         amp_dtype: CUDA autocast dtype used when AMP is enabled.
+        step: Optional training step mapping a probe batch to its loss; the
+            probe backpropagates it instead of the first differentiable output.
 
     Returns:
         Estimated optimal global batch size — a power of 2, always ≥ 1.
@@ -176,7 +179,7 @@ def autobatch(
                     else contextlib.nullcontext()
                 )
                 with ctx:
-                    out = model(x)
+                    out = model(x) if step is None else step(x)
                 t = _find_grad_tensor(out)
                 if t is not None:
                     t.float().sum().backward()
@@ -255,6 +258,7 @@ def resolve_auto_batch(
     nbs: int | None = None,
     *,
     amp_dtype: str = "float16",
+    step: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
 ) -> int:
     """Run ``autobatch`` on rank 0 and broadcast the result to all ranks.
 
@@ -276,6 +280,7 @@ def resolve_auto_batch(
         nbs: Nominal batch size — caps the global batch and sets the probe
             limit so per-GPU capacity never exceeds nbs.
         amp_dtype: CUDA autocast dtype used when AMP is active.
+        step: Optional training step for the probe (see ``autobatch``).
 
     Returns:
         Global batch size, divisible by *world_size* and ≥ 1.
@@ -287,7 +292,7 @@ def resolve_auto_batch(
         try:
             per_gpu = autobatch(
                 model, imgsz=imgsz, amp=amp, amp_dtype=amp_dtype, fraction=fraction,
-                default=default, max_probe=max_probe,
+                default=default, max_probe=max_probe, step=step,
             )
         except Exception as exc:
             logger.warning("AutoBatch: probe failed (%s) — using default %d", exc, default)

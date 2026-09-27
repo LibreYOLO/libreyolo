@@ -53,9 +53,9 @@ def test_env_force_reference(monkeypatch):
 
 
 def test_active_lists_attention_slot(monkeypatch):
-    # The attention provider needs no triton, so the slot registers on any
-    # platform; with hub kernels pinned off it must resolve to nothing.
+    # Both accelerated providers pinned off: the slot must report unavailable.
     monkeypatch.setenv("LIBREYOLO_HUB_KERNELS", "0")
+    monkeypatch.setenv("LIBREYOLO_TRITON_MSDA", "0")
     kernels.clear_cache()
     assert kernels.active().get("ms_deform_attn") == "unavailable"
 

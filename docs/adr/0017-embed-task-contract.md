@@ -1,4 +1,4 @@
-# ADR 0013: Embed (Facial Recognition) Task Contract
+# ADR 0017: Embed (Facial Recognition) Task Contract
 
 ## Status
 

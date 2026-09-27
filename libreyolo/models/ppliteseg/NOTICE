@@ -1,0 +1,83 @@
+LibrePPLiteSeg — third-party attribution
+========================================
+
+Code
+----
+
+The PP-LiteSeg architecture (STDC backbone, SPPM context module, UAFM decoder,
+segmentation and auxiliary heads), the Dice + cross-entropy + edge compound
+loss, the preprocessing convention, and the Cityscapes training recipe in this
+directory are adapted from:
+
+  Deci-AI/super-gradients, commit 63de22c404d5740f34f7706c302b37fce3c8fe5d
+  https://github.com/Deci-AI/super-gradients/tree/63de22c404d5740f34f7706c302b37fce3c8fe5d
+  License: Apache License 2.0
+  https://github.com/Deci-AI/super-gradients/blob/63de22c404d5740f34f7706c302b37fce3c8fe5d/LICENSE.md
+
+  Adapted files:
+    src/super_gradients/training/models/segmentation_models/ppliteseg.py
+    src/super_gradients/training/models/segmentation_models/stdc.py
+    src/super_gradients/training/models/segmentation_models/common.py
+    src/super_gradients/training/models/segmentation_models/context_modules.py
+    src/super_gradients/modules/conv_bn_act_block.py
+    src/super_gradients/training/losses/dice_ce_edge_loss.py
+    src/super_gradients/training/losses/dice_loss.py
+    src/super_gradients/training/losses/mask_loss.py
+    src/super_gradients/training/losses/structure_loss.py
+    src/super_gradients/training/utils/segmentation_utils.py
+    src/super_gradients/recipes/cityscapes_pplite_seg50.yaml
+    src/super_gradients/recipes/cityscapes_pplite_seg75.yaml
+    src/super_gradients/recipes/dataset_params/cityscapes_stdc_seg50_dataset_params.yaml
+    src/super_gradients/recipes/dataset_params/cityscapes_ppliteseg_seg75_dataset_params.yaml
+    src/super_gradients/recipes/training_hyperparams/cityscapes_default_train_params.yaml
+
+STDC backbone lineage. The adapted SuperGradients ``stdc.py`` states that it is
+based on the original STDC-Seg implementation, so that notice travels with the
+STDC-derived code here:
+
+  MichaelFan01/STDC-Seg, commit 59ff37fbd693b99972c76fcefe97caa14aeb619f
+  https://github.com/MichaelFan01/STDC-Seg/tree/59ff37fbd693b99972c76fcefe97caa14aeb619f
+  License: MIT
+  https://github.com/MichaelFan01/STDC-Seg/blob/59ff37fbd693b99972c76fcefe97caa14aeb619f/LICENSE
+
+Architecture behavior was cross-checked against the original PaddlePaddle
+implementation. No PaddleSeg code was copied:
+
+  PaddlePaddle/PaddleSeg, commit 3c4db66de1d9d59d0628ed87590b6308a2f4aa2a
+  https://github.com/PaddlePaddle/PaddleSeg/tree/3c4db66de1d9d59d0628ed87590b6308a2f4aa2a
+  License: Apache License 2.0
+
+Paper: "PP-LiteSeg: A Superior Real-Time Semantic Segmentation Model",
+Peng et al., arXiv:2204.02681.
+
+The LibreYOLO API surface, checkpoint integration, rectangular dataset support,
+exporter integration, tests, and documentation are original work for this
+repository and are MIT-licensed like the rest of LibreYOLO.
+
+Weights (a separate surface — read this before redistributing)
+--------------------------------------------------------------
+
+The released LibrePPLiteSeg{t50,b50,t75,b75}-sem.pt checkpoints are converted
+from the SuperGradients Cityscapes-trained artifacts. The Cityscapes license
+(https://www.cityscapes-dataset.com/license/) permits distributing abstract
+derivative models from which the dataset cannot be recovered, and restricts the
+dataset and its derivatives to NON-COMMERCIAL use. Those pretrained checkpoints
+are therefore non-commercial, regardless of the permissive code license above.
+
+This does not make LibreYOLO, or the PP-LiteSeg architecture, non-commercial.
+Weights trained from scratch on your own data carry none of that restriction; a
+fine-tune initialized from a released Cityscapes checkpoint inherits it.
+
+Source artifacts and their SHA-256 digests, verified before conversion:
+
+  t50  https://d2gjn4b69gu75n.cloudfront.net/models/pp_lite_t_seg50_cityscapes.pth
+       ae9ad0cae645ebdfb8de661e8dbf1c33e08c0d90997954429b467e70e9ca4194
+  b50  https://d2gjn4b69gu75n.cloudfront.net/models/pp_lite_b_seg50_cityscapes.pth
+       f7a6769dd37290ee1145c5f1aa2a669b5421591d3afaf8629910614405fe7122
+  t75  https://d2gjn4b69gu75n.cloudfront.net/models/pp_lite_t_seg75_cityscapes.pth
+       1fdd809572a1b3168727ed0dea32da287c9917ed0ebbfdf8ecab87a3116733f6
+  b75  https://d2gjn4b69gu75n.cloudfront.net/models/pp_lite_b_seg75_cityscapes.pth
+       383bfb69b3ffb643224dbf76047acacd9b48a1564958a20f1aca69c5453dca3e
+
+Cityscapes itself is user-supplied. LibreYOLO does not download it, accept its
+terms on your behalf, or bundle any of its images or labels.

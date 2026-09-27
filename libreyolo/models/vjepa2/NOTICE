@@ -1,0 +1,75 @@
+LibreYOLO V-JEPA 2 family
+=========================
+
+This directory contains a native PyTorch port of V-JEPA 2.0 (encoder,
+attentive pooler and video classification probe).
+
+Code provenance
+---------------
+
+1. Hugging Face Transformers -- Apache License 2.0
+   Source: https://github.com/huggingface/transformers
+   Pinned: tag v5.1.0, commit 3fa4da70f5d1da3ab1a8304bd2339eab7004b157
+   File:   src/transformers/models/vjepa2/modeling_vjepa2.py
+   Used by: libreyolo/models/vjepa2/nn.py
+
+   `nn.py` is adapted from the above file. Copyright 2025 The HuggingFace
+   Inc. team. All rights reserved. Licensed under the Apache License,
+   Version 2.0 (the "License"); you may not use that file except in
+   compliance with the License. You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+   This is Apache-2.0 licensed code vendored into an MIT-licensed project.
+   It is NOT relicensed as MIT. The Apache-2.0 terms above continue to
+   govern the adapted portions of `nn.py`.
+
+2. facebookresearch/vjepa2 -- MIT License
+   Source: https://github.com/facebookresearch/vjepa2
+   Pinned: commit 204698b45b3712590f06245fbfba32d3be539812
+   Copyright (c) Meta Platforms, Inc. and affiliates.
+
+   Used as the semantic upstream (architecture behaviour, preprocessing
+   evidence, attentive-probe recipe) and as the independent parity oracle.
+
+   Three files in that repository are Apache-2.0 rather than MIT:
+       src/datasets/utils/video/randaugment.py
+       src/datasets/utils/video/randerase.py
+       src/datasets/utils/video/worker_init_fn.py
+   None of them are adapted, imported or vendored by this port.
+
+Weight provenance
+-----------------
+
+Weight licenses are per artifact and are deliberately NOT collapsed into a
+single family-wide claim. See `weights/LICENSE_NOTICE.txt` for the full table
+with exact source revisions.
+
+  Encoders
+    facebook/vjepa2-vitl-fpc64-256 @ b3c1679b7c34d3255ef3547f27c7b226aefab26f  MIT
+    facebook/vjepa2-vith-fpc64-256 @ b5eac8703e3efdc1547fbb6ddfbeb133dc0bdee5  MIT
+    facebook/vjepa2-vitg-fpc64-256 @ 875c192b7b704b87d1e1d99345769632dd5f739a  Apache-2.0
+    facebook/vjepa2-vitg-fpc64-384 @ 12ca91694b230e0d4b5b0078af6f4ae1d51e933d  Apache-2.0
+
+  Attentive probes
+    facebook/vjepa2-vitl-fpc16-256-ssv2      @ 4aa02df83918538fc21cfaf576382fa20e489a80  MIT
+    facebook/vjepa2-vitl-fpc32-256-diving48  @ 71ae2a8b1ff5a297aeeaae9b5e64c7a2e5e6a633  MIT
+    facebook/vjepa2-vitg-fpc64-384-ssv2      @ 9f5fd615cb6f79065a28edcf1cc3ef25010dddfa  MIT
+    facebook/vjepa2-vitg-fpc32-384-diving48  @ 0b48243375319bd8e03e3cd5560d957095429189  MIT
+
+Dataset boundary
+----------------
+
+No dataset content or annotations are vendored. Something-Something V2 is
+distributed under a research-use agreement and must remain user-supplied.
+Diving48's redistribution terms are not clearly established by the selected
+official source and it is treated as unknown-license for redistribution.
+Neither, nor Kinetics, is downloaded, mirrored or bundled by LibreYOLO.
+Dataset names recorded per checkpoint are provenance only and do not imply
+that dataset terms apply to the code or the converted weights.

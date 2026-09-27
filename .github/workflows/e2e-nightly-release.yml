@@ -10,6 +10,10 @@ on:
         description: "Run regardless of SHA cache"
         type: boolean
         default: false
+      ref:
+        description: "Immutable tag to test (vX.Y.Z). Empty means current release tip."
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -21,22 +25,46 @@ jobs:
     outputs:
       should_run: ${{ steps.diff.outputs.should_run }}
       target_sha: ${{ steps.resolve.outputs.target_sha }}
+      target_label: ${{ steps.resolve.outputs.target_label }}
       cache_key: ${{ steps.resolve.outputs.cache_key }}
       cache_hit: ${{ steps.cache-target.outputs.cache-hit }}
     steps:
       - id: resolve
-        name: Resolve current release SHA
+        name: Resolve release target SHA
+        env:
+          REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
-          TARGET_SHA=$(git ls-remote https://github.com/LibreYOLO/libreyolo refs/heads/release | cut -f1)
+          # A tag pin is required after publish: refs/heads/release can move
+          # between the GitHub release and this dispatch, and then the suite
+          # would test a different commit than the one PyPI just got.
+          if [ -n "${REF:-}" ]; then
+            if ! printf '%s' "$REF" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "ref must look like vX.Y.Z, got: $REF"
+              exit 1
+            fi
+            TARGET_SHA=$(git ls-remote https://github.com/LibreYOLO/libreyolo "refs/tags/${REF}^{}" | cut -f1)
+            if [ -z "$TARGET_SHA" ]; then
+              TARGET_SHA=$(git ls-remote https://github.com/LibreYOLO/libreyolo "refs/tags/${REF}" | cut -f1)
+            fi
+            if [ -z "$TARGET_SHA" ]; then
+              echo "No such tag: $REF"
+              exit 1
+            fi
+            TARGET_LABEL="tag ${REF}"
+          else
+            TARGET_SHA=$(git ls-remote https://github.com/LibreYOLO/libreyolo refs/heads/release | cut -f1)
+            TARGET_LABEL="release tip"
+          fi
           # The cache key carries an ISO week so a frozen target is still
           # retested once a week. A SHA-only key means a quiet branch is never
           # re-run, and the environment underneath it drifts untested.
           WINDOW=$(date -u +%G-W%V)
           echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          echo "target_label=$TARGET_LABEL" >> "$GITHUB_OUTPUT"
           echo "window=$WINDOW" >> "$GITHUB_OUTPUT"
           echo "cache_key=last-tested-nightly-release-$TARGET_SHA-$WINDOW" >> "$GITHUB_OUTPUT"
-          echo "Resolved: release=$TARGET_SHA window=$WINDOW"
+          echo "Resolved: ${TARGET_LABEL}=$TARGET_SHA window=$WINDOW"
 
       # restore, not cache: this job never creates the marker file, so the
       # save-on-post of actions/cache would warn every run and could claim the
@@ -53,6 +81,7 @@ jobs:
           FORCE: ${{ inputs.force }}
           HIT_TARGET: ${{ steps.cache-target.outputs.cache-hit }}
           TARGET_SHA: ${{ steps.resolve.outputs.target_sha }}
+          TARGET_LABEL: ${{ steps.resolve.outputs.target_label }}
           WINDOW: ${{ steps.resolve.outputs.window }}
         run: |
           set -euo pipefail
@@ -61,10 +90,10 @@ jobs:
             REASON="forced by workflow_dispatch input"
           elif [ "${HIT_TARGET:-}" = "true" ]; then
             SHOULD_RUN=false
-            REASON="release@${TARGET_SHA} already passed a nightly in week ${WINDOW}"
+            REASON="${TARGET_LABEL}@${TARGET_SHA} already passed a nightly in week ${WINDOW}"
           else
             SHOULD_RUN=true
-            REASON="no passing nightly recorded for release@${TARGET_SHA} in week ${WINDOW}"
+            REASON="no passing nightly recorded for ${TARGET_LABEL}@${TARGET_SHA} in week ${WINDOW}"
           fi
           echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
           echo "Should run release: $SHOULD_RUN ($REASON)"
@@ -80,7 +109,7 @@ jobs:
           {
             echo "### Nightly guard: $VERDICT"
             echo
-            echo "- Target: \`release@${TARGET_SHA}\`"
+            echo "- Target: \`${TARGET_LABEL}@${TARGET_SHA}\`"
             echo "- Week window: \`${WINDOW}\`"
             echo "- Reason: ${REASON}"
             echo
@@ -102,7 +131,7 @@ jobs:
     steps:
       - name: Explain the skip
         run: |
-          echo "No GPU suite ran. release@${{ needs.guard.outputs.target_sha }} already"
+          echo "No GPU suite ran. ${{ needs.guard.outputs.target_label }}@${{ needs.guard.outputs.target_sha }} already"
           echo "passed a nightly this week. Re-dispatch with force=true to retest."
 
   e2e:

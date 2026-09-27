@@ -20,6 +20,8 @@ from ..base import BaseModel
 from .nn import DEFAULT_VARIANT, VARIANT_QUERY_BUDGET, LibreDOMEDETRModel
 from .utils import preprocess_image, unwrap_domedetr_checkpoint
 
+_TRAIN_DEFAULTS = DOMEDETRConfig()
+
 logger = logging.getLogger(__name__)
 
 # The stride-4 encoder projection width is the cheapest size fingerprint:
@@ -54,8 +56,10 @@ class LibreDOMEDETR(BaseModel):
       attention masks. Convergence against upstream's published 160-epoch
       schedule has not been reproduced here, so treat the paper's AP numbers
       as unverified rather than as a promise this recipe reaches them.
-    - **Weights are not rehosted.** The upstream model card states no license,
-      so they are linked, not mirrored (the YOLO-NAS precedent).
+    - **Official weights are academic-research-only.** LibreYOLO mirrors the
+      six upstream checkpoints under the stricter use restriction stated on
+      the upstream model card. They are not covered by LibreYOLO's MIT license,
+      and every auto-download prints the restriction before fetching them.
     """
 
     FAMILY = "domedetr"
@@ -65,6 +69,7 @@ class LibreDOMEDETR(BaseModel):
     DEFAULT_TASK = "detect"
     TASK_INPUT_SIZES = {"detect": INPUT_SIZES}
     TRAIN_CONFIG = DOMEDETRConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     WEIGHT_VARIANTS = ("aitod", "visdrone")
     val_preprocessor_class = DOMEDETRValPreprocessor
     TTA_FIXED_SIZE = True  # fixed square resize; multi-scale TTA is a no-op
@@ -159,18 +164,7 @@ class LibreDOMEDETR(BaseModel):
 
     @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
-        """Refuse to auto-download, with the reason.
-
-        Two separate things would otherwise go wrong here. Nothing is hosted
-        under ``LibreYOLO/`` for this family at all, because the upstream
-        weight license is unresolved. And there is no COCO checkpoint even
-        upstream, so a bare ``LibreDOMEDETRs.pt`` names a file that cannot
-        exist in any world: the canonical names all carry a dataset suffix.
-
-        Left to the base implementation this 404s three times against a
-        never-to-exist repo and ends in a generic "file not found", which
-        sends people looking for a network problem. Raise instead.
-        """
+        """Resolve hosted dataset variants and reject the nonexistent bare name."""
         name = Path(filename).name
         size = cls.detect_size_from_filename(name)
         if size is None:
@@ -182,28 +176,27 @@ class LibreDOMEDETR(BaseModel):
 
         variant = cls.detect_variant_from_filename(name)
         if variant is None:
-            hint = (
+            raise FileNotFoundError(
                 f"{name} has no dataset suffix. Dome-DETR has no COCO checkpoint, "
                 f"so there is no bare {cls.FILENAME_PREFIX}{size}.pt -- the canonical "
                 f"names are {cls.FILENAME_PREFIX}{size}-aitod.pt (AI-TOD-V2, 9 classes) "
                 f"and {cls.FILENAME_PREFIX}{size}-visdrone.pt (VisDrone, 12 classes). "
                 "Pick the one matching your data."
             )
-        else:
-            hint = f"{name} is a valid Dome-DETR name, but LibreYOLO does not host it."
+        return super().get_download_url(name)
 
-        raise FileNotFoundError(
-            f"{hint}\n\n"
-            "Dome-DETR weights are not rehosted under the LibreYOLO org: the "
-            "upstream model card states no license (its prose claims Apache-2.0 "
-            "while also restricting use to academic research), so there is no "
-            "redistribution grant to rely on. Download from upstream and convert:\n\n"
-            "  hf download RicePasteM/Dome-DETR --include 'best_ckpts_dome_2026/*' "
-            "--local-dir dome-ckpts\n"
-            "  python weights/convert_domedetr_weights.py \\\n"
-            f"      dome-ckpts/best_ckpts_dome_2026/aitod-{size}-best.pth \\\n"
-            f"      weights/{cls.FILENAME_PREFIX}{size}-aitod.pt --size {size} --variant aitod\n\n"
-            "See weights/LICENSE_NOTICE.txt."
+    @classmethod
+    def get_download_notice(cls, filename: str, url: str) -> Optional[str]:
+        del url
+        return (
+            f"{Path(filename).name} contains official Dome-DETR pretrained weights. "
+            "The upstream model card restricts these weights to ACADEMIC RESEARCH "
+            "PURPOSES ONLY. They are NOT covered by LibreYOLO's MIT license and "
+            "must not be treated as commercially cleared. The same card also calls "
+            "the project Apache-2.0 but provides no license metadata or weight-repo "
+            "LICENSE file; LibreYOLO mirrors the weights under the stricter academic-"
+            "use reading and documents that unresolved context in each mirror. You "
+            "are responsible for reviewing and complying with the upstream terms."
         )
 
     def _init_model(self) -> nn.Module:
@@ -292,7 +285,7 @@ class LibreDOMEDETR(BaseModel):
         name: str = "domedetr_exp",
         exist_ok: bool = False,
         resume: bool = False,
-        amp: bool = False,
+        amp: bool = _TRAIN_DEFAULTS.amp,
         patience: int = 50,
         callbacks: TrainCallbacks = None,
         loggers=None,
@@ -372,14 +365,8 @@ class LibreDOMEDETR(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLO('LibreDOMEDETRs-visdrone.pt'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         return trainer.train()

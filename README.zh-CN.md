@@ -4,38 +4,28 @@
 
 > **注意：** 本中文 README 由 AI 翻译，可能包含不准确或不自然的表述。请以英文 README 为准。
 
-> ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](CONTRIBUTING.md)）。
+> ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](CONTRIBUTING.md)）。 如果你愿意在经济上支持项目，非常欢迎：请查看[赞助计划](SPONSORS.md)。
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
 [![PyPI Downloads](https://static.pepy.tech/badge/libreyolo)](https://pepy.tech/projects/libreyolo)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-LibreYOLO-yellow)](https://huggingface.co/LibreYOLO)
 [![Benchmarks](https://img.shields.io/badge/benchmarks-visionanalysis.org-purple)](https://www.visionanalysis.org/)
+[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-LibreYOLO-blue?logo=linkedin)](https://www.linkedin.com/company/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-LibreYOLO 是一个采用 MIT 许可证的计算机视觉库，支持多种模型的推理和训练。它提供熟悉的高层 Python 和命令行接口，并可读取常见的 YOLO 格式数据集，因此现有工作流只需少量改动即可迁移。
+**一个采用 MIT 许可证的计算机视觉库。** 检测、分割、姿态、深度、OCR
+等十几种任务共用一套精简 API，训练和导出内置提供，而非单独收费。
+支持读取常见的 YOLO 格式数据集，因此现有工作流只需少量改动即可迁移。
 
 ![LibreYOLO 检测示例](libreyolo/assets/parkour_result.jpg)
 
-## 安装与快速开始
+## 安装
 
 ```bash
 pip install libreyolo
 ```
-
-如需从源码以可编辑模式安装（用于开发或跟踪尚未发布的改动）：
-
-```bash
-git clone https://github.com/LibreYOLO/libreyolo.git
-cd libreyolo
-pip install -e .
-```
-
-普通克隆会检出 `release` 分支，即代码与本文档一致的稳定分支。如需获取尚未发布的
-最新开发内容，请使用 `git checkout dev` 切换到集成分支。
-
-ONNX Runtime、OpenVINO、TensorRT、NCNN 和 RF-DETR 等可选运行时与导出依赖，请见[完整文档](https://www.libreyolo.com/docs)。
 
 ```python
 from libreyolo import LibreYOLO, SAMPLE_IMAGE
@@ -44,72 +34,147 @@ model = LibreYOLO("LibreYOLO9t.pt")
 result = model(SAMPLE_IMAGE, save=True)
 ```
 
-## 旗舰模型
+<details>
+<summary><b>可选扩展依赖</b></summary>
 
-LibreYOLO 推荐以下模型系列，因为它们在性能上达到最佳平衡，并且接受最充分的测试：
+<br>
 
-- **YOLOv9**：基于 CNN 的 YOLO 模型。
-- **RF-DETR**：基于 Transformer 的检测与分割模型。
+基础安装已覆盖 YOLOv9 与其他核心检测器、训练和推理。当你需要更重的模型系列
+或某个导出后端时，再安装对应的扩展依赖即可。多个扩展用逗号组合，例如
+`pip install "libreyolo[rfdetr,hub-kernels]"`。
 
-## 兼容性
+| 分组 | 扩展依赖 |
+| --- | --- |
+| 导出 | `onnx`、`tensorrt`、`openvino`、`coreml`、`coreai`、`tflite`（别名 `litert`）、`ncnn`、`mnn`、`paddle`、`executorch` |
+| 服务 | `triton` |
+| 模型 | `rfdetr`、`vlm`、`sam`、`openvocab`、`clip`、`siglip2`、`eomt`、`midas`、`modus`、`sensenova`、`gaze` |
+| 训练 | `lora`、`plots`、`tensorboard`、`mlflow`、`wandb`、`comet`、`clearml`、`neptune`、`dvclive` |
+| 提速 | `fast-eval`、`hub-kernels` |
+| 输入源 | `stream` |
+| 全部 | `pip install "libreyolo[all]"` |
 
-`✓` 表示支持。空单元格表示当前不支持。
+`executorch`、`coreai` 和 `neptune` 被有意排除在 `all` 之外：它们对 torch 或
+protobuf 的版本锁定会拖累环境中的其他依赖。完整列表和各后端说明见
+[安装指南](https://www.libreyolo.com/docs/install)。
 
-<table>
-  <thead>
-    <tr>
-      <th rowspan="2">模型系列</th>
-      <th colspan="7">推理</th>
-      <th rowspan="2">训练</th>
-      <th colspan="6">导出格式</th>
-    </tr>
-    <tr>
-      <th>检测</th>
-      <th>分割</th>
-      <th>语义分割</th>
-      <th>分类</th>
-      <th>姿态</th>
-      <th>OBB</th>
-      <th>视线</th>
-      <th>ONNX</th>
-      <th>TorchScript</th>
-      <th>TensorRT</th>
-      <th>OpenVINO</th>
-      <th>NCNN</th>
-      <th>TFLite (LiteRT)</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr><td><strong>⭐ YOLOv9</strong></td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
-    <tr><td><strong>⭐ RF-DETR</strong></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td>✓</td></tr>
-    <tr><td>YOLOX</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
-    <tr><td>YOLOv9-E2E</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td><td></td></tr>
-    <tr><td>YOLOv9-P2</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>YOLO-NAS</td><td>✓</td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
-    <tr><td>CenterNet</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>HRNet</td><td></td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
-    <tr><td>D-FINE</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
-    <tr><td>DEIM</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
-    <tr><td>DEIMv2</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
-    <tr><td>RT-DETR</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
-    <tr><td>RT-DETRv2</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>RT-DETRv4</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>RetinaNet</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>DINO-DETR</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
-    <tr><td>PicoDet</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>RTMDet</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>Mask R-CNN</td><td>✓</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>EC</td><td>✓</td><td>✓</td><td></td><td></td><td>✓</td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>ViT</td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>SSD300</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>L2CS</td><td></td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>VGG</td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
-    <tr><td>Swin</td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
-    <tr><td>DeepLabv3（语义）</td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
-  </tbody>
-</table>
+</details>
+
+<details>
+<summary><b>从源码安装</b></summary>
+
+<br>
+
+```bash
+git clone https://github.com/LibreYOLO/libreyolo.git
+cd libreyolo
+pip install -e .
+```
+
+普通克隆会检出 `release` 分支，即与已发布包一致的稳定分支。如需获取尚未发布的
+内容，请使用 `git checkout dev`。
+
+</details>
+
+## 一套 API，二十种任务
+
+每种任务都是同样的三行代码，只有权重文件不同。
+
+```python
+from libreyolo import LibreYOLO
+
+LibreYOLO("LibreYOLO9t.pt")("street.jpg", save=True)             # 检测
+LibreYOLO("LibreDeepLabv3mv3-sem.pt")("street.jpg", save=True)   # 语义分割
+LibreYOLO("LibreHRNetw32-pose.pt")("street.jpg", save=True)      # 姿态
+LibreYOLO("LibreMiDaSs-depth.pt")("street.jpg", save=True)       # 深度
+LibreYOLO("LibreFeyNobgl-matte.pt")("portrait.jpg", save=True)   # 背景移除
+LibreYOLO("LibreRTDETRv2n-obb.pt")("aerial.jpg", save=True)      # 旋转框
+```
+
+输入源不只是文件。它还可以是摄像头、RTSP 流、视频、目录、YouTube 链接或你的屏幕：
+
+```bash
+libreyolo predict --model yolo9-t --source 0 --show          # 摄像头
+libreyolo predict --model yolo9-t --source rtsp://camera/1   # 网络摄像头
+libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
+```
+
+## 内置内容
+
+| 任务 | 模型 |
+| --- | --- |
+| **检测** | YOLOv9、RF-DETR、YOLOX、YOLO-NAS、D-FINE、DEIM、RT-DETR v1/v2/v4、RTMDet、PicoDet、PP-YOLOE、YOLOv7、EfficientDet，以及经典模型：DETR、Deformable DETR、DINO-DETR、LW-DETR、Faster R-CNN、RetinaNet、SSD、FCOS、CenterNet |
+| **微小目标** | TinyFormer、Dome-DETR（航拍、无人机、遥感） |
+| **实例分割** | RF-DETR、RTMDet、D-FINE、Mask R-CNN |
+| **可提示分割** | SAM、SAM 2、SAM 3、MobileSAM、EdgeTAM、PicoSAM3 |
+| **语义分割** | SegFormer、PIDNet、PP-LiteSeg、U-Net、DeepLabv3、FCN、LingBot-Vision、DINOv2、EoMT |
+| **全景分割** | EoMT |
+| **姿态** | RF-DETR、YOLO-NAS、HRNet、DEKR、EC |
+| **旋转框（OBB）** | RF-DETR、RT-DETRv2、YOLO-NAS-R |
+| **三维检测** | WildDet3D、3D-MOOD、FCOS3D、DetAny3D（独立运行环境） |
+| **分类** | MobileNetV4、ConvNeXt、EfficientNetV2、ResNet、ViT、Swin、DeiT、VGG、AlexNet、CLIP、SigLIP2、DINOv2 |
+| **深度估计** | Depth Anything 3、Depth Anything V2、ZipDepth、MiDaS |
+| **表面法线** | MoGe-2 |
+| **深度、法线与反照率** | Marigold V2 |
+| **边缘检测** | DexiNed、TEED |
+| **嵌入** | LibreFaceEmbedder、CLIP、SigLIP2、Perception Encoder（图像、文本、整段视频；亦支持零样本分类）、DINOv2 |
+| **视频嵌入** | V-JEPA 2（片段嵌入及可训练分类探针）、LeVJEPA（片段及分块嵌入；权重采用 CC BY-NC 4.0） |
+| **人体网格** | SAM 3D Body |
+| **图像复原** | DDColor、HVI-CIDNet、LaMa、NAFNet、QuickSRNet、Real-ESRGAN、SwinIR |
+| **背景移除** | BiRefNet、FeyNobg、ViTMatte |
+| **OCR** | PP-OCR |
+| **点检测** | FOMO、LocateAnything |
+| **视线估计** | L2CS |
+| **开放词汇与 VLM** | Grounding DINO、OWLv2、OmDet-Turbo、OV-DEIM、Florence-2、Kosmos-2、Qwen3-VL、InternVL3、LFM2-VL、North Micro Vision、SmolVLM2、Molmo2、MODUS |
+| **机器人动作 (VLA)** | SmolVLA, ACT, Diffusion Policy |
+
+各模型系列的尺寸、权重与一致性验证证据见[模型参考](https://www.libreyolo.com/docs/models)。
+
+## 训练
+
+```python
+from libreyolo import LibreYOLO
+
+model = LibreYOLO("LibreYOLO9t.pt")
+model.train(data="dataset.yaml", epochs=100, imgsz=640)
+```
+
+```bash
+libreyolo train --model yolo9-t --data dataset.yaml --epochs 100
+```
+
+多 GPU、LoRA、层冻结、蒸馏、从零训练，以及 TensorBoard、MLflow、
+Weights & Biases、Comet、ClearML、Neptune 和 DVCLive 日志记录均受支持。
+详见[训练指南](https://www.libreyolo.com/docs/train)。
+
+## 导出与部署
+
+十二种格式：ONNX、TorchScript、TensorRT、OpenVINO、CoreML、Core AI、
+TFLite（LiteRT）、NCNN、MNN、RKNN、Paddle 和 ExecuTorch。另支持 NVIDIA
+Triton 服务和 DeepStream 配置生成。
+
+```bash
+libreyolo export --model yolo9-t --format onnx
+```
+
+支持范围因模型系列和任务而异，见[导出矩阵](https://www.libreyolo.com/docs/reference/export-matrix)。
+
+## 文档
+
+- [文档](https://www.libreyolo.com/docs)涵盖安装、任务、模型、训练、推理、导出和 CLI
+- [基准测试](https://www.visionanalysis.org/)提供独立的第三方数据
+- [CHANGELOG.md](CHANGELOG.md) 记录版本变更
+
+## 赞助
+
+代码在业余时间编写。训练新模型（例如 LibreYOLO26，以及为权重许可受限的模型家族重新训练 MIT 权重）需要租用 GPU，[LibreYOLO 赞助计划](SPONSORS.md)为此付费。企业每月赞助 $100 起即可在此展示 logo；每月 $500 起，还会在每次发布说明以及赞助期间发布的每个权重的模型卡中署名。硬件厂商可以通过寄送设备来赞助。
+
+[![Sponsor](https://img.shields.io/badge/sponsor-Open%20Collective-7fadf2?logo=opencollective)](https://opencollective.com/libreyolo)
+
+暂无赞助商。
 
 ## 许可证
 
-- **代码：** MIT License
-- **权重：** 预训练权重可能继承原始来源的许可证。请检查你感兴趣的具体 HF 权重仓库中的许可证。LibreYOLO HF 模型始终包含许可证。
+- **代码：** MIT License。
+- **权重：** 预训练权重可能继承原始来源的许可证，且并非全部为宽松许可。
+  商用前请先查看具体 Hugging Face 仓库上的许可证。每个 LibreYOLO
+  Hugging Face 模型都会标明其许可证。

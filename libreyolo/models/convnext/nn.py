@@ -10,8 +10,8 @@ test). See the family NOTICE for attribution.
 Only the V1 ``convnext_{tiny,small,base}.fb_in1k`` configuration is implemented
 (``conv_mlp=False``, ``ls_init_value=1e-6``, patch stem, FB head ordering
 pool -> norm -> fc). ConvNeXt-V2 (GRN instead of layer-scale) is intentionally
-out of scope — its small pretrained checkpoints are CC-BY-NC and cannot be
-redistributed in an MIT library.
+handled by the separate ``convnextv2`` family; its official pretrained
+weights retain CC-BY-NC-4.0 independently of the MIT architecture code.
 
 Upstream paper: "A ConvNet for the 2020s" (https://arxiv.org/abs/2201.03545).
 """

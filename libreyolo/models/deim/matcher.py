@@ -42,7 +42,15 @@ class HungarianMatcher(nn.Module):
         )
 
     @torch.no_grad()
-    def forward(self, outputs: Dict[str, torch.Tensor], targets, return_topk=False):
+    def compute_cost_matrix(self, outputs: Dict[str, torch.Tensor], targets):
+        """Build the pairwise matching cost on the predictions' device.
+
+        Split out from :meth:`forward` so a caller matching several output
+        levels (main + aux + enc) can enqueue the next level's cost on the
+        device before draining the current one's ``.cpu()`` transfer, paying
+        one overlapped drain per level instead of a full pipeline stall (see
+        ``DEIMCriterion.forward``).
+        """
         bs, num_queries = outputs["pred_logits"].shape[:2]
 
         if self.use_focal_loss:
@@ -69,7 +77,10 @@ class HungarianMatcher(nn.Module):
         else:
             cost_class = -out_prob[:, tgt_ids]
 
-        cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
+        # The broadcast form is bit-identical to ``torch.cdist(out_bbox,
+        # tgt_bbox, p=1)`` but avoids cdist's slow one-thread-per-pair p=1
+        # CUDA kernel (issue #763; measured on rfdetr in PR #761).
+        cost_bbox = (out_bbox[:, None, :] - tgt_bbox[None, :, :]).abs().sum(-1)
 
         cost_giou = -generalized_box_iou(
             box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
@@ -80,10 +91,17 @@ class HungarianMatcher(nn.Module):
             + self.cost_class * cost_class
             + self.cost_giou * cost_giou
         )
-        C = C.view(bs, num_queries, -1).cpu()
+        return C.view(bs, num_queries, -1)
 
+    @torch.no_grad()
+    def solve(self, cost_matrix, targets, return_topk=False):
+        """Run the Hungarian assignment on a CPU cost matrix.
+
+        ``cost_matrix`` is the [bs, num_queries, total_targets] output of
+        :meth:`compute_cost_matrix` after ``.cpu()``.
+        """
         sizes = [len(v["boxes"]) for v in targets]
-        C = torch.nan_to_num(C, nan=1.0)
+        C = torch.nan_to_num(cost_matrix, nan=1.0)
         indices_pre = [
             linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))
         ]
@@ -103,6 +121,11 @@ class HungarianMatcher(nn.Module):
             }
 
         return {"indices": indices}
+
+    @torch.no_grad()
+    def forward(self, outputs: Dict[str, torch.Tensor], targets, return_topk=False):
+        cost_matrix = self.compute_cost_matrix(outputs, targets)
+        return self.solve(cost_matrix.cpu(), targets, return_topk=return_topk)
 
     def get_top_k_matches(self, C, sizes, k=1, initial_indices=None):
         indices_list = []

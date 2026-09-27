@@ -1,0 +1,94 @@
+LibreViTMatte third-party attribution and weight restriction
+============================================================
+
+PRETRAINED WEIGHTS: NON-COMMERCIAL
+----------------------------------
+
+The ``hustvl/vitmatte-small-composition-1k`` checkpoint was trained on the
+Adobe Composition-1k dataset. LibreYOLO treats this pretrained checkpoint and
+its converted form as subject to the Adobe Deep Image Matting Dataset License
+Agreement, including its NON-COMMERCIAL restriction. Use and distribute these
+weights only for non-commercial purposes unless you obtain the required rights
+from Adobe. The agreement also says the Model may not be sold. Retain this
+notice and the mandatory attribution below.
+
+  Official Adobe Deep Image Matting dataset page:
+  https://sites.google.com/view/deepimagematting/homepage
+
+The agreement accompanies the dataset and is reproduced verbatim as the
+`LICENSE` file in any LibreYOLO-hosted copy of this pretrained checkpoint.
+
+The Hugging Face repository currently labels the checkpoint repository
+Apache-2.0. That repository metadata does not waive or replace the terms of the
+training dataset agreement. The restriction above applies to the pretrained
+weights, not to the separately MIT/Apache-2.0 source port or to weights trained
+independently on data for which the user has suitable rights. This notice is a
+provenance and distribution safeguard, not legal advice.
+
+Pinned source checkpoint
+------------------------
+
+  Repository: hustvl/vitmatte-small-composition-1k
+  Revision:   6a58ad7646403c1df626fbd746900aec7361ea1d
+  File:       model.safetensors
+  Size:       103,294,572 bytes
+  SHA-256:    bda9289db1bb6762d978b42d1c62ae3f34daf7497171a347a1d09657efd788cb
+  URL:        https://huggingface.co/hustvl/vitmatte-small-composition-1k/blob/6a58ad7646403c1df626fbd746900aec7361ea1d/model.safetensors
+
+Code provenance
+---------------
+
+The inference graph and preprocessing contract are ported from the audited
+Apache-2.0 Hugging Face Transformers implementation at this exact commit:
+
+  Copyright 2023 HUST-VL and The HuggingFace Inc. team.
+  Copyright 2023 The HuggingFace Inc. team.
+  Copyright 2023 Meta AI and The HuggingFace Inc. team.
+
+  Repository: huggingface/transformers
+  Commit:     7d6354e04794f3246bf9a0faf4fead080edeebb6
+  License:    Apache License 2.0
+  Source:     https://github.com/huggingface/transformers/tree/7d6354e04794f3246bf9a0faf4fead080edeebb6
+  Files:
+    src/transformers/models/vitmatte/modeling_vitmatte.py
+    src/transformers/models/vitmatte/image_processing_vitmatte.py
+    src/transformers/models/vitdet/modeling_vitdet.py
+
+ViTMatte's architecture and checkpoint lineage originate with HUST-VL:
+
+  Repository: hustvl/ViTMatte
+  Commit:     f48208ceb0d172ab0c1c528bba33cc1159596407
+  License:    MIT
+  Copyright (c) 2023 Hust Vision Lab
+  Source:     https://github.com/hustvl/ViTMatte/tree/f48208ceb0d172ab0c1c528bba33cc1159596407
+
+No HUST training-stack code was copied or adapted. LibreViTMatte does not use
+HUST's easydict, detectron2, timm, or fairscale dependencies. The family-local
+inference implementation loads the pinned Transformers-format state dict
+strictly and is externally checked against the Transformers reference.
+
+Required attribution
+--------------------
+
+Adobe's agreement requires any use of or reference to the Dataset, and any
+permitted distribution of images or the Model, to include this exact
+attribution:
+
+  Ning Xu, Brian Price, Scott Cohen, and Thomas Huang. Deep Image Matting.
+  Proceedings of the Conference on Computer Vision and Pattern Recognition,
+  2017.
+
+Optional model-paper citation
+-----------------------------
+
+  Jingfeng Yao, Xinggang Wang, Shusheng Yang, and Baoyuan Wang,
+  "ViTMatte: Boosting Image Matting with Pretrained Plain Vision Transformers,"
+  Information Fusion, 2024.
+
+LibreYOLO integration
+---------------------
+
+The family wrapper, strict trimap validation, postprocessing, checkpoint
+converter, parity harness, and tests are original LibreYOLO work and are
+MIT-licensed with the repository. Apache-2.0 notices for the ported graph are
+preserved by this file and the repository's license surfaces.

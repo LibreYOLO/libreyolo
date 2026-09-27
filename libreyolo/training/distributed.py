@@ -4,17 +4,22 @@ Thin helpers around ``torch.distributed`` so the rest of the trainer can stay
 backend-agnostic. All helpers degrade to no-ops when distributed is not
 initialised — single-GPU code paths continue to work unchanged.
 
-User-facing surface accepts ``device=[0, 1]`` (or ``device="0,1"``) and
-launches with ``torchrun --nproc_per_node=N``. Inside each child process
-``init_distributed()`` is called by the trainer; outside DDP everything is a
-no-op.
+User-facing surface accepts ``device=[0, 1]`` (or ``device="0,1"``). Model
+APIs launch local ranks automatically, while an explicit
+``torchrun --nproc_per_node=N`` launch remains supported. Inside each child
+process ``init_distributed()`` is called by the trainer; outside DDP
+everything is a no-op.
 """
 
 from __future__ import annotations
 
 import os
 import socket
+import sys
+import threading
+import warnings
 from datetime import timedelta
+from pathlib import Path
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
@@ -22,6 +27,7 @@ import torch.distributed as dist
 import torch.nn as nn
 
 DeviceArg = Union[str, int, List[int], None]
+_LEGACY_SPAWN_ENV_LOCK = threading.Lock()
 
 
 # =============================================================================
@@ -55,7 +61,7 @@ def is_main_process() -> bool:
 
 
 def has_torchrun_env() -> bool:
-    """True iff this process was spawned by torchrun (LOCAL_RANK is set)."""
+    """True iff a DDP launcher provided this process with ``LOCAL_RANK``."""
     return "LOCAL_RANK" in os.environ
 
 
@@ -129,11 +135,11 @@ def _select_backend() -> str:
 
 
 def init_distributed(timeout_seconds: int = 10800) -> None:
-    """Initialise the default process group from env vars set by torchrun.
+    """Initialise the default process group from launcher-provided env vars.
 
     Safe to call multiple times — second and later calls are no-ops.
     Expects ``RANK``, ``LOCAL_RANK``, ``WORLD_SIZE`` to be set in the
-    environment (which torchrun does automatically).
+    environment (which torchrun and LibreYOLO's coordinator do automatically).
     """
     import inspect
 
@@ -234,6 +240,29 @@ def all_reduce_avg_scalar(
     This is a COLLECTIVE under DDP: every rank must reach it or the callers
     deadlock. Only call it from code that runs symmetrically on all ranks
     (the training loss); never from rank-0-only paths like validation.
+
+    The trailing ``.item()`` is a full pipeline drain every step. Hot loss
+    paths that only need a divisor should call
+    ``all_reduce_avg_scalar_tensor`` and keep the value on device
+    (issue #763); this float form stays for callers that genuinely need a
+    Python number.
+    """
+    return float(
+        all_reduce_avg_scalar_tensor(value, device=device, min_value=min_value).item()
+    )
+
+
+def all_reduce_avg_scalar_tensor(
+    value: Union[float, torch.Tensor],
+    *,
+    device: Optional[torch.device] = None,
+    min_value: float = 1.0,
+) -> torch.Tensor:
+    """``all_reduce_avg_scalar`` without the final device sync.
+
+    Returns the clamped global average as a 0-dim fp32 tensor on the input
+    tensor's device, so callers that use it as a loss normalizer never force
+    a GPU-to-CPU transfer. Same collective contract as the float form.
     """
     if isinstance(value, torch.Tensor):
         # .sum() materializes a fresh tensor even for 0-dim input, so the
@@ -249,9 +278,8 @@ def all_reduce_avg_scalar(
                 "GPU) so the collective can run."
             )
         dist.all_reduce(v)
-        v = v.clamp_min(min_value) / float(get_world_size())
-        return float(v.item())
-    return float(v.clamp_min(min_value).item())
+        return v.clamp_min(min_value) / float(get_world_size())
+    return v.clamp_min(min_value)
 
 
 def scale_loss_for_ddp(loss: torch.Tensor) -> torch.Tensor:
@@ -315,6 +343,118 @@ def _find_free_port() -> tuple:
     return port, s
 
 
+def _normalized_import_paths(entries) -> list[str]:
+    """Return absolute string paths suitable for the private job manifest."""
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        try:
+            raw = os.fspath(entry)
+        except TypeError:
+            continue
+        if isinstance(raw, bytes):
+            raw = os.fsdecode(raw)
+        if not isinstance(raw, str):
+            continue
+        try:
+            absolute = os.path.abspath(raw or os.getcwd())
+        except (OSError, TypeError, ValueError):
+            continue
+        key = os.path.normcase(absolute)
+        if key not in seen:
+            normalized.append(absolute)
+            seen.add(key)
+    return normalized
+
+
+def _legacy_spawn_worker(
+    rank: int,
+    worker_fn: Callable,
+    nprocs: int,
+    master_addr: str,
+    master_port: int,
+    result_path: str,
+    spawn_args: Tuple,
+) -> None:
+    """Invoke a standard-pickle job that cannot use by-value transport."""
+    os.environ["LIBREYOLO_DDP_COORDINATOR_WORKER"] = "1"
+    os.environ["RANK"] = str(rank)
+    os.environ["LOCAL_RANK"] = str(rank)
+    os.environ["WORLD_SIZE"] = str(nprocs)
+    os.environ["MASTER_ADDR"] = master_addr
+    os.environ["MASTER_PORT"] = str(master_port)
+    worker_fn(
+        rank,
+        nprocs,
+        master_addr,
+        master_port,
+        result_path,
+        *spawn_args,
+    )
+
+
+def _spawn_standard_pickle_fallback(
+    worker_fn: Callable,
+    spawn_args: Tuple,
+    nprocs: int,
+    result_path: str,
+    master_addr: str,
+    master_port: int,
+    child_env: dict[str, str],
+) -> None:
+    """Preserve the guarded-script behavior of the former direct spawn path."""
+    import multiprocessing
+
+    if multiprocessing.current_process().name != "MainProcess":
+        raise RuntimeError(
+            "DDP spawn fell back to standard-pickle transport inside a spawned "
+            "subprocess. Put the multi-GPU train() call under "
+            "`if __name__ == '__main__':` for this callback or logger."
+        )
+
+    import torch.multiprocessing as mp
+
+    warnings.warn(
+        "DDP coordinator transport could not represent an otherwise "
+        "standard-picklable callback or logger. Using the guarded-script "
+        "compatibility launcher; this call must remain under "
+        "`if __name__ == '__main__':`.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+    # Standard multiprocessing imports the guarded user module before calling
+    # _legacy_spawn_worker. Apply the child mask around the whole spawn so even
+    # import-time CUDA setup sees the translated value. This compatibility-only
+    # path is serialized because os.environ is process-global; the normal
+    # coordinator path continues to use an explicit child-only environment.
+    with _LEGACY_SPAWN_ENV_LOCK:
+        previous_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+        child_has_cvd = "CUDA_VISIBLE_DEVICES" in child_env
+        if child_has_cvd:
+            os.environ["CUDA_VISIBLE_DEVICES"] = child_env["CUDA_VISIBLE_DEVICES"]
+        else:
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        try:
+            mp.spawn(
+                _legacy_spawn_worker,
+                args=(
+                    worker_fn,
+                    nprocs,
+                    master_addr,
+                    master_port,
+                    result_path,
+                    spawn_args,
+                ),
+                nprocs=nprocs,
+                join=True,
+            )
+        finally:
+            if previous_cvd is None:
+                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+            else:
+                os.environ["CUDA_VISIBLE_DEVICES"] = previous_cvd
+
+
 def spawn_ddp_train(
     worker_fn: Callable,
     spawn_args: Tuple,
@@ -324,7 +464,7 @@ def spawn_ddp_train(
     master_port: Optional[int] = None,
     devices: Optional[List[int]] = None,
 ) -> None:
-    """Spawn *nprocs* DDP workers via :func:`torch.multiprocessing.spawn`.
+    """Run *nprocs* DDP workers through LibreYOLO's private coordinator.
 
     Each worker is called as::
 
@@ -340,30 +480,34 @@ def spawn_ddp_train(
     result JSON from *result_path*, and returns it to the caller — so the user
     gets a clean blocking call without any subprocess plumbing.
 
-    When *devices* is provided, ``CUDA_VISIBLE_DEVICES`` is set to the
-    comma-joined device indices before spawning so that ``cuda:N`` inside each
-    worker maps to the N-th requested physical GPU.  The original value is
-    restored after spawning completes.
+    When *devices* is provided, the coordinator subprocess receives a
+    translated ``CUDA_VISIBLE_DEVICES`` so that ``cuda:N`` inside each worker
+    maps to the N-th requested physical GPU without mutating the parent. The
+    guarded-script compatibility fallback temporarily applies and then
+    restores that mask so multiprocessing imports see the same mapping.
     """
     import multiprocessing
-    import torch.multiprocessing as mp
 
-    if multiprocessing.current_process().name != "MainProcess":
+    if (
+        os.environ.get("LIBREYOLO_DDP_COORDINATOR_WORKER") == "1"
+        or multiprocessing.current_process().name != "MainProcess"
+    ):
         raise RuntimeError(
-            "spawn_ddp_train() was called from inside a spawned subprocess. "
-            "This usually means your script calls model.train(device=...) at "
-            "the top level without a 'if __name__ == \"__main__\":' guard. "
-            "Each spawned worker re-imports __main__, which re-launches "
-            "training and causes infinite recursion. Wrap your training call:\n\n"
-            "    if __name__ == '__main__':\n"
-            "        model.train(device='0,1')\n"
+            "spawn_ddp_train() was called from a spawned subprocess. Nested "
+            "coordinator launches are not supported; put compatibility-only "
+            "callbacks or loggers under `if __name__ == '__main__':`."
         )
 
     port_sock = None
     if master_port is None:
         master_port, port_sock = _find_free_port()
 
-    prev_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+    # A rare standard-pickle fallback temporarily changes the process-global
+    # mask while its children start. Serialize environment snapshots with that
+    # window so a concurrent normal coordinator launch cannot inherit it.
+    with _LEGACY_SPAWN_ENV_LOCK:
+        child_env = os.environ.copy()
+    prev_cvd = child_env.get("CUDA_VISIBLE_DEVICES")
     if devices:
         if prev_cvd is not None:
             # devices are logical indices into the existing mask — translate to
@@ -375,28 +519,59 @@ def spawn_ddp_train(
                 new_cvd = ",".join(str(d) for d in devices)
         else:
             new_cvd = ",".join(str(d) for d in devices)
-        os.environ["CUDA_VISIBLE_DEVICES"] = new_cvd
+        child_env["CUDA_VISIBLE_DEVICES"] = new_cvd
+
     try:
-        # Close the reservation socket as late as possible — just before
-        # spawning — so the OS cannot hand the port to another process in the
-        # gap between our bind(0) call and torch.distributed's TCPStore bind.
-        if port_sock is not None:
-            port_sock.close()
-            port_sock = None
-        mp.spawn(
-            worker_fn,
-            args=(nprocs, master_addr, master_port, result_path) + spawn_args,
-            nprocs=nprocs,
-            join=True,
+        # Serialize the job before releasing the reserved rendezvous port.
+        from libreyolo.training._ddp_coordinator import (
+            JobTransportError,
+            job_workspace,
+            launch_coordinator,
+            write_job,
         )
+
+        package_root = str(Path(__file__).resolve().parents[2])
+        import_paths = _normalized_import_paths((package_root, *sys.path))
+
+        with job_workspace() as (job_dir, cleanup_token):
+            try:
+                write_job(
+                    job_dir,
+                    worker_fn=worker_fn,
+                    spawn_args=spawn_args,
+                    nprocs=nprocs,
+                    result_path=result_path,
+                    master_addr=master_addr,
+                    master_port=master_port,
+                    import_paths=import_paths,
+                )
+            except JobTransportError:
+                if port_sock is not None:
+                    port_sock.close()
+                    port_sock = None
+                _spawn_standard_pickle_fallback(
+                    worker_fn,
+                    spawn_args,
+                    nprocs,
+                    result_path,
+                    master_addr,
+                    master_port,
+                    child_env,
+                )
+                return
+            # Release the port immediately before the coordinator starts and
+            # binds its TCPStore, minimizing the unavoidable bind race.
+            if port_sock is not None:
+                port_sock.close()
+                port_sock = None
+            launch_coordinator(
+                job_dir,
+                env=child_env,
+                cleanup_token=cleanup_token,
+            )
     finally:
         if port_sock is not None:
             port_sock.close()
-        if devices:
-            if prev_cvd is None:
-                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-            else:
-                os.environ["CUDA_VISIBLE_DEVICES"] = prev_cvd
 
 
 __all__ = [

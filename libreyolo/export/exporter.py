@@ -19,6 +19,7 @@ from typing import Optional, Tuple, Union
 import torch
 
 from ..tasks import task_to_suffix
+from ..utils.image_size import round_imgsz_to_stride
 from ..utils.serialization import SCHEMA_VERSION
 from .onnx import (
     _get_version,
@@ -105,6 +106,66 @@ def _restore_rfdetr_export_state(snapshots):
             module._export = state["export"]
 
 
+def _snapshot_tensor_slots(root):
+    """Record every parameter and buffer slot of ``root`` with its tensor.
+
+    ``Module.half()``/``.to()`` rebind parameter data and replace buffer
+    tensors rather than writing into them, so keeping the original tensors
+    is enough to restore exact values, dtype and device afterwards.
+    """
+    slots = []
+    for module in root.modules():
+        for name, param in module._parameters.items():
+            if param is not None:
+                slots.append((module._parameters, name, param, param.data))
+        for name, buf in module._buffers.items():
+            if buf is not None:
+                slots.append((module._buffers, name, buf, None))
+    return slots
+
+
+def _restore_tensor_slots(slots):
+    for store, name, tensor, data in slots:
+        store[name] = tensor
+        if data is not None:
+            tensor.data = data
+
+
+def _classify_eval_metadata(model) -> dict:
+    """The model's classification eval pipeline as flat export metadata (#886).
+
+    ``crop_pct`` / ``interpolation`` as before, plus ``norm_mean`` /
+    ``norm_std`` (JSON-encoded RGB lists) and ``resize_mode`` for families that
+    declare them. Exported backends rebuild the native eval transform from
+    these, for both ``predict()`` and ``val()``.
+    """
+    meta = {}
+    crop_pct = getattr(model, "crop_pct", None)
+    interpolation = getattr(model, "interpolation", None)
+    if crop_pct is not None:
+        meta["crop_pct"] = float(crop_pct)
+    if interpolation is not None:
+        meta["interpolation"] = str(interpolation)
+    for key in ("norm_mean", "norm_std"):
+        value = getattr(model, key, None)
+        if value is not None:
+            meta[key] = json.dumps([float(v) for v in value])
+    resize_mode = getattr(model, "resize_mode", None)
+    if resize_mode is not None:
+        meta["resize_mode"] = str(resize_mode)
+    return meta
+
+
+def _letterbox_pad_metadata(model) -> dict:
+    """YOLO9-family letterbox placement, so exported runtimes pad like the .pt."""
+    pad = getattr(model, "letterbox_pad", None)
+    if pad is None:
+        return {}
+    from ..preprocess.letterbox import normalize_letterbox_pad
+
+    return {"letterbox_pad": normalize_letterbox_pad(pad)}
+
+
 def _pose_keypoint_shape_metadata(model) -> dict:
     num_keypoints = getattr(
         model, "num_keypoints", getattr(model, "POSE_NUM_KEYPOINTS", "")
@@ -124,8 +185,8 @@ def _pose_keypoint_shape_metadata(model) -> dict:
         schema = inner_model.get_num_keypoints_per_class()
 
     model_family = model._get_model_name() if hasattr(model, "_get_model_name") else ""
-    if model_family == "ec":
-        # EC pose exports raw xy-only tensors; visibility is appended by runtime
+    if model_family in ("ec", "gtr"):
+        # EC/GTR pose export raw xy-only tensors; visibility is appended by runtime
         # postprocessing after decoding.
         keypoint_dim = 2
     elif model_family == "rfdetr" and schema:
@@ -158,8 +219,10 @@ _FIXED_SQUARE_EXPORT_FAMILIES = {
     "dinodetr",
     "detr",
     "dfine",
+    "gtr",
     "deim",
     "deimv2",
+    "tinyformer",
     "ec",
     "lwdetr",
     "moge2",
@@ -176,8 +239,16 @@ _RECTANGULAR_EXPORT_FAMILIES = {
     "yolo9_e2e",
     "yolo9_p2",
     "nafnet",
+    # Every PP-LiteSeg size is natively rectangular (512x1024 / 768x1536);
+    # a square export would not be the model the checkpoint was trained as.
+    "ppliteseg",
+    "unet",
     "realesrgan",
+    "quicksrnet",
 }
+# (family, task) pairs that export a rectangular canvas although the family's
+# other tasks are fixed-square. GTR semantic slides square windows over it.
+_RECTANGULAR_EXPORT_TASKS = {("gtr", "semantic")}
 _RECTANGULAR_EXPORT_FORMATS = {
     "coreai",
     "coreml",
@@ -236,6 +307,35 @@ class _ImageEmbeddingExportWrapper(torch.nn.Module):
         return torch.nn.functional.normalize(self.image_tower(x).float(), dim=-1)
 
 
+class _VideoEmbeddingExportWrapper(torch.nn.Module):
+    """Trace a V-JEPA 2 encoder as a fixed-frame clip embedding graph.
+
+    Input is the public 5D video layout ``(B, F, C, H, W)``; output is the
+    pooled, L2-normalized ``(B, D)`` row. The raw token grid is deliberately
+    not an export target.
+    """
+
+    def __init__(self, encoder: torch.nn.Module):
+        super().__init__()
+        self.encoder = encoder
+
+    def forward(self, x):
+        tokens = self.encoder(x)
+        return torch.nn.functional.normalize(tokens.mean(dim=1).float(), dim=-1)
+
+
+class _CLSVideoEmbeddingExportWrapper(torch.nn.Module):
+    """Trace a CLS-based video encoder as a normalized clip embedding graph."""
+
+    def __init__(self, encoder: torch.nn.Module):
+        super().__init__()
+        self.encoder = encoder
+
+    def forward(self, x):
+        tokens = self.encoder(x)
+        return torch.nn.functional.normalize(tokens[:, 0].float(), dim=-1)
+
+
 class _YOLONASExportWrapper(torch.nn.Module):
     """Expose decoded YOLO-NAS tensors without training-only auxiliaries."""
 
@@ -254,6 +354,138 @@ class _YOLONASExportWrapper(torch.nn.Module):
         ):
             return output[0]
         return output
+
+
+# Logits beyond this bound are scores below 0.0004 or above 0.9996.
+_INT8_LOGIT_BOUND = 8.0
+
+
+def _bounded_sigmoid(conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+    """``sigmoid(conv(x))`` with the logits bounded inside the conv output.
+
+    Full-integer quantization gives the conv output one int8 scale over its
+    calibrated range. Background logits reach about -380 on YOLO9, which
+    leaves about 1.5 logit per int8 step and collapses mid-range scores. The
+    conv is rescaled so ``[-B, B]`` maps onto ``[0, 6]`` and clamped there; the
+    converter lowers that clamp to a RELU6 fused into the conv, so the int8
+    range covers only ``[-B, B]``.
+    """
+    bound = _INT8_LOGIT_BOUND
+    k = 6.0 / (2.0 * bound)
+    z = torch.nn.functional.conv2d(
+        x,
+        conv.weight * k,
+        (conv.bias + bound) * k,
+        conv.stride,
+        conv.padding,
+        conv.dilation,
+        conv.groups,
+    )
+    return (z.clamp(0.0, 6.0) / k - bound).sigmoid()
+
+
+class _YOLOXSplitOutputWrapper(torch.nn.Module):
+    """YOLOX detection graph with boxes and scores as separate outputs.
+
+    Full-integer TFLite gives every tensor one int8 scale. The regular export
+    concatenates pixel boxes (0 to imgsz) with sigmoid scores (0 to 1), so a
+    single scale near 2.7 rounds every score to zero. Here boxes are divided
+    by the input canvas and never share a tensor with scores:
+    ``boxes`` is ``(B, 4, N)`` cxcywh over ``(W, H, W, H)`` and ``scores`` is
+    ``(B, N, 1 + nc)`` objectness then class probabilities.
+    """
+
+    def __init__(self, model: torch.nn.Module, canvas_hw: tuple[int, int]):
+        super().__init__()
+        self.model = model
+        self.canvas_h, self.canvas_w = (int(v) for v in canvas_hw)
+
+    def forward(self, x):
+        head = self.model.head
+        boxes, scores = [], []
+        for k, (cls_conv, reg_conv, stride, feat) in enumerate(
+            zip(head.cls_convs, head.reg_convs, head.strides, self.model.backbone(x))
+        ):
+            feat = head.stems[k](feat)
+            cls_prob = _bounded_sigmoid(head.cls_preds[k], cls_conv(feat))
+            reg_feat = reg_conv(feat)
+            reg = head.reg_preds[k](reg_feat).flatten(2)  # (B, 4, HW)
+            obj_prob = _bounded_sigmoid(head.obj_preds[k], reg_feat)
+            h, w = feat.shape[-2:]
+            yv, xv = torch.meshgrid(
+                torch.arange(h, device=x.device),
+                torch.arange(w, device=x.device),
+                indexing="ij",
+            )
+            gx = xv.reshape(1, -1).to(reg.dtype)
+            gy = yv.reshape(1, -1).to(reg.dtype)
+            sx = float(stride) / self.canvas_w
+            sy = float(stride) / self.canvas_h
+            boxes.append(
+                torch.stack(
+                    [
+                        (reg[:, 0] + gx) * sx,
+                        (reg[:, 1] + gy) * sy,
+                        torch.exp(reg[:, 2]) * sx,
+                        torch.exp(reg[:, 3]) * sy,
+                    ],
+                    dim=1,
+                )
+            )
+            scores.append(
+                torch.cat([obj_prob, cls_prob], 1).flatten(2).permute(0, 2, 1)
+            )
+        return torch.cat(boxes, 2), torch.cat(scores, 1)
+
+
+class _YOLO9SplitOutputWrapper(torch.nn.Module):
+    """YOLO9 detection graph with boxes and scores as separate outputs.
+
+    Same reason as :class:`_YOLOXSplitOutputWrapper`. Boxes are decoded per
+    pyramid level into xyxy over ``(W, H, W, H)`` so each level's grid range
+    is quantized on its own: ``boxes`` is ``(B, 4, N)`` and ``scores`` is
+    ``(B, N, nc)`` sigmoid class probabilities.
+    """
+
+    def __init__(self, model: torch.nn.Module, canvas_hw: tuple[int, int]):
+        super().__init__()
+        self.model = model
+        self.canvas_h, self.canvas_w = (int(v) for v in canvas_hw)
+
+    def forward(self, x):
+        feats = self.model.neck(*self.model.backbone(x))
+        head = self.model.head
+        boxes, scores = [], []
+        for i, (feat, stride) in enumerate(zip(feats, head._stride_values)):
+            h, w = feat.shape[-2:]
+            distances = head.dfl(head.cv2[i](feat).flatten(2))  # (B, 4, HW) ltrb
+            shift_y, shift_x = torch.meshgrid(
+                torch.arange(h, device=x.device, dtype=distances.dtype) + 0.5,
+                torch.arange(w, device=x.device, dtype=distances.dtype) + 0.5,
+                indexing="ij",
+            )
+            ax = shift_x.reshape(1, -1)
+            ay = shift_y.reshape(1, -1)
+            sx = float(stride) / self.canvas_w
+            sy = float(stride) / self.canvas_h
+            boxes.append(
+                torch.stack(
+                    [
+                        (ax - distances[:, 0]) * sx,
+                        (ay - distances[:, 1]) * sy,
+                        (ax + distances[:, 2]) * sx,
+                        (ay + distances[:, 3]) * sy,
+                    ],
+                    dim=1,
+                )
+            )
+            cls_tower = head.cv3[i]
+            scores.append(
+                _bounded_sigmoid(cls_tower[-1], cls_tower[:-1](feat))
+                .flatten(2)
+                .permute(0, 2, 1)
+            )
+        return torch.cat(boxes, 2), torch.cat(scores, 1)
 
 
 # =============================================================================
@@ -296,12 +528,34 @@ class BaseExporter(ABC):
     apply_model_half: bool  # whether to cast model to fp16 (only ONNX/TorchScript)
     supports_embedded_nms: bool = False
     default_int8_calibration_data: bool = False
+    # Export options read with kwargs.get() rather than named parameters;
+    # the rest are the named parameters of __call__, _preflight and _export.
+    _extra_export_kwargs: frozenset[str] = frozenset({"nms", "deepstream"})
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         name = getattr(cls, "format_name", None)
         if name is not None:
             BaseExporter._registry[name] = cls
+
+    @classmethod
+    def _accepted_export_kwargs(cls) -> set[str]:
+        """Export options this format uses, from its signatures."""
+        import inspect
+
+        accepted = set(cls._extra_export_kwargs)
+        for klass in cls.__mro__:
+            for method in ("__call__", "_preflight", "_export"):
+                function = klass.__dict__.get(method)
+                if function is None:
+                    continue
+                accepted.update(
+                    parameter.name
+                    for parameter in inspect.signature(function).parameters.values()
+                    if parameter.kind
+                    in (parameter.KEYWORD_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+                )
+        return accepted
 
     def __init__(self, model):
         self.model = model
@@ -340,6 +594,7 @@ class BaseExporter(ABC):
         fraction: float = 1.0,
         allow_download_scripts: bool = False,
         verbose: bool = False,
+        quantize: Optional[Union[int, str]] = None,
         **kwargs,
     ) -> str:
         """Export the model.
@@ -359,7 +614,10 @@ class BaseExporter(ABC):
             fraction: Fraction of calibration dataset to use (default: 1.0).
             allow_download_scripts: Allow embedded Python in dataset YAML downloads.
             verbose: Enable verbose logging (default: False).
+            quantize: Precision as the ecosystem spells it: 16 (FP16, as
+                ``half=True``), 8 (INT8, as ``int8=True``) or 32 (FP32).
             **kwargs: Format-specific parameters forwarded to ``_export()``.
+                Options the format does not use are warned about and ignored.
 
         Returns:
             Path to the exported model file.
@@ -369,8 +627,34 @@ class BaseExporter(ABC):
         # (reconstructing fp32 masters, enabling export mode) also wait for
         # every request rejection.
         pre_trace_hook = kwargs.pop("_pre_trace_hook", None)
+        unknown = sorted(set(kwargs) - self._accepted_export_kwargs())
+        if unknown:
+            warnings.warn(
+                f"Unknown {self.format_name} export arguments (ignored): {unknown}",
+                stacklevel=3,
+            )
+        if quantize is not None:
+            precision = {"16": "fp16", "8": "int8", "32": "fp32"}.get(str(quantize))
+            if precision is None:
+                raise ValueError(f"quantize must be 16, 8 or 32, got {quantize!r}.")
+            if (half and precision != "fp16") or (int8 and precision != "int8"):
+                raise ValueError(
+                    f"quantize={quantize!r} conflicts with half={half}, int8={int8}."
+                )
+            half, int8 = precision == "fp16", precision == "int8"
+        if isinstance(getattr(self.model, "input_profile", None), dict):
+            if self.format_name != "onnx" or half or int8 or kwargs.get("nms", False):
+                raise ValueError(
+                    "Event histogram export currently supports FP32 ONNX without embedded NMS"
+                )
 
         task = getattr(self.model, "task", "detect")
+        model_name = self.model._get_model_name()
+        if model_name == "ben2" and batch != 1:
+            raise ValueError(
+                "BEN2 export uses a fixed-resolution, batch-1 runtime "
+                f"contract; got batch={batch}."
+            )
         if task == "mesh":
             # Gated off for the first version, as semantic and point were: the
             # runtime metadata contract for a mesh graph (which body model,
@@ -421,11 +705,11 @@ class BaseExporter(ABC):
         if (
             getattr(self.model, "task", "detect") == "restore"
             and dynamic
-            and self.model._get_model_name() != "realesrgan"
+            and self.model._get_model_name() not in {"realesrgan", "quicksrnet"}
         ):
-            # Real-ESRGAN generators are fully convolutional (conv + nearest
-            # interpolate + pixel shuffle/unshuffle) and export with dynamic H/W;
-            # other restore families (NAFNet) keep the fixed-resolution v1 contract.
+            # Real-ESRGAN and QuickSRNet are fully convolutional and export with
+            # dynamic H/W; other restore families keep the fixed-resolution v1
+            # contract.
             warnings.warn(
                 "Restore export uses a fixed-resolution runtime contract in "
                 "v1; forcing dynamic=False.",
@@ -454,10 +738,11 @@ class BaseExporter(ABC):
             # in the tuple export wrapper). Other families default to 13.
             opset = 17 if _requires_onnx_opset17(self.model._get_model_name()) else 13
 
-        # BiRefNet's decoder uses torchvision deform_conv2d, which maps to the
-        # standard ONNX ``DeformConv`` op (opset 19+). Force a compatible opset
-        # and register the symbolic before tracing.
-        if getattr(self.model, "task", "detect") == "matte":
+        # The BiRefNet-derived decoders use torchvision deform_conv2d, which
+        # maps to the standard ONNX ``DeformConv`` op (opset 19+). BEN2 is also
+        # a matte family but has no deformable convolution, so it keeps the
+        # normal exporter opset and needs no custom symbolic.
+        if self.model._get_model_name() in {"birefnet", "feynobg"}:
             from ..models.birefnet.export import (
                 MIN_OPSET as _MATTE_MIN_OPSET,
             )
@@ -476,6 +761,9 @@ class BaseExporter(ABC):
             half,
             int8,
         )
+        # The CLI reports the canvas actually exported, which can differ from
+        # the model's input size (see _square_fallback_for_restored_rect).
+        self.model._last_export_imgsz = imgsz
 
         # ---- Post-validation mutation point ------------------------------
         # Every request rejection above — format support, precision
@@ -651,6 +939,40 @@ class BaseExporter(ABC):
                 "Install with: uv sync --extra onnx  or  pip install onnx"
             )
 
+    def _square_fallback_for_restored_rect(
+        self, imgsz: tuple[int, int], model_name: str
+    ) -> tuple[int, int]:
+        """Keep default exports working for rectangular fine-tunes (#899).
+
+        A square-native family (e.g. YOLOX) trained at ``imgsz=(h, w)`` reloads
+        with that rectangular input size, but not every family/format pair can
+        export it. Those exports defaulted to the family's square size before
+        the size was restored, so fall back to a ``max(h, w)`` square, which
+        letterboxes frames at the same scale the model was trained at. An
+        explicit ``imgsz`` never reaches this path.
+        """
+        if not _is_rectangular_imgsz(imgsz):
+            return imgsz
+        if (
+            model_name in _RECTANGULAR_EXPORT_FAMILIES
+            and self.format_name in _RECTANGULAR_EXPORT_FORMATS
+        ):
+            return imgsz
+        family_default = self.model._get_task_input_sizes().get(self.model.size)
+        if isinstance(family_default, (tuple, list)):
+            # Natively rectangular families keep their existing contract.
+            return imgsz
+        side = max(imgsz)
+        logger.warning(
+            "%s %s export does not support the checkpoint's rectangular imgsz=%s; "
+            "exporting at the square imgsz=%d instead. Pass imgsz= to choose.",
+            model_name,
+            self.format_name,
+            imgsz,
+            side,
+        )
+        return side, side
+
     def _resolve_params(self, output_path, imgsz, device, half, int8):
         native_imgsz = self.model._get_input_size()
         model_name = self.model._get_model_name()
@@ -662,9 +984,10 @@ class BaseExporter(ABC):
                         f"got {native_imgsz!r}."
                     )
                 imgsz = (int(native_imgsz[0]), int(native_imgsz[1]))
+                imgsz = self._square_fallback_for_restored_rect(imgsz, model_name)
             else:
                 imgsz = (int(native_imgsz), int(native_imgsz))
-        elif isinstance(imgsz, tuple):
+        elif isinstance(imgsz, (tuple, list)):
             if len(imgsz) != 2:
                 raise ValueError(f"imgsz tuple must be (height, width), got {imgsz}")
             imgsz = (int(imgsz[0]), int(imgsz[1]))
@@ -672,6 +995,18 @@ class BaseExporter(ABC):
             imgsz = (int(imgsz), int(imgsz))
         if imgsz[0] <= 0 or imgsz[1] <= 0:
             raise ValueError(f"imgsz values must be positive, got {imgsz}.")
+        imgsz = round_imgsz_to_stride(self.model, imgsz, "export")
+        if model_name == "ben2":
+            native_shape = (
+                (int(native_imgsz[0]), int(native_imgsz[1]))
+                if isinstance(native_imgsz, (tuple, list))
+                else (int(native_imgsz), int(native_imgsz))
+            )
+            if imgsz != native_shape:
+                raise ValueError(
+                    "BEN2 export imgsz must match its fixed native resolution "
+                    f"{native_shape[0]}x{native_shape[1]}, got {imgsz}."
+                )
         if model_name in ("deit", "vgg") and imgsz != (native_imgsz, native_imgsz):
             raise ValueError(
                 f"{model_name} export imgsz must match its fixed native resolution "
@@ -735,7 +1070,15 @@ class BaseExporter(ABC):
             )
         if model_name == "domedetr":
             raise NotImplementedError(_DOMEDETR_EXPORT_MESSAGE)
-        if _is_rectangular_imgsz(imgsz) and model_name in _FIXED_SQUARE_EXPORT_FAMILIES:
+        rectangular_task = (
+            model_name,
+            getattr(self.model, "task", None),
+        ) in _RECTANGULAR_EXPORT_TASKS
+        if (
+            _is_rectangular_imgsz(imgsz)
+            and model_name in _FIXED_SQUARE_EXPORT_FAMILIES
+            and not rectangular_task
+        ):
             raise NotImplementedError(
                 f"Rectangular imgsz export is not supported for {model_name}: "
                 "this family uses a fixed square export/preprocessing spatial contract. "
@@ -744,10 +1087,12 @@ class BaseExporter(ABC):
         if (
             _is_rectangular_imgsz(imgsz)
             and model_name not in _RECTANGULAR_EXPORT_FAMILIES
+            and not rectangular_task
         ):
             raise NotImplementedError(
                 "Rectangular imgsz export is currently supported for "
-                "YOLO9-family, HRNet, NAFNet, and Real-ESRGAN exports only."
+                "YOLO9-family, HRNet, NAFNet, QuickSRNet, and Real-ESRGAN "
+                "exports only."
             )
         if (
             _is_rectangular_imgsz(imgsz)
@@ -815,6 +1160,11 @@ class BaseExporter(ABC):
         original_training = root_model.training
         root_model.eval()
 
+        # A half-precision export must leave the caller's model untouched;
+        # casting back with float() would keep the fp16 rounding.
+        apply_half = half and not int8 and self.apply_model_half
+        tensor_slots = _snapshot_tensor_slots(root_model) if apply_half else None
+
         original_device = next(root_model.parameters()).device
         root_model.to(device)
 
@@ -824,6 +1174,8 @@ class BaseExporter(ABC):
         # model is restored on exit.
         dfine_wrapped = False
         rfdetr_export_activated = False
+        # Non-None only for families whose graph consumes a 5D video clip.
+        video_export_frames = None
         rfdetr_export_snapshots = []
         rfdetr_inner = None
         family = self.model._get_model_name()
@@ -844,7 +1196,15 @@ class BaseExporter(ABC):
             nn_model = DETRExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
-        elif family == "dfine":
+        elif family == "gtr" and getattr(self.model, "task", "detect") == "pose":
+            from ..models.gtr.pose import GTRPoseExportWrapper
+
+            nn_model = GTRPoseExportWrapper(copy.deepcopy(nn_model)).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "dfine" or (
+            family == "gtr" and task in ("detect", "segment", "obb")
+        ):
             from ..models.dfine.nn import DFINEExportWrapper
 
             # deploy() (BN fusion + decoder-layer pruning + head swap) mutates
@@ -866,6 +1226,13 @@ class BaseExporter(ABC):
 
             nn_model = copy.deepcopy(nn_model)
             nn_model = DEIMv2ExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "tinyformer":
+            from ..models.tinyformer.nn import TinyFormerExportWrapper
+
+            nn_model = copy.deepcopy(nn_model)
+            nn_model = TinyFormerExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
         elif family == "ec":
@@ -893,7 +1260,10 @@ class BaseExporter(ABC):
             nn_model = YOLO7ExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
-        elif family == "yolonas":
+        elif family in {"yolonas", "ppyoloe"}:
+            # Both heads return ``(decoded, raw)`` in eval; the wrapper keeps
+            # the decoded (boxes, scores) pair and drops the training-only
+            # auxiliaries.
             nn_model = _YOLONASExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
@@ -1034,6 +1404,20 @@ class BaseExporter(ABC):
             nn_model = _ImageEmbeddingExportWrapper(image_tower).to(device)
             nn_model.eval()
             dfine_wrapped = True
+        elif family == "vjepa2":
+            # Every V-JEPA 2 graph takes a 5D clip. The embed graph pools to a
+            # normalized row; the classify graph already ends at logits, so it
+            # only needs the 5D dummy below.
+            if task == "embed":
+                nn_model = _VideoEmbeddingExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            video_export_frames = int(getattr(self.model, "clip_frames", 64))
+            dfine_wrapped = True
+        elif family == "levjepa":
+            nn_model = _CLSVideoEmbeddingExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            video_export_frames = int(getattr(self.model, "clip_frames", 16))
+            dfine_wrapped = True
         elif family in {"clip", "siglip2"} and task == "classify":
             text_embeds = getattr(self.model, "_text_embeds", None)
             if text_embeds is None:
@@ -1067,6 +1451,12 @@ class BaseExporter(ABC):
             was_exported = getattr(rfdetr_inner, "_export", False)
             if not was_exported:
                 rfdetr_export_snapshots = _snapshot_rfdetr_export_state(rfdetr_inner)
+                if isinstance(getattr(self.model, "input_profile", None), dict):
+                    # Bake positions at the graph's actual resolution. Baking at
+                    # the RGB default and resizing again changes learned positions.
+                    for module, state in rfdetr_export_snapshots:
+                        if "shape" in state and "position_embeddings" in state:
+                            module.shape = tuple(imgsz)
             nn_model = RFDETRExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
@@ -1116,9 +1506,15 @@ class BaseExporter(ABC):
                 pass
 
         h, w = imgsz
-        dummy = torch.randn(batch, 3, h, w, device=device)
+        if video_export_frames is not None:
+            # Public clip layout (B, F, C, H, W). Frame count, crop and tubelet
+            # geometry are fixed per graph; only batch may be dynamic.
+            dummy = torch.randn(batch, video_export_frames, 3, h, w, device=device)
+        else:
+            channels = 2 if isinstance(getattr(self.model, "input_profile", None), dict) else 3
+            dummy = torch.randn(batch, channels, h, w, device=device)
 
-        if half and not int8 and self.apply_model_half:
+        if apply_half:
             nn_model.half()
             dummy = dummy.half()
 
@@ -1133,9 +1529,8 @@ class BaseExporter(ABC):
                 _restore_rfdetr_export_state(rfdetr_export_snapshots)
             nn_model.to(original_device)
             root_model.to(original_device)
-            if half and not int8 and self.apply_model_half:
-                nn_model.float()
-                root_model.float()
+            if tensor_slots is not None:
+                _restore_tensor_slots(tensor_slots)
             if original_training:
                 root_model.train()
                 nn_model.train()
@@ -1252,17 +1647,13 @@ class BaseExporter(ABC):
         }
         if onnx_path is not None:
             meta["exported_from"] = str(Path(onnx_path).name)
+        meta.update(_letterbox_pad_metadata(self.model))
         # Classification eval preprocessing must travel with every artifact,
         # not just ONNX. Exported-backend predict() otherwise falls back to
         # crop_pct=0.875 and bilinear resize, which changes classifier logits
         # for families such as ResNet (0.95/bicubic).
         if task == "classify":
-            crop_pct = getattr(self.model, "crop_pct", None)
-            interpolation = getattr(self.model, "interpolation", None)
-            if crop_pct is not None:
-                meta["crop_pct"] = float(crop_pct)
-            if interpolation is not None:
-                meta["interpolation"] = str(interpolation)
+            meta.update(_classify_eval_metadata(self.model))
         if task == "pose":
             meta.update(_pose_keypoint_shape_metadata(self.model))
             if self.model._get_model_name() == "hrnet":
@@ -1330,14 +1721,14 @@ class BaseExporter(ABC):
             ).lower(),
             "obb": str(task == "obb").lower(),
         }
+        from ..utils.event_histogram import input_metadata
+        for key, value in input_metadata(self.model).items():
+            meta[key] = json.dumps(value) if isinstance(value, dict) else str(value)
+        meta.update(_letterbox_pad_metadata(self.model))
         # Classification eval preprocessing — lets exported-backend inference
-        # match native predict()/val() (per-family crop_pct + interpolation).
-        _crop_pct = getattr(self.model, "crop_pct", None)
-        _interp = getattr(self.model, "interpolation", None)
-        if _crop_pct is not None:
-            meta["crop_pct"] = str(_crop_pct)
-        if _interp is not None:
-            meta["interpolation"] = str(_interp)
+        # and validation match native predict()/val() (#886).
+        for key, value in _classify_eval_metadata(self.model).items():
+            meta[key] = str(value)
         if task == "pose":
             pose_meta = _pose_keypoint_shape_metadata(self.model)
             meta.update(
@@ -1421,21 +1812,23 @@ class OnnxExporter(BaseExporter):
         )
         family = self.model._get_model_name()
         size = getattr(self.model, "size", None)
-        if family == "deformable_detr" and size == "r50twostage":
-            if half:
-                raise NotImplementedError(
-                    "Deformable DETR two-stage ONNX export is validated in FP32 only."
-                )
-            if device.type != "cpu":
-                warnings.warn(
-                    "Deformable DETR two-stage ONNX export is traced on CPU because "
-                    "the legacy PyTorch exporter can terminate while lowering its "
-                    "CUDA top-k graph. The model is restored to its original device "
-                    "after export.",
-                    RuntimeWarning,
-                    stacklevel=3,
-                )
-                device = torch.device("cpu")
+        two_stage = family == "deformable_detr" and size == "r50twostage"
+        if two_stage and half:
+            raise NotImplementedError(
+                "Deformable DETR two-stage ONNX export is validated in FP32 only."
+            )
+        # DINO-DETR selects its queries with the same two-stage encoder top-k.
+        if (two_stage or family == "dinodetr") and device.type != "cpu":
+            label = "DINO-DETR" if family == "dinodetr" else "Deformable DETR two-stage"
+            warnings.warn(
+                f"{label} ONNX export is traced on CPU because "
+                "the legacy PyTorch exporter can terminate while lowering its "
+                "CUDA top-k graph. The model is restored to its original device "
+                "after export.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            device = torch.device("cpu")
         return imgsz, device, output_path
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
@@ -1576,6 +1969,7 @@ class OnnxExporter(BaseExporter):
                 conf=conf,
                 iou=iou,
                 task=ds_task,
+                letterbox_pad=_letterbox_pad_metadata(self.model).get("letterbox_pad"),
             )
 
         if int8:
@@ -1601,6 +1995,16 @@ class OnnxExporter(BaseExporter):
                     nms=nms,
                     deepstream=deepstream,
                 )
+                # Without explicit nodes_to_exclude, the family's float
+                # layers (YOLO9: first conv and the head) stay float, as in
+                # model.quantize().
+                keep_high_precision = ()
+                if nodes_to_exclude is None:
+                    from ..quant.api import default_keep_high_precision
+
+                    keep_high_precision = default_keep_high_precision(
+                        self.model._get_model_name()
+                    )
                 result = quantize_onnx_int8(
                     fp32_path,
                     output_path,
@@ -1609,7 +2013,11 @@ class OnnxExporter(BaseExporter):
                     preprocessed_path=preprocessed_path,
                     calibrate_method=calibrate_method,
                     nodes_to_exclude=nodes_to_exclude,
-                    skip_symbolic_shape=nms,
+                    # ORT symbolic shape inference fails on dynamic-batch
+                    # and embedded-NMS graphs ("Incomplete symbolic shape
+                    # inference"); plain ONNX shape inference still runs.
+                    skip_symbolic_shape=nms or dynamic,
+                    keep_high_precision=keep_high_precision,
                 )
                 _write_deepstream_sidecars(result)
                 return result
@@ -1701,12 +2109,7 @@ class ExecuTorchExporter(BaseExporter):
         meta = super()._build_metadata(
             precision, False, onnx_path, imgsz=imgsz
         )
-        crop_pct = getattr(self.model, "crop_pct", None)
-        interpolation = getattr(self.model, "interpolation", None)
-        if crop_pct is not None:
-            meta["crop_pct"] = float(crop_pct)
-        if interpolation is not None:
-            meta["interpolation"] = str(interpolation)
+        meta.update(_classify_eval_metadata(self.model))
         return meta
 
     def _export(
@@ -2239,13 +2642,19 @@ class TFLiteExporter(BaseExporter):
     format_name = "tflite"
     suffix = ".tflite"
     requires_onnx = True
-    supports_int8 = False
+    supports_int8 = True
     supports_fp16 = False
     apply_model_half = False
+    # Like ONNX INT8 and the YOLO export convention, int8=True without data=
+    # calibrates on the default dataset and warns that it is not representative.
+    default_int8_calibration_data = True
 
     def __call__(self, *args, dynamic: bool = False, **kwargs) -> str:
         if dynamic:
             raise ValueError("TFLite export requires static input shapes.")
+        if kwargs.get("int8") and int(kwargs.get("batch") or 1) != 1:
+            # onnx2tf feeds the representative dataset one image at a time.
+            raise ValueError("TFLite INT8 export requires batch=1.")
         from .tflite import ensure_tflite_family_supported
 
         ensure_tflite_family_supported(
@@ -2259,18 +2668,51 @@ class TFLiteExporter(BaseExporter):
             raise ValueError(
                 "TFLite FP16 export is not supported yet. Omit half=True for FP32."
             )
-        if int8:
-            raise ValueError(
-                "TFLite INT8 quantization is not supported yet. "
-                "Omit int8=True for FP32."
-            )
         return super()._validate(half, int8, data)
 
     def _preflight(self, **kwargs):
-        from .tflite import check_tflite_export_available
+        from .tflite import (
+            TFLITE_INT8_EXPORTS,
+            check_tflite_export_available,
+            check_tflite_int8_available,
+        )
 
+        family = self.model._get_model_name()
+        task = getattr(self.model, "task", "detect")
+        self._split_outputs = False
+        if kwargs.get("int8"):
+            if (family, task) not in TFLITE_INT8_EXPORTS:
+                supported = ", ".join(f"{f} {t}" for f, t in sorted(TFLITE_INT8_EXPORTS))
+                raise NotImplementedError(
+                    f"TFLite INT8 export currently supports: {supported}. "
+                    f"Got model family {family!r}, task {task!r}."
+                )
+            self._split_outputs = True
         super()._preflight(**kwargs)
         check_tflite_export_available()
+        if kwargs.get("int8"):
+            check_tflite_int8_available()
+
+    def _export_intermediate_onnx(
+        self, nn_model, dummy, output_path, opset, simplify, dynamic
+    ):
+        if getattr(self, "_split_outputs", False):
+            wrapper = {
+                "yolox": _YOLOXSplitOutputWrapper,
+                "yolo9": _YOLO9SplitOutputWrapper,
+            }[self.model._get_model_name()]
+            nn_model = wrapper(nn_model, dummy.shape[-2:]).eval()
+        return super()._export_intermediate_onnx(
+            nn_model, dummy, output_path, opset, simplify, dynamic
+        )
+
+    def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
+        from .tflite import SPLIT_OUTPUT_LAYOUT
+
+        meta = super()._build_metadata(precision, dynamic, onnx_path, imgsz=imgsz)
+        if getattr(self, "_split_outputs", False):
+            meta["output_layout"] = SPLIT_OUTPUT_LAYOUT
+        return meta
 
     def _export(
         self,
@@ -2281,6 +2723,8 @@ class TFLiteExporter(BaseExporter):
         metadata,
         onnx_path,
         half,
+        int8,
+        calibration_data,
         verbose,
         onnx2tf_args=None,
         **kwargs,
@@ -2297,6 +2741,8 @@ class TFLiteExporter(BaseExporter):
             onnx_path=onnx_path,
             output_path=output_path,
             half=half,
+            int8=int8,
+            calibration_data=calibration_data,
             verbose=verbose,
             onnx2tf_args=onnx2tf_args,
             metadata=metadata,
@@ -2385,6 +2831,7 @@ class CoreMLExporter(BaseExporter):
     supports_fp16 = True
     apply_model_half = False  # ct.convert handles precision via compute_precision
     supports_embedded_nms = True
+    _extra_export_kwargs = BaseExporter._extra_export_kwargs | {"max_det"}
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
         if kwargs.get("nms"):

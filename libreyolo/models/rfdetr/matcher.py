@@ -173,24 +173,17 @@ class HungarianMatcher(nn.Module):
         return sanitized_cost_matrix
 
     @torch.no_grad()
-    def forward(self, outputs, targets, group_detr=1):
-        """Performs the matching
-        Params:
-            outputs: This is a dict that contains at least these entries:
-                 "pred_logits": Tensor of dim [batch_size, num_queries, num_classes] with the classification logits
-                 "pred_boxes": Tensor of dim [batch_size, num_queries, 4] with the predicted box coordinates
-            targets: This is a list of targets (len(targets) = batch_size), where each target is a dict containing:
-                 "labels": Tensor of dim [num_target_boxes] (where num_target_boxes is the number of ground-truth
-                           objects in the target) containing the class labels
-                 "boxes": Tensor of dim [num_target_boxes, 4] containing the target box coordinates
-                 "masks": Tensor of dim [num_target_boxes, H, W] containing the target mask coordinates
-            group_detr: Number of groups used for matching.
+    def compute_cost_matrix(self, outputs, targets):
+        """Build the pairwise matching cost on the predictions' device.
+
+        Split out from :meth:`forward` so a caller matching several output
+        levels (main + aux + enc) can enqueue every level's cost on the GPU
+        before the first host transfer, paying one pipeline drain instead of
+        one per level (see ``SetCriterion.forward``).
+
         Returns:
-            A list of size batch_size, containing tuples of (index_i, index_j) where:
-                - index_i is the indices of the selected predictions (in order)
-                - index_j is the indices of the corresponding selected targets (in order)
-            For each batch element, it holds:
-                len(index_i) = len(index_j) = min(num_queries, num_target_boxes)
+            Cost matrix of dim [batch_size, num_queries, total_num_targets],
+            float32, on the predictions' device.
         """
         bs, num_queries = outputs["pred_logits"].shape[:2]
 
@@ -243,8 +236,11 @@ class HungarianMatcher(nn.Module):
             cls_tgt_ids = map_labels_to_keypoint_schema(tgt_ids, self.num_keypoints_per_class)
         cost_class = pos_cost_class[:, cls_tgt_ids] - neg_cost_class[:, cls_tgt_ids]
 
-        # Compute the L1 cost between boxes
-        cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
+        # Compute the L1 cost between boxes. The broadcast form is bit-identical
+        # to ``torch.cdist(out_bbox, tgt_bbox, p=1)`` but avoids cdist's slow
+        # one-thread-per-pair p=1 CUDA kernel, which alone cost 15% of all GPU
+        # time in an rfdetr-s training step.
+        cost_bbox = (out_bbox[:, None, :] - tgt_bbox[None, :, :]).abs().sum(-1)
         cost_angle = 0
         if out_angles is not None and tgt_angles is not None and self.cost_angle:
             cost_angle = 1.0 - torch.cos(2.0 * (out_angles[:, None] - tgt_angles[None, :]))
@@ -340,10 +336,21 @@ class HungarianMatcher(nn.Module):
                 + self.keypoint_visible_loss_coef * cost_visible
                 + self.keypoint_nll_loss_coef * cost_nll
             )
-        cost_matrix = (
-            cost_matrix.view(bs, num_queries, -1).float().cpu()
-        )  # convert to float because bfloat16 doesn't play nicely with CPU
+        # convert to float because bfloat16 doesn't play nicely with CPU
+        return cost_matrix.view(bs, num_queries, -1).float()
 
+    def solve(self, cost_matrix, targets, group_detr=1):
+        """Run the Hungarian assignment on a CPU cost matrix.
+
+        Args:
+            cost_matrix: [batch_size, num_queries, total_num_targets] float32
+                CPU tensor from :meth:`compute_cost_matrix` (after ``.cpu()``).
+            targets: Same target list the cost matrix was built from.
+            group_detr: Number of groups used for matching.
+
+        Returns:
+            A list of size batch_size, containing tuples of (index_i, index_j).
+        """
         # We assume any good match will not cause NaN or Inf, so replace invalid
         # entries with a finite value that is larger than every valid cost.
         finite_mask = torch.isfinite(cost_matrix)
@@ -357,6 +364,7 @@ class HungarianMatcher(nn.Module):
                 self._warned_non_finite_costs = True
             cost_matrix = self._sanitize_cost_matrix(cost_matrix)
 
+        num_queries = cost_matrix.shape[1]
         sizes = [len(v["boxes"]) for v in targets]
         indices = []
         g_num_queries = num_queries // group_detr
@@ -375,6 +383,29 @@ class HungarianMatcher(nn.Module):
                     for indice1, indice2 in zip(indices, indices_g)
                 ]
         return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
+
+    @torch.no_grad()
+    def forward(self, outputs, targets, group_detr=1):
+        """Performs the matching
+        Params:
+            outputs: This is a dict that contains at least these entries:
+                 "pred_logits": Tensor of dim [batch_size, num_queries, num_classes] with the classification logits
+                 "pred_boxes": Tensor of dim [batch_size, num_queries, 4] with the predicted box coordinates
+            targets: This is a list of targets (len(targets) = batch_size), where each target is a dict containing:
+                 "labels": Tensor of dim [num_target_boxes] (where num_target_boxes is the number of ground-truth
+                           objects in the target) containing the class labels
+                 "boxes": Tensor of dim [num_target_boxes, 4] containing the target box coordinates
+                 "masks": Tensor of dim [num_target_boxes, H, W] containing the target mask coordinates
+            group_detr: Number of groups used for matching.
+        Returns:
+            A list of size batch_size, containing tuples of (index_i, index_j) where:
+                - index_i is the indices of the selected predictions (in order)
+                - index_j is the indices of the corresponding selected targets (in order)
+            For each batch element, it holds:
+                len(index_i) = len(index_j) = min(num_queries, num_target_boxes)
+        """
+        cost_matrix = self.compute_cost_matrix(outputs, targets).cpu()
+        return self.solve(cost_matrix, targets, group_detr=group_detr)
 
 
 def build_matcher(args):

@@ -12,6 +12,7 @@ import torch
 
 from libreyolo.models.base.classify_validation_loss import ClassifyValidationLoss
 from libreyolo.models.convnext.trainer import ConvNeXtTrainer
+from libreyolo.models.convnextv2.trainer import ConvNeXtV2Trainer
 from libreyolo.models.efficientnetv2.trainer import EfficientNetV2Trainer
 from libreyolo.models.mobilenetv4.trainer import MobileNetV4Trainer
 from libreyolo.models.resnet.trainer import ResNetTrainer
@@ -291,7 +292,7 @@ def test_yolo9_rank_local_normalizer_skips_collective(monkeypatch):
         raise AssertionError("rank-local validation entered a collective")
 
     monkeypatch.setattr(
-        yolo9_loss_module, "all_reduce_avg_scalar", _unexpected_collective
+        yolo9_loss_module, "all_reduce_avg_scalar_tensor", _unexpected_collective
     )
     loss = YOLO9Loss(
         num_classes=2,
@@ -874,6 +875,7 @@ def test_yolox_adapter_requires_the_forward_scope():
     [
         (ResNetTrainer, "resnet"),
         (ConvNeXtTrainer, "convnext"),
+        (ConvNeXtV2Trainer, "convnextv2"),
         (MobileNetV4Trainer, "mobilenetv4"),
         (EfficientNetV2Trainer, "efficientnetv2"),
     ],
@@ -952,22 +954,29 @@ _VAL_LOSS_FAMILIES = {
     "libreyolo.models.rtdetrv2.trainer": "RTDETRv2Trainer",
     "libreyolo.models.rtdetrv4.trainer": "RTDETRv4Trainer",
     "libreyolo.models.dfine.trainer": "DFINETrainer",
+    "libreyolo.models.gtr.trainer": "GTRTrainer",
     "libreyolo.models.domedetr.trainer": "DOMEDETRTrainer",
     "libreyolo.models.deim.trainer": "DEIMTrainer",
     "libreyolo.models.deimv2.trainer": "DEIMv2Trainer",
+    "libreyolo.models.tinyformer.trainer": "TinyFormerTrainer",
     "libreyolo.models.ec.trainer": "ECTrainer",
     "libreyolo.models.rtmdet.trainer": "RTMDetTrainer",
     "libreyolo.models.picodet.trainer": "PICODETTrainer",
+    "libreyolo.models.ppyoloe.trainer": "PPYOLOETrainer",
     "libreyolo.models.yolox.trainer": "YOLOXTrainer",
     "libreyolo.models.yolo7.trainer": "YOLOv7Trainer",
     "libreyolo.models.fomo.trainer": "FOMOTrainer",
     "libreyolo.models.resnet.trainer": "ResNetTrainer",
     "libreyolo.models.convnext.trainer": "ConvNeXtTrainer",
+    "libreyolo.models.convnextv2.trainer": "ConvNeXtV2Trainer",
     "libreyolo.models.mobilenetv4.trainer": "MobileNetV4Trainer",
     "libreyolo.models.efficientnetv2.trainer": "EfficientNetV2Trainer",
+    "libreyolo.models.ppliteseg.trainer": "PPLiteSegTrainer",
+    "libreyolo.models.unet.trainer": "UNetTrainer",
     "libreyolo.models.segformer.trainer": "SegformerTrainer",
     "libreyolo.models.lingbotvision.trainer": "LingBotVisionTrainer",
     "libreyolo.models.dinov2.trainer": "DINOv2Trainer",
+    "libreyolo.models.vjepa2.trainer": "VJEPA2Trainer",
     "libreyolo.models.nafnet.trainer": "NAFNetTrainer",
 }
 

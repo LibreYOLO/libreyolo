@@ -19,7 +19,30 @@ _DOWNLOAD_TIMEOUT = (10, 60)
 _DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 _DOWNLOAD_LOCK_TIMEOUT = 6 * 60 * 60
 _DOWNLOAD_LOCK_POLL_SECONDS = 0.1
+# Statuses that mean the object is not published (Hugging Face answers 401 for
+# a repo that does not exist or is private). Retrying cannot fix them.
+_UNPUBLISHED_STATUS_CODES = frozenset({401, 403, 404, 410})
 logger = logging.getLogger(__name__)
+
+
+class WeightsNotPublishedError(FileNotFoundError):
+    """Raised when a weight URL answers with a permanent 'not there' status."""
+
+    def __init__(self, url: str, status_code: int, *, used_token: bool = False):
+        self.url = url
+        self.status_code = status_code
+        token_hint = (
+            " The request sent your Hugging Face token; an invalid HF_TOKEN "
+            "also causes this."
+            if used_token and status_code == 401
+            else ""
+        )
+        super().__init__(
+            f"No weights are published at {url} (HTTP {status_code}): the "
+            "file does not exist or is not public. Pass the path to a local "
+            "checkpoint instead, or pick a published weight name "
+            f"(`libreyolo models` lists the families).{token_hint}"
+        )
 
 
 def _get_hf_token() -> Optional[str]:
@@ -33,21 +56,46 @@ def _get_hf_token() -> Optional[str]:
     return None
 
 
-def _notify_yolonas_license_once() -> None:
-    """Print Deci's YOLO-NAS license terms once per process before download."""
+def _notify_deci_cdn_license_once(url: str = "") -> None:
+    """Print the governing weight-license notice once per process.
+
+    Deci's CDN serves artifacts under more than one set of terms. The YOLO-NAS
+    checkpoints carry Deci's proprietary weight license; the DEKR checkpoint
+    comes from the Apache-2.0 SuperGradients repository but has no per-artifact
+    redistribution grant of its own, so it gets its own honest wording rather
+    than borrowing YOLO-NAS's proprietary text.
+    """
     global _YOLONAS_LICENSE_NOTICE_SHOWN
     if _YOLONAS_LICENSE_NOTICE_SHOWN:
         return
     _YOLONAS_LICENSE_NOTICE_SHOWN = True
+    rule = "─" * 69
+    if "dekr_" in url.lower():
+        print(
+            "\n"
+            f"{rule}\n"
+            "DEKR weights are downloaded from Deci.AI's public CDN. The source\n"
+            "code is Apache-2.0, but no per-artifact redistribution grant was\n"
+            "found for this checkpoint, so LibreYOLO links to it rather than\n"
+            "mirroring it. Review the source repository's terms before\n"
+            "redistributing the file or anything derived from it:\n"
+            "  https://github.com/Deci-AI/super-gradients/blob/master/LICENSE.md\n"
+            f"{rule}\n"
+        )
+        return
+    is_rotated = "yolo_nas_r_" in url.lower()
+    name = "YOLO-NAS-R (rotated)" if is_rotated else "YOLO-NAS"
+    license_file = "LICENSE.YOLONAS-R.md" if is_rotated else "LICENSE.YOLONAS.md"
+    rule = "─" * 69
     print(
         "\n"
-        "─────────────────────────────────────────────────────────────────────\n"
-        "YOLO-NAS weights are distributed by Deci.AI under a proprietary\n"
+        f"{rule}\n"
+        f"{name} weights are distributed by Deci.AI under a proprietary\n"
         "license (non-commercial, no redistribution, no production use\n"
         "without a separate agreement). By downloading, you accept those\n"
         "terms. Full license text:\n"
-        "  https://github.com/Deci-AI/super-gradients/blob/master/LICENSE.YOLONAS.md\n"
-        "─────────────────────────────────────────────────────────────────────\n"
+        f"  https://github.com/Deci-AI/super-gradients/blob/master/{license_file}\n"
+        f"{rule}\n"
     )
 
 
@@ -215,6 +263,12 @@ def _download_once(url: str, partial: Path, headers: dict[str, str]) -> None:
             # download's temporary file so the retry starts cleanly.
             _reset_partial(partial)
 
+        if response.status_code in _UNPUBLISHED_STATUS_CODES:
+            raise WeightsNotPublishedError(
+                url,
+                response.status_code,
+                used_token="Authorization" in request_headers,
+            )
         response.raise_for_status()
 
         append = offset > 0 and response.status_code == 206
@@ -317,8 +371,14 @@ def download_url_to_path(url: str, path: Path, *, verify=None) -> None:
     host = urlparse(url).netloc
     is_hf = host.endswith("huggingface.co")
 
-    if "cloudfront.net" in host or host.endswith("deci.ai"):
-        _notify_yolonas_license_once()
+    # The same CDN also serves PP-YOLOE, whose weights are covered by neither
+    # the YOLO-NAS nor the DEKR notice, so key the notice on the object name
+    # rather than on the host alone.
+    object_name = url.lower()
+    if ("cloudfront.net" in host or host.endswith("deci.ai")) and (
+        "yolo_nas" in object_name or "dekr_" in object_name
+    ):
+        _notify_deci_cdn_license_once(url)
 
     headers = {}
     token = _get_hf_token()
@@ -344,6 +404,8 @@ def download_url_to_path(url: str, path: Path, *, verify=None) -> None:
             try:
                 _download_once(url, partial, headers)
                 break
+            except WeightsNotPublishedError:
+                raise
             except Exception as e:
                 if attempt == _DOWNLOAD_RETRIES:
                     partial_size = partial.stat().st_size if partial.exists() else 0

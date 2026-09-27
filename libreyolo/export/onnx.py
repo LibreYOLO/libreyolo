@@ -13,8 +13,10 @@ _DETR_TUPLE_OUTPUT_FAMILIES = {
     "detr",
     "dinodetr",
     "dfine",
+    "gtr",
     "deim",
     "deimv2",
+    "tinyformer",
     "ec",
     "lwdetr",
     "rfdetr",
@@ -50,6 +52,9 @@ def _requires_onnx_opset17(model_family) -> bool:
         "deit",
         "midas",
         "moge2",
+        # V-JEPA 2 attention lowers to aten::scaled_dot_product_attention,
+        # which ONNX only supports from opset 14.
+        "vjepa2",
     }
 
 
@@ -256,10 +261,13 @@ def export_onnx(
     is_seg = metadata.get("segmentation") == "true" or task == "segment"
     is_yolo9_pose = model_family == "yolo9" and task == "pose"
     is_hrnet_pose = model_family == "hrnet" and task == "pose"
+    is_dekr_pose = model_family == "dekr" and task == "pose"
     is_rfdetr_pose = model_family == "rfdetr" and task == "pose"
-    is_ec_pose = model_family == "ec" and task == "pose"
+    # GTR pose reuses the ECPose decoder and its (logits, keypoints) outputs.
+    is_ec_pose = model_family in ("ec", "gtr") and task == "pose"
     is_yolonas_pose = model_family == "yolonas" and task == "pose"
     is_obb = task == "obb"
+    is_yolonas_obb = model_family == "yolonas" and is_obb
     is_classify = task == "classify"
     is_semantic = task == "semantic"
     is_restore = task == "restore"
@@ -390,6 +398,21 @@ def export_onnx(
         dynamic_axes = (
             {"images": {0: "people"}, "heatmaps": {0: "people"}} if dynamic else None
         )
+    elif is_dekr_pose:
+        # DEKR emits two dense stride-4 maps and nothing else: raw heatmap
+        # logits (K + 1 channels, last one the person centre) and per-keypoint
+        # offsets (2K channels). Peak finding, pose NMS and the derived-box
+        # adapter all stay outside the graph.
+        output_names = ["heatmap_logits", "offsets"]
+        dynamic_axes = (
+            {
+                "images": {0: "batch"},
+                "heatmap_logits": {0: "batch"},
+                "offsets": {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
     elif is_classify:
         # Classification emits a single logits tensor (B, num_classes).
         input_name = "input" if model_family == "rfdetr" else "images"
@@ -399,9 +422,9 @@ def export_onnx(
         )
     elif is_restore:
         output_names = ["restored"]
-        # Real-ESRGAN generators support dynamic spatial dims; NAFNet keeps the
-        # fixed-resolution v1 contract (only batch is dynamic when enabled).
-        if dynamic and model_family == "realesrgan":
+        # Fully convolutional super-resolution families support dynamic spatial
+        # dims; other restoration families keep the fixed-resolution contract.
+        if dynamic and model_family in {"realesrgan", "quicksrnet"}:
             dynamic_axes = {
                 "images": {0: "batch", 2: "height", 3: "width"},
                 "restored": {0: "batch", 2: "out_height", 3: "out_width"},
@@ -458,6 +481,19 @@ def export_onnx(
             if dynamic
             else None
         )
+    elif is_yolonas_obb:
+        # Raw OBB export contract: boxes [B, N, 5] as cx, cy, w, h, rotation
+        # plus sigmoid scores [B, N, C]. Rotated NMS stays out of the graph.
+        output_names = ["boxes", "scores"]
+        dynamic_axes = (
+            {
+                "images": {0: "batch"},
+                "boxes": {0: "batch", 1: "anchors"},
+                "scores": {0: "batch", 1: "anchors"},
+            }
+            if dynamic
+            else None
+        )
     elif is_yolonas_pose:
         output_names = [
             "boxes",
@@ -481,7 +517,7 @@ def export_onnx(
             ["dets", "labels", "masks"]
             if model_family == "rfdetr"
             else ["pred_logits", "pred_boxes", "pred_masks"]
-            if model_family in {"dfine", "ec"}
+            if model_family in {"dfine", "ec", "gtr"}
             else ["boxes", "scores", "masks"]
         )
         input_name = "input" if model_family == "rfdetr" else "images"
@@ -537,6 +573,20 @@ def export_onnx(
                 input_name: {0: "batch"},
                 "dets": {0: "batch"},
                 "labels": {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
+    elif model_family == "ppyoloe":
+        # Raw export contract: boxes [B, A, 4] as xyxy in input-canvas pixels
+        # plus sigmoid scores [B, A, C]. NMS stays outside the graph and there
+        # is no objectness column for a backend to multiply in twice.
+        output_names = ["boxes", "scores"]
+        dynamic_axes = (
+            {
+                "images": {0: "batch"},
+                "boxes": {0: "batch", 1: "anchors"},
+                "scores": {0: "batch", 1: "anchors"},
             }
             if dynamic
             else None
@@ -701,6 +751,30 @@ def embed_onnx_metadata(path: str, metadata: dict) -> None:
 _INT8_OP_TYPES = ["Conv", "Gemm"]
 
 
+def _node_names_in_scopes(
+    model_path: str, module_prefixes, op_types: list[str]
+) -> list[str]:
+    """Names of ``op_types`` nodes exported from the given module prefixes.
+
+    Maps qualified module-name prefixes (``"head."``) to the exporter's node
+    scopes (``"/head/"``), so the family's keep-high-precision policy from
+    ``libreyolo.quant`` applies to ONNX INT8 export as well.
+    """
+    import onnx
+
+    scopes = [
+        "/" + prefix.strip(".").replace(".", "/") + "/"
+        for prefix in module_prefixes
+        if prefix.strip(".")
+    ]
+    graph = onnx.load(model_path).graph
+    return [
+        node.name
+        for node in graph.node
+        if node.op_type in op_types and any(scope in node.name for scope in scopes)
+    ]
+
+
 def quantize_onnx_int8(
     fp32_path: str,
     output_path: str,
@@ -712,8 +786,17 @@ def quantize_onnx_int8(
     nodes_to_exclude: list[str] | None = None,
     op_types_to_quantize: list[str] | None = None,
     skip_symbolic_shape: bool = False,
+    keep_high_precision=(),
 ) -> str:
-    """Quantize an FP32 ONNX model to QDQ INT8 with float32 inputs/outputs."""
+    """Quantize an FP32 ONNX model to QDQ INT8 with float32 inputs/outputs.
+
+    ``keep_high_precision`` lists module-name prefixes (the family policy
+    from ``libreyolo.quant``) whose nodes stay float, in addition to
+    ``nodes_to_exclude``. A detection head's class-logit convs must: their
+    per-tensor activation range is fixed by the calibration images, so any
+    logit above the calibrated maximum saturates, and with a maximum of 0
+    every score reads exactly sigmoid(0) = 0.5.
+    """
     check_onnx_int8_available()
 
     from onnxruntime.quantization import QuantFormat, QuantType, quant_pre_process
@@ -730,6 +813,12 @@ def quantize_onnx_int8(
         preprocessed_path,
         skip_symbolic_shape=skip_symbolic_shape,
     )
+    op_types = op_types_to_quantize or _INT8_OP_TYPES
+    excluded = list(nodes_to_exclude or [])
+    if keep_high_precision:
+        excluded += _node_names_in_scopes(
+            preprocessed_path, keep_high_precision, op_types
+        )
     reader = _CalibrationDataReader(
         calibration_data,
         input_name=_first_input_name(preprocessed_path),
@@ -743,8 +832,8 @@ def quantize_onnx_int8(
         weight_type=QuantType.QInt8,
         activation_type=QuantType.QInt8,
         calibrate_method=_resolve_calibration_method(calibrate_method),
-        op_types_to_quantize=op_types_to_quantize or _INT8_OP_TYPES,
-        nodes_to_exclude=nodes_to_exclude,
+        op_types_to_quantize=op_types,
+        nodes_to_exclude=excluded or None,
         extra_options={
             "WeightSymmetric": True,
             "ActivationSymmetric": False,

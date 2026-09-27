@@ -1,0 +1,154 @@
+LibreDDColor third-party attribution
+====================================
+
+Scope
+-----
+
+This directory contains an inference-only PyTorch adaptation of DDColor's
+ConvNeXt encoder, wide UNet decoder, multi-scale color transformer, and Lab
+colorization pipeline. Module and parameter names remain compatible with the
+official checkpoints. LibreYOLO modifications include static channel
+bookkeeping at construction, family/config wiring, safe checkpoint conversion,
+and the RGB ``Results.restored`` contract.
+
+No training code, private data, historical-photo demo image, or unrelated
+ColorFormer/DFDNet component is included.
+
+Primary upstream
+----------------
+
+Project: DDColor
+Repository: https://github.com/piddnad/DDColor
+Commit: 2adb63f2656ac41cbdf7b894cddd94121a3faf13
+License: Apache License 2.0
+License file:
+  https://github.com/piddnad/DDColor/blob/2adb63f2656ac41cbdf7b894cddd94121a3faf13/LICENSE
+Source paths adapted:
+  ddcolor/model.py
+  ddcolor/pipeline.py
+  basicsr/archs/ddcolor_arch_utils/unet.py
+  basicsr/archs/ddcolor_arch_utils/convnext.py
+  basicsr/archs/ddcolor_arch_utils/transformer_utils.py
+  basicsr/archs/ddcolor_arch_utils/position_encoding.py
+
+The adapted files carry prominent modification/provenance comments as required
+by Apache-2.0. A copy of Apache-2.0 is distributed by LibreYOLO at
+``licenses/Apache-2.0.txt``.
+
+Architectural subcomponents
+---------------------------
+
+BasicSR
+  Repository: https://github.com/XPixelGroup/BasicSR
+  Commit: 8d56e3a045f9fb3e1d8872f92ee4a4f07f886b0a
+  License: Apache License 2.0
+  Copyright 2018-2022 BasicSR Authors.
+  Use: architecture utility lineage and project scaffolding.
+
+ColorFormer
+  Repository: https://github.com/jixiaozhong/ColorFormer
+  Commit: 0d3ae850a3990bbdb954bb39feba07b15c1aa357
+  License file: License_ColorFormer.txt
+  License: permissive three-clause license reproduced below.
+  Use: wide dynamic-UNet/colorization utility lineage only.
+
+fastai
+  Repository: https://github.com/fastai/fastai
+  Commit: 517e68da4779897e6d2668f07aa9aed52e0e4a89
+  License: Apache License 2.0
+  Use: DynamicUnet, ICNR, and normalization utility lineage.
+
+ConvNeXt
+  Repository: https://github.com/facebookresearch/ConvNeXt
+  Commit: 048efcea897d999aed302f2639b6270aedf8d4c8
+  License: MIT
+  Copyright (c) Meta Platforms, Inc. and affiliates.
+  Use: ConvNeXt V1 encoder blocks.
+
+Mask2Former
+  Repository: https://github.com/facebookresearch/Mask2Former
+  Commit: 9b0651c6c1d5b3af2e6da0589b719c514ec0d69a
+  License: MIT
+  Copyright (c) 2022 Meta, Inc.
+  Use: transformer self-attention, cross-attention, and FFN lineage.
+
+DETR
+  Repository: https://github.com/facebookresearch/detr
+  Commit: 29901c51d7fe8712168b8d0d64351170bc0f83e0
+  License: Apache License 2.0
+  Copyright (c) Facebook, Inc. and its affiliates.
+  Use: two-dimensional sine positional encoding.
+
+BigColor
+  Repository: https://github.com/KIMGEONUNG/BigColor
+  Commit: 5b7687fbedd9af22fef02a82102c6d7708ab1217
+  License: MIT
+  Use: acknowledged DDColor architectural/training lineage; no BigColor source
+  is copied into this directory.
+
+Runtime dependencies are PyTorch (BSD-3-Clause), NumPy (BSD-3-Clause), and
+OpenCV (Apache-2.0). The port has no timm runtime dependency; DDColor's two
+needed helper behaviors use native PyTorch.
+
+Official checkpoint artifacts
+-----------------------------
+
+Tiny / paper checkpoint:
+  Repository: https://huggingface.co/piddnad/ddcolor_paper_tiny
+  Revision: cf9fd99c1d7472689ec7413441c1b799a51866a3
+  File: pytorch_model.bin
+  Bytes: 220372845
+  SHA-256: 8a1277bc90a1bfbb6d2d83933a9a6bc821931879ca93e26e4fcec12165d41fce
+  Card license: Apache-2.0
+
+Large / ModelScope-quality checkpoint:
+  Repository: https://huggingface.co/piddnad/ddcolor_modelscope
+  Revision: 060f67494e31883a4b13cb27f889f3154847ada4
+  File: pytorch_model.bin
+  Bytes: 911914869
+  SHA-256: d81711971ec59200da26d5e8a1afae8dd3778d495ea8ad7a7dadc769f403f7e7
+  Card license: Apache-2.0
+
+The official model zoo states that both checkpoints were trained on ImageNet;
+the ConvNeXt initialization also carries ImageNet-22K lineage. ImageNet's
+database access agreement restricts dataset use and redistribution:
+https://image-net.org/accessagreement
+
+The checkpoint publisher nevertheless gives each exact weight repository an
+explicit Apache-2.0 artifact license. LibreYOLO records both facts. The model
+weights are a maintainer-visible provenance decision, and no ImageNet image or
+database file is bundled or downloaded by this family.
+
+The official ``ddcolor_artistic`` checkpoint is deliberately excluded because
+the upstream model zoo says it also uses undisclosed private data.
+
+ColorFormer three-clause license
+--------------------------------
+
+Copyright (C) 2022 THL A29 Limited, a Tencent company. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.

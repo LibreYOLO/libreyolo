@@ -12,6 +12,7 @@ import torch.nn as nn
 from libreyolo.training.ddp_spawn import ddp_aware
 
 from ...training.callbacks import TrainCallbacks
+from ...training.config import DFINEConfig
 from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import DFINEValPreprocessor
@@ -21,6 +22,8 @@ from ...postprocess.dfine import postprocess, postprocess_seg
 from .utils import preprocess_image, unwrap_dfine_checkpoint
 
 logger = logging.getLogger(__name__)
+
+_TRAIN_DEFAULTS = DFINEConfig()
 
 
 class LibreDFINE(BaseModel):
@@ -39,6 +42,7 @@ class LibreDFINE(BaseModel):
     """
 
     FAMILY = "dfine"
+    RESUME_RESTORES_TRAIN_ARGS = True
     FILENAME_PREFIX = "LibreDFINE"
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     SUPPORTED_TASKS = ("detect", "segment")
@@ -69,6 +73,8 @@ class LibreDFINE(BaseModel):
         # reject its DeFE-bearing checkpoints explicitly. Registry order
         # already puts LibreDOMEDETR first; this makes the rejection hold even
         # when ``can_load`` is consulted on its own.
+        if "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" in weights_dict:
+            return False
         if any(k.startswith("encoder.DeFE.") for k in weights_dict):
             return False
         return any("decoder.pre_bbox_head." in k for k in weights_dict)
@@ -151,6 +157,7 @@ class LibreDFINE(BaseModel):
         # Must be set before super().__init__ — weight loading (and its task
         # validation hook) runs inside the base constructor.
         self._allow_detect_to_segment_transfer = bool(allow_detect_to_segment_transfer)
+        checkpoint = model_path if isinstance(model_path, dict) else None
         if isinstance(model_path, dict):
             model_path = unwrap_dfine_checkpoint(model_path)
         super().__init__(
@@ -161,6 +168,8 @@ class LibreDFINE(BaseModel):
             task=task,
             **kwargs,
         )
+        if checkpoint is not None:
+            self._cache_checkpoint_train_config(checkpoint)
         if isinstance(model_path, str):
             self._load_weights(model_path)
 
@@ -247,6 +256,13 @@ class LibreDFINE(BaseModel):
             max_det=max_det,
         )
 
+    @staticmethod
+    def _apply_lora(model) -> None:
+        """LoRA recipe replayed when loading an adapter checkpoint."""
+        from ...training.lora import apply_lora_to_detr
+
+        apply_lora_to_detr(model)
+
     def _strict_loading(self) -> bool:
         # D-FINE checkpoints carry buffers (anchors, valid_mask) that are
         # regenerated at forward time from eval_spatial_size. Tolerate drift.
@@ -296,7 +312,7 @@ class LibreDFINE(BaseModel):
         name: str = "dfine_exp",
         exist_ok: bool = False,
         resume: bool = False,
-        amp: bool = False,
+        amp: bool = _TRAIN_DEFAULTS.amp,
         patience: int = 50,
         callbacks: TrainCallbacks = None,
         loggers=None,
@@ -331,7 +347,11 @@ class LibreDFINE(BaseModel):
         from .trainer import DFINETrainer
 
         try:
-            data_config = load_data_config(data, autodownload=True)
+            data_config = load_data_config(
+                data,
+                autodownload=True,
+                single_cls=bool(kwargs.get("single_cls", False)),
+            )
             data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
@@ -381,13 +401,8 @@ class LibreDFINE(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreDFINE('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()
@@ -426,6 +441,7 @@ class LibreDFINE(BaseModel):
 
         try:
             loaded = torch.load(model_path, map_location="cpu", weights_only=False)
+            self._cache_checkpoint_train_config(loaded)
             state_dict = unwrap_dfine_checkpoint(loaded)
             state_dict = self._strip_ddp_prefix(dict(state_dict))
             self._validate_loaded_state_dict_for_task(
@@ -466,14 +482,10 @@ class LibreDFINE(BaseModel):
             # with lora=True saves its transformer Linears under peft keys
             # (``.base_layer.``/``lora_A``/``lora_B``); rebuild the adapted
             # graph before loading so those keys line up.
-            from ...training.lora import (
-                apply_lora_to_detr,
-                module_has_lora,
-                state_dict_has_lora,
-            )
+            from ...training.lora import module_has_lora, state_dict_has_lora
 
             if state_dict_has_lora(state_dict) and not module_has_lora(self.model):
-                apply_lora_to_detr(self.model)
+                self._apply_lora(self.model)
 
             missing, unexpected = self.model.load_state_dict(
                 state_dict, strict=self._strict_loading()

@@ -26,9 +26,11 @@ dependency is never an error, only a fallback.
 
 ## Selection
 
-Implementations are tried newest-first; the first one whose predicate passes
-wins, falling back to the reference. `libreyolo.kernels.active()` reports the
-current selection.
+Implementations are tried newest-first; `resolve()` returns the first whose
+predicate passes. Slots that may return None for a given input
+(`ms_deform_attn`) then walk the remaining eligible providers so a Hub
+reject does not hide Triton. `libreyolo.kernels.active()` reports the
+first eligible name.
 
 - `LIBREYOLO_KERNELS=off|reference` forces the reference implementations;
   any other value selects only implementations registered under that name.
@@ -42,10 +44,13 @@ current selection.
 
 Compiled kernels published on the Hugging Face Hub load at runtime through
 the optional `kernels` package. Installing the extra is the opt-in:
-`pip install libreyolo[hub-kernels]` enables them, and without the package
-nothing changes (no network access, portable paths everywhere). Set
-`LIBREYOLO_HUB_KERNELS=0` to disable them without uninstalling. Nothing is
-vendored; artifacts are fetched and cached by the `kernels` package, and a
+`pip install "libreyolo[hub-kernels]"` enables them. Without the package, an
+eager CUDA DETR call that no in-tree provider accepts uses the portable path
+and logs one install hint. Set `LIBREYOLO_HUB_KERNELS=0` to disable them
+without uninstalling and silence the hint. Nothing is vendored; artifacts are
+fetched and cached by the `kernels` package. The global
+`LIBREYOLO_KERNELS=off|reference` portable-path override also suppresses the
+hint. A
 kernel that fails to load or run disables itself for the process and falls
 back to the portable path with one warning. When the installed `kernels`
 release cannot resolve the pinned commit (newer releases reject SHA
@@ -56,14 +61,20 @@ audited commit revision in its provider module — a moved branch on the Hub
 can never change the binary that runs in-process. Bumping a pin requires a
 GPU parity run of the provider's `*_matches_portable_on_cuda` test.
 
-Current hub-backed slot:
+Current `ms_deform_attn` providers, newest-first:
 
-- `ms_deform_attn` <- [`kernels-community/deformable-detr`](https://huggingface.co/kernels-community/deformable-detr)
+- `hub` <- [`kernels-community/deformable-detr`](https://huggingface.co/kernels-community/deformable-detr)
   (Apache-2.0): the compiled CUDA multi-scale deformable attention
-  forward/backward from Deformable DETR. Eligible inputs are CUDA fp32 in
-  eager mode. Training is accelerated too (the compiled backward registers
+  forward/backward from Deformable DETR. Eligible inputs are CUDA
+  fp32/fp16/bf16 in eager mode (half inputs are upcast at the call
+  boundary). Training is accelerated too (the compiled backward registers
   through an autograd bridge). Active whenever the `kernels` package is
   installed, unless `LIBREYOLO_HUB_KERNELS=0`.
+- `triton` (in-tree): same equation, no extra package. CUDA fp32/fp16/bf16
+  inference; inputs that require grad fall through so training keeps a
+  backward. On by default when Triton imports and CUDA is visible;
+  `LIBREYOLO_TRITON_MSDA=0` disables it. Hub stays preferred when both
+  are eligible.
 
   Wired into every Deformable-DETR-lineage family: RF-DETR,
   LibreDeformableDETR, LibreDINO-DETR, LW-DETR, Grounding DINO, RT-DETR,
@@ -73,7 +84,9 @@ Current hub-backed slot:
   through to the portable path instead. Two cases do that today: a
   `num_points_list` with a different point count per level, and the
   `method='discrete'` integer-index sampling, which is a different equation.
-  The EC pose variant keeps its own contract and is not wired.
+  The EC pose core (`MSDeformAttnPose`) adapts its pre-split
+  `(bs*heads, c, hw)` levels onto the slot layout and falls through when
+  that reshape is impossible.
 
 Out-of-tree compiled kernels can also ship as a `libreyolo_kernels` package,
 which self-registers on import (e.g. a future CUTLASS NVFP4 GEMM for the

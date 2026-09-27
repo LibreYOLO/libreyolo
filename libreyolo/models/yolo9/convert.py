@@ -8,10 +8,11 @@ offline ``weights/convert_yolo9_weights.py`` script and the runtime
 auto-conversion path in :mod:`libreyolo.models.autoconvert` share one
 implementation.
 
-The conversion is structural only — it renames keys and drops the
-auxiliary-detection-head weights (layers >= 23) and the ``anc2vec`` buffers that
-LibreYOLO derives internally. Class count is taken from the upstream detection
-head, so fine-tuned checkpoints with a non-COCO ``nc`` convert correctly.
+The conversion is structural only — it renames keys, keeps the PGI
+auxiliary-branch weights (layers 23/26/29/30 → ``aux.*``) for training, and
+drops the ``anc2vec`` buffers that LibreYOLO derives internally. Class count
+is taken from the upstream detection head, so fine-tuned checkpoints with a
+non-COCO ``nc`` convert correctly.
 """
 
 from __future__ import annotations
@@ -29,6 +30,16 @@ import torch
 COMMON_LAYERS = {
     0: "backbone.conv0",  # Conv 3->X
     1: "backbone.conv1",  # Conv X->Y
+}
+
+# PGI auxiliary branch (MultimediaTechLab v9-*.yaml ``auxiliary``).
+# Training-only; inference never consumes these modules. Old LibreYOLO
+# conversions dropped them; keeping them is additive.
+YOLO9_AUX_LAYER_MAP = {
+    23: "aux.spp",  # SPPELAN on B5 → A5
+    26: "aux.elan_a4",  # RepNCSPELAN after upsample+concat B4
+    29: "aux.elan_a3",  # RepNCSPELAN after upsample+concat B3
+    30: "aux_head",  # MultiheadDetection on [A3, A4, A5]
 }
 
 # yolo9-t and yolo9-s: ELAN first block, AConv downsampling
@@ -51,6 +62,7 @@ YOLO9_TS_LAYER_MAP = {
     21: "neck.elan_down2",  # RepNCSPELAN (P5)
     # Detection head
     22: "head",  # MultiheadDetection
+    **YOLO9_AUX_LAYER_MAP,
 }
 
 # yolo9-m: RepNCSPELAN first block, AConv downsampling
@@ -73,6 +85,7 @@ YOLO9_M_LAYER_MAP = {
     21: "neck.elan_down2",  # RepNCSPELAN (P5)
     # Detection head
     22: "head",  # MultiheadDetection
+    **YOLO9_AUX_LAYER_MAP,
 }
 
 # yolo9-c: RepNCSPELAN first block, ADown downsampling
@@ -95,6 +108,7 @@ YOLO9_C_LAYER_MAP = {
     21: "neck.elan_down2",  # RepNCSPELAN (P5)
     # Detection head
     22: "head",  # MultiheadDetection
+    **YOLO9_AUX_LAYER_MAP,
 }
 
 LAYER_MAPS = {
@@ -185,6 +199,12 @@ def get_layer_type(layer_idx: int, config: str) -> str:
         return "sppelan"
     if layer_idx == 22:
         return "detection"
+    if layer_idx == 23:
+        return "sppelan"
+    if layer_idx in (26, 29):
+        return "repncspelan"
+    if layer_idx == 30:
+        return "detection"
     return "unknown"
 
 
@@ -248,7 +268,8 @@ def convert_state_dict(
 
     Returns:
         ``(converted_state_dict, stats)`` where ``stats`` has ``converted``,
-        ``skipped`` (auxiliary head, layers >= 23) and ``failed`` counts.
+        ``skipped`` (unmapped aux leftovers such as ``anc2vec``, layers >= 23)
+        and ``failed`` counts.
     """
     if config not in LAYER_MAPS:
         raise ValueError(

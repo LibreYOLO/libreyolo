@@ -46,6 +46,7 @@ class LibreEfficientNetV2(BaseModel):
     DEFAULT_TASK = "classify"
     REQUIRE_TASK_SUFFIX = True  # canonical weights are LibreEfficientNetV2<size>-cls.pt
     TRAIN_CONFIG = EfficientNetV2Config
+    RESUME_RESTORES_TRAIN_ARGS = True
 
     # timm eval crop_pct per checkpoint — matches the upstream benchmark preprocessing.
     CROP_PCT = {"b0": 0.875, "b1": 0.882, "b2": 0.890, "b3": 0.904}
@@ -211,6 +212,12 @@ class LibreEfficientNetV2(BaseModel):
         known name (e.g. ``"imagenette160"``), or a ``.zip`` URL. The head is
         rebuilt to the dataset's class count automatically. Cross-entropy +
         AdamW + cosine; the ImageNet-pretrained backbone transfers cleanly.
+
+        ``cls_pw`` (classification only, float in [0, 1], default 0) controls
+        inverse-frequency weighting strength with mean-one class weights.
+        ``class_weights=True`` retains legacy sample-normalized weighting and
+        cannot be combined with ``cls_pw>0``. Neither option changes sampling.
+        See docs/classification_training.md for compatibility and resume rules.
         """
         from .trainer import EfficientNetV2Trainer
 
@@ -242,14 +249,8 @@ class LibreEfficientNetV2(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreEfficientNetV2('path/to/last.pt', size='b0'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
 
         results = trainer.train()
         best_ckpt = results.get("best_checkpoint")

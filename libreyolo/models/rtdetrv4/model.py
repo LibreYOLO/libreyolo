@@ -91,7 +91,7 @@ class LibreRTDETRv4(LibreDFINE):
         name: str = _TRAIN_DEFAULTS.name,
         exist_ok: bool = False,
         resume: bool = False,
-        amp: bool = False,
+        amp: bool = _TRAIN_DEFAULTS.amp,
         patience: int = 50,
         callbacks: TrainCallbacks = None,
         loggers=None,
@@ -123,7 +123,11 @@ class LibreRTDETRv4(LibreDFINE):
         from .trainer import RTDETRv4Trainer
 
         try:
-            data_config = load_data_config(data, autodownload=True)
+            data_config = load_data_config(
+                data,
+                autodownload=True,
+                single_cls=bool(kwargs.get("single_cls", False)),
+            )
             data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
@@ -173,13 +177,8 @@ class LibreRTDETRv4(LibreDFINE):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreRTDETRv4('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()

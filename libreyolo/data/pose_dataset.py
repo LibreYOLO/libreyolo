@@ -6,8 +6,11 @@ Reads YOLO-format pose labels: one object per line as
 
 with ``cx, cy, w, h`` and every ``kx, ky`` normalized to ``[0, 1]`` and ``v``
 the per-keypoint visibility flag (``0`` absent, ``1`` labelled-but-occluded,
-``2`` visible). The keypoint count ``K`` and the horizontal-flip permutation
-come from ``kpt_shape`` / ``flip_idx`` in the dataset ``data.yaml``.
+``2`` visible). The keypoint count ``K``, the per-keypoint field count and the
+horizontal-flip permutation come from ``kpt_shape`` / ``flip_idx`` in the
+dataset ``data.yaml``: ``kpt_shape: [K, 2]`` is the xy layout, ``[K, 3]`` the
+xyv one. Both are accepted; xy labels are promoted to visibility ``2``. A line
+with any other field count is skipped and reported by file and line number.
 
 The dataset hands the raw BGR image plus normalized labels to a ``preproc``
 transform, which performs resizing / augmentation and returns the padded
@@ -26,6 +29,28 @@ import torch
 from torch.utils.data import Dataset
 
 logger = logging.getLogger(__name__)
+
+#: How many offending label lines are quoted in a skip warning before it
+#: falls back to a count. Enough to find the bad file, short enough to log.
+MAX_REPORTED_BAD_LINES = 5
+
+
+def _is_float(token: str) -> bool:
+    """Whether ``token`` parses as a float, used only for error messages."""
+    try:
+        float(token)
+    except ValueError:
+        return False
+    return True
+
+
+def format_bad_label_lines(examples: Sequence[str], total: int) -> str:
+    """Render quoted offending lines, noting how many were not shown."""
+    rendered = "\n".join(f"  {example}" for example in examples)
+    hidden = total - len(examples)
+    if hidden > 0:
+        rendered += f"\n  ... and {hidden} more"
+    return rendered
 
 
 def parse_yolo_pose_label_line(
@@ -61,19 +86,42 @@ def parse_yolo_pose_label_line(
         raise ValueError(f"Unsupported keypoint_dim {keypoint_dim}; expected 2 or 3")
     expected = 5 + keypoint_dim * num_keypoints
     if len(parts) != expected:
-        raise ValueError(
+        message = (
             f"Expected {expected} fields for a {num_keypoints}-keypoint pose "
             f"label, got {len(parts)}"
         )
-    cls_id = int(float(parts[0]))
+        hints = []
+        coords = len(parts) - 5
+        if coords > 0 and coords % keypoint_dim == 0:
+            hints.append(f"the line carries {coords // keypoint_dim} keypoint(s)")
+        alt_dim = 2 if keypoint_dim == 3 else 3
+        if coords == alt_dim * num_keypoints:
+            hints.append(
+                f"the line matches kpt_shape [{num_keypoints}, {alt_dim}], so "
+                f"the dataset yaml may declare the wrong keypoint dim"
+            )
+        if hints:
+            message += " (" + "; ".join(hints) + ")"
+        raise ValueError(message)
+    try:
+        cls_id = int(float(parts[0]))
+    except (ValueError, OverflowError):
+        # OverflowError covers "inf" / "1e400", which float() accepts but int()
+        # cannot convert: a bad line must be skipped, never abort the dataset.
+        raise ValueError(f"Class id {parts[0]!r} is not a number") from None
     if num_classes is not None and not 0 <= cls_id < num_classes:
         raise ValueError(
             f"Pose class id {cls_id} out of range [0, {num_classes - 1}]"
         )
-    bbox = np.array(parts[1:5], dtype=np.float32)
-    keypoints = np.array(parts[5:], dtype=np.float32).reshape(
-        num_keypoints, keypoint_dim
-    )
+    try:
+        values = np.array(parts[1:], dtype=np.float32)
+    except ValueError:
+        bad = next(
+            (token for token in parts[1:] if not _is_float(token)), None
+        )
+        raise ValueError(f"Non-numeric coordinate {bad!r}") from None
+    bbox = values[:4]
+    keypoints = values[4:].reshape(num_keypoints, keypoint_dim)
     if keypoint_dim == 2:
         visibility = np.full((num_keypoints, 1), 2.0, dtype=np.float32)
         keypoints = np.concatenate([keypoints, visibility], axis=1)
@@ -146,11 +194,13 @@ class YOLOPoseDataset(Dataset):
         labels = []
         bad_lines = 0
         bad_class_lines = 0
+        bad_examples: List[str] = []
+        bad_class_examples: List[str] = []
         for label_file in self.label_files:
             cls_list, box_list, kpt_list = [], [], []
             if label_file.exists():
                 with open(label_file, "r") as fh:
-                    for line in fh:
+                    for lineno, line in enumerate(fh, start=1):
                         parts = line.split()
                         if not parts:
                             continue
@@ -158,13 +208,21 @@ class YOLOPoseDataset(Dataset):
                             cls_id, bbox, kpts = parse_yolo_pose_label_line(
                                 parts, self.num_keypoints, self.keypoint_dim
                             )
-                        except ValueError:
+                        except ValueError as exc:
                             bad_lines += 1
+                            if len(bad_examples) < MAX_REPORTED_BAD_LINES:
+                                bad_examples.append(
+                                    f"{label_file}:{lineno}: {exc}"
+                                )
                             continue
                         if self.num_classes is not None and not (
                             0 <= cls_id < self.num_classes
                         ):
                             bad_class_lines += 1
+                            if len(bad_class_examples) < MAX_REPORTED_BAD_LINES:
+                                bad_class_examples.append(
+                                    f"{label_file}:{lineno}: class id {cls_id}"
+                                )
                             continue
                         cls_list.append(cls_id)
                         box_list.append(bbox)
@@ -187,18 +245,26 @@ class YOLOPoseDataset(Dataset):
                 )
         if bad_lines:
             logger.warning(
-                "YOLOPoseDataset: skipped %d label line(s) with a field count "
-                "that does not match %d keypoints",
+                "YOLOPoseDataset: skipped %d unparsable label line(s). A "
+                "%d-keypoint label with kpt_shape [%d, %d] needs %d fields: "
+                "class cx cy w h then %d value(s) per keypoint. Offending "
+                "line(s):\n%s",
                 bad_lines,
                 self.num_keypoints,
+                self.num_keypoints,
+                self.keypoint_dim,
+                5 + self.keypoint_dim * self.num_keypoints,
+                self.keypoint_dim,
+                format_bad_label_lines(bad_examples, bad_lines),
             )
         if bad_class_lines:
             logger.warning(
                 "YOLOPoseDataset: skipped %d label line(s) with a class id "
                 "outside [0, %d]; check for 1-indexed class ids or a wrong "
-                "nc in the dataset yaml",
+                "nc in the dataset yaml. Offending line(s):\n%s",
                 bad_class_lines,
                 self.num_classes - 1,
+                format_bad_label_lines(bad_class_examples, bad_class_lines),
             )
         return labels
 

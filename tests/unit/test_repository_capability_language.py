@@ -41,6 +41,9 @@ def _tracked_paths() -> list[Path]:
 # script now raises TypeError searches the docs for the argument in their own
 # traceback and finds nothing. Keep those two exempt and the guard absolute
 # everywhere else, including every other doc page, model card and source file.
+# Reviewed again after the 1.5.0 cut (#744 item 17): the exemption stays.
+# Naming the retired argument in the historical record is the point of those
+# two files; widening the ban to them would hide the migration path.
 _HISTORICAL_RECORD = ("CHANGELOG.md", "docs/upgrading.md")
 
 

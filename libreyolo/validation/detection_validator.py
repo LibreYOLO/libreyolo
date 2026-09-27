@@ -1,6 +1,7 @@
 """Detection validator for LibreYOLO."""
 
 import logging
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
@@ -10,13 +11,56 @@ from torch.utils.data import DataLoader
 
 from ..postprocess.slicing import slice_batch_outputs
 from .base import BaseValidator
-from .config import ValidationConfig
+from .config import ValidationConfig, wants_more_plot_samples
 from .loss import ValidationLossMixin
 
 logger = logging.getLogger(__name__)
 
-COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
-_N_VAL_SAMPLES = 8  # maximum sample images stored for visualisation
+COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "tinyformer", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
+BEST_CONF_KEY = "metrics/best_conf"
+BEST_CONF_F1_KEY = "metrics/best_conf_f1"
+
+
+def _collapse_coco_ground_truth(coco_api, category_id: int):
+    """Return an independent COCO API with every GT category collapsed."""
+    from pycocotools.coco import COCO
+
+    dataset = deepcopy(coco_api.dataset)
+    dataset["categories"] = [
+        {"id": int(category_id), "name": "object", "supercategory": "object"}
+    ]
+    for annotation in dataset.get("annotations", []):
+        annotation["category_id"] = int(category_id)
+    collapsed = COCO()
+    collapsed.dataset = dataset
+    collapsed.createIndex()
+    return collapsed
+
+
+def _filter_coco_ground_truth(coco_api, keep_category_ids):
+    """Return an independent COCO API dropping categories/annotations not kept.
+
+    Mirrors what ``COCODataset._build_category_mappings`` already does for the
+    dataloader side of ``classes=`` -- ground truth used for scoring must see
+    the same subset, or mAP is computed against the full, un-filtered dataset.
+    """
+    from pycocotools.coco import COCO
+
+    keep_category_ids = {int(c) for c in keep_category_ids}
+    dataset = deepcopy(coco_api.dataset)
+    dataset["categories"] = [
+        c for c in dataset.get("categories", []) if int(c["id"]) in keep_category_ids
+    ]
+    dataset["annotations"] = [
+        a
+        for a in dataset.get("annotations", [])
+        if int(a["category_id"]) in keep_category_ids
+    ]
+    filtered = COCO()
+    filtered.dataset = dataset
+    filtered.createIndex()
+    return filtered
+
 
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
@@ -43,10 +87,12 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
     """
 
     task = "detect"
+    supports_visualize = True
 
     # Class-level default so instances built without __init__ (a pattern the
     # test suite uses for narrow-scope validators) still resolve it.
     _gt_coco_api = None
+    _single_cls_clip_warning_emitted = False
 
     def __init__(
         self,
@@ -62,9 +108,18 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         self.class_names: Optional[List[str]] = None
         self.iou_thresholds = torch.tensor(self.config.iou_thresholds)
         self.nc = model.nb_classes
+        checkpoint_probe = getattr(model, "_checkpoint_train_config", None)
+        checkpoint_config = checkpoint_probe() if callable(checkpoint_probe) else {}
+        self._checkpoint_single_cls = bool(checkpoint_config.get("single_cls", False))
+        if self._checkpoint_single_cls:
+            self.config = self.config.update(single_cls=True)
+        self._checkpoint_classes = checkpoint_config.get("classes")
+        if self._checkpoint_classes and not self.config.classes:
+            self.config = self.config.update(classes=self._checkpoint_classes)
         self.val_preproc = None  # set in _setup_dataloader
         self._coco_annotation_file: Optional[Path] = None
         self._coco_label_to_category_id: Optional[Dict[int, int]] = None
+        self._coco_kept_category_ids: Optional[set] = None
         self._yolo_coco_img_files: Optional[List[Path]] = None
         self._yolo_coco_label_files: Optional[List[Path]] = None
         self._init_validation_loss(loss_adapter)
@@ -82,6 +137,9 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
 
     def _coco_api_kwargs(self) -> Dict[str, Any]:
         return {}
+
+    def _single_cls_enabled(self) -> bool:
+        return bool(getattr(self.config, "single_cls", False))
 
     def _resolve_imgsz(self) -> int | tuple[int, int]:
         """Return the validation image size, falling back to the model native size."""
@@ -107,6 +165,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         Supports directory-based datasets, .txt file format, and COCO JSON.
         """
         from libreyolo.data import (
+            build_class_remap,
             get_coco_annotation_file,
             get_coco_image_dir,
             get_img_files,
@@ -134,9 +193,38 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             data_cfg = load_data_config(
                 self.config.data,
                 allow_scripts=self.config.allow_download_scripts,
+                single_cls=self._single_cls_enabled(),
+                classes=self.config.classes,
             )
+            class_remap = data_cfg.get("_class_remap")
             data_dir = data_cfg["root"]
+            model_nc = int(self.nc)
             self.nc = int(data_cfg.get("nc", self.nc))
+
+            original_nc = data_cfg.get("_original_nc")
+            original_names = data_cfg.get("_original_names")
+            if original_nc is None and original_names is not None:
+                original_nc = len(original_names)
+            if getattr(self, "_checkpoint_single_cls", False) and original_nc not in (
+                None,
+                1,
+            ):
+                logger.info(
+                    "Checkpoint config has single_cls=True; collapsing %s dataset "
+                    "classes to one validation class.",
+                    original_nc,
+                )
+            elif not self._single_cls_enabled() and model_nc != self.nc:
+                logger.warning(
+                    "Checkpoint/model class count (%d) differs from dataset class "
+                    "count (%d). Validation will continue, but metrics may be invalid.",
+                    model_nc,
+                    self.nc,
+                )
+
+            from libreyolo.training.trainer import log_classes_subset_notice
+
+            log_classes_subset_notice(self.config, self.nc, context="Validating")
 
             names = data_cfg.get("names", None)
             if isinstance(names, dict):
@@ -159,6 +247,12 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 split_path_str = data_cfg.get(
                     self.config.split, f"images/{self.config.split}"
                 )
+                if not split_path_str:
+                    raise FileNotFoundError(
+                        f"Dataset yaml has no {self.config.split!r} split: its "
+                        f"{self.config.split!r} entry is empty. Point it at the "
+                        "images, or validate another split (e.g. split='val')."
+                    )
 
                 if str(split_path_str).endswith(".txt"):
                     txt_path = Path(data_cfg["path"]) / split_path_str
@@ -189,15 +283,23 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         else:
             data_dir = self.config.data_dir
             self.class_names = None
+            class_remap = build_class_remap(
+                self.config.classes, single_cls=self._single_cls_enabled()
+            )
 
+        from ..utils.event_histogram import check_dataset_profile
+        check_dataset_profile(self.model, data_cfg or {})
         self.val_preproc = self.model._get_val_preprocessor(img_size=actual_imgsz)
         self._ensure_validation_loss_target_capacity()
         dataset_kwargs = self._dataset_kwargs()
+        if getattr(self.model, "input_profile", None) is not None:
+            dataset_kwargs["input_profile"] = self.model.input_profile
 
         # Determine dataset format
         data_path = Path(data_dir)
         self._coco_annotation_file = None
         self._coco_label_to_category_id = None
+        self._coco_kept_category_ids = None
         self._yolo_coco_img_files = None
         self._yolo_coco_label_files = None
         coco_annotation_file = (
@@ -233,12 +335,25 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 img_size=img_size,
                 preproc=self.val_preproc,
                 num_classes=int(self.nc),
-                names=data_cfg.get("names") if data_cfg is not None else None,
+                names=(
+                    data_cfg.get("_original_names", data_cfg.get("names"))
+                    if data_cfg is not None
+                    else None
+                ),
+                single_cls=self._single_cls_enabled(),
+                classes=self.config.classes,
                 **dataset_kwargs,
             )
             self._coco_annotation_file = coco_annotation_file
             self._coco_label_to_category_id = dict(
                 getattr(dataset, "label_to_category_id", {})
+            )
+            # category_id_to_label reflects the classes= filter but, unlike
+            # label_to_category_id above, is NOT collapsed by single_cls --
+            # it's the right source for "which categories does classes= keep"
+            # independent of whether single_cls also merges them into one.
+            self._coco_kept_category_ids = set(
+                getattr(dataset, "category_id_to_label", {}) or {}
             )
         elif img_files is not None:
             # File list mode (.txt format)
@@ -248,6 +363,8 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 img_size=img_size,
                 preproc=self.val_preproc,
                 num_classes=int(self.nc),
+                single_cls=self._single_cls_enabled(),
+                class_remap=class_remap,
                 **dataset_kwargs,
             )
         elif (data_path / "annotations").exists():
@@ -269,7 +386,13 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 img_size=img_size,
                 preproc=self.val_preproc,
                 num_classes=int(self.nc),
-                names=data_cfg.get("names") if data_cfg is not None else None,
+                names=(
+                    data_cfg.get("_original_names", data_cfg.get("names"))
+                    if data_cfg is not None
+                    else None
+                ),
+                single_cls=self._single_cls_enabled(),
+                classes=self.config.classes,
                 **dataset_kwargs,
             )
         else:
@@ -279,6 +402,9 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 split=split_name,
                 img_size=img_size,
                 preproc=self.val_preproc,
+                num_classes=int(self.nc),
+                single_cls=self._single_cls_enabled(),
+                class_remap=class_remap,
                 **dataset_kwargs,
             )
 
@@ -364,6 +490,16 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         # Always initialise plot-tracking state before any early returns
         self._confusion_matrix = None
         self._val_samples: List[Dict] = []
+        # Image filename -> precision/recall/f1/tp/fp/fn (#887); val() returns
+        # it as ``results.box.image_metrics``.
+        self.image_metrics: Dict[str, Dict[str, float]] = {}
+        # Class name -> F1-optimal confidence; ``results.box.best_conf_per_class``.
+        self.best_conf_per_class: Dict[str, float] = {}
+        self._image_metrics_warned = False
+        if getattr(self.config, "visualize", False):
+            from .val_plotter import reset_visualize_dir  # noqa: PLC0415
+
+            reset_visualize_dir(self.save_dir)
         if self.config.save_plots:
             from .val_plotter import ConfusionMatrix  # noqa: PLC0415
             self._confusion_matrix = ConfusionMatrix(nc=self.nc)
@@ -383,6 +519,17 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             coco_api = self._gt_coco_api
             if coco_api is None:
                 coco_api = COCO(str(self._coco_annotation_file))
+                if self.config.classes:
+                    coco_api = _filter_coco_ground_truth(
+                        coco_api, self._coco_kept_category_ids or set()
+                    )
+                if self._single_cls_enabled():
+                    category_id = next(
+                        iter((self._coco_label_to_category_id or {}).values()),
+                        0,
+                    )
+                    coco_api = _collapse_coco_ground_truth(coco_api, category_id)
+                    self._coco_label_to_category_id = {0: int(category_id)}
                 self._gt_coco_api = coco_api
             self.coco_evaluator = COCOEvaluator(
                 coco_api,
@@ -412,7 +559,10 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         data_cfg = load_data_config(
             self.config.data,
             allow_scripts=self.config.allow_download_scripts,
+            single_cls=self._single_cls_enabled(),
+            classes=self.config.classes,
         )
+        class_remap = data_cfg.get("_class_remap")
         split = self.config.split
         img_files = data_cfg.get(f"{split}_img_files")
         label_files = data_cfg.get(f"{split}_label_files")
@@ -454,6 +604,8 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 class_names=class_names,
                 image_files=image_files,
                 label_files=yolo_label_files,
+                single_cls=self._single_cls_enabled(),
+                class_remap=class_remap,
                 **self._coco_api_kwargs(),
             )
             self._gt_coco_api = coco_api
@@ -707,6 +859,19 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 "img_ids are required for COCO evaluation but were not provided "
                 "by the dataloader."
             )
+        cfg = getattr(self, "config", None)
+        if getattr(cfg, "classes", None):
+            # Filter in model-label space before native COCO category mapping.
+            # single_cls predictions already use the collapsed output label 0.
+            kept_classes = [0] if self._single_cls_enabled() else self.config.classes
+            filtered = []
+            for pred in preds:
+                keep = torch.isin(
+                    pred["classes"], pred["classes"].new_tensor(kept_classes)
+                )
+                filtered.append({key: value[keep] for key, value in pred.items()})
+            # Subclass evaluators consume the same batch after this method.
+            preds[:] = filtered
         for i in range(len(preds)):
             self.coco_evaluator.update(preds[i], img_ids[i])
 
@@ -716,6 +881,106 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 self._track_plots_data(preds, targets, img_info, img_ids)
             except Exception as exc:
                 logger.warning("Failed to collect validation plot data: %s", exc)
+        self._score_images(preds, targets, img_info, img_ids)
+
+    def _score_images(
+        self,
+        preds: List[Dict[str, torch.Tensor]],
+        targets: torch.Tensor,
+        img_info: List,
+        img_ids: List,
+    ) -> None:
+        """Record each image's TP/FP/FN and, with ``visualize``, draw it (#887).
+
+        Predictions at the ``visualize`` confidence (0.25, or the run's
+        ``conf`` if higher) are matched one to one with same-class ground
+        truth at IoU 0.5 (:func:`match_detections`). The counts go to
+        ``self.image_metrics`` under the image filename. ``visualize`` images
+        are written as the images are validated, to ``visualize/errors/``
+        when the image has a false positive or a miss and to
+        ``visualize/correct/`` otherwise. Neither feeds the mAP metrics.
+        """
+        from .val_plotter import (  # noqa: PLC0415
+            ValPlotter,
+            image_metrics_entry,
+            match_detections,
+            visualize_conf_thres,
+            visualize_subdir,
+        )
+
+        if targets is None:
+            return
+        image_metrics = getattr(self, "image_metrics", None)
+        if image_metrics is None:
+            image_metrics = self.image_metrics = {}
+        cfg = getattr(self, "config", None)
+        visualize = getattr(cfg, "visualize", False)
+        out_dir = self.save_dir / "visualize" if visualize else None
+        conf_thres = visualize_conf_thres(getattr(cfg, "conf_thres", None))
+        kept_classes = getattr(cfg, "classes", None)
+        if kept_classes and self._single_cls_enabled():
+            kept_classes = None
+        seen = getattr(self, "seen", 0)
+        for i, pred in enumerate(preds):
+            index = seen + i
+            try:
+                orig_h, orig_w = img_info[i]
+                gt_boxes, gt_classes = self._parse_gt_boxes(targets[i], orig_h, orig_w)
+                if kept_classes:
+                    # Predictions were filtered to classes=; so is the truth.
+                    keep_gt = np.isin(gt_classes, kept_classes)
+                    gt_boxes, gt_classes = gt_boxes[keep_gt], gt_classes[keep_gt]
+                img_path = self._resolve_img_path(
+                    self.dataloader.dataset, index, img_ids[i]
+                )
+                pred_boxes = pred["boxes"].cpu().numpy().reshape(-1, 4)
+                pred_classes = pred["classes"].cpu().numpy().astype(int).reshape(-1)
+                pred_scores = pred["scores"].cpu().numpy().reshape(-1)
+                entry = image_metrics_entry(
+                    match_detections(
+                        pred_boxes,
+                        pred_classes,
+                        pred_scores,
+                        gt_boxes,
+                        gt_classes,
+                        conf_thres=conf_thres,
+                    )
+                )
+                if img_path:
+                    # Keyed by filename, like the ecosystem; a filename seen
+                    # before (same name in another folder) keys by full path.
+                    name = Path(str(img_path)).name
+                    if name in image_metrics:
+                        name = str(img_path)
+                else:
+                    name = f"{index:06d}"
+                image_metrics[name] = entry
+                if not visualize:
+                    continue
+                img_bgr = self._load_plot_image(img_path)
+                if img_bgr is None:
+                    continue
+                subdir = visualize_subdir(not (entry["fp"] or entry["fn"]))
+                ValPlotter.plot_detection_visualize(
+                    img_bgr,
+                    gt_boxes,
+                    gt_classes,
+                    pred_boxes,
+                    pred_classes,
+                    pred_scores,
+                    self.class_names,
+                    out_dir / subdir / f"{index:06d}_{Path(str(img_path)).stem}.jpg",
+                    show_labels=cfg.show_labels,
+                    show_conf=cfg.show_conf,
+                    conf_thres=conf_thres,
+                )
+            except Exception as exc:
+                # Once per run: this runs on every validation, training included.
+                if not getattr(self, "_image_metrics_warned", False):
+                    self._image_metrics_warned = True
+                    logger.warning(
+                        "image metrics / visualize failed for image %d: %s", index, exc
+                    )
 
     def _parse_gt_boxes(
         self, gt_row: torch.Tensor, orig_h: int, orig_w: int
@@ -763,7 +1028,9 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 gt[:, [0, 2]] /= sx  # x1, x2
                 gt[:, [1, 3]] /= sy  # y1, y2
                 gt_boxes = gt.astype(np.float32)
-            gt_classes = np.clip(vgt_xyxy[:, 4].astype(int), 0, self.nc - 1)
+            raw_classes = vgt_xyxy[:, 4].astype(int)
+            self._warn_single_cls_nonzero_gt(raw_classes)
+            gt_classes = np.clip(raw_classes, 0, self.nc - 1)
             return gt_boxes, gt_classes
 
         # If any value in columns 1-4 exceeds 1.5 the coords must be pixels
@@ -798,7 +1065,9 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 gt[:, [0, 2]] /= sx  # x1, x2
                 gt[:, [1, 3]] /= sy  # y1, y2
                 gt_boxes = gt.astype(np.float32)
-            gt_classes = np.clip(vgt[:, 4].astype(int), 0, self.nc - 1)
+            raw_classes = vgt[:, 4].astype(int)
+            self._warn_single_cls_nonzero_gt(raw_classes)
+            gt_classes = np.clip(raw_classes, 0, self.nc - 1)
         else:
             # YOLO [cls, cx_norm, cy_norm, w_norm, h_norm]
             valid = (arr[:, 3] > 0) & (arr[:, 4] > 0)
@@ -810,9 +1079,24 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             bw = vgt[:, 3] * orig_w
             bh = vgt[:, 4] * orig_h
             gt_boxes = np.stack([cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2], axis=1).astype(np.float32)
-            gt_classes = np.clip(vgt[:, 0].astype(int), 0, self.nc - 1)
+            raw_classes = vgt[:, 0].astype(int)
+            self._warn_single_cls_nonzero_gt(raw_classes)
+            gt_classes = np.clip(raw_classes, 0, self.nc - 1)
 
         return gt_boxes, gt_classes
+
+    def _warn_single_cls_nonzero_gt(self, class_ids: np.ndarray) -> None:
+        """Warn once if clipping would hide a broken single-class GT remap."""
+        if (
+            getattr(getattr(self, "config", None), "single_cls", False)
+            and not getattr(self, "_single_cls_clip_warning_emitted", False)
+            and np.any(np.asarray(class_ids) != 0)
+        ):
+            logger.warning(
+                "single_cls validation received non-zero ground-truth class ids "
+                "before clipping. The dataset/evaluator remap may have regressed."
+            )
+            self._single_cls_clip_warning_emitted = True
 
     def _track_plots_data(
         self,
@@ -836,8 +1120,8 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             if self._confusion_matrix is not None:
                 self._confusion_matrix.process_image(pb, pc, ps, gt_boxes, gt_classes)
 
-            # Sample images (first _N_VAL_SAMPLES only)
-            if len(self._val_samples) < _N_VAL_SAMPLES:
+            # Sample images for the plot only; never affects scoring (#830).
+            if self._wants_more_val_samples():
                 global_idx = self.seen + i
                 img_path = self._resolve_img_path(
                     self.dataloader.dataset, global_idx, img_ids[i]
@@ -856,6 +1140,14 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     "pred_scores": ps,
                     "pred_masks": pm,
                 })
+
+    def _wants_more_val_samples(self) -> bool:
+        """Whether another image should be kept for the sample-image plot.
+
+        Bounded by ``plot_samples`` so a small budget does not hold images in
+        memory for the whole run; ``-1`` keeps every validated image.
+        """
+        return wants_more_plot_samples(self.config, len(self._val_samples))
 
     def _save_plots(self, metrics: Dict[str, float]) -> None:
         from .val_plotter import ValPlotter  # noqa: PLC0415
@@ -883,7 +1175,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             bm = {
                 k: v
                 for k, v in metrics.items()
-                if not k.startswith(("speed/", "metrics/loss"))
+                if not k.startswith(("speed/", "metrics/loss", "metrics/best_conf"))
             }
 
         # Inject per-IoU-threshold P/R; fallback to aggregate P/R when unavailable
@@ -932,16 +1224,9 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
 
         # Sample images → plots/samples/
         if self._val_samples:
-            try:
-                import cv2  # noqa: PLC0415
-            except ImportError:
-                logger.warning("opencv-python not found — skipping sample image plots")
-                return
             samples_dir = plots_dir / "samples"
             for idx, sample in enumerate(self._val_samples):
-                if sample["img_path"] is None:
-                    continue
-                img_bgr = cv2.imread(str(sample["img_path"]))
+                img_bgr = self._load_plot_image(sample["img_path"])
                 if img_bgr is None:
                     continue
                 _safe(
@@ -957,6 +1242,23 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     sample.get("pred_masks"),
                     self._get_gt_masks_for_sample(sample, img_bgr),
                 )
+
+    def _load_plot_image(self, img_path) -> Optional[np.ndarray]:
+        """Read a validated image as BGR for a plot, or None if unavailable."""
+        if img_path is None:
+            return None
+        try:
+            import cv2  # noqa: PLC0415
+        except ImportError:
+            logger.warning("opencv-python not found — skipping image plots")
+            return None
+        if getattr(self.model, "input_profile", None) is not None:
+            from ..utils.event_histogram import visualize_histogram
+
+            return visualize_histogram(
+                img_path, scale=self.model.input_profile["scale"]
+            )[..., ::-1]
+        return cv2.imread(str(img_path))
 
     def _get_gt_masks_for_sample(
         self, sample: Dict, img_bgr: np.ndarray
@@ -999,7 +1301,72 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             "metrics/AR_large": coco_metrics["AR_large"],
         }
         metrics.update(self._validation_loss_metrics())
+        metrics.update(self._best_conf_metrics())
         return metrics
+
+    def _class_display_name(self, label: int) -> str:
+        names = getattr(self, "class_names", None)
+        if names and 0 <= label < len(names):
+            return str(names[label])
+        return str(label)
+
+    def _best_conf_metrics(self) -> Dict[str, float]:
+        """Free deploy-threshold metric from the finished COCO evaluation.
+
+        Sweeps F1 over the already-scored, already-matched predictions
+        (IoU 0.50 matching, see ``COCOEvaluator.best_conf_thresholds``) and
+        reports the confidence threshold that maximizes it, globally
+        (micro-averaged over all classes) and per class. Purely additive:
+        existing metric keys are untouched, and every value stays a finite
+        float so the metrics mapping remains flat.
+
+        New keys:
+            ``metrics/best_conf``: global F1-optimal confidence.
+            ``metrics/best_conf_f1``: F1 at that threshold.
+
+        Both are 0.0 when no threshold achieves F1 > 0 (or the sweep source
+        is missing). The per-class thresholds are not metric keys; they are
+        stored on ``self.best_conf_per_class`` (class name to threshold, 0.0
+        for classes where no threshold reaches F1 > 0), which ``val()``
+        exposes as ``results.box.best_conf_per_class``.
+        """
+        self._best_conf_table = None
+        self.best_conf_per_class = {}
+        sweep_fn = getattr(self.coco_evaluator, "best_conf_thresholds", None)
+        sweep = sweep_fn() if callable(sweep_fn) else None
+        if sweep is None:
+            return {BEST_CONF_KEY: 0.0, BEST_CONF_F1_KEY: 0.0}
+
+        def _finite_pair(pair) -> Tuple[float, float]:
+            thr, f1 = float(pair[0]), float(pair[1])
+            if not (np.isfinite(thr) and np.isfinite(f1)):
+                return 0.0, 0.0
+            return thr, f1
+
+        global_thr, global_f1 = _finite_pair(sweep["global"])
+        per_class: Dict[str, float] = {}
+        table = [("all", global_thr, global_f1)]
+        for label in sorted(sweep["per_class"]):
+            thr, f1 = _finite_pair(sweep["per_class"][label])
+            name = self._class_display_name(label)
+            per_class[name] = thr
+            table.append((name, thr, f1))
+        self._best_conf_table = table
+        self.best_conf_per_class = per_class
+        return {BEST_CONF_KEY: global_thr, BEST_CONF_F1_KEY: global_f1}
+
+    def _print_results(self, metrics: Dict[str, float]) -> None:
+        super()._print_results(metrics)
+
+        table = getattr(self, "_best_conf_table", None)
+        if not table:
+            return
+        logger.info("Best confidence threshold (max F1 at IoU 0.50):")
+        logger.info("  %-24s %10s %8s", "class", "best_conf", "F1")
+        for name, thr, f1 in table:
+            logger.info("  %-24s %10.4f %8.4f", name, thr, f1)
+        if any(f1 <= 0.0 for _, _, f1 in table):
+            logger.info("  (F1 0.0000: no threshold reaches F1 > 0 for that class)")
 
 
 class SegmentationValidator(DetectionValidator):

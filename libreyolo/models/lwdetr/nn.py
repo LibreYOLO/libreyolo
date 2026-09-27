@@ -827,7 +827,7 @@ def ms_deform_attn_core_pytorch(
     (see ``libreyolo/kernels/attention/ms_deform_attn.py``) it takes over;
     the grid_sample path below stays the default and the export path.
     """
-    if ms_deform_attn_available():
+    if ms_deform_attn_available(value):
         weights = attention_weights
         if weights.dim() == 4:
             # The caller flattens (levels, points); the slot takes them split.

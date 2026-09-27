@@ -35,6 +35,7 @@ from ...data import (
 )
 from ...training.config import ECPoseConfig, TrainConfig
 from ...training.scheduler import FlatCosineScheduler
+from ...training.optim import build_optimizer
 from ...training.trainer import BaseTrainer
 from .pose_loss import ECPoseCriterion, PoseHungarianMatcher, default_oks_sigmas
 from .pose_transforms import ECPoseTrainTransform, ECPoseValTransform
@@ -181,7 +182,7 @@ class ECPoseTrainer(BaseTrainer):
             groups.append({"params": backbone_wd, "lr": lr * bb_mult, "weight_decay": wd, "lr_mult": bb_mult})
         if backbone_no_wd:
             groups.append({"params": backbone_no_wd, "lr": lr * bb_mult, "weight_decay": 0.0, "lr_mult": bb_mult})
-        return torch.optim.AdamW(groups, betas=(0.9, 0.999))
+        return build_optimizer(torch.optim.AdamW, groups, betas=(0.9, 0.999))
 
     def _scale_lr(self, base_lr: float, param_group: dict) -> float:
         return base_lr * float(param_group.get("lr_mult", 1.0))

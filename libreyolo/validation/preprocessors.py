@@ -47,7 +47,11 @@ class BaseValPreprocessor(ABC):
         Default: top-left padding — uniform scale r, zero offsets.
         Override for center-padded preprocessors (e.g. YOLO-NAS).
         """
-        r = min(imgsz / orig_h, imgsz / orig_w)
+        if isinstance(imgsz, (list, tuple)):
+            input_h, input_w = int(imgsz[0]), int(imgsz[1])
+        else:
+            input_h = input_w = int(imgsz)
+        r = min(input_h / orig_h, input_w / orig_w)
         return r, 0.0, 0.0
 
     @property
@@ -541,13 +545,23 @@ class CenterNetValPreprocessor(BaseValPreprocessor):
 
 
 class YOLO9ValPreprocessor(BaseValPreprocessor):
-    """YOLOv9 preprocessor: letterbox with gray padding, 0-1 range, RGB format."""
+    """YOLOv9 preprocessor: letterbox with gray padding, 0-1 range, RGB format.
+
+    Pad defaults to top-left (LibreYOLO <=1.5). Official MTL geometry is
+    center-pad and is selected only when the checkpoint stamps
+    ``letterbox_pad="center"``.
+    """
 
     def __init__(
-        self, img_size: Tuple[int, int], max_labels: int = 120, pad_value: int = 114
+        self,
+        img_size: Tuple[int, int],
+        max_labels: int = 120,
+        pad_value: int = 114,
+        letterbox_pad: str | None = None,
     ):
         super().__init__(img_size, max_labels)
         self.pad_value = pad_value
+        self.letterbox_pad = letterbox_pad
 
     @property
     def normalize(self) -> bool:
@@ -557,31 +571,45 @@ class YOLO9ValPreprocessor(BaseValPreprocessor):
     def uses_letterbox(self) -> bool:
         return True
 
+    def letterbox_scale(
+        self, orig_h: int, orig_w: int, imgsz: int
+    ) -> Tuple[float, float, float]:
+        from libreyolo.preprocess.letterbox import letterbox_geometry
+
+        if isinstance(imgsz, (list, tuple)):
+            input_h, input_w = int(imgsz[0]), int(imgsz[1])
+        else:
+            input_h = input_w = int(imgsz)
+        ratio, _nh, _nw, pad_left, pad_top = letterbox_geometry(
+            orig_h, orig_w, input_h, input_w, self.letterbox_pad
+        )
+        return ratio, float(pad_left), float(pad_top)
+
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        orig_h, orig_w = img.shape[:2]
+        from libreyolo.preprocess.letterbox import apply_letterbox_hwc
+
         target_h, target_w = input_size
-
-        # Letterbox resize maintaining aspect ratio
-        ratio = min(target_h / orig_h, target_w / orig_w)
-        new_h = int(orig_h * ratio)
-        new_w = int(orig_w * ratio)
-
-        resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-
-        padded_img = np.full((target_h, target_w, 3), self.pad_value, dtype=np.uint8)
-        padded_img[:new_h, :new_w] = resized_img
+        padded_img, _ratio, pad_left, pad_top = apply_letterbox_hwc(
+            img, target_h, target_w, pad=self.letterbox_pad, fill=self.pad_value
+        )
 
         padded_img = padded_img[:, :, ::-1]  # BGR → RGB
         padded_img = padded_img.transpose(2, 0, 1)  # HWC → CHW
         padded_img = np.ascontiguousarray(padded_img, dtype=np.float32) / 255.0
 
-        # Targets are already in letterbox coords
+        # Dataset already scaled boxes by the letterbox ratio onto the
+        # unpadded resized frame. Only the pad offset is missing. Top-left
+        # pad is 0 so this is a no-op for unmarked ≤1.5 checkpoints.
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
         if len(targets) > 0:
             targets = np.array(targets).copy()
             n = min(len(targets), self.max_labels)
+            targets[:n, 0] = targets[:n, 0] + pad_left
+            targets[:n, 1] = targets[:n, 1] + pad_top
+            targets[:n, 2] = targets[:n, 2] + pad_left
+            targets[:n, 3] = targets[:n, 3] + pad_top
             padded_targets[:n] = targets[:n]
 
         return padded_img, padded_targets
@@ -675,6 +703,59 @@ class YOLONASValPreprocessor(YOLO9ValPreprocessor):
             padded_targets[:n] = targets[:n]
 
         return img_chw, padded_targets
+
+
+class YOLONASOBBValPreprocessor(YOLONASValPreprocessor):
+    """YOLO-NAS-R preprocessor: longest side to 1024, bottom-right pad 114, BGR.
+
+    Deliberately delegates the pixel work to ``preprocess_obb_numpy`` -- the
+    exact function the OBB inference path uses -- so validation, training and
+    prediction cannot drift apart (the centre-pad/bottom-right-pad mismatch
+    this class's detect parent documents is precisely that failure mode).
+
+    Targets are the OBB dataset's six columns
+    ``[x1, y1, x2, y2, class, angle]`` where the ``xyxy`` block encodes
+    ``cx, cy, w, h`` un-rotated. The rescale is uniform and the padding has no
+    offset, so the angle passes through untouched.
+    """
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        from ..preprocess.yolonas import preprocess_obb_numpy
+
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+        if target_h != target_w:
+            raise ValueError(
+                "YOLO-NAS OBB validation does not support rectangular input "
+                f"sizes, got ({target_h}, {target_w}). Use a square imgsz."
+            )
+
+        # The dataset hands us BGR from cv2; preprocess_obb_numpy takes RGB and
+        # reverses the channels itself, so flip once here rather than
+        # duplicating its recipe.
+        img_rgb = np.ascontiguousarray(img[:, :, ::-1])
+        img_chw, ratio = preprocess_obb_numpy(img_rgb, input_size=target_h)
+
+        ncol = targets.shape[1] if getattr(targets, "ndim", 0) == 2 else 6
+        padded_targets = np.zeros((self.max_labels, ncol), dtype=np.float32)
+        if len(targets) > 0:
+            targets = np.array(targets, dtype=np.float32).copy()
+            n = min(len(targets), self.max_labels)
+            targets[:n, :4] *= ratio
+            padded_targets[:n] = targets[:n]
+
+        return img_chw, padded_targets
+
+    def letterbox_scale(
+        self, orig_h: int, orig_w: int, imgsz: int
+    ) -> Tuple[float, float, float]:
+        from ..postprocess.yolonas import YOLO_NAS_OBB_RESIZE_SIZE
+
+        resize = min(YOLO_NAS_OBB_RESIZE_SIZE, imgsz)
+        r = min(resize / orig_h, resize / orig_w)
+        return r, 0.0, 0.0  # bottom-right padding: no offset
 
 
 class DFINEValPreprocessor(StandardValPreprocessor):
@@ -822,6 +903,36 @@ class PICODETValPreprocessor(StandardValPreprocessor):
     ) -> Tuple[np.ndarray, np.ndarray]:
         # BGR -> RGB then standard simple-resize path; no /255 (mean/std are
         # already in 0-255 space).
+        chw, padded_targets = super().__call__(
+            img[:, :, ::-1].copy(), targets, input_size
+        )
+        chw = (chw - self._MEAN) / self._STD
+        return chw.astype(np.float32), padded_targets
+
+
+class PPYOLOEValPreprocessor(StandardValPreprocessor):
+    """PP-YOLOE preprocessor: stretch resize, RGB, ImageNet mean/std on 0-255.
+
+    Reproduces the source validation path (``DetectionRescale`` to a fixed
+    640x640 followed by ``Normalize``). The resize is a stretch, not a
+    letterbox, so aspect ratio is not preserved and the postprocessor reverses
+    the x and y scales independently.
+    """
+
+    _MEAN = np.array([123.675, 116.28, 103.53], dtype=np.float32).reshape(3, 1, 1)
+    _STD = np.array([58.395, 57.12, 57.375], dtype=np.float32).reshape(3, 1, 1)
+
+    @property
+    def custom_normalization(self) -> bool:
+        return True
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        return True  # avoid the dataset's letterbox-then-stretch double resize
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
         chw, padded_targets = super().__call__(
             img[:, :, ::-1].copy(), targets, input_size
         )

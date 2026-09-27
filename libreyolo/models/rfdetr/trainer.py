@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+import math
 import random
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,9 +24,12 @@ from ...data import (
     load_data_config,
     pose_collate_fn,
 )
+from ...data.pose_metadata import keypoints_per_class
+from ...training.classification import classification_loss
 from ...training.config import TrainConfig
 from ...training.distributed import is_main_process, unwrap_model
 from ...training.freezing import FreezeGroup
+from ...training.optim import build_optimizer
 from ...training.scheduler import BaseScheduler, CosineAnnealingScheduler, FlatCosineScheduler
 from ...training.trainer import BaseTrainer
 from .config import RFDETRConfig
@@ -39,6 +44,52 @@ from .seg_transforms import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _class_name_key(name) -> str:
+    return " ".join(str(name).replace("_", " ").replace("-", " ").lower().split())
+
+
+def pretrained_class_rows(
+    head_width: int,
+    checkpoint_names: Optional[Dict[int, str]],
+    dataset_names: Optional[Dict[int, str]],
+    num_classes: int,
+) -> Optional[List[int]]:
+    """Checkpoint head rows that keep each dataset class's pretrained logits.
+
+    Output ``i`` of the new ``num_classes + 1`` head copies checkpoint row
+    ``rows[i]``. The released COCO head has 91 columns indexed by COCO
+    category id (80 named classes), so class ``j`` lives in column
+    ``COCO91_CATEGORY_IDS[j]``; a fine-tuned head is contiguous, one column
+    per class plus one. The trailing, never-targeted column copies the
+    checkpoint's never-targeted column (0 for COCO, the last one otherwise).
+
+    Returns None unless every dataset class name matches a checkpoint class.
+    """
+    if not checkpoint_names or not dataset_names or num_classes < 1:
+        return None
+    ckpt_nc = len(checkpoint_names)
+    if head_width == 91 and ckpt_nc == 80:
+        from ...utils.coco import COCO91_CATEGORY_IDS
+
+        columns, empty_column = list(COCO91_CATEGORY_IDS), 0
+    elif head_width == ckpt_nc + 1:
+        columns, empty_column = list(range(ckpt_nc)), ckpt_nc
+    else:
+        return None
+    lookup: Dict[str, int] = {}
+    for j in range(ckpt_nc):
+        if j not in checkpoint_names:
+            return None
+        lookup.setdefault(_class_name_key(checkpoint_names[j]), columns[j])
+    rows = []
+    for i in range(num_classes):
+        column = lookup.get(_class_name_key(dataset_names[i])) if i in dataset_names else None
+        if column is None:
+            return None
+        rows.append(column)
+    return rows + [empty_column]
 
 
 def _pose_worker_init_fn(worker_id: int) -> None:
@@ -73,6 +124,7 @@ class RFDETRStepScheduler(BaseScheduler):
 
 
 class RFDETRTrainer(BaseTrainer):
+    supports_class_weights = True
     artifact_model_families = ("rfdetr",)
     # RF-DETR has a DINOv2 ViT backbone whose attention/MLP projections are
     # nn.Linear layers, so LoRA fine-tuning is supported here.
@@ -85,6 +137,7 @@ class RFDETRTrainer(BaseTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._class_names = None
+        self._keypoints_per_class: list[int] | None = None
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         if task == "pose":
             self.best_metric_key = "metrics/keypoints_mAP50-95"
@@ -98,6 +151,7 @@ class RFDETRTrainer(BaseTrainer):
             data_cfg = load_data_config(
                 self.config.data,
                 allow_scripts=self.config.allow_download_scripts,
+                single_cls=self.config.single_cls,
             )
             names = data_cfg.get("names")
             data_nc = data_cfg.get("nc")
@@ -106,16 +160,32 @@ class RFDETRTrainer(BaseTrainer):
             self.config.num_classes = int(
                 data_nc if data_nc is not None else self.config.num_classes
             )
+            if self.config.single_cls:
+                self.config.num_classes = 1
             if isinstance(names, dict):
                 self._class_names = {int(k): str(v) for k, v in names.items()}
             elif isinstance(names, (list, tuple)):
                 self._class_names = {i: str(v) for i, v in enumerate(names)}
             if task == "pose":
-                self.config.num_classes = 1
                 kpt_shape = data_cfg.get("kpt_shape")
                 if kpt_shape is not None:
                     self.config.num_keypoints = int(kpt_shape[0])
                     self.config.keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
+                    self._keypoints_per_class = keypoints_per_class(
+                        data_cfg,
+                        self.config.num_classes,
+                        self.config.num_keypoints,
+                    )
+                    if not any(self._keypoints_per_class):
+                        raise ValueError(
+                            "RF-DETR pose training needs at least one class with "
+                            "keypoints; kpt_names declares none"
+                        )
+
+    @property
+    def _box_only_classes(self) -> List[int]:
+        """Pose classes declared without keypoints; their instances stay box-only targets."""
+        return [j for j, count in enumerate(self._keypoints_per_class or []) if count == 0]
 
     @property
     def effective_lr(self) -> float:
@@ -313,6 +383,7 @@ class RFDETRTrainer(BaseTrainer):
                 patch_size=patch_size,
                 num_windows=num_windows,
                 crop_resize_prob=self.config.crop_resize_prob,
+                box_only_classes=self._box_only_classes,
             )
             return preproc, None
         preproc = RFDETRDetTransform(
@@ -442,6 +513,9 @@ class RFDETRTrainer(BaseTrainer):
         return default_oks_sigmas(self.config.num_keypoints)
 
     def _build_pose_dataset(self, img_files, label_files, preproc) -> YOLOPoseDataset:
+        # Single-class pose keeps loading any class column, as before; multi-class
+        # pose rejects label lines whose class id is outside the dataset classes.
+        nc = self.config.num_classes
         return YOLOPoseDataset(
             img_files=img_files,
             num_keypoints=self.config.num_keypoints,
@@ -450,6 +524,7 @@ class RFDETRTrainer(BaseTrainer):
             preproc=preproc,
             keypoint_dim=self.config.keypoint_dim,
             decode_scale=self.config.decode_scale,
+            num_classes=nc if nc and nc > 1 else None,
         )
 
     def _setup_data(self):
@@ -466,8 +541,7 @@ class RFDETRTrainer(BaseTrainer):
         if kpt_shape is not None:
             self.config.num_keypoints = int(kpt_shape[0])
             self.config.keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
-        self.config.num_classes = 1
-        self.num_classes = 1
+        self.num_classes = self.config.num_classes
         flip_idx = cfg.get("flip_idx")
 
         train_imgs = cfg.get("train_img_files")
@@ -499,6 +573,7 @@ class RFDETRTrainer(BaseTrainer):
             patch_size=patch_size,
             num_windows=num_windows,
             crop_resize_prob=self.config.crop_resize_prob,
+            box_only_classes=self._box_only_classes,
         )
         train_ds = self._build_pose_dataset(train_imgs, train_lbls, train_tf)
 
@@ -553,6 +628,7 @@ class RFDETRTrainer(BaseTrainer):
                 patch_size=patch_size,
                 num_windows=num_windows,
                 crop_resize_prob=0.0,
+                box_only_classes=self._box_only_classes,
             )
             val_ds = self._build_pose_dataset(val_imgs, val_lbls, val_tf)
             self.val_loader = DataLoader(
@@ -581,6 +657,27 @@ class RFDETRTrainer(BaseTrainer):
             )
         return train_ds
 
+    def _pretrained_class_rows(self, task: str) -> Optional[List[int]]:
+        """Name-matched head rows (see ``pretrained_class_rows``), or None.
+
+        Pose is excluded: ``LibreRFDETR.train`` already replaced the wrapper's
+        names with the dataset's, so the checkpoint names are gone.
+        """
+        wrapper = getattr(self, "wrapper_model", None)
+        if task == "pose" or wrapper is None or self.config.single_cls:
+            return None
+        names = getattr(wrapper, "names", None) or {}
+        nb_classes = int(getattr(wrapper, "nb_classes", None) or len(names))
+        if any(i not in names for i in range(nb_classes)):
+            return None
+        names = {i: names[i] for i in range(nb_classes)}
+        return pretrained_class_rows(
+            int(self.model.model.class_embed.out_features),
+            names,
+            self._class_names,
+            int(self.config.num_classes),
+        )
+
     def on_setup(self):
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         # Classification and semantic compute their loss inside the model head
@@ -608,17 +705,42 @@ class RFDETRTrainer(BaseTrainer):
         # schema and only reinit when the live head width actually differs.
         is_grouppose = bool(getattr(self.model.model, "use_grouppose_keypoints", False))
         if task == "pose" and is_grouppose:
+            # The dataset's schema is ``[0, count_0, count_1, ...]``: a leading
+            # empty slot, then one entry per contiguous class (see
+            # ``keypoint_schema_label_offset``).
+            if self._keypoints_per_class is not None:
+                target_schema = [0, *self._keypoints_per_class]
+                if list(self.model.model.get_num_keypoints_per_class()) != target_schema:
+                    self.model.model.reinitialize_keypoint_head(target_schema)
+                    self.model.num_keypoints_per_class = target_schema
+                self.model.num_keypoints = self.config.num_keypoints
             schema = list(self.model.model.get_num_keypoints_per_class())
             schema_width = len(schema)
             current_width = int(self.model.model.class_embed.out_features)
             if current_width != schema_width:
-                self.model.model.reinitialize_detection_head(schema_width)
+                self.model.model.reinitialize_grouppose_class_head(schema_width)
             # Keep the wrapper/args consistent with the 2-logit schema head:
             # ``nb_classes`` is the head width, ``args.num_classes`` the
             # head-width-minus-one count ``build_criterion_and_postprocessors``
             # adds back (``num_classes + 1``) so SetCriterion sees the full width.
             self.model.nb_classes = schema_width
             self.model.args.num_classes = max(0, schema_width - 1)
+        elif (rows := self._pretrained_class_rows(task)) is not None:
+            # Dataset classes are checkpoint classes (e.g. COCO names on the
+            # COCO-pretrained head): keep each class's pretrained logits.
+            head_width = int(self.model.model.class_embed.out_features)
+            if rows != list(range(head_width)):
+                self.model.model.select_detection_head_rows(rows)
+                if is_main_process():
+                    logger.info(
+                        "Dataset classes match the checkpoint's class names: "
+                        "mapped the pretrained classification head (%d outputs) "
+                        "to the dataset's %d classes by name.",
+                        head_width,
+                        self.config.num_classes,
+                    )
+            self.model.nb_classes = self.config.num_classes
+            self.model.args.num_classes = self.config.num_classes
         elif self.model.nb_classes != self.config.num_classes:
             head_outputs = (
                 self.config.num_classes
@@ -627,13 +749,15 @@ class RFDETRTrainer(BaseTrainer):
             )
             if is_main_process():
                 logger.warning(
-                    "Class count changed (checkpoint head: %d classes, dataset: %d): "
-                    "reinitializing the detection head from scratch. The pretrained "
-                    "head weights are discarded, so accuracy starts low and short "
-                    "fine-tunes underperform the checkpoint; budget enough epochs "
-                    "for the new head to converge.",
+                    "Dataset classes differ from the checkpoint's (checkpoint "
+                    "head: %d classes, dataset: %d): resizing the classification "
+                    "head to %d outputs by truncating or tiling its pretrained "
+                    "rows, which do not correspond to the dataset classes. Class "
+                    "scores must be relearned, so short fine-tunes underperform "
+                    "the checkpoint; budget enough epochs for the head to converge.",
                     self.model.nb_classes,
                     self.config.num_classes,
+                    head_outputs,
                 )
             self.model.model.reinitialize_detection_head(head_outputs)
             self.model.nb_classes = self.config.num_classes
@@ -644,7 +768,10 @@ class RFDETRTrainer(BaseTrainer):
             )
         if task == "pose":
             if getattr(self.model, "num_keypoints", None) != self.config.num_keypoints:
-                self.model.model.reinitialize_keypoint_head(self.config.num_keypoints)
+                # GroupPose already took the per-class schema above; a scalar
+                # count would overwrite classes with fewer keypoints.
+                if not is_grouppose:
+                    self.model.model.reinitialize_keypoint_head(self.config.num_keypoints)
                 self.model.num_keypoints = self.config.num_keypoints
             self.model.args.num_keypoints = self.config.num_keypoints
             # reinitialize_keypoint_head updates the model's GroupPose schema, but
@@ -674,7 +801,9 @@ class RFDETRTrainer(BaseTrainer):
 
         if self.wrapper_model is not None:
             self.wrapper_model.nb_classes = self.config.num_classes
-            if self._class_names:
+            if self.config.single_cls:
+                self.wrapper_model.names = {0: "object"}
+            elif self._class_names:
                 self.wrapper_model.names = self.wrapper_model._sanitize_names(
                     self._class_names,
                     self.config.num_classes,
@@ -688,6 +817,17 @@ class RFDETRTrainer(BaseTrainer):
             if task == "pose":
                 self.wrapper_model.num_keypoints = self.config.num_keypoints
                 self.wrapper_model.keypoint_dim = self.config.keypoint_dim
+
+    @staticmethod
+    def _adamw(groups, **kwargs) -> torch.optim.Optimizer:
+        """AdamW via the shared fused-on-CUDA construction helper.
+
+        The previous inline try/except requested ``fused=True`` uncondition-
+        ally, which recent torch silently accepts for CPU (and MPS) params
+        too — the device gate in ``build_optimizer`` restores stock behavior
+        off-CUDA. See ``libreyolo.training.optim`` for the full rationale.
+        """
+        return build_optimizer(torch.optim.AdamW, groups, **kwargs)
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
         if getattr(getattr(self, "wrapper_model", None), "task", "detect") in (
@@ -711,10 +851,10 @@ class RFDETRTrainer(BaseTrainer):
                 groups.append({"params": decay, "weight_decay": self.config.weight_decay})
             if no_decay:
                 groups.append({"params": no_decay, "weight_decay": 0.0})
-            return torch.optim.AdamW(groups, lr=self.effective_lr, betas=(0.9, 0.999))
+            return self._adamw(groups, lr=self.effective_lr, betas=(0.9, 0.999))
         upstream_groups = self._setup_upstream_optimizer_groups()
         if upstream_groups:
-            return torch.optim.AdamW(
+            return self._adamw(
                 upstream_groups,
                 lr=self.effective_lr,
                 weight_decay=self.config.weight_decay,
@@ -753,7 +893,7 @@ class RFDETRTrainer(BaseTrainer):
                 "No trainable parameters remain after layer freezing; "
                 "reduce the freeze value or choose a narrower selector."
             )
-        return torch.optim.AdamW(groups, betas=(0.9, 0.999))
+        return self._adamw(groups, betas=(0.9, 0.999))
 
     def _setup_upstream_optimizer_groups(self) -> list[dict]:
         core_model = getattr(self.model, "model", self.model)
@@ -891,6 +1031,10 @@ class RFDETRTrainer(BaseTrainer):
         polygons: Optional[List] = None,
     ) -> Dict:
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task == "classify" and getattr(self, "class_weights", None) is not None:
+            logits = self.model(imgs)
+            loss = classification_loss(logits, targets, self.class_weights)
+            return {"total_loss": loss, "cls": loss}
         if task in ("classify", "semantic"):
             # ``targets`` are class indices [B] (classify) or dense class maps
             # [B, H, W] (semantic); the model head returns the loss dict
@@ -923,6 +1067,105 @@ class RFDETRTrainer(BaseTrainer):
         result = {"total_loss": total}
         result.update(loss_dict)
         return result
+
+    def autobatch_probe(self) -> dict:
+        """Probe at the largest training canvas with the real loss step.
+
+        Multi-scale batches reach the largest scale (544 for the n default
+        imgsz=384, twice the pixels), and ``on_forward`` adds the matcher and
+        the aux/encoder/mask losses, so probing ``imgsz`` with a forward-only
+        backward underestimates training memory. The matcher's cost matrix
+        spans every query and target in the batch, so the synthetic targets
+        follow the dataset's label density.
+        """
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task in ("classify", "semantic"):
+            return super().autobatch_probe()
+        imgsz = self.config.imgsz
+        base = max(imgsz) if isinstance(imgsz, (list, tuple)) else int(imgsz)
+        probe_imgsz = max([base, *self._multi_scale_scales()])
+        instances = self._probe_instances_per_image(max_labels=100 if task == "pose" else 300)
+        if is_main_process():
+            logger.info(
+                "AutoBatch: RF-DETR probes the training step at imgsz=%d with %d "
+                "instances per image",
+                probe_imgsz,
+                instances,
+            )
+        return {
+            "imgsz": probe_imgsz,
+            "step": functools.partial(self._autobatch_step, num_instances=instances),
+        }
+
+    def _probe_instances_per_image(
+        self, *, max_labels: int, default: int = 16, max_files: int = 500
+    ) -> int:
+        """95th percentile of labelled instances per image over sampled YOLO label files."""
+        try:
+            cfg = load_data_config(
+                self.config.data, allow_scripts=self.config.allow_download_scripts
+            )
+            label_files = list(cfg.get("train_label_files") or [])
+        except Exception:
+            return default
+        if not label_files:
+            return default
+        if len(label_files) > max_files:
+            label_files = random.Random(0).sample(label_files, max_files)
+        counts = []
+        for path in label_files:
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    counts.append(sum(1 for line in handle if line.strip()))
+            except OSError:
+                counts.append(0)
+        return int(min(max_labels, max(1, np.percentile(counts, 95))))
+
+    def _autobatch_step(self, imgs: torch.Tensor, num_instances: int = 16) -> torch.Tensor:
+        """Training loss for a probe batch with ``num_instances`` grid boxes per image."""
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        batch, _, height, width = imgs.shape
+        side = max(1, math.ceil(math.sqrt(num_instances)))
+        slots = torch.arange(num_instances, dtype=torch.float32)
+        cx = ((slots % side) + 0.5) * width / side
+        cy = ((slots // side) + 0.5) * height / side
+        box_w, box_h = width / (side + 1), height / (side + 1)
+        columns = [
+            slots % max(1, int(self.config.num_classes)),
+            cx,
+            cy,
+            torch.full_like(slots, box_w),
+            torch.full_like(slots, box_h),
+        ]
+        if task == "obb":
+            columns.append(torch.zeros_like(slots))
+        targets = torch.stack(columns, dim=-1)
+        if task == "pose":
+            keypoints = torch.stack([cx, cy, torch.full_like(slots, 2.0)], dim=-1)
+            keypoints = keypoints.repeat(1, int(self.config.num_keypoints))
+            targets = torch.cat([targets, keypoints], dim=-1)
+        targets = targets.unsqueeze(0).repeat(batch, 1, 1).to(imgs.device)
+        polygons = None
+        if task == "segment":
+            polygons = torch.zeros(
+                (batch, num_instances, height, width), dtype=torch.uint8, device=imgs.device
+            )
+            for k in range(num_instances):
+                x0, y0 = int(cx[k] - box_w / 2), int(cy[k] - box_h / 2)
+                polygons[:, k, y0 : y0 + max(1, int(box_h)), x0 : x0 + max(1, int(box_w))] = 1
+        # Only rank 0 probes under DDP: the criterion's num_boxes all_reduce
+        # would wait for ranks that never enter this step.
+        distributed_normalize = getattr(self.criterion, "distributed_normalize", False)
+        self.criterion.distributed_normalize = False
+        try:
+            return self.on_forward(imgs, targets, polygons)["total_loss"]
+        finally:
+            self.criterion.distributed_normalize = distributed_normalize
+
+    def compile_dynamic(self):
+        # Per-batch multi-scale draws one of up to 11 sizes each step: one
+        # dynamic-shape compile instead of a static one per size.
+        return True if self._multi_scale_scales() else None
 
     def cuda_graph_train_spec(self):
         """Capture spec: graph the DETR network, keep the criterion eager.
@@ -986,39 +1229,60 @@ class RFDETRTrainer(BaseTrainer):
             value = outputs.get("sem", 0)
             return {"sem": value.item() if isinstance(value, torch.Tensor) else float(value)}
 
-        def _sum_with_prefix(prefix: str) -> float:
-            total = 0.0
-            for key, value in outputs.items():
-                if key == prefix or key.startswith(prefix + "_"):
-                    total += value.item() if isinstance(value, torch.Tensor) else float(value)
-            return total
-
-        components = {
-            "ce": _sum_with_prefix("loss_ce"),
-            "bbox": _sum_with_prefix("loss_bbox"),
-            "giou": _sum_with_prefix("loss_giou"),
-        }
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "segment":
-            components["mask_ce"] = _sum_with_prefix("loss_mask_ce")
-            components["mask_dice"] = _sum_with_prefix("loss_mask_dice")
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "pose":
+        prefixes = {"ce": "loss_ce", "bbox": "loss_bbox", "giou": "loss_giou"}
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task == "segment":
+            prefixes["mask_ce"] = "loss_mask_ce"
+            prefixes["mask_dice"] = "loss_mask_dice"
+        if task == "pose":
             # --- GroupPose keypoint additions (ported from RF-DETR v1.8.0). ---
-            components["keypoints_l1"] = _sum_with_prefix("loss_keypoints_l1")
-            components["keypoints_findable"] = _sum_with_prefix("loss_keypoints_findable")
-            components["keypoints_visible"] = _sum_with_prefix("loss_keypoints_visible")
-            components["keypoints_nll"] = _sum_with_prefix("loss_keypoints_nll")
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "obb":
-            components["angle"] = _sum_with_prefix("loss_angle")
-        return components
+            prefixes["keypoints_l1"] = "loss_keypoints_l1"
+            prefixes["keypoints_findable"] = "loss_keypoints_findable"
+            prefixes["keypoints_visible"] = "loss_keypoints_visible"
+            prefixes["keypoints_nll"] = "loss_keypoints_nll"
+        if task == "obb":
+            prefixes["angle"] = "loss_angle"
+
+        # Sum on device and transfer everything with ONE .cpu() call: the old
+        # per-key ``.item()`` was a dozen GPU pipeline drains every step.
+        tensor_sums: Dict[str, list] = {name: [] for name in prefixes}
+        float_sums = {name: 0.0 for name in prefixes}
+        device = None
+        for key, value in outputs.items():
+            for name, prefix in prefixes.items():
+                if key == prefix or key.startswith(prefix + "_"):
+                    if isinstance(value, torch.Tensor):
+                        tensor_sums[name].append(value.detach().reshape(()))
+                        device = value.device
+                    else:
+                        float_sums[name] += float(value)
+        if device is None:
+            return dict(float_sums)
+        names = list(prefixes)
+        stacked = torch.stack(
+            [
+                torch.stack(tensor_sums[name]).sum()
+                if tensor_sums[name]
+                else torch.zeros((), device=device)
+                for name in names
+            ]
+        ).cpu()
+        return {
+            name: float_sums[name] + float(stacked[i]) for i, name in enumerate(names)
+        }
 
     def _checkpoint_extra_metadata(self) -> Dict:
         if getattr(self.wrapper_model, "task", "detect") != "pose":
-            return {}
-        return {
+            return super()._checkpoint_extra_metadata()
+        metadata = {
             "num_keypoints": self.config.num_keypoints,
             "keypoint_dim": self.config.keypoint_dim,
             "oks_sigmas": self._resolve_oks_sigmas(),
         }
+        inner = getattr(unwrap_model(self.model), "model", None)
+        if getattr(inner, "use_grouppose_keypoints", False):
+            metadata["num_keypoints_per_class"] = list(inner.get_num_keypoints_per_class())
+        return metadata
 
     def _run_validation(
         self,
@@ -1129,7 +1393,8 @@ class RFDETRTrainer(BaseTrainer):
                 allow_download_scripts=self.config.allow_download_scripts,
                 oks_sigmas=self._resolve_oks_sigmas(),
                 save_plots=val_save_plots,
-                save_dir=str(self.save_dir / "val") if val_save_plots else None,
+                save_dir=self._validation_save_dir(),
+                plot_samples=getattr(self.config, "plot_samples", 8),
             )
 
             original_model = self.wrapper_model.model
@@ -1150,7 +1415,7 @@ def train_rfdetr(
     epochs: int = 100,
     batch_size: int = 4,
     lr: float = 1e-4,
-    output_dir: str = "runs/train",
+    output_dir: str | None = None,
     resume: str | None = None,
     pretrain_weights: str | None = None,
     segmentation: bool = False,
@@ -1183,7 +1448,7 @@ def train_rfdetr(
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
-        output_dir=str(Path(output_dir)),
+        output_dir=str(Path(output_dir)) if output_dir is not None else None,
         resume=resume,
         **kwargs,
     )

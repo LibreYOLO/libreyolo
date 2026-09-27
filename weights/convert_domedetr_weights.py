@@ -34,6 +34,7 @@ Two pieces of metadata are load-bearing rather than cosmetic:
 from __future__ import annotations
 
 import argparse
+import hashlib
 from pathlib import Path
 
 from _conversion_utils import (
@@ -78,6 +79,21 @@ VISDRONE_NAMES = {
 
 VARIANT_NAMES = {"aitod": AITOD_NAMES, "visdrone": VISDRONE_NAMES}
 
+UPSTREAM_MODEL_REPO = "RicePasteM/Dome-DETR"
+UPSTREAM_MODEL_REVISION = "530230620d1f3261a267d462989cddf204cc6e10"
+WEIGHT_TERMS = (
+    "Academic research purposes only (upstream model card); the same card also "
+    "claims Apache-2.0. See weights/LICENSE_NOTICE.txt."
+)
+
+
+def _sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 
 def convert(input_path: str, output_path: str, size: str, variant: str) -> None:
     raw = load_checkpoint(input_path)
@@ -111,6 +127,12 @@ def convert(input_path: str, output_path: str, size: str, variant: str) -> None:
         supported_tasks=("detect",),
         default_task="detect",
         weight_variant=variant,
+        source=(
+            f"{UPSTREAM_MODEL_REPO}@{UPSTREAM_MODEL_REVISION}/"
+            f"best_ckpts_dome_2026/{Path(input_path).name}"
+        ),
+        source_sha256=_sha256(input_path),
+        license=WEIGHT_TERMS,
     )
 
     out = Path(output_path)

@@ -18,6 +18,7 @@ from ...training.config import (
     DEIMv2Config,
     TrainConfig,
 )
+from ...training.optim import build_optimizer
 from ..deim.trainer import DEIMTrainer
 from .loss import DEIMv2Criterion
 from .matcher import HungarianMatcher
@@ -274,7 +275,7 @@ class DEIMv2Trainer(DEIMTrainer):
                 }
             )
 
-        return torch.optim.AdamW(param_groups, betas=(0.9, 0.999))
+        return build_optimizer(torch.optim.AdamW, param_groups, betas=(0.9, 0.999))
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         target_list = self._targets_to_detr(imgs, targets)

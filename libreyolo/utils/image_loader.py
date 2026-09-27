@@ -47,10 +47,15 @@ class ImageLoader:
     Unified image loader that accepts any reasonable image input
     and returns a PIL Image in RGB format.
 
+    NumPy arrays are read as BGR by default, the OpenCV convention, so
+    ``cv2.imread()`` output and decoded video frames load as-is. PIL images
+    and tensors are RGB.
+
     Example:
         >>> img = ImageLoader.load("./image.jpg")
         >>> img = ImageLoader.load("https://example.com/image.jpg")
-        >>> img = ImageLoader.load(cv2.imread("image.jpg"), color_format="bgr")
+        >>> img = ImageLoader.load(cv2.imread("image.jpg"))
+        >>> img = ImageLoader.load(np.asarray(pil_img), color_format="rgb")
         >>> img = ImageLoader.load(torch.randn(3, 224, 224))
     """
 
@@ -162,9 +167,23 @@ class ImageLoader:
                 raise FileNotFoundError(f"Image file not found: {path_str}")
             return Image.open(path_str).convert("RGB")
 
+    @staticmethod
+    def _single_from_batch(batch):
+        """Unwrap a batch of one; a larger batch is several images, not one."""
+        if batch.shape[0] != 1:
+            raise ValueError(
+                f"Expected one image, got a batch of {batch.shape[0]} "
+                f"(shape {tuple(batch.shape)}). Pass the batch to predict(), "
+                "which returns one Results per image."
+            )
+        return batch[0]
+
     @classmethod
     def _from_numpy(cls, arr: np.ndarray, color_format: str) -> Image.Image:
-        """Convert NumPy array to PIL Image (auto-detects format, dtype, channels)."""
+        """Convert NumPy array to PIL Image (detects layout, dtype, channels).
+
+        Color arrays are BGR unless ``color_format="rgb"``.
+        """
         if arr.ndim == 2:
             # Grayscale
             arr = cls._normalize_dtype(arr)
@@ -180,18 +199,17 @@ class ImageLoader:
                 arr = cls._normalize_dtype(arr)
                 return Image.fromarray(arr, mode="L").convert("RGB")
 
-            if color_format == "bgr" and arr.shape[2] >= 3:
-                arr = arr[..., ::-1].copy()  # BGR -> RGB
-
             if arr.shape[2] == 4:
-                arr = arr[..., :3]  # RGBA -> RGB
+                arr = arr[..., :3]  # drop alpha (BGRA/RGBA)
+
+            if color_format != "rgb" and arr.shape[2] == 3:
+                arr = arr[..., ::-1].copy()  # BGR -> RGB
 
             arr = cls._normalize_dtype(arr)
             return Image.fromarray(arr, mode="RGB")
 
         elif arr.ndim == 4:
-            # Batch — take first image (NCHW or NHWC)
-            return cls._from_numpy(arr[0], color_format)
+            return cls._from_numpy(cls._single_from_batch(arr), color_format)
 
         else:
             raise ValueError(
@@ -204,7 +222,7 @@ class ImageLoader:
         tensor = tensor.detach().cpu()
 
         if tensor.dim() == 4:
-            tensor = tensor[0]  # take first image if batched
+            tensor = cls._single_from_batch(tensor)
 
         if tensor.dim() == 3:
             if tensor.shape[0] in (1, 3, 4) and tensor.shape[0] < tensor.shape[2]:
@@ -228,14 +246,16 @@ class ImageLoader:
                 - str: Local file path or URL (http/https/s3/gs)
                 - pathlib.Path: Local file path
                 - PIL.Image: PIL Image object
-                - np.ndarray: NumPy array (HWC or CHW, RGB or BGR)
-                - torch.Tensor: PyTorch tensor (CHW or NCHW)
+                - np.ndarray: NumPy array (HWC or CHW, or a batch of one),
+                  BGR by default
+                - torch.Tensor: PyTorch tensor (CHW, or NCHW with N=1), RGB
                 - bytes: Raw image bytes
                 - io.BytesIO: BytesIO object containing image data
-            color_format: Color format hint for NumPy arrays.
-                - "auto": Auto-detect (default, uses heuristics)
-                - "rgb": Input is RGB format
-                - "bgr": Input is BGR format (e.g., OpenCV)
+            color_format: Channel order of NumPy array inputs. PIL images,
+                tensors, files and bytes are unaffected.
+                - "auto": BGR, the OpenCV convention (default)
+                - "bgr": Input is BGR (e.g. ``cv2.imread``)
+                - "rgb": Input is RGB (e.g. ``np.asarray(pil_image)``)
 
         Returns:
             PIL Image in RGB format

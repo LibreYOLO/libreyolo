@@ -34,10 +34,11 @@ from .loss import ECCriterion
 class ECSegHungarianMatcher(nn.Module):
     """EC matcher with EdgeCrafter's mask-aware segmentation costs.
 
-    The return value intentionally matches D-FINE's matcher contract
-    (``{"indices": ...}``) so :class:`ECCriterion` can keep its shared forward
-    path, while the mask cost follows EdgeCrafter/RF-DETR's point-sampled
-    CE+Dice assignment recipe.
+    The interface intentionally matches D-FINE's matcher contract
+    (``compute_cost_matrix`` on device + ``solve`` on a CPU matrix, with
+    ``forward`` as their composition returning ``{"indices": ...}``) so
+    :class:`ECCriterion` can keep its shared forward path, while the mask cost
+    follows EdgeCrafter/RF-DETR's point-sampled CE+Dice assignment recipe.
     """
 
     def __init__(
@@ -71,15 +72,20 @@ class ECSegHungarianMatcher(nn.Module):
             raise ValueError("at least one matching cost must be non-zero")
 
     @torch.no_grad()
-    def forward(self, outputs, targets, return_topk=False):
+    def compute_cost_matrix(self, outputs, targets):
+        """Build the pairwise matching cost on the predictions' device.
+
+        Split out from :meth:`forward` to match the D-FINE matcher contract:
+        the shared criterion enqueues the next level's cost on device before
+        draining the current one's ``.cpu()`` transfer. Empty-target batches
+        yield a zero-width matrix that :meth:`solve` resolves to empty indices.
+        """
         bs, num_queries = outputs["pred_logits"].shape[:2]
         sizes = [len(v["boxes"]) for v in targets]
         if sum(sizes) == 0:
-            empty = [
-                (torch.zeros(0, dtype=torch.int64), torch.zeros(0, dtype=torch.int64))
-                for _ in targets
-            ]
-            return {"indices": empty}
+            return torch.zeros(
+                bs, num_queries, 0, device=outputs["pred_logits"].device
+            )
 
         flat_logits = outputs["pred_logits"].flatten(0, 1)
         if self.use_focal_loss:
@@ -107,7 +113,10 @@ class ECSegHungarianMatcher(nn.Module):
         else:
             cost_class = -out_prob[:, tgt_ids]
 
-        cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
+        # The broadcast form is bit-identical to ``torch.cdist(out_bbox,
+        # tgt_bbox, p=1)`` but avoids cdist's slow one-thread-per-pair p=1
+        # CUDA kernel (issue #763; measured on rfdetr in PR #761).
+        cost_bbox = (out_bbox[:, None, :] - tgt_bbox[None, :, :]).abs().sum(-1)
         cost_giou = -generalized_box_iou(
             box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
         )
@@ -132,8 +141,25 @@ class ECSegHungarianMatcher(nn.Module):
                 + self.cost_mask_dice * cost_mask_dice
             )
 
+        return cost_matrix.view(bs, num_queries, -1).float()
+
+    @torch.no_grad()
+    def solve(self, cost_matrix, targets, return_topk=False):
+        """Run the Hungarian assignment on a CPU cost matrix.
+
+        ``cost_matrix`` is the [bs, num_queries, total_targets] output of
+        :meth:`compute_cost_matrix` after ``.cpu()``.
+        """
+        sizes = [len(v["boxes"]) for v in targets]
+        if sum(sizes) == 0:
+            empty = [
+                (torch.zeros(0, dtype=torch.int64), torch.zeros(0, dtype=torch.int64))
+                for _ in targets
+            ]
+            return {"indices": empty}
+
         cost_matrix = torch.nan_to_num(
-            cost_matrix.view(bs, num_queries, -1).float().cpu(),
+            cost_matrix,
             nan=1.0,
             posinf=1e6,
             neginf=1e6,
@@ -156,6 +182,11 @@ class ECSegHungarianMatcher(nn.Module):
                 )
             }
         return {"indices": indices}
+
+    @torch.no_grad()
+    def forward(self, outputs, targets, return_topk=False):
+        cost_matrix = self.compute_cost_matrix(outputs, targets)
+        return self.solve(cost_matrix.cpu(), targets, return_topk=return_topk)
 
     def _mask_costs(self, pred_masks, targets):
         tgt_masks = torch.cat([v["masks"] for v in targets])

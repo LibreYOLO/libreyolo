@@ -62,11 +62,23 @@ def get_contrastive_denoising_training_group(
     negative_gt_mask = torch.zeros([bs, max_gt_num * 2, 1], device=device)
     negative_gt_mask[:, max_gt_num:] = 1
     negative_gt_mask = negative_gt_mask.tile([1, num_group, 1])
-    positive_gt_mask = 1 - negative_gt_mask
 
-    positive_gt_mask = positive_gt_mask.squeeze(-1) * pad_gt_mask
-    dn_positive_idx = torch.nonzero(positive_gt_mask)[:, 1]
-    dn_positive_idx = torch.split(dn_positive_idx, [n * num_group for n in num_gts])
+    # The positive-query columns are fully determined by the host-side target
+    # counts: image i has positives at column g * 2 * max_gt_num + j for
+    # g in range(num_group), j in range(num_gts[i]), ascending: exactly the
+    # order upstream's ``torch.nonzero(positive_gt_mask)`` produced. Building
+    # them from arange avoids nonzero's data-dependent output shape, which
+    # forces a GPU->CPU sync every training step.
+    group_offsets = torch.arange(
+        num_group, dtype=torch.int64, device=device
+    ).mul_(2 * max_gt_num)
+    dn_positive_idx = tuple(
+        (
+            group_offsets[:, None]
+            + torch.arange(n, dtype=torch.int64, device=device)
+        ).reshape(-1)
+        for n in num_gts
+    )
     num_denoising = int(max_gt_num * 2 * num_group)
 
     if label_noise_ratio > 0:

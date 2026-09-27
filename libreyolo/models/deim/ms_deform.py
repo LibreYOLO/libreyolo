@@ -142,7 +142,7 @@ def deformable_attention_core_func_v2(
     ``method='discrete'`` never does, its integer-index sampling is a
     different equation.
     """
-    if method == "default" and ms_deform_attn_available():
+    if method == "default" and ms_deform_attn_available(value[0]):
         accelerated = maybe_ms_deform_attn_v2(
             # Per-level (bs, n_head, c, H*W) -> the slot's (bs, Len_in, n_head, c).
             torch.cat(list(value), dim=-1).permute(0, 3, 1, 2),

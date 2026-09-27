@@ -17,6 +17,7 @@ import torch
 
 from ...training.config import SegformerConfig, TrainConfig
 from ...training.distributed import is_main_process, unwrap_model
+from ...training.optim import build_optimizer
 from ...training.scheduler import FlatCosineScheduler, LinearLRScheduler
 from ...training.trainer import BaseTrainer
 from ..base.semantic_cuda_graph import SemanticLogitsCudaGraphMixin
@@ -89,7 +90,7 @@ class SegformerTrainer(
             for (lr_mult, group_wd), params in buckets.items()
         ]
 
-        optimizer = torch.optim.AdamW(param_groups, lr=base_lr)
+        optimizer = build_optimizer(torch.optim.AdamW, param_groups, lr=base_lr)
         if is_main_process():
             logger.info("SegFormer optimizer: AdamW, backbone base lr=%s", base_lr)
             for (lr_mult, group_wd), params in buckets.items():

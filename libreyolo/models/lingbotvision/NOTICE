@@ -3,7 +3,7 @@ LibreLingBotVision family
 
 The LingBot-Vision ViT backbone in this directory is a native port of
 lingbot-vision (https://github.com/robbyant/lingbot-vision, commit
-151e463), released by
+151e46321bae4399f8568829f190c7bdec216b49), released by
 Robbyant (Ant Group) under the Apache License, Version 2.0.
 Copyright (c) 2026 Robbyant.
 Reference: "Vision Pretraining for Dense Spatial Perception",

@@ -1,0 +1,21 @@
+Molmo2 single-image pointing adapter
+-----------------------------------
+
+Upstream: Allen Institute for AI (Ai2), https://github.com/allenai/molmo2
+Commit: f3cb1085fbb97c4a4d7fdcadd77cf871bf37a88a
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+
+The adapter and parser integrate the upstream Hugging Face usage API and the
+point grammar documented in olmo/preprocessing/point_formatter.py and its tests.
+LibreYOLO reuses its existing VLM inference and point-result implementations;
+no Molmo2 architecture source is bundled in this Python package.
+Remote model/processor code and weights originate from these Apache-2.0
+snapshots, with unmodified learned parameters:
+
+allenai/Molmo2-4B   @ 042abfa7a38879a376cec03d949eff0aefaa0600
+allenai/Molmo2-8B   @ e28fa28597e5ec5e0cca2201dd8ab33d48bc4a1b
+allenai/Molmo2-O-7B @ 784410650d12be9bc086118fdefa32d2c3bced86
+
+4B/8B use Qwen3 language backbones; O-7B uses OLMo 3. The released snapshots
+include the SigLIP vision backbone and their tokenizer assets. Upstream model
+cards declare Apache-2.0 for all three snapshots.

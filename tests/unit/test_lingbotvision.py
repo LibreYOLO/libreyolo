@@ -305,3 +305,50 @@ def test_lingbotvision_train_smoke(tmp_path):
         amp=False,
     )
     assert result.get("best_checkpoint") or result.get("last_checkpoint")
+
+
+def test_unpublished_size_download_explains_itself():
+    """``lingbotvision-g`` has no hosted checkpoint, so say so, do not 404.
+
+    Sizes s/b/l are mirrored under ``LibreYOLO/``; g is the 1.1B teacher and
+    never was. Left to the base implementation the user gets an HTTP failure
+    against a repo that does not exist, which reads like an outage rather
+    than a checkpoint that was never published.
+    """
+    from libreyolo.models.lingbotvision.model import LibreLingBotVision
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        LibreLingBotVision.get_download_url("LibreLingBotVisiong-sem.pt")
+    message = str(excinfo.value)
+    assert "publishes no weights" in message
+    assert "lingbotvision-s" in message
+    assert "lingbotvision-l" in message
+    assert "lingbotvision-g" not in message.split("published sizes:")[-1]
+
+
+@pytest.mark.parametrize("size", ["s", "b", "l"])
+def test_published_sizes_still_resolve(size):
+    """The guard must not swallow the sizes that are actually hosted."""
+    from libreyolo.models.lingbotvision.model import LibreLingBotVision
+
+    url = LibreLingBotVision.get_download_url(f"LibreLingBotVision{size}-sem.pt")
+    assert url == (
+        f"https://huggingface.co/LibreYOLO/LibreLingBotVision{size}-sem"
+        f"/resolve/main/LibreLingBotVision{size}-sem.pt"
+    )
+
+
+@pytest.mark.parametrize(
+    "foreign",
+    ["LibreSegformerb0-sem.pt", "LibreDINOv2s-sem.pt", "LibreYOLO9t.pt", "LibreDOMEDETRs-aitod.pt"],
+)
+def test_download_hook_ignores_other_families(foreign):
+    """The hook must claim only LingBot-Vision filenames.
+
+    ``download_weights`` asks every registered family in turn and takes the
+    first non-None answer, so a hook that raised on a foreign name would
+    hijack that family's download with the wrong error.
+    """
+    from libreyolo.models.lingbotvision.model import LibreLingBotVision
+
+    assert LibreLingBotVision.get_download_url(foreign) is None

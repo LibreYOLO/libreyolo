@@ -51,9 +51,20 @@ class TestMoGe2Metadata:
         filename = f"LibreMoGe2{size}-normal.pt"
         assert LibreMoGe2.detect_size_from_filename(filename) == size
         assert LibreMoGe2.detect_task_from_filename(filename) == "normal"
-        assert LibreMoGe2.get_download_url(filename) == (
-            f"https://huggingface.co/Ruicheng/{repo}/resolve/{revision}/model.pt"
-        )
+
+        if size in LibreMoGe2._MIRROR_SHA256:
+            # Mirrored sizes come from the LibreYOLO org, pinned by the digest
+            # of the converted checkpoint the mirror serves.
+            assert LibreMoGe2.get_download_url(filename) == (
+                f"https://huggingface.co/LibreYOLO/LibreMoGe2{size}-normal"
+                f"/resolve/main/LibreMoGe2{size}-normal.pt"
+            )
+            assert len(LibreMoGe2._MIRROR_SHA256[size]) == 64
+        else:
+            # Everything else still comes from upstream at a pinned revision.
+            assert LibreMoGe2.get_download_url(filename) == (
+                f"https://huggingface.co/Ruicheng/{repo}/resolve/{revision}/model.pt"
+            )
         assert LibreMoGe2.get_download_url(f"LibreMoGe2{size}.pt") is None
 
     @pytest.mark.parametrize(

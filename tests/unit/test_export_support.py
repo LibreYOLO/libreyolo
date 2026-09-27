@@ -96,6 +96,20 @@ def test_non_runnable_exports_are_blocked_in_preflight(
         exporter._preflight(half=False, int8=False, data=None)
 
 
+@pytest.mark.parametrize(
+    ("family", "task"),
+    [
+        ("ddcolor", "restore"),
+        ("hvi_cidnet", "restore"),
+        ("lama", "restore"),
+        ("vitmatte", "matte"),
+    ],
+)
+def test_guided_restoration_specialists_block_unvalidated_exports(family, task):
+    for format_name in EXPORT_FORMATS:
+        assert get_support(family, task, format_name).tier == "blocked"
+
+
 @pytest.mark.parametrize("family", ["yolo9", "yolo9_e2e", "yolonas", "picodet"])
 def test_rknn_retained_families_are_available(family):
     entry = get_support(family, "detect", "rknn")
@@ -114,6 +128,8 @@ def test_vit_onnx_is_parity_validated():
     assert entry.tier == "validated"
     assert entry.constraint == "FP32, fixed 224x224 input"
     assert "test_vit_export.py" in entry.reason
+
+
 def test_ssd_exports_only_through_its_validated_onnx_contract():
     assert get_support("ssd", "detect", "onnx").tier == "validated"
     for fmt in EXPORT_FORMATS:
@@ -617,9 +633,7 @@ def test_round14_records_ten_measured_tflite_holds():
         ("rtdetrv4", "detect", "tflite", "640x640"),
     ],
 )
-def test_round7_measured_blocks_are_explicit(
-    family, task, format, reason_fragment
-):
+def test_round7_measured_blocks_are_explicit(family, task, format, reason_fragment):
     entry = get_support(family, task, format)
     assert entry.tier == "blocked"
     assert reason_fragment in entry.reason
@@ -680,6 +694,7 @@ def test_openvino_validated_tier_has_runtime_parity_coverage():
         ("clip", "embed"),
         ("convnext", "classify"),
         ("deeplabv3", "semantic"),
+        ("dekr", "pose"),
         ("deit", "classify"),
         ("depth_anything", "depth"),
         ("depth_anything3", "depth"),
@@ -704,6 +719,8 @@ def test_openvino_validated_tier_has_runtime_parity_coverage():
         ("nafnet", "restore"),
         ("picodet", "detect"),
         ("pidnet", "semantic"),
+        ("ppliteseg", "semantic"),
+        ("ppyoloe", "detect"),
         ("realesrgan", "restore"),
         ("resnet", "classify"),
         ("rfdetr", "detect"),
@@ -726,6 +743,7 @@ def test_openvino_validated_tier_has_runtime_parity_coverage():
         ("yolo9_e2e", "detect"),
         ("yolo9_p2", "detect"),
         ("yolonas", "detect"),
+        ("yolonas", "obb"),
         ("yolonas", "pose"),
         ("yolox", "detect"),
         ("zipdepth", "depth"),
@@ -811,7 +829,7 @@ def test_default_download_urls_keep_task_repo_suffixes():
     for metadata in collect_model_inventory().values():
         module_name, class_name = metadata["class"].rsplit(".", 1)
         cls = getattr(importlib.import_module(module_name), class_name)
-        if "get_download_url" in cls.__dict__:
+        if not issubclass(cls, BaseModel) or "get_download_url" in cls.__dict__:
             continue
         # Runtime tasks can intentionally share an artifact. In that case the
         # family advertises only the distinct published suffixes through
@@ -821,8 +839,17 @@ def test_default_download_urls_keep_task_repo_suffixes():
             sizes = metadata["task_sizes"].get(task) or metadata["default_imgsz"]
             if not sizes or not cls.FILENAME_PREFIX:
                 continue
-            size = next(iter(sizes))
             suffix = task_to_suffix(task)
+            # Skip sizes the family declares unpublished (they raise instead).
+            published = [
+                s
+                for s in sizes
+                if f"{cls.FILENAME_PREFIX}{s}{'-' + suffix if suffix else ''}"
+                not in cls.UNPUBLISHED_WEIGHTS
+            ]
+            if not published:
+                continue
+            size = published[0]
             filename = f"{cls.FILENAME_PREFIX}{size}"
             if suffix:
                 filename += f"-{suffix}"
@@ -855,3 +882,41 @@ def test_generated_docs_expose_validated_constraints():
     assert "## Validated constraints" in docs
     assert "`yolonas` / `detect` / `coreai`" in docs
     assert "raw-image preprocessing" in docs
+
+
+def test_shipping_rows_never_claim_a_future_since_version():
+    """A validated/available row cannot postdate the library's own version.
+
+    During 1.5.0 development 176 rows were stamped ``since="1.6"`` or
+    ``since="1.7"`` for capabilities that ship in the 1.5 line. Nothing
+    rendered ``since`` at the time, but the field becomes a lie the day the
+    docs or CLI surface it. ``since`` names the major.minor release LINE a
+    capability first ships in (see ``SupportEntry``), so rows added between
+    the ``v1.5.0`` tag and the next point release legitimately carry "1.5".
+    The floor is the source tree's declared major.minor from pyproject;
+    installed dist metadata can lag a source checkout, so pyproject wins.
+    """
+    import re
+
+    match = re.search(
+        r'^\[project\][^\[]*?^version\s*=\s*"(\d+)\.(\d+)',
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+        re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        import libreyolo
+
+        match = re.match(r"(\d+)\.(\d+)", libreyolo.__version__)
+    assert match is not None
+    floor = (int(match.group(1)), int(match.group(2)))
+
+    offenders = {}
+    for key, entry in SUPPORT.items():
+        if entry.tier not in ("validated", "available") or entry.since is None:
+            continue
+        since = tuple(int(part) for part in entry.since.split("."))
+        if since > floor:
+            offenders[key] = entry.since
+    assert not offenders, (
+        f"Rows claim since > {'.'.join(map(str, floor))}: {sorted(offenders.items())}"
+    )

@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -42,9 +43,9 @@ def test_save_plots_forces_validation_on_final_epoch():
     assert trainer._should_validate_epoch(4) is True
 
 
-def test_final_epoch_validation_not_forced_when_plots_disabled():
+def test_final_epoch_validation_not_forced_when_validation_is_off():
     trainer = _make_trainer(
-        SimpleNamespace(eval_interval=2, epochs=5, save_plots=False)
+        SimpleNamespace(eval_interval=0, epochs=5, save_plots=False)
     )
 
     assert trainer._should_validate_epoch(4) is False
@@ -92,7 +93,7 @@ def test_trainer_validation_routes_point_task(monkeypatch):
     )
     
     trainer._is_final_epoch = lambda epoch: False
-    trainer.save_dir = SimpleNamespace()
+    trainer.save_dir = Path("run")  # validation output goes to run/val
     trainer._scalar_mapping = lambda x: x
 
     result = trainer._run_validation(0)
@@ -148,7 +149,7 @@ def test_trainer_passes_opt_in_loss_adapter_to_detection_validator(monkeypatch):
     trainer.model = SimpleNamespace(state_dict=lambda: {})
     trainer.wrapper_model = SimpleNamespace(task="detect", model=trainer.model)
     trainer._is_final_epoch = lambda epoch: False
-    trainer.save_dir = SimpleNamespace()
+    trainer.save_dir = Path("run")  # validation output goes to run/val
     trainer._scalar_mapping = lambda values: values
     trainer.build_validation_loss_adapter = lambda model: adapter
 

@@ -32,7 +32,8 @@ def quantize_cmd(
     algorithm: str = typer.Option(
         "auto",
         help="Activation range estimation: auto (minmax), minmax, "
-        "percentile (can reduce transformer accuracy)",
+        "percentile (can reduce transformer accuracy), mse, entropy "
+        "(histogram sweeps; help on outlier-heavy activations)",
     ),
     out: Optional[str] = typer.Option(
         None,

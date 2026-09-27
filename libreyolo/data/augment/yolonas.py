@@ -225,3 +225,147 @@ class YOLONASAffineMixupDataset:
         origin_img = origin_img.astype(np.float32)
         origin_img = 0.5 * origin_img + 0.5 * padded_cropped_img.astype(np.float32)
         return origin_img.astype(np.uint8), merged_labels
+
+
+# ---------------------------------------------------------------------------
+# OBB (YOLO-NAS-R) training transform
+# ---------------------------------------------------------------------------
+
+
+def _canonicalize_obb_rows(rows: np.ndarray) -> np.ndarray:
+    """Put the long side first and fold the angle into ``[-pi/2, pi/2)``.
+
+    ``rows`` are ``[cx, cy, w, h, angle]``. Vectorised twin of
+    ``libreyolo.data.obb.canonicalize_xywhr`` (which is per-row and raises on
+    degenerate boxes; here degenerate rows are dropped by the caller instead).
+    """
+    if len(rows) == 0:
+        return rows
+    out = rows.copy()
+    swap = out[:, 3] > out[:, 2]
+    w = np.where(swap, out[:, 3], out[:, 2])
+    h = np.where(swap, out[:, 2], out[:, 3])
+    angle = np.where(swap, out[:, 4] + np.pi / 2, out[:, 4])
+    out[:, 2] = w
+    out[:, 3] = h
+    out[:, 4] = np.mod(angle + np.pi / 2, np.pi) - np.pi / 2
+    return out
+
+
+class YOLONASOBBTrainTransform:
+    """Train transform for YOLO-NAS-R, emitting ``[class, cx, cy, w, h, angle]``.
+
+    Augmentation is deliberately limited to HSV jitter and axis flips. Every
+    geometric op here has an exact, tested effect on the angle; affine,
+    mosaic and mixup do not (a shear turns a rectangle into a parallelogram,
+    and a mosaic paste crops rotated boxes), so they are not offered rather
+    than being offered as knobs that quietly corrupt the label.
+
+    The resize/pad/normalize step calls ``preprocess_obb_numpy`` -- the same
+    function inference and validation use -- so the three paths cannot drift.
+    """
+
+    def __init__(
+        self,
+        max_labels: int = 300,
+        flip_prob: float = 0.5,
+        hsv_prob: float = 0.5,
+        flipud: float = 0.0,
+    ):
+        self.max_labels = max_labels
+        self.flip_prob = flip_prob
+        self.hsv_prob = hsv_prob
+        self.flipud = flipud
+
+    def _pad(self, targets: np.ndarray) -> np.ndarray:
+        padded = np.zeros((self.max_labels, 6), dtype=np.float32)
+        n = min(len(targets), self.max_labels)
+        if n:
+            padded[:n] = targets[:n]
+        return np.ascontiguousarray(padded, dtype=np.float32)
+
+    def __call__(self, image, targets, input_dim):
+        from libreyolo.preprocess.yolonas import preprocess_obb_numpy
+
+        input_size = input_dim[0] if isinstance(input_dim, (tuple, list)) else input_dim
+
+        if targets is None or len(targets) == 0:
+            rgb = np.ascontiguousarray(image[:, :, ::-1])
+            image_t, _ = preprocess_obb_numpy(rgb, input_size=input_size)
+            return image_t, self._pad(np.zeros((0, 6), dtype=np.float32))
+
+        targets = np.asarray(targets, dtype=np.float32)
+        if targets.shape[1] < 6:
+            raise ValueError(
+                "YOLO-NAS OBB training expects six-column dataset rows "
+                f"[x1, y1, x2, y2, class, angle], got {targets.shape[1]}"
+            )
+
+        # The dataset's xyxy block is the un-rotated proxy, so it decodes back
+        # to (cx, cy, w, h) exactly (see data/dataset.py: xywhr_to_proxy_xyxy).
+        boxes = targets[:, :4].copy()
+        labels = targets[:, 4].copy()
+        angles = targets[:, 5].copy()
+
+        if random.random() < self.hsv_prob:
+            augment_hsv(image)
+
+        height, width = image.shape[:2]
+        if random.random() < self.flip_prob:
+            image = image[:, ::-1]
+            x1 = boxes[:, 0].copy()
+            boxes[:, 0] = width - boxes[:, 2]
+            boxes[:, 2] = width - x1
+            angles = -angles
+        if self.flipud > 0 and random.random() < self.flipud:
+            image = image[::-1]
+            y1 = boxes[:, 1].copy()
+            boxes[:, 1] = height - boxes[:, 3]
+            boxes[:, 3] = height - y1
+            angles = -angles
+
+        rgb = np.ascontiguousarray(image[:, :, ::-1])
+        image_t, ratio = preprocess_obb_numpy(rgb, input_size=input_size)
+
+        cxcywh = xyxy2cxcywh(boxes) * ratio
+        rows = np.concatenate([cxcywh, angles[:, None]], axis=1)
+        rows = _canonicalize_obb_rows(rows)
+
+        keep = np.minimum(rows[:, 2], rows[:, 3]) > 1
+        rows = rows[keep]
+        labels = labels[keep]
+
+        targets_t = np.hstack((labels[:, None], rows)).astype(np.float32)
+        return image_t, self._pad(targets_t)
+
+
+class YOLONASOBBDataset:
+    """Pass-through dataset wrapper for OBB training.
+
+    Matches ``BaseTrainer``'s dataset-wrapper constructor signature but
+    performs no mosaic, mixup or affine: see
+    :class:`YOLONASOBBTrainTransform` for why. It exists so the OBB trainer
+    can plug into the shared training loop unchanged.
+    """
+
+    def __init__(self, dataset, img_size, mosaic=True, preproc=None, **kwargs):
+        del mosaic, kwargs
+        self.dataset = dataset
+        self.img_size = img_size
+        self.preproc = preproc or YOLONASOBBTrainTransform()
+
+    def __len__(self):
+        return len(self.dataset)
+
+    @property
+    def input_dim(self):
+        return self.img_size
+
+    def close_mosaic(self):
+        # Nothing to close; kept for the shared trainer's late-epoch hook.
+        return None
+
+    def __getitem__(self, idx):
+        img, label, img_info, img_id = self.dataset.pull_item(idx)
+        img, label = self.preproc(img, label, self.input_dim)
+        return img, label, img_info, img_id

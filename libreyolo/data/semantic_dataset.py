@@ -150,6 +150,15 @@ def _rasterize_polygon_labels(
     return np.asarray(canvas).astype(np.int64)
 
 
+def _canvas_hw(imgsz: int | Tuple[int, int]) -> Tuple[int, int]:
+    """Normalize a scalar or ``(height, width)`` canvas to explicit H and W."""
+    if isinstance(imgsz, int):
+        return int(imgsz), int(imgsz)
+    if len(imgsz) != 2:
+        raise ValueError(f"imgsz must be an int or (height, width), got {imgsz!r}")
+    return int(imgsz[0]), int(imgsz[1])
+
+
 def valid_content_hw(
     orig_shape: Tuple[int, int], ratio: float, canvas_hw: Tuple[int, int]
 ) -> Tuple[int, int]:
@@ -210,25 +219,35 @@ class SemanticDataset(Dataset):
         self,
         data_config: Dict,
         split: str,
-        imgsz: int,
+        imgsz: int | Tuple[int, int],
         augment: bool = False,
         resize_mode: str = "letterbox",
         ignore_index: int = IGNORE_INDEX,
         scale_jitter: Tuple[float, float] = (0.5, 1.5),
         hsv_prob: float = 0.5,
         crop_cat_max_ratio: float = 0.75,
+        photometric=None,
     ):
-        if resize_mode not in ("letterbox", "stretch", "resize_crop"):
+        if resize_mode not in ("letterbox", "stretch", "resize_crop", "rescale_crop"):
             raise ValueError(
-                f"resize_mode must be 'letterbox', 'stretch', or 'resize_crop', got {resize_mode!r}"
+                "resize_mode must be 'letterbox', 'stretch', 'resize_crop', or "
+                f"'rescale_crop', got {resize_mode!r}"
             )
         self.split = split
-        self.imgsz = int(imgsz)
+        # imgsz may be a scalar (square canvas, the historical contract) or an
+        # explicit (height, width). A scalar is exactly equivalent to the equal
+        # pair: every geometry decision below reads canvas_h/canvas_w.
+        self.imgsz = imgsz if isinstance(imgsz, int) else tuple(int(v) for v in imgsz)
+        self.canvas_h, self.canvas_w = _canvas_hw(imgsz)
         self.augment = augment
         self.resize_mode = resize_mode
         self.ignore_index = int(data_config.get("ignore_index", ignore_index))
         self.scale_jitter = scale_jitter
         self.hsv_prob = float(hsv_prob)
+        # Optional family-local photometric transform (RGB HWC in, RGB HWC
+        # out). When set it replaces the shared HSV-gain jitter; masks are
+        # never handed to it, so class IDs cannot be recolored.
+        self.photometric = photometric
         # resize_crop-only: reject a random crop whose most-common (non-ignore)
         # class exceeds this fraction (mmseg cat_max_ratio; 1.0 disables).
         self.crop_cat_max_ratio = float(crop_cat_max_ratio)
@@ -318,11 +337,14 @@ class SemanticDataset(Dataset):
     ) -> Tuple[np.ndarray, np.ndarray, float, Tuple[int, int]]:
         """Resize image (bilinear) and mask (nearest) and pad/crop to imgsz."""
         h0, w0 = img.shape[:2]
-        if self.resize_mode == "stretch":
-            new_w = new_h = self.imgsz
+        # rescale_crop only defines a *training* sampler; without augmentation
+        # it validates by direct resize to the canvas, which is exactly what
+        # its family's inference preprocessor does.
+        if self.resize_mode in ("stretch", "rescale_crop"):
+            new_h, new_w = self.canvas_h, self.canvas_w
             ratio = 1.0
         else:
-            ratio = min(self.imgsz / h0, self.imgsz / w0) * scale
+            ratio = min(self.canvas_h / h0, self.canvas_w / w0) * scale
             # Deliberately NOT clamped to imgsz: with scale > 1 (training
             # jitter) this overshoots the canvas on purpose, and the random-crop
             # below takes the overflow back out. Clamping here instead would
@@ -339,18 +361,18 @@ class SemanticDataset(Dataset):
         img = np.array(img_pil)
         mask = np.asarray(mask_pil).astype(np.int64)
 
-        # Random crop any overflow (scale jitter can exceed imgsz).
-        if new_h > self.imgsz or new_w > self.imgsz:
-            top = random.randint(0, max(0, new_h - self.imgsz))
-            left = random.randint(0, max(0, new_w - self.imgsz))
-            img = img[top : top + self.imgsz, left : left + self.imgsz]
-            mask = mask[top : top + self.imgsz, left : left + self.imgsz]
+        # Random crop any overflow (scale jitter can exceed the canvas).
+        if new_h > self.canvas_h or new_w > self.canvas_w:
+            top = random.randint(0, max(0, new_h - self.canvas_h))
+            left = random.randint(0, max(0, new_w - self.canvas_w))
+            img = img[top : top + self.canvas_h, left : left + self.canvas_w]
+            mask = mask[top : top + self.canvas_h, left : left + self.canvas_w]
             new_h, new_w = img.shape[:2]
 
         # Top-left anchored padding, matching the family inference letterbox
         # (content at the origin, pad at bottom/right).
-        pad_h = self.imgsz - new_h
-        pad_w = self.imgsz - new_w
+        pad_h = self.canvas_h - new_h
+        pad_w = self.canvas_w - new_w
         if pad_h or pad_w:
             img = np.pad(
                 img,
@@ -372,9 +394,13 @@ class SemanticDataset(Dataset):
         ``imgsz x imgsz``. Unlike ``_resize`` (which fits the LONG side and pads),
         this yields dense full-resolution crops. When ``crop_cat_max_ratio < 1``
         the crop is re-sampled (up to 10x) to avoid a patch dominated by a single
-        class (mmseg ``cat_max_ratio``)."""
+        class (mmseg ``cat_max_ratio``).
+
+        The short-side reference for a rectangular canvas is its shorter side,
+        so a scalar canvas keeps its exact historical behavior."""
         h0, w0 = img.shape[:2]
-        ratio = (self.imgsz / min(h0, w0)) * scale
+        reference = min(self.canvas_h, self.canvas_w)
+        ratio = (reference / min(h0, w0)) * scale
         new_w = max(1, int(round(w0 * ratio)))
         new_h = max(1, int(round(h0 * ratio)))
 
@@ -385,9 +411,39 @@ class SemanticDataset(Dataset):
         img = np.array(img_pil)
         mask = np.asarray(mask_pil).astype(np.int64)
 
-        # Pad up to imgsz on any short side so a full imgsz crop is possible.
-        pad_h = max(0, self.imgsz - new_h)
-        pad_w = max(0, self.imgsz - new_w)
+        return self._pad_and_random_crop(img, mask, ratio)
+
+    def _rescale_and_crop(
+        self, img: np.ndarray, mask: np.ndarray, scale: float
+    ) -> Tuple[np.ndarray, np.ndarray, float, Tuple[int, int]]:
+        """Absolute-rescale sampling: the PP-LiteSeg / STDC Cityscapes recipe.
+
+        Scales the *source* image by ``scale`` (both sides, aspect preserved),
+        ignore-pads any side that falls short of the crop, then takes a random
+        ``canvas_h x canvas_w`` crop. Unlike ``resize_crop`` the scale is not
+        relative to the canvas: the recipe's 0.125..1.5 range is defined
+        against the dataset's own resolution, which is what makes its extreme
+        low end meaningful."""
+        h0, w0 = img.shape[:2]
+        ratio = float(scale)
+        new_w = max(1, int(round(w0 * ratio)))
+        new_h = max(1, int(round(h0 * ratio)))
+
+        img_pil = Image.fromarray(img).resize((new_w, new_h), Image.BILINEAR)
+        mask_pil = Image.fromarray(mask.astype(np.int32), mode="I").resize(
+            (new_w, new_h), Image.NEAREST
+        )
+        img = np.array(img_pil)
+        mask = np.asarray(mask_pil).astype(np.int64)
+        return self._pad_and_random_crop(img, mask, ratio)
+
+    def _pad_and_random_crop(
+        self, img: np.ndarray, mask: np.ndarray, ratio: float
+    ) -> Tuple[np.ndarray, np.ndarray, float, Tuple[int, int]]:
+        """Ignore-pad each side up to the canvas, then random-crop the canvas."""
+        new_h, new_w = img.shape[:2]
+        pad_h = max(0, self.canvas_h - new_h)
+        pad_w = max(0, self.canvas_w - new_w)
         if pad_h or pad_w:
             img = np.pad(img, ((0, pad_h), (0, pad_w), (0, 0)), constant_values=_PAD_COLOR)
             mask = np.pad(mask, ((0, pad_h), (0, pad_w)), constant_values=self.ignore_index)
@@ -395,19 +451,19 @@ class SemanticDataset(Dataset):
 
         top, left = 0, 0
         for _ in range(10):
-            top = random.randint(0, H - self.imgsz)
-            left = random.randint(0, W - self.imgsz)
+            top = random.randint(0, H - self.canvas_h)
+            left = random.randint(0, W - self.canvas_w)
             if self.crop_cat_max_ratio >= 1.0:
                 break
-            cand = mask[top : top + self.imgsz, left : left + self.imgsz]
+            cand = mask[top : top + self.canvas_h, left : left + self.canvas_w]
             labels = cand[cand != self.ignore_index]
             if labels.size == 0:
                 break
             _, counts = np.unique(labels, return_counts=True)
             if counts.max() / counts.sum() <= self.crop_cat_max_ratio:
                 break
-        img = img[top : top + self.imgsz, left : left + self.imgsz]
-        mask = mask[top : top + self.imgsz, left : left + self.imgsz]
+        img = img[top : top + self.canvas_h, left : left + self.canvas_w]
+        mask = mask[top : top + self.canvas_h, left : left + self.canvas_w]
         return img, mask, ratio, (0, 0)
 
     def __getitem__(self, index: int):
@@ -422,18 +478,22 @@ class SemanticDataset(Dataset):
             if random.random() < 0.5:
                 img = np.ascontiguousarray(img[:, ::-1])
                 mask = np.ascontiguousarray(mask[:, ::-1])
-            if self.hsv_prob and random.random() < self.hsv_prob:
+            if self.photometric is not None:
+                img = np.ascontiguousarray(self.photometric(img))
+            elif self.hsv_prob and random.random() < self.hsv_prob:
                 # augment_hsv follows the shared BGR contract; images here are
                 # RGB, so flip to BGR for the jitter and back to RGB. The mask
                 # is never passed in, so class IDs are untouched.
                 img_bgr = np.ascontiguousarray(img[..., ::-1])
                 augment_hsv(img_bgr)
                 img = np.ascontiguousarray(img_bgr[..., ::-1])
-            if self.resize_mode in ("letterbox", "resize_crop"):
+            if self.resize_mode in ("letterbox", "resize_crop", "rescale_crop"):
                 scale = random.uniform(*self.scale_jitter)
 
         if self.resize_mode == "resize_crop" and self.augment:
             img, mask, ratio, pad = self._resize_and_crop(img, mask, scale)
+        elif self.resize_mode == "rescale_crop" and self.augment:
+            img, mask, ratio, pad = self._rescale_and_crop(img, mask, scale)
         else:
             img, mask, ratio, pad = self._resize(img, mask, scale)
 

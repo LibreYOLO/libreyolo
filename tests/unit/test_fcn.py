@@ -194,3 +194,51 @@ def test_shared_semantic_surfaces_extract_primary_fcn_output():
 
     torch.testing.assert_close(exported, image[:, :2])
     torch.testing.assert_close(validated, image[:, :2])
+
+
+@pytest.mark.parametrize("size", ["r50", "r101"])
+def test_fcn_hosted_spellings_resolve_to_suffixless_repos(size):
+    """Both accepted suffixless names must point at the repos that exist.
+
+    The hosted repos are ``LibreYOLO/LibreFCNr50`` and
+    ``LibreYOLO/LibreFCNr101``, without the ``-sem`` suffix its semantic
+    siblings use.
+    """
+    assert LibreFCN.get_download_url(f"LibreFCN{size}.pt") == (
+        f"https://huggingface.co/LibreYOLO/LibreFCN{size}"
+        f"/resolve/main/LibreFCN{size}.pt"
+    )
+
+
+@pytest.mark.parametrize("size", ["r50", "r101"])
+def test_fcn_suffixed_spelling_is_rejected_with_the_canonical_name(size):
+    """``LibreFCN<size>-sem.pt`` names a repo that does not exist.
+
+    The filename regex accepts the ``-sem`` spelling, so left to the base
+    implementation it builds a dead URL and the download fails with an HTTP
+    error that reads like an outage. The resolver must instead reject it
+    before any URL is built and name the hosted spelling.
+    """
+    with pytest.raises(FileNotFoundError) as excinfo:
+        LibreFCN.get_download_url(f"LibreFCN{size}-sem.pt")
+    message = str(excinfo.value)
+    assert f"LibreFCN{size}.pt" in message
+    assert "huggingface" not in message.lower()
+
+
+def test_fcn_download_guard_ignores_foreign_filenames():
+    """``download_weights`` polls every family; never hijack another's name."""
+    assert LibreFCN.get_download_url("LibreYOLOXs.pt") is None
+    assert LibreFCN.get_download_url("LibreDeepLabv3mv3-sem.pt") is None
+
+
+def test_fcn_cli_names_resolve_to_the_hosted_spelling():
+    """CLI aliases and weight-name checks must agree with the resolver."""
+    from libreyolo.cli.config import is_known_weight_filename, resolve_model_name
+
+    assert resolve_model_name("fcn-r50") == "LibreFCNr50.pt"
+    assert resolve_model_name("fcn-r50-sem") == "LibreFCNr50.pt"
+    assert is_known_weight_filename("LibreFCNr50.pt") is True
+    # The suffixed file spelling stays rejected on both surfaces: the CLI
+    # treats it as unknown and the resolver raises before building a URL.
+    assert is_known_weight_filename("LibreFCNr50-sem.pt") is False

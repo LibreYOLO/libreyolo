@@ -233,7 +233,15 @@ def rot90_image_boxes(image, boxes, k):
     return rotated, out
 
 
-def letterbox_preproc(img, input_size, swap=(2, 0, 1), *, to_rgb=False, scale=False):
+def letterbox_preproc(
+    img,
+    input_size,
+    swap=(2, 0, 1),
+    *,
+    to_rgb=False,
+    scale=False,
+    letterbox_pad=None,
+):
     """Letterbox resize + pad (114) + HWC→CHW transpose.
 
     The historical per-family ``preproc`` copies differed only in two finalize
@@ -241,19 +249,19 @@ def letterbox_preproc(img, input_size, swap=(2, 0, 1), *, to_rgb=False, scale=Fa
 
     - ``to_rgb=False, scale=False`` — YOLOX/PicoDet/RTMDet (BGR, raw 0-255)
     - ``to_rgb=True, scale=True``   — YOLO9/RT-DETR/YOLO-NAS (RGB, /255)
-    """
-    if len(img.shape) == 3:
-        padded_img = np.ones((input_size[0], input_size[1], 3), dtype=np.uint8) * 114
-    else:
-        padded_img = np.ones(input_size, dtype=np.uint8) * 114
 
-    r = min(input_size[0] / img.shape[0], input_size[1] / img.shape[1])
-    resized_img = cv2.resize(
+    ``letterbox_pad`` is ``topleft`` (historical default) or ``center``.
+    YOLOX and other non-YOLOv9 callers must leave it unset.
+    """
+    from libreyolo.preprocess.letterbox import apply_letterbox_hwc
+
+    padded_img, r, _pad_left, _pad_top = apply_letterbox_hwc(
         img,
-        (int(img.shape[1] * r), int(img.shape[0] * r)),
-        interpolation=cv2.INTER_LINEAR,
-    ).astype(np.uint8)
-    padded_img[: int(img.shape[0] * r), : int(img.shape[1] * r)] = resized_img
+        int(input_size[0]),
+        int(input_size[1]),
+        pad=letterbox_pad,
+        fill=114,
+    )
 
     if to_rgb:
         padded_img = padded_img[:, :, ::-1]

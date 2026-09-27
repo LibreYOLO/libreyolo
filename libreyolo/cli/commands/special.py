@@ -351,21 +351,35 @@ def models_cmd(
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
 ) -> None:
     """List available model families and sizes."""
+    from libreyolo.cli.config import get_all_cli_names, weight_unavailable_reason
     from libreyolo.models.inventory import collect_model_inventory
     from libreyolo.tasks import task_to_suffix
 
+    known_names = set(get_all_cli_names())
     families = []
     for family, metadata in collect_model_inventory().items():
         cli_names = []
-        task_sizes = metadata["task_sizes"] or {
-            metadata["default_task"]: metadata["default_imgsz"]
+        unpublished_names = {}
+        # The default task is listed even when TASK_INPUT_SIZES omits it.
+        task_sizes = {
+            metadata["default_task"]: metadata["default_imgsz"],
+            **metadata["task_sizes"],
         }
         for task, sizes in task_sizes.items():
             suffix = task_to_suffix(task)
             for size in sizes:
                 name = f"{family}-{size}" + (f"-{suffix}" if suffix else "")
-                if name not in cli_names:
+                # Only advertise names `model=` accepts; families outside the
+                # checkpoint registry load through their Python class instead.
+                if name in cli_names or name not in known_names:
+                    continue
+                reason = weight_unavailable_reason(name)
+                if reason is None:
                     cli_names.append(name)
+                else:
+                    unpublished_names[name] = reason
+        if metadata.get("cli_command"):
+            cli_names = [metadata["cli_command"]]
         extra = metadata["optional_extra"]
         families.append(
             {
@@ -376,6 +390,9 @@ def models_cmd(
                 "tasks": metadata["tasks"],
                 "default_task": metadata["default_task"],
                 "cli_names": cli_names,
+                "cli_command": metadata.get("cli_command"),
+                "unpublished_names": unpublished_names,
+                "python_class": metadata["class"],
                 "available": metadata["available"],
                 "optional_extra": extra,
                 "install_hint": f"pip install libreyolo[{extra}]" if extra else None,
@@ -393,7 +410,17 @@ def models_cmd(
                 f"    Tasks: {', '.join(f['tasks'])} (default: {f['default_task']})"
             )
             lines.append(f"    Sizes: {', '.join(f['sizes'])}")
-            lines.append(f"    Names: {', '.join(f['cli_names'])}")
+            if f["cli_command"]:
+                lines.append(f"    Command: libreyolo {f['cli_command']}")
+            elif f["cli_names"]:
+                lines.append(f"    Names: {', '.join(f['cli_names'])}")
+            elif not f["unpublished_names"]:
+                lines.append(f"    Python: {f['python_class']} (no CLI model names)")
+            if f["unpublished_names"]:
+                lines.append(
+                    "    No published weights (local checkpoints only): "
+                    + ", ".join(f["unpublished_names"])
+                )
             imgsz_str = ", ".join(f"{s}={v}" for s, v in f["default_imgsz"].items())
             lines.append(f"    Input: {imgsz_str}")
             if not f["available"] and f["install_hint"]:
@@ -583,11 +610,18 @@ def metadata_cmd(
         out.error(err)
         raise typer.Exit(err.exit_code)
 
-    loaded = load_untrusted_torch_file(
-        checkpoint_path,
-        map_location="cpu",
-        context="checkpoint metadata",
-    )
+    try:
+        loaded = load_untrusted_torch_file(
+            checkpoint_path,
+            map_location="cpu",
+            context="checkpoint metadata",
+        )
+    except Exception as exc:
+        exit_with_error(
+            out,
+            "model_load_failed",
+            f"{path} is not a readable PyTorch checkpoint: {exc}",
+        )
     errors = validate_checkpoint_metadata(loaded, strict=False)
     metadata = {}
     if isinstance(loaded, dict):

@@ -12,8 +12,10 @@ import torch
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.serialization import warn_on_metadata_schema_version
 from .base import (
+    classify_eval_kwargs,
     BaseBackend,
     ImageSize,
+    _imgsz_hw,
     _read_metadata_imgsz,
     _read_pose_metadata,
     _read_runtime_metadata,
@@ -143,7 +145,11 @@ class TensorRTBackend(BaseBackend):
             model_family,
             artifact=f"TensorRT metadata sidecar {sidecar_path}",
         )
-        imgsz = self._read_static_input_imgsz(self.input_shape) or metadata_imgsz or 640
+        static_imgsz = self._read_static_input_imgsz(self.input_shape)
+        self._fixed_input_hw = (
+            _imgsz_hw(static_imgsz) if static_imgsz is not None else None
+        )
+        imgsz = static_imgsz or metadata_imgsz or 640
         if not self._metadata:
             inferred_task = self._detect_task_from_filename()
             if inferred_task is not None:
@@ -169,8 +175,8 @@ class TensorRTBackend(BaseBackend):
             task=resolved_task,
             supported_tasks=supported_tasks,
             default_task=default_task,
-            crop_pct=runtime_metadata.get("crop_pct"),
-            interpolation=runtime_metadata.get("interpolation"),
+            **classify_eval_kwargs(runtime_metadata),
+            letterbox_pad=runtime_metadata.get("letterbox_pad"),
             num_bins=runtime_metadata.get("num_bins"),
             bin_width_deg=runtime_metadata.get("bin_width_deg"),
             offset_deg=runtime_metadata.get("offset_deg"),
@@ -238,6 +244,8 @@ class TensorRTBackend(BaseBackend):
         # sidecar is authoritative, but filename hints keep sidecar-less engines
         # routed to the right family when the user keeps LibreYOLO's names.
         stem = Path(self.model_path).stem.lower()
+        if "tinyformer" in stem:
+            return "tinyformer"
         if "deimv2" in stem:
             return "deimv2"
         # "ec" must be a whole token, not a bare substring (else "detector"/
@@ -343,6 +351,7 @@ class TensorRTBackend(BaseBackend):
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run TensorRT inference and return outputs as a list."""
+        self._check_fixed_input_size(blob, "TensorRT")
         outputs_dict = self._infer(blob)
         return [outputs_dict[name] for name in self.output_names]
 
@@ -421,6 +430,7 @@ class TensorRTBackend(BaseBackend):
             batched_input = np.concatenate(
                 [t.numpy() for t in tensors], axis=0
             )  # (B, C, H, W)
+            self._check_fixed_input_size(batched_input, "TensorRT")
             batch_outputs = self._infer(batched_input)
 
             for idx, (
@@ -520,7 +530,7 @@ class TensorRTBackend(BaseBackend):
                 if save:
                     self._save_annotated(result, orig_img, save_name, output_path)
 
-                results.append(result)
+                results.append(self._keep_source(result, orig_img, image_path))
 
         return results
 
@@ -562,6 +572,8 @@ class TensorRTBackend(BaseBackend):
             return "deim"
         elif self.model_family == "deimv2":
             return "deimv2"
+        elif self.model_family == "tinyformer":
+            return "tinyformer"
         elif self.model_family == "rtdetr":
             return "rtdetr"
         elif self.model_family == "ec":

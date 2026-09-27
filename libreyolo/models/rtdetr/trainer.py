@@ -12,6 +12,7 @@ from typing import Dict, List, Type
 import torch
 
 from libreyolo.training.distributed import is_main_process
+from libreyolo.training.optim import build_optimizer
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig
 from libreyolo.training.scheduler import (
@@ -337,15 +338,16 @@ class RTDETRTrainer(DETREncoderCudaGraphMixin, BaseTrainer):
 
         optimizer_name = config.optimizer.lower()
         if optimizer_name == "adamw":
-            optimizer = torch.optim.AdamW(
-                opt_groups, lr=base_lr, betas=betas, weight_decay=base_wd
+            optimizer = build_optimizer(
+                torch.optim.AdamW, opt_groups, lr=base_lr, betas=betas, weight_decay=base_wd
             )
         elif optimizer_name == "adam":
-            optimizer = torch.optim.Adam(
-                opt_groups, lr=base_lr, betas=betas, weight_decay=base_wd
+            optimizer = build_optimizer(
+                torch.optim.Adam, opt_groups, lr=base_lr, betas=betas, weight_decay=base_wd
             )
         elif optimizer_name == "sgd":
-            optimizer = torch.optim.SGD(
+            optimizer = build_optimizer(
+                torch.optim.SGD,
                 opt_groups,
                 lr=base_lr,
                 momentum=config.momentum,

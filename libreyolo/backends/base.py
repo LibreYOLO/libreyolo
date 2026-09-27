@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple, Union
+from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -27,27 +27,29 @@ from ..postprocess.yolo9 import (
     _YOLO9_MAX_NMS_CANDIDATES,
     postprocess as yolo9_postprocess,
 )
+from ..postprocess.ppyoloe import PPYOLOE_PRE_NMS_TOP_K
 from ..postprocess.yolonas import (
+    YOLO_NAS_OBB_PRE_NMS_TOP_K,
+    YOLO_NAS_OBB_RESIZE_SIZE,
     YOLO_NAS_PRE_NMS_TOP_K,
     YOLO_NAS_POSE_RESIZE_SIZE,
     YOLO_NAS_RESIZE_SIZE,
 )
 from ..preprocess import as_batched_input, as_input
+from ..preprocess.letterbox import (
+    DEFAULT_LETTERBOX_PAD,
+    LETTERBOX_PADS,
+    letterbox_geometry,
+)
 from ..preprocess.yolo9 import preprocess_image
 from ..preprocess.yolonas import (
     preprocess_image as yolonas_preprocess_image,
+    preprocess_obb_image as yolonas_preprocess_obb_image,
     preprocess_pose_image as yolonas_preprocess_pose_image,
 )
 from ..preprocess.yolox import preprocess_image as yolox_preprocess_image
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
-from ..utils.drawing import (
-    draw_boxes,
-    draw_keypoints,
-    draw_masks,
-    draw_obb,
-    draw_points,
-    draw_semantic_mask,
-)
+from ..utils.drawing import draw_results
 from ..utils.general import (
     COCO_CLASSES,
     get_safe_stem,
@@ -56,8 +58,13 @@ from ..utils.general import (
 )
 from ..utils.image_loader import ImageLoader
 from ..utils.model_info import build_model_info, format_model_info
-from ..utils.predict_args import normalize_predict_kwargs
+from ..utils.predict_args import (
+    normalize_classes,
+    normalize_predict_kwargs,
+    postprocess_max_det,
+)
 from ..utils.results import (
+    keep_source,
     Boxes,
     DepthMap,
     EdgeMap,
@@ -113,13 +120,6 @@ def _zeros_f32(shape):
     return np.zeros(shape, dtype=np.float32)
 
 
-def _zeros_bool(length):
-    """All-False mask, as a ``torch.Tensor`` if torch is installed."""
-    if _torch_installed():
-        return torch.zeros(length, dtype=torch.bool)
-    return np.zeros(length, dtype=bool)
-
-
 def _bool_array(data):
     """Boolean mask stack, as a ``torch.Tensor`` if torch is installed."""
     if _torch_installed():
@@ -155,13 +155,34 @@ _RECTANGULAR_BACKEND_FAMILIES = {
     "yolo9_e2e",
     "yolo9_p2",
     "nafnet",
+    # Every PP-LiteSeg size is natively rectangular (512x1024 / 768x1536), so
+    # its exported artifacts always carry a rectangular imgsz_h/imgsz_w pair.
+    "ppliteseg",
     "realesrgan",
+    "quicksrnet",
 }
+
+# (family, task) pairs with a rectangular runtime canvas although the family's
+# other tasks are square. GTR semantic slides square windows over 1024x2048.
+_RECTANGULAR_BACKEND_TASKS = {("gtr", "semantic")}
+
+
+def _allows_rectangular_backend(model_family, task=None) -> bool:
+    family = (model_family or "").lower()
+    return family in _RECTANGULAR_BACKEND_FAMILIES or (
+        family,
+        task,
+    ) in _RECTANGULAR_BACKEND_TASKS
 
 # Real-ESRGAN integer upscale factor per size, used by scale-aware restore decode.
 _REALESRGAN_BACKEND_SCALE = {"x4": 4, "x2": 2, "x4t": 4}
 _SWINIR_BACKEND_SCALE = {"s": 4, "m": 4, "l": 4}
+_QUICKSRNET_BACKEND_SCALE = {"m2": 2}
 _REALESRGAN_BACKEND_PAD_MULTIPLE = {"x4": 1, "x2": 2, "x4t": 1}
+
+# Depth families whose native preprocessing resizes the [0, 1] float image
+# bicubically; exported backends use the same kernel.
+_DEPTH_CUBIC_RESIZE_FAMILIES = {"midas", "depth_anything"}
 
 # Families removed from LibreYOLO. An exported artifact whose metadata still names
 # one of these must fail loudly instead of being silently parsed as YOLO9.
@@ -225,13 +246,13 @@ def _read_metadata_imgsz(
             raise MetadataImageSizeError(
                 f"{artifact} has invalid imgsz_h/imgsz_w metadata."
             ) from e
-        if (
-            _is_rectangular_imgsz(imgsz)
-            and (model_family or "").lower() not in _RECTANGULAR_BACKEND_FAMILIES
+        if _is_rectangular_imgsz(imgsz) and not _allows_rectangular_backend(
+            model_family, meta.get("task")
         ):
             raise NotImplementedError(
                 "Rectangular exported-backend inference is currently supported "
-                "for YOLO9-family, HRNet, NAFNet, and Real-ESRGAN exports only. "
+                "for YOLO9-family, HRNet, NAFNet, QuickSRNet, and "
+                "Real-ESRGAN exports only. "
                 f"{artifact} declares model_family={model_family or 'unknown'!r}."
             )
         return imgsz
@@ -272,13 +293,34 @@ def _read_runtime_metadata(meta: dict) -> dict[str, Any]:
         runtime_meta["crop_pct"] = float(meta["crop_pct"])
     if meta.get("interpolation") is not None:
         runtime_meta["interpolation"] = str(meta["interpolation"])
+    # Classification eval pipeline (#886); parsed by classify_eval_kwargs.
+    for key in ("norm_mean", "norm_std", "resize_mode"):
+        if meta.get(key) is not None:
+            runtime_meta[key] = meta[key]
     if meta.get("num_bins") is not None:
         runtime_meta["num_bins"] = int(meta["num_bins"])
     if meta.get("bin_width_deg") is not None:
         runtime_meta["bin_width_deg"] = float(meta["bin_width_deg"])
     if meta.get("offset_deg") is not None:
         runtime_meta["offset_deg"] = float(meta["offset_deg"])
+    if meta.get("letterbox_pad") is not None:
+        runtime_meta["letterbox_pad"] = str(meta["letterbox_pad"])
     return runtime_meta
+
+
+def _validate_letterbox_pad(value) -> str:
+    """YOLO9 letterbox placement from export metadata.
+
+    Artifacts without the key (every export before 1.6) keep top-left pad.
+    """
+    if value is None or value == "":
+        return DEFAULT_LETTERBOX_PAD
+    if value not in LETTERBOX_PADS:
+        raise ValueError(
+            f"Invalid letterbox_pad metadata {value!r}; expected one of "
+            f"{', '.join(LETTERBOX_PADS)}."
+        )
+    return value
 
 
 def _nms_numpy(
@@ -356,9 +398,11 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
         "detr",
         "dinodetr",
         "dfine",
+        "gtr",
         "domedetr",
         "deim",
         "deimv2",
+        "tinyformer",
         "ec",
         "faster_rcnn",
         "mask_rcnn",
@@ -411,6 +455,70 @@ def _rfdetr_keypoint_log_mean_trace_np(active_keypoints: np.ndarray) -> np.ndarr
     )
 
 
+# Classification eval settings for exports written before ``norm_mean`` /
+# ``norm_std`` / ``resize_mode`` were recorded (#886). New exports carry them in
+# metadata; these reproduce what exported-backend predict() already used for
+# those families. Inlined so backends never import ``libreyolo.models``.
+_IMAGENET_MEAN = (0.485, 0.456, 0.406)
+_IMAGENET_STD = (0.229, 0.224, 0.225)
+
+_LEGACY_CLASSIFY_EVAL = {
+    "clip": {
+        "crop_pct": 1.0,
+        "interpolation": "bicubic",
+        "norm_mean": (0.48145466, 0.4578275, 0.40821073),
+        "norm_std": (0.26862954, 0.26130258, 0.27577711),
+    },
+    "siglip2": {
+        "crop_pct": 1.0,
+        "interpolation": "bilinear",
+        "norm_mean": (0.5, 0.5, 0.5),
+        "norm_std": (0.5, 0.5, 0.5),
+        "resize_mode": "stretch",
+    },
+    "pe": {
+        "crop_pct": 1.0,
+        "interpolation": "bilinear",
+        "norm_mean": (0.5, 0.5, 0.5),
+        "norm_std": (0.5, 0.5, 0.5),
+        "resize_mode": "stretch",
+    },
+    "vit": {
+        "crop_pct": 0.9,
+        "interpolation": "bicubic",
+        "norm_mean": (0.5, 0.5, 0.5),
+        "norm_std": (0.5, 0.5, 0.5),
+    },
+}
+
+
+def classify_eval_kwargs(metadata) -> Dict[str, Any]:
+    """Read the classification eval settings from flat export metadata.
+
+    Returns ``crop_pct`` / ``interpolation`` / ``norm_mean`` / ``norm_std`` /
+    ``resize_mode`` for :class:`BaseBackend`, ``None`` for absent keys. Values
+    may be stored as strings (ONNX, TFLite) or native types (JSON sidecars).
+    """
+    metadata = metadata or {}
+
+    def _vector(key):
+        value = metadata.get(key)
+        if value in (None, ""):
+            return None
+        if isinstance(value, str):
+            value = json.loads(value)
+        return tuple(float(v) for v in value)
+
+    crop_pct = metadata.get("crop_pct")
+    return {
+        "crop_pct": float(crop_pct) if crop_pct not in (None, "") else None,
+        "interpolation": metadata.get("interpolation") or None,
+        "norm_mean": _vector("norm_mean"),
+        "norm_std": _vector("norm_std"),
+        "resize_mode": metadata.get("resize_mode") or None,
+    }
+
+
 class BaseBackend(ABC):
     """Abstract base class for all inference backends.
 
@@ -435,12 +543,16 @@ class BaseBackend(ABC):
         default_task: str | None = None,
         crop_pct: float | None = None,
         interpolation: str | None = None,
+        norm_mean: Sequence[float] | None = None,
+        norm_std: Sequence[float] | None = None,
+        resize_mode: str | None = None,
         num_keypoints: int | None = None,
         keypoint_dim: int | None = None,
         num_keypoints_per_class: list[int] | None = None,
         num_bins: int | None = None,
         bin_width_deg: float | None = None,
         offset_deg: float | None = None,
+        letterbox_pad: str | None = None,
     ):
         self.model_path = model_path
         self.nb_classes = nb_classes
@@ -480,10 +592,19 @@ class BaseBackend(ABC):
             # Some concrete backends expose size as a computed read-only property.
             pass
         self.input_size = self.imgsz
-        # Classification eval preprocessing (from export metadata); defaults keep
-        # legacy behavior. Lets exported-backend classify inference match native.
-        self.crop_pct = crop_pct if crop_pct is not None else 0.875
-        self.interpolation = interpolation or "bilinear"
+        # Classification eval preprocessing from export metadata, so exported
+        # predict() and val() match the native model (#886). Exports written
+        # before a key existed fall back to the family's legacy values, then to
+        # the ImageNet defaults.
+        legacy = _LEGACY_CLASSIFY_EVAL.get(model_family or "", {})
+        self.crop_pct = (
+            crop_pct if crop_pct is not None else legacy.get("crop_pct", 0.875)
+        )
+        self.interpolation = interpolation or legacy.get("interpolation", "bilinear")
+        self.norm_mean = tuple(norm_mean or legacy.get("norm_mean", _IMAGENET_MEAN))
+        self.norm_std = tuple(norm_std or legacy.get("norm_std", _IMAGENET_STD))
+        self.resize_mode = resize_mode or legacy.get("resize_mode", "center_crop")
+        self.letterbox_pad = _validate_letterbox_pad(letterbox_pad)
         # Set by backends that load a model with NMS baked into the graph; such
         # models emit final (1, max_det, 6) detections instead of raw tensors.
         if not hasattr(self, "embedded_nms"):
@@ -529,14 +650,24 @@ class BaseBackend(ABC):
         Returns:
             Tuple of (input_tensor, original_img, original_size, ratio).
         """
+        if getattr(self, "input_profile", None) is not None:
+            from ..utils.event_histogram import predict_histogram
+            tensor, preview, size, ratio = predict_histogram(self, image, effective_imgsz, color_format, as_numpy=True)
+            return tensor, preview, size, ratio
+
         if self.task == "restore" or self.model_family == "nafnet":
-            if self.model_family == "realesrgan" and not getattr(
+            if self.model_family in {"realesrgan", "quicksrnet"} and not getattr(
                 self, "fixed_input_shape", False
             ):
                 return self._preprocess_restore_native(image, color_format)
             return self._preprocess_restore(image, effective_imgsz, color_format)
         if self.task == "depth":
-            return self._preprocess_depth(image, effective_imgsz, color_format)
+            return self._preprocess_depth(
+                image,
+                effective_imgsz,
+                color_format,
+                cubic=self.model_family in _DEPTH_CUBIC_RESIZE_FAMILIES,
+            )
         if self.task == "normal":
             return self._preprocess_normal(image, effective_imgsz, color_format)
         if self.task == "edge":
@@ -552,6 +683,31 @@ class BaseBackend(ABC):
                 image,
                 input_size=effective_imgsz,
                 color_format=color_format,
+            )
+        if self.model_family == "dekr" and self.task == "pose":
+            # Bottom-up: the whole frame goes in, letterboxed to the square
+            # canvas with pad value 127 and ImageNet normalization.
+            from ..preprocess.dekr import preprocess_image as dekr_preprocess_image
+
+            return dekr_preprocess_image(
+                image,
+                input_size=effective_imgsz,
+                color_format=color_format,
+            )
+        if self.model_family in {"vjepa2", "levjepa"}:
+            # These video-embedding graphs take a rank-5 clip (B, F, C, H, W). The
+            # image preprocessing below produces a rank-4 batch, which the
+            # runtime rejects with an opaque "Invalid rank" error. Fail here
+            # with something actionable instead. Feeding these graphs a clip
+            # through the exported-backend path is not wired up yet.
+            raise NotImplementedError(
+                f"Exported {self.model_family} graphs take a 5D video clip "
+                "(B, F, C, H, W), and LibreYOLO's exported-backend "
+                "preprocessing currently supplies a 4D image batch, so "
+                f"{self.task!r} inference through this path is not supported "
+                "yet. Use the PyTorch checkpoint "
+                "with LibreYOLO for clip inference, "
+                "or drive the exported graph directly with your own 5D input."
             )
         if self.task in {"classify", "embed"}:
             return self._preprocess_classify(image, effective_imgsz, color_format)
@@ -573,6 +729,10 @@ class BaseBackend(ABC):
         elif self.model_family == "yolonas":
             if self.task == "pose":
                 return yolonas_preprocess_pose_image(
+                    image, input_size=effective_imgsz, color_format=color_format
+                )
+            if self.task == "obb":
+                return yolonas_preprocess_obb_image(
                     image, input_size=effective_imgsz, color_format=color_format
                 )
             return yolonas_preprocess_image(
@@ -645,6 +805,17 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format, self.model_size
             )
             return tensor, img, size, 1.0
+        elif self.model_family in ("tinyformer", "gtr"):
+            if self.model_family == "gtr" and self.task == "obb":
+                from ..models.gtr.obb import preprocess_obb_image
+
+                return preprocess_obb_image(
+                    image, _imgsz_hw(effective_imgsz), color_format
+                )
+            tensor, img, size = self._preprocess_tinyformer(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
         elif self.model_family == "ec":
             tensor, img, size = self._preprocess_ec(
                 image, effective_imgsz, color_format
@@ -659,6 +830,14 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
+        elif self.model_family == "ppyoloe":
+            from ..models.ppyoloe.utils import (
+                preprocess_image as ppyoloe_preprocess_image,
+            )
+
+            return ppyoloe_preprocess_image(
+                image, input_size=effective_imgsz, color_format=color_format
+            )
         elif self.model_family == "picodet":
             tensor, img, size = self._preprocess_picodet(
                 image, effective_imgsz, color_format
@@ -702,65 +881,42 @@ class BaseBackend(ABC):
             return _y7_pre(image, input_size=sz, color_format=color_format)
         else:
             tensor, img, size = preprocess_image(
-                image, input_size=effective_imgsz, color_format=color_format
+                image,
+                input_size=effective_imgsz,
+                color_format=color_format,
+                letterbox_pad=getattr(self, "letterbox_pad", None),
             )
             return tensor, img, size, 1.0
 
-    def _preprocess_classify(self, image, input_size, color_format):
-        """Classification preprocessing: ImageNet-style resize/crop/normalize.
+    def _get_eval_transform(self, img_size=None, crop_pct=None):
+        """The classification eval transform, shared by predict and val (#886).
 
-        Uses the per-family ``crop_pct``/``interpolation`` recorded in export
-        metadata so exported-backend inference matches native predict()/val().
+        Rebuilt from the export metadata (see :func:`classify_eval_kwargs`), so
+        exported-backend ``predict()`` and ``val()`` preprocess exactly like the
+        native model. ``crop_pct`` overrides the recorded value for ``val()``.
         """
         from ..data.classify_dataset import build_classify_transforms
 
-        h, w = _imgsz_hw(input_size)
+        h, w = _imgsz_hw(img_size if img_size is not None else self.imgsz)
         if h != w:
             raise NotImplementedError(
                 "Classification exported-backend inference supports square imgsz only."
             )
-
-        img = ImageLoader.load(image, color_format=color_format)
-        original_size = img.size
-        transform_kwargs = {
-            "crop_pct": getattr(self, "crop_pct", 0.875),
-            "interpolation": getattr(self, "interpolation", "bilinear"),
-        }
-        if self.model_family == "clip":
-            from ..models.clip.model import CLIP_MEAN, CLIP_STD
-
-            transform_kwargs.update(
-                mean=CLIP_MEAN,
-                std=CLIP_STD,
-                crop_pct=1.0,
-                interpolation="bicubic",
-            )
-        elif self.model_family == "siglip2":
-            from ..models.siglip2.model import SIGLIP_MEAN, SIGLIP_STD
-
-            transform_kwargs.update(
-                mean=SIGLIP_MEAN,
-                std=SIGLIP_STD,
-                crop_pct=1.0,
-                interpolation="bilinear",
-                square_resize=True,
-            )
-        elif self.model_family == "vit":
-            from ..models.vit.utils import VIT_MEAN, VIT_STD
-
-            transform_kwargs.update(
-                mean=VIT_MEAN,
-                std=VIT_STD,
-                crop_pct=0.9,
-                interpolation="bicubic",
-            )
-        transform = build_classify_transforms(
+        return build_classify_transforms(
             h,
             augment=False,
-            **transform_kwargs,
+            mean=self.norm_mean,
+            std=self.norm_std,
+            crop_pct=self.crop_pct if crop_pct is None else crop_pct,
+            interpolation=self.interpolation,
+            square_resize=self.resize_mode == "stretch" and crop_pct is None,
         )
-        img_tensor = transform(img).unsqueeze(0)
-        return img_tensor, img, original_size, 1.0
+
+    def _preprocess_classify(self, image, input_size, color_format):
+        """Classification preprocessing: the export's eval transform."""
+        img = ImageLoader.load(image, color_format=color_format)
+        img_tensor = self._get_eval_transform(input_size)(img).unsqueeze(0)
+        return img_tensor, img, img.size, 1.0
 
     def _preprocess_semantic(self, image, input_size, color_format):
         """Dense semantic preprocessing for fixed-canvas exported graphs."""
@@ -773,7 +929,8 @@ class BaseBackend(ABC):
             from ..models.pidnet.model import preprocess_numpy
 
             chw, ratio = preprocess_numpy(arr, (input_h, input_w))
-        elif self.model_family == "segformer":
+        elif self.model_family in ("segformer", "gtr"):
+            # GTR semantic shares the dense-dataset letterbox geometry.
             from ..models.segformer.model import preprocess_numpy
 
             chw, ratio = preprocess_numpy(arr, (input_h, input_w))
@@ -796,10 +953,12 @@ class BaseBackend(ABC):
             ratio,
         )
 
-    @staticmethod
-    def _preprocess_matte(image, input_size, color_format):
-        """BiRefNet fixed-canvas ImageNet-normalized matte preprocessing."""
-        from ..models.birefnet.utils import preprocess_numpy
+    def _preprocess_matte(self, image, input_size, color_format):
+        """Family-specific fixed-canvas ImageNet-normalized matte preprocessing."""
+        if self.model_family == "ben2":
+            from ..models.ben2.utils import preprocess_numpy
+        else:
+            from ..models.birefnet.utils import preprocess_numpy
 
         input_h, input_w = _imgsz_hw(input_size)
         if input_h != input_w:
@@ -866,7 +1025,7 @@ class BaseBackend(ABC):
         return img_tensor.unsqueeze(0).float(), original_img, original_size, 1.0
 
     @staticmethod
-    def _preprocess_depth(image, input_size, color_format):
+    def _preprocess_depth(image, input_size, color_format, cubic=False):
         """Depth preprocessing for fixed-shape exported runtimes.
 
         Native depth prediction keeps the aspect ratio (short side to the
@@ -875,14 +1034,26 @@ class BaseBackend(ABC):
         depth map is resized back to the original canvas after inference
         (ADR 0006). Padding is deliberately avoided: padded pixels would leak
         fake depth context into real pixels through the receptive field.
+        ``cubic`` resizes the ``[0, 1]`` float image bicubically, as the
+        native MiDaS and Depth Anything V2 preprocessing does.
         """
         input_h, input_w = _imgsz_hw(input_size)
         img = ImageLoader.load(image, color_format=color_format)
         original_size = img.size
         original_img = img.copy()
         arr = np.asarray(img, dtype=np.uint8)
-        resized = cv2.resize(arr, (input_w, input_h), interpolation=cv2.INTER_LINEAR)
-        chw = resized.astype(np.float32).transpose(2, 0, 1) / 255.0
+        if cubic:
+            resized = cv2.resize(
+                arr.astype(np.float32) / 255.0,
+                (input_w, input_h),
+                interpolation=cv2.INTER_CUBIC,
+            )
+            chw = resized.transpose(2, 0, 1)
+        else:
+            resized = cv2.resize(
+                arr, (input_w, input_h), interpolation=cv2.INTER_LINEAR
+            )
+            chw = resized.astype(np.float32).transpose(2, 0, 1) / 255.0
         img_tensor = torch.from_numpy(np.ascontiguousarray(chw)).unsqueeze(0)
         return img_tensor, original_img, original_size, 1.0
 
@@ -939,13 +1110,15 @@ class BaseBackend(ABC):
             return _REALESRGAN_BACKEND_SCALE.get(str(self.model_size), 1)
         if self.model_family == "swinir":
             return _SWINIR_BACKEND_SCALE.get(str(self.model_size), 1)
+        if self.model_family == "quicksrnet":
+            return _QUICKSRNET_BACKEND_SCALE.get(str(self.model_size), 1)
         return 1
 
     def _preprocess_restore_native(self, image, color_format):
-        """Native-resolution restore preprocessing for dynamic Real-ESRGAN graphs.
+        """Native-resolution preprocessing for dynamic super-resolution graphs.
 
         Loads RGB [0, 1], reflect-pads bottom/right to the network divisibility
-        factor (2 for the x2 pixel-unshuffle variant, 1 otherwise). The dynamic
+        factor (2 for Real-ESRGAN x2, 1 otherwise). The dynamic
         ONNX graph accepts any spatial size, so no fixed canvas is imposed.
         """
 
@@ -1139,6 +1312,22 @@ class BaseBackend(ABC):
         return img_tensor, original_img, original_size
 
     @staticmethod
+    def _preprocess_tinyformer(image, input_size, color_format):
+        """TinyFormer preprocessing; every size uses ImageNet normalization."""
+        from ..preprocess.deimv2 import preprocess_numpy as deimv2_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = deimv2_preprocess_numpy(
+            np.array(img), input_size, imagenet_norm=True
+        )
+        img_tensor = as_batched_input(img_chw)
+
+        return img_tensor, original_img, original_size
+
+    @staticmethod
     def _preprocess_ec(image, input_size, color_format):
         """EC preprocessing: plain resize + RGB + /255 + ImageNet (mean, std)."""
         from ..preprocess.ec import preprocess_numpy as ec_preprocess_numpy
@@ -1264,6 +1453,15 @@ class BaseBackend(ABC):
                 max_det=max_det,
             )
 
+        if self.model_family == "dekr" and self.task == "pose":
+            return self._parse_dekr_pose(
+                all_outputs,
+                original_size,
+                conf,
+                ratio=ratio,
+                max_det=max_det,
+            )
+
         if self.model_family == "yolox":
             boxes, scores, cls = self._parse_yolox(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio
@@ -1277,6 +1475,17 @@ class BaseBackend(ABC):
                     orig_w,
                     orig_h,
                     conf,
+                    ratio=ratio,
+                    max_det=max_det,
+                )
+            if self.task == "obb":
+                return self._parse_yolonas_obb(
+                    all_outputs,
+                    effective_imgsz,
+                    orig_w,
+                    orig_h,
+                    conf,
+                    iou=iou,
                     ratio=ratio,
                     max_det=max_det,
                 )
@@ -1374,6 +1583,29 @@ class BaseBackend(ABC):
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
             return boxes, scores, cls, None
+        elif self.model_family in ("tinyformer", "gtr"):
+            if self.model_family == "gtr" and self.task == "pose":
+                return self._parse_ec_pose(
+                    all_outputs, orig_w, orig_h, conf, max_det=max_det
+                )
+            if self.model_family == "gtr" and self.task == "segment":
+                # Same head and logit-threshold decode as EC seg.
+                return self._parse_ec_segment(
+                    all_outputs, orig_w, orig_h, conf, max_det=max_det
+                )
+            if self.model_family == "gtr" and self.task == "obb":
+                return self._parse_rtdetr_obb(
+                    all_outputs,
+                    effective_imgsz,
+                    orig_w,
+                    orig_h,
+                    conf,
+                    max_det=max_det,
+                )
+            boxes, scores, cls = self._parse_dfine(
+                all_outputs, orig_w, orig_h, conf, max_det=max_det
+            )
+            return boxes, scores, cls, None
         elif self.model_family == "ec":
             if self.task == "segment":
                 return self._parse_ec_segment(
@@ -1399,6 +1631,11 @@ class BaseBackend(ABC):
                 )
             boxes, scores, cls = self._parse_rtdetr(
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
+            )
+            return boxes, scores, cls, None
+        elif self.model_family == "ppyoloe":
+            boxes, scores, cls = self._parse_ppyoloe(
+                all_outputs, effective_imgsz, orig_w, orig_h, conf
             )
             return boxes, scores, cls, None
         elif self.model_family == "picodet":
@@ -1466,6 +1703,46 @@ class BaseBackend(ABC):
             keypoint_threshold=0.2,
             oks_threshold=0.9,
             max_det=min(int(max_det), 1),
+        )
+        return (
+            decoded["boxes"],
+            decoded["scores"],
+            decoded["classes"],
+            None,
+            None,
+            decoded["keypoints"],
+        )
+
+    @staticmethod
+    def _parse_dekr_pose(
+        all_outputs: list,
+        original_size: Tuple[int, int],
+        conf: float,
+        *,
+        ratio: float | None,
+        max_det: int,
+    ):
+        """Decode exported DEKR heatmap logits and offsets into flat poses.
+
+        The graph emits only the two dense maps; centre extraction, offset
+        decode, pose NMS and the derived-box adapter all run here, so an
+        exported artifact returns the same Results as the native model.
+        """
+        if len(all_outputs) != 2:
+            raise ValueError(
+                "DEKR pose backend requires two outputs (heatmap_logits, "
+                f"offsets), got {len(all_outputs)}."
+            )
+        from ..postprocess.dekr import DEKR_MAX_NUM_PEOPLE, postprocess_dekr
+
+        heatmap = torch.as_tensor(np.asarray(all_outputs[0], dtype=np.float32))
+        offsets = torch.as_tensor(np.asarray(all_outputs[1], dtype=np.float32))
+        decoded = postprocess_dekr(
+            (heatmap, offsets),
+            conf_thres=float(conf),
+            original_size=original_size,
+            ratio=float(ratio if ratio else 1.0),
+            max_det=min(int(max_det), DEKR_MAX_NUM_PEOPLE),
         )
         return (
             decoded["boxes"],
@@ -1659,6 +1936,51 @@ class BaseBackend(ABC):
         return boxes, max_scores, class_ids
 
     @staticmethod
+    def _parse_ppyoloe(all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse PP-YOLOE output: boxes ``(B, A, 4)`` xyxy + scores ``(B, A, C)``.
+
+        The graph emits both tensors already decoded into input-canvas pixels,
+        so this only mirrors the native selection sequence: multi-label
+        confidence filter, pre-NMS top-k, then the stretch-resize inverse with
+        independent x and y scales. NMS runs downstream in the shared path.
+        """
+        first = np.asarray(all_outputs[0])[0]
+        second = np.asarray(all_outputs[1])[0]
+        if first.shape[-1] == 4:
+            boxes_all, scores = first, second
+        else:
+            boxes_all, scores = second, first
+
+        # Multi-label per anchor, matching postprocess/ppyoloe.py: an anchor
+        # with two strong classes emits both candidates.
+        valid = scores > conf
+        if not valid.any():
+            return (
+                np.empty((0, 4), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+                np.empty((0,), dtype=np.int64),
+            )
+        box_indices, class_ids = np.nonzero(valid)
+        max_scores = scores[box_indices, class_ids]
+
+        nms_top_k = PPYOLOE_PRE_NMS_TOP_K
+        if max_scores.shape[0] > nms_top_k:
+            top = np.argpartition(max_scores, -nms_top_k)[-nms_top_k:]
+            box_indices, class_ids, max_scores = (
+                box_indices[top],
+                class_ids[top],
+                max_scores[top],
+            )
+
+        boxes = boxes_all[box_indices].astype(np.float32, copy=True)
+        input_h, input_w = _imgsz_hw(effective_imgsz)
+        boxes[:, [0, 2]] *= orig_w / input_w
+        boxes[:, [1, 3]] *= orig_h / input_h
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+        return boxes, max_scores, class_ids.astype(np.int64)
+
+    @staticmethod
     def _parse_efficientdet(
         all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio=1.0
     ):
@@ -1708,7 +2030,11 @@ class BaseBackend(ABC):
         class_ids = det[:, 5].astype(np.int64)
 
         input_h, input_w = _imgsz_hw(effective_imgsz)
-        ratio = min(input_h / orig_h, input_w / orig_w)
+        ratio, _, _, dx, dy = letterbox_geometry(
+            orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
+        )
+        boxes[:, [0, 2]] -= dx
+        boxes[:, [1, 3]] -= dy
         boxes /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
@@ -2030,6 +2356,7 @@ class BaseBackend(ABC):
                 original_size=(orig_w, orig_h),
                 max_det=max_det,
                 letterbox=True,
+                letterbox_pad=getattr(self, "letterbox_pad", None),
             )
             boxes = np.asarray(parsed["boxes"], dtype=np.float32).reshape(-1, 4)
             max_scores = np.asarray(parsed["scores"], dtype=np.float32)
@@ -2103,9 +2430,15 @@ class BaseBackend(ABC):
             boxes[:, [0, 2]] *= orig_w / input_w
             boxes[:, [1, 3]] *= orig_h / input_h
         else:
-            ratio = min(input_h / orig_h, input_w / orig_w)
+            ratio, _, _, dx, dy = letterbox_geometry(
+                orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
+            )
+            boxes[:, [0, 2]] -= dx
+            boxes[:, [1, 3]] -= dy
             boxes[:, :4] /= ratio
             if keypoints is not None:
+                keypoints[..., 0] -= dx
+                keypoints[..., 1] -= dy
                 keypoints[..., :2] /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
@@ -2195,6 +2528,136 @@ class BaseBackend(ABC):
         max_scores = max_scores[valid_boxes]
         class_ids = class_ids[valid_boxes]
         return boxes, max_scores, class_ids
+
+    @staticmethod
+    def _parse_yolonas_obb(
+        all_outputs,
+        effective_imgsz,
+        orig_w,
+        orig_h,
+        conf,
+        iou: float = 0.25,
+        ratio: Optional[float] = None,
+        max_det: int = 300,
+    ):
+        """Parse YOLO-NAS-R OBB output: [boxes(B,N,5) cxcywhr, scores(B,N,nc)].
+
+        Mirrors ``libreyolo.postprocess.yolonas.postprocess_obb`` step for step
+        (threshold -> top-K -> undo the longest-side rescale and bottom-right
+        pad -> canonicalise -> exact rotated NMS) but in numpy, so the ONNX
+        backend stays importable without torch.
+        """
+        from ..data.obb import canonicalize_xywhr, xywhr_iou
+
+        empty = (
+            np.zeros((0, 4), dtype=np.float32),
+            np.zeros((0,), dtype=np.float32),
+            np.zeros((0,), dtype=np.int64),
+            None,
+            np.zeros((0, 7), dtype=np.float32),
+        )
+
+        first = np.asarray(all_outputs[0][0], dtype=np.float32)
+        second = np.asarray(all_outputs[1][0], dtype=np.float32)
+        if first.shape[-1] == 5 and second.shape[-1] != 5:
+            boxes_raw, scores = first, second
+        elif second.shape[-1] == 5 and first.shape[-1] != 5:
+            boxes_raw, scores = second, first
+        else:
+            # A five-class checkpoint is indistinguishable by shape alone; the
+            # LibreYOLO export wrapper always emits (boxes, scores).
+            boxes_raw, scores = first, second
+
+        max_scores = scores.max(axis=1)
+        class_ids = scores.argmax(axis=1).astype(np.int64)
+        mask = max_scores >= conf
+        boxes_raw = boxes_raw[mask]
+        max_scores = max_scores[mask]
+        class_ids = class_ids[mask]
+        if boxes_raw.shape[0] == 0:
+            return empty
+
+        if YOLO_NAS_OBB_PRE_NMS_TOP_K and max_scores.size > YOLO_NAS_OBB_PRE_NMS_TOP_K:
+            keep = np.argpartition(-max_scores, YOLO_NAS_OBB_PRE_NMS_TOP_K - 1)[
+                :YOLO_NAS_OBB_PRE_NMS_TOP_K
+            ]
+            keep = keep[np.argsort(-max_scores[keep])]
+            boxes_raw = boxes_raw[keep]
+            max_scores = max_scores[keep]
+            class_ids = class_ids[keep]
+
+        input_h, input_w = _imgsz_hw(effective_imgsz)
+        if ratio is None or ratio <= 0:
+            resize_size = min(YOLO_NAS_OBB_RESIZE_SIZE, input_h, input_w)
+            ratio = min(resize_size / orig_h, resize_size / orig_w)
+        # Bottom-right padding leaves no offset to subtract, and the rescale is
+        # uniform, so centres and sides divide by the ratio while the angle is
+        # unchanged.
+        xywhr = boxes_raw.astype(np.float32, copy=True)
+        xywhr[:, :4] /= np.float32(ratio)
+        xywhr[:, 0] = np.clip(xywhr[:, 0], 0, orig_w)
+        xywhr[:, 1] = np.clip(xywhr[:, 1], 0, orig_h)
+
+        # Non-finite rows are dropped here rather than in NMS: the native path
+        # filters them inside rotated_nms_keep_indices, and canonicalization
+        # would otherwise carry NaN centres and angles into public results.
+        valid = (
+            np.isfinite(xywhr).all(axis=1)
+            & np.isfinite(max_scores)
+            & (xywhr[:, 2] > 0)
+            & (xywhr[:, 3] > 0)
+        )
+        xywhr = xywhr[valid]
+        max_scores = max_scores[valid]
+        class_ids = class_ids[valid]
+        if xywhr.shape[0] == 0:
+            return empty
+
+        xywhr = np.stack([canonicalize_xywhr(row) for row in xywhr]).astype(np.float32)
+
+        order = np.argsort(-max_scores).tolist()
+        keep_idx: List[int] = []
+        while order and len(keep_idx) < max_det:
+            current = order.pop(0)
+            keep_idx.append(current)
+            order = [
+                candidate
+                for candidate in order
+                if class_ids[candidate] != class_ids[current]
+                or xywhr_iou(xywhr[current], xywhr[candidate]) <= iou
+            ]
+        if not keep_idx:
+            return empty
+
+        keep_arr = np.asarray(keep_idx, dtype=np.int64)
+        xywhr = xywhr[keep_arr]
+        max_scores = max_scores[keep_arr]
+        class_ids = class_ids[keep_arr]
+
+        half_w = xywhr[:, 2] / 2
+        half_h = xywhr[:, 3] / 2
+        cos = np.abs(np.cos(xywhr[:, 4]))
+        sin = np.abs(np.sin(xywhr[:, 4]))
+        extent_x = cos * half_w + sin * half_h
+        extent_y = sin * half_w + cos * half_h
+        boxes = np.stack(
+            [
+                np.clip(xywhr[:, 0] - extent_x, 0, orig_w),
+                np.clip(xywhr[:, 1] - extent_y, 0, orig_h),
+                np.clip(xywhr[:, 0] + extent_x, 0, orig_w),
+                np.clip(xywhr[:, 1] + extent_y, 0, orig_h),
+            ],
+            axis=-1,
+        ).astype(np.float32)
+        obb = np.concatenate(
+            [
+                xywhr,
+                max_scores[:, None].astype(np.float32),
+                class_ids[:, None].astype(np.float32),
+            ],
+            axis=-1,
+        ).astype(np.float32)
+        return boxes, max_scores.astype(np.float32), class_ids, None, obb
 
     def _parse_yolonas_pose(
         self,
@@ -2767,9 +3230,9 @@ class BaseBackend(ABC):
             )
             selected = grouped[np.arange(len(class_ids)), class_ids]
 
-            # GroupPose exports use internal class 0 for no-keypoint detections
-            # and keypoint-bearing classes after it. Public pose labels are
-            # contiguous over only the keypoint-bearing classes (person -> 0).
+            # GroupPose exports reserve internal class 0 as an empty slot, and
+            # public pose class j is internal class j + 1 (person -> 0). A
+            # class with zero keypoints keeps its slot as a box-only class.
             if keypoint_counts is None:
                 keypoint_counts = np.full(
                     num_classes, max_num_keypoints, dtype=np.int64
@@ -2777,9 +3240,12 @@ class BaseBackend(ABC):
                 if self.nb_classes == num_classes - 1:
                     keypoint_counts[0] = 0
             active_counts = keypoint_counts[class_ids]
-            valid_pose_class = active_counts > 0
+            label_offset = (
+                1 if keypoint_counts.size > 1 and keypoint_counts[0] == 0 else 0
+            )
+            valid_pose_class = class_ids >= label_offset
 
-            if np.any(valid_pose_class):
+            if np.any(active_counts > 0):
                 trace_alpha = 0.2
                 log_mean_traces = np.zeros(len(selected), dtype=np.float32)
                 for class_idx, active_count in enumerate(keypoint_counts):
@@ -2793,12 +3259,17 @@ class BaseBackend(ABC):
                     )
                 max_scores = max_scores * np.exp(-trace_alpha * log_mean_traces)
 
+            # Report the declared ``num_keypoints`` rows when every class uses
+            # fewer slots than the dataset skeleton.
+            output_keypoints = max(
+                max_num_keypoints, int(getattr(self, "num_keypoints", 0) or 0)
+            )
             keypoints_selected = np.zeros(
-                (len(selected), max_num_keypoints, 3),
+                (len(selected), output_keypoints, 3),
                 dtype=np.float32,
             )
             active_keypoint_mask = np.zeros(
-                (len(selected), max_num_keypoints),
+                (len(selected), output_keypoints),
                 dtype=bool,
             )
             for row_idx, active_count in enumerate(active_counts):
@@ -2811,13 +3282,9 @@ class BaseBackend(ABC):
                 ]
                 active_keypoint_mask[row_idx, :active_count] = True
 
-            kp_classes = np.flatnonzero(keypoint_counts > 0)
-            remap = np.full(num_classes, -1, dtype=class_ids.dtype)
-            remap[kp_classes] = np.arange(len(kp_classes), dtype=class_ids.dtype)
-
             boxes_raw = boxes_raw[valid_pose_class]
             max_scores = max_scores[valid_pose_class]
-            class_ids = remap[class_ids[valid_pose_class]]
+            class_ids = class_ids[valid_pose_class] - label_offset
             if angles_raw is not None:
                 angles_raw = angles_raw[valid_pose_class]
             if keypoints_raw is not None:
@@ -3389,7 +3856,7 @@ class BaseBackend(ABC):
         orig_w, orig_h = original_size
         logits_t = torch.from_numpy(np.ascontiguousarray(logits))
         align_corners = False
-        if self.model_family in {"pidnet", "segformer"}:
+        if self.model_family in {"pidnet", "segformer", "gtr"}:
             input_h, input_w = _imgsz_hw(effective_imgsz)
             scale_y = logits_t.shape[-2] / input_h
             scale_x = logits_t.shape[-1] / input_w
@@ -3622,6 +4089,7 @@ class BaseBackend(ABC):
                 "efficientdet",
                 "fcos",
                 "picodet",
+                "ppyoloe",
                 "retinanet",
                 "rtmdet",
                 "ssd",
@@ -3645,6 +4113,20 @@ class BaseBackend(ABC):
         if self.model_family == "fcos":
             max_det = min(int(max_det), 100)
 
+        # Filter classes before the max_det cut, so the cut cannot keep only
+        # other classes.
+        if classes is not None and len(boxes) > 0:
+            cls_keep = np.isin(np.asarray(class_ids), np.asarray(list(classes)))
+            boxes = boxes[cls_keep]
+            max_scores = max_scores[cls_keep]
+            class_ids = class_ids[cls_keep]
+            if masks is not None:
+                masks = masks[cls_keep]
+            if obb is not None:
+                obb = obb[cls_keep]
+            if keypoints is not None:
+                keypoints = keypoints[cls_keep]
+
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
             boxes = boxes[top_indices]
@@ -3661,21 +4143,6 @@ class BaseBackend(ABC):
         conf_t = _f32(max_scores)
         cls_t = _f32(class_ids)
         obb_t = _f32(obb) if obb is not None else None
-
-        if classes is not None and len(boxes_t) > 0:
-            cls_mask = _zeros_bool(len(cls_t))
-            for cid in classes:
-                cls_mask |= cls_t == cid
-            boxes_t = boxes_t[cls_mask]
-            conf_t = conf_t[cls_mask]
-            cls_t = cls_t[cls_mask]
-            mask_np = _to_blob(cls_mask)
-            if masks is not None:
-                masks = masks[mask_np]
-            if obb_t is not None:
-                obb_t = obb_t[cls_mask]
-            if keypoints is not None:
-                keypoints = keypoints[mask_np]
 
         masks_obj = None
         if masks is not None and len(masks) > 0:
@@ -3705,83 +4172,16 @@ class BaseBackend(ABC):
 
     def _save_annotated(self, result, original_img, image_path, output_path):
         """Save annotated image to disk."""
-        annotated_img = original_img
         forced_ext = None
-        if result.boxes is None and getattr(result, "probs", None) is not None:
-            pass
-        elif result.boxes is None and getattr(result, "restored", None) is not None:
-            annotated_img = Image.fromarray(result.restored.array, mode="RGB")
-        elif result.boxes is None and getattr(result, "depth_map", None) is not None:
-            from ..utils.drawing import draw_depth_map
-
-            depth_data = result.depth_map.data
-            if isinstance(depth_data, torch.Tensor):
-                depth_data = depth_data.cpu().numpy()
-            annotated_img = draw_depth_map(original_img, depth_data)
-        elif result.boxes is None and getattr(result, "normal_map", None) is not None:
-            from ..utils.drawing import draw_normal_map
-
-            normal_data = result.normal_map.data
-            if isinstance(normal_data, torch.Tensor):
-                normal_data = normal_data.cpu().numpy()
-            annotated_img = draw_normal_map(original_img, normal_data)
-        elif result.boxes is None and getattr(result, "edges", None) is not None:
-            from ..utils.drawing import draw_edge_map
-
-            edge_data = result.edges.data
-            if isinstance(edge_data, torch.Tensor):
-                edge_data = edge_data.cpu().numpy()
-            annotated_img = draw_edge_map(original_img, edge_data)
-        elif (
-            result.boxes is None and getattr(result, "semantic_mask", None) is not None
-        ):
-            mask_data = result.semantic_mask.data
-            if isinstance(mask_data, torch.Tensor):
-                mask_data = mask_data.cpu().numpy()
-            annotated_img = draw_semantic_mask(original_img, mask_data)
-        elif result.boxes is None and getattr(result, "matte", None) is not None:
+        if result.boxes is None and getattr(result, "matte", None) is not None:
             annotated_img = Image.fromarray(result.cutout(original_img), mode="RGBA")
             forced_ext = "png"
-        elif result.boxes is None and getattr(result, "points", None) is not None:
-            if len(result.points) > 0:
-                annotated_img = draw_points(
-                    original_img,
-                    result.points.xy.tolist(),
-                    result.points.conf.tolist(),
-                    result.points.cls.tolist(),
-                    class_names=result.names,
-                )
-        elif len(result) > 0:
-            if result.masks is not None:
-                annotated_img = draw_masks(
-                    annotated_img,
-                    result.masks.data.numpy(),
-                    result.boxes.cls.tolist(),
-                )
-            if result.obb is not None:
-                annotated_img = draw_obb(
-                    annotated_img,
-                    result.obb.xywhr.tolist(),
-                    result.obb.conf.tolist(),
-                    result.obb.cls.tolist(),
-                    class_names=self.names,
-                )
-            else:
-                annotated_img = draw_boxes(
-                    annotated_img,
-                    result.boxes.xyxy.tolist(),
-                    result.boxes.conf.tolist(),
-                    result.boxes.cls.tolist(),
-                    class_names=self.names,
-                )
-            if result.keypoints is not None:
-                kpts_np = result.keypoints.data
-                if isinstance(kpts_np, torch.Tensor):
-                    kpts_np = kpts_np.cpu().numpy()
-                annotated_img = draw_keypoints(annotated_img, kpts_np)
+        else:
+            annotated_img = draw_results(result, original_img)
 
         ext = forced_ext or (
-            Path(image_path).suffix.lstrip(".") if image_path else "jpg"
+            "png" if isinstance(getattr(self, "input_profile", None), dict)
+            else Path(image_path).suffix.lstrip(".") if image_path else "jpg"
         )
         if not ext:
             ext = "jpg"
@@ -3824,6 +4224,10 @@ class BaseBackend(ABC):
         if img_size is None:
             img_size = self._get_input_size()
 
+        if getattr(self, "input_profile", None) is not None:
+            from ..utils.event_histogram import val_transform
+            return val_transform(self)
+
         from ..validation.preprocessors import (
             DEIMValPreprocessor,
             DEIMv2DINOValPreprocessor,
@@ -3836,6 +4240,7 @@ class BaseBackend(ABC):
             EfficientDetValPreprocessor,
             LWDETRValPreprocessor,
             PICODETValPreprocessor,
+            PPYOLOEValPreprocessor,
             RFDETRValPreprocessor,
             RTDETRValPreprocessor,
             RTDETRv2OBBValPreprocessor,
@@ -3859,6 +4264,14 @@ class BaseBackend(ABC):
             )
             return preprocessor_cls(img_size=_imgsz_hw(img_size))
 
+        if self.model_family == "gtr" and self.task == "obb":
+            from ..models.gtr.obb import GTROBBValPreprocessor
+
+            return GTROBBValPreprocessor(img_size=_imgsz_hw(img_size))
+
+        if self.model_family in ("tinyformer", "gtr"):
+            return DEIMv2DINOValPreprocessor(img_size=_imgsz_hw(img_size))
+
         preprocessor_cls = {
             "deim": DEIMValPreprocessor,
             "deformable_detr": DeformableDETRValPreprocessor,
@@ -3870,6 +4283,7 @@ class BaseBackend(ABC):
             "efficientdet": EfficientDetValPreprocessor,
             "lwdetr": LWDETRValPreprocessor,
             "picodet": PICODETValPreprocessor,
+            "ppyoloe": PPYOLOEValPreprocessor,
             "rfdetr": RFDETRValPreprocessor,
             "rtdetr": RTDETRValPreprocessor,
             "rtdetrv2": (
@@ -3885,19 +4299,46 @@ class BaseBackend(ABC):
             "yolonas": YOLONASValPreprocessor,
             "yolox": YOLOXValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
+        if preprocessor_cls in (YOLO9ValPreprocessor, YOLO9E2EValPreprocessor):
+            return preprocessor_cls(
+                img_size=_imgsz_hw(img_size),
+                letterbox_pad=getattr(self, "letterbox_pad", None),
+            )
         return preprocessor_cls(img_size=_imgsz_hw(img_size))
 
     def _resolve_predict_imgsz(self, imgsz: ImageSize | None = None) -> ImageSize:
         effective = _normalize_imgsz(imgsz if imgsz is not None else self.imgsz)
-        if (
-            _is_rectangular_imgsz(effective)
-            and (self.model_family or "").lower() not in _RECTANGULAR_BACKEND_FAMILIES
+        if _is_rectangular_imgsz(effective) and not _allows_rectangular_backend(
+            self.model_family, getattr(self, "task", None)
         ):
             raise NotImplementedError(
                 "Rectangular imgsz backend inference is currently supported "
-                "for YOLO9-family, HRNet, NAFNet, and Real-ESRGAN exports only."
+                "for YOLO9-family, HRNet, NAFNet, QuickSRNet, and "
+                "Real-ESRGAN exports only."
             )
         return effective
+
+    def _check_fixed_input_size(self, blob, runtime: str) -> None:
+        """Name both sizes when a fixed-shape export gets another input size.
+
+        ``_fixed_input_hw`` is the (H, W) a static-shape artifact was exported
+        at (None when H/W are dynamic). Runtimes reject a mismatch with their
+        own errors, which do not say what size the model expects.
+        """
+        fixed = getattr(self, "_fixed_input_hw", None)
+        shape = getattr(blob, "shape", ())
+        if fixed is None or len(shape) != 4:
+            return
+        h, w = (int(v) for v in fixed)
+        got_h, got_w = int(shape[2]), int(shape[3])
+        if (got_h, got_w) == (h, w):
+            return
+        exported = h if h == w else (h, w)
+        raise ValueError(
+            f"This {runtime} model was exported with a fixed {h}x{w} input and "
+            f"cannot run at the requested {got_h}x{got_w}. Use "
+            f"imgsz={exported}, or re-export the model at the size you need."
+        )
 
     def _forward(self, input_tensor: torch.Tensor):
         blob = _to_blob(input_tensor)
@@ -4058,6 +4499,9 @@ class BaseBackend(ABC):
         verbose: bool = True,
         *,
         plots: bool | None = None,
+        project: str | None = None,
+        name: str | None = None,
+        exist_ok: bool = False,
         **kwargs,
     ) -> Dict:
         from ..validation import (
@@ -4092,8 +4536,18 @@ class BaseBackend(ABC):
             raise NotImplementedError(
                 "Rectangular exported-backend validation is not supported yet."
             )
+        from ..validation.config import resolve_val_output_kwargs
+
+        resolve_val_output_kwargs(kwargs, project, name, exist_ok)
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
+        from libreyolo.validation.config import VISUALIZE_TASKS
+
+        if kwargs.get("visualize") and self.task not in VISUALIZE_TASKS:
+            raise ValueError(
+                f"visualize=True is not supported for task '{self.task}'; "
+                f"it covers {', '.join(VISUALIZE_TASKS)}"
+            )
 
         validation_device = device or (
             self.device
@@ -4148,11 +4602,18 @@ class BaseBackend(ABC):
         else:
             validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)
-        return validator()
+        from libreyolo.validation.base import with_image_metrics
+
+        return with_image_metrics(validator(), validator)
 
     # =========================================================================
     # Inference pipeline
     # =========================================================================
+
+    @staticmethod
+    def _keep_source(result, original_img, source=None):
+        """Keep the decoded source image on a result so ``plot()`` works."""
+        return keep_source(result, original_img, source)
 
     def _predict_single(
         self,
@@ -4198,12 +4659,16 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "embed":
-            return self._build_embedding_result(
-                all_outputs,
-                orig_shape=orig_shape,
-                image_path=image_path,
+            return self._keep_source(
+                self._build_embedding_result(
+                    all_outputs,
+                    orig_shape=orig_shape,
+                    image_path=image_path,
+                ),
+                original_img,
+                image_path,
             )
         if self.task == "restore":
             result = self._build_restore_result(
@@ -4219,7 +4684,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "depth":
             result = self._build_depth_result(
                 all_outputs,
@@ -4234,7 +4699,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "normal":
             result = self._build_normal_result(
                 all_outputs,
@@ -4249,7 +4714,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "edge":
             result = self._build_edge_result(
                 all_outputs,
@@ -4264,7 +4729,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "matte":
             result = self._build_matte_result(
                 all_outputs,
@@ -4279,7 +4744,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "gaze":
             result = self._build_gaze_result(
                 all_outputs,
@@ -4293,7 +4758,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "semantic":
             result = self._build_semantic_result(
                 all_outputs,
@@ -4310,7 +4775,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "point":
             result = self._build_point_result(
                 all_outputs,
@@ -4328,7 +4793,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
 
         parsed = self._parse_outputs(
             all_outputs,
@@ -4337,7 +4802,7 @@ class BaseBackend(ABC):
             conf,
             ratio=ratio,
             iou=iou,
-            max_det=max_det,
+            max_det=postprocess_max_det(max_det, classes),
         )
         boxes, max_scores, class_ids, masks, obb, keypoints = (
             self._unpack_parsed_outputs(parsed)
@@ -4365,7 +4830,7 @@ class BaseBackend(ABC):
                 output_path,
             )
 
-        return result
+        return self._keep_source(result, original_img, image_path)
 
     def _supports_batched_inference(self) -> bool:
         """Whether ``_run_inference`` accepts stacked (N, C, H, W) blobs.
@@ -4638,7 +5103,7 @@ class BaseBackend(ABC):
                     conf,
                     ratio=ratio,
                     iou=iou,
-                    max_det=max_det,
+                    max_det=postprocess_max_det(max_det, classes),
                 )
                 boxes, max_scores, class_ids, masks, obb, keypoints = (
                     self._unpack_parsed_outputs(parsed)
@@ -4659,7 +5124,7 @@ class BaseBackend(ABC):
 
             if save:
                 self._save_annotated(result, original_img, save_name, output_path)
-            results.append(result)
+            results.append(self._keep_source(result, original_img, image_path))
         return results
 
     # =========================================================================
@@ -4698,6 +5163,7 @@ class BaseBackend(ABC):
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Run inference on images, directories, videos, or screen captures."""
         normalize_predict_kwargs(kwargs)
+        classes = normalize_classes(classes)
         if device not in (None, "", "auto", self.device):
             logger.warning(
                 "Backend was loaded on device=%s; predict(device=%s) is ignored. "
@@ -4708,6 +5174,9 @@ class BaseBackend(ABC):
             )
 
         source_spec = classify_source(source)
+        if isinstance(getattr(self, "input_profile", None), dict):
+            from ..utils.event_histogram import check_predict_options
+            check_predict_options(source_spec, augment=kwargs.get("augment", False) or kwargs.get("tiling", False))
 
         # Handle finite video input.
         if source_spec.kind == SourceKind.VIDEO:
@@ -4773,7 +5242,11 @@ class BaseBackend(ABC):
         if source_spec.kind == SourceKind.IMAGE_BATCH:
             images = list(source_spec.items)
         elif source_spec.kind == SourceKind.DIRECTORY:
-            images = ImageLoader.collect_images(source_spec.source)
+            if getattr(self, "input_profile", None) is not None:
+                from libreyolo.utils.event_histogram import collect_histograms
+                images = collect_histograms(source_spec.source)
+            else:
+                images = ImageLoader.collect_images(source_spec.source)
             if not images:
                 return iter(()) if stream else []
 
@@ -4832,7 +5305,7 @@ class BaseBackend(ABC):
         source_label = str(source) if source_label is None else source_label
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
-        def predict_frame(pil_img):
+        def predict_frame_result(pil_img):
             input_tensor, original_img, original_size, ratio = self._preprocess(
                 pil_img, effective_imgsz, "rgb"
             )
@@ -4919,7 +5392,7 @@ class BaseBackend(ABC):
                 conf,
                 ratio=ratio,
                 iou=iou,
-                max_det=max_det,
+                max_det=postprocess_max_det(max_det, classes),
             )
             boxes, max_scores, class_ids, masks, obb, keypoints = (
                 self._unpack_parsed_outputs(parsed)
@@ -4937,6 +5410,9 @@ class BaseBackend(ABC):
                 classes=classes,
                 max_det=max_det,
             )
+
+        def predict_frame(pil_img):
+            return self._keep_source(predict_frame_result(pil_img), pil_img)
 
         yield from run_video_inference(
             source,

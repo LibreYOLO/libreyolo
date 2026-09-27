@@ -50,15 +50,24 @@ class TestResolveModelName:
         ("short_name", "advertised_name", "weight_name"),
         [
             ("clip-b32", "clip-b32-cls", "LibreCLIPb32-cls.pt"),
+            ("ddcolor-t", "ddcolor-t-restore", "LibreDDColort-restore.pt"),
+            ("ddcolor-l", "ddcolor-l-restore", "LibreDDColorl-restore.pt"),
             (
                 "depth_anything-s",
                 "depth_anything-s-depth",
                 "LibreDepthAnythingV2s-depth.pt",
             ),
             ("fomo-s", "fomo-s-point", "LibreFOMOs-point.pt"),
+            (
+                "hvi_cidnet-t",
+                "hvi_cidnet-t-restore",
+                "LibreHVICIDNett-restore.pt",
+            ),
+            ("lama-b", "lama-b-restore", "LibreLaMab-restore.pt"),
             ("midas-s", "midas-s-depth", "LibreMiDaSs-depth.pt"),
             ("siglip2-b16", "siglip2-b16-cls", "LibreSigLIP2b16-cls.pt"),
             ("vit-ti", "vit-ti-cls", "LibreViTti-cls.pt"),
+            ("vitmatte-s", "vitmatte-s-matte", "LibreViTMattes-matte.pt"),
             ("zipdepth-b", "zipdepth-b-depth", "LibreZipDepthb-depth.pt"),
         ],
     )
@@ -110,6 +119,23 @@ class TestResolveModelName:
 
         assert cli_config.resolve_model_name("lazy-s") == "LibreLazys.pt"
         assert cli_config.resolve_model_name("lazy-s-sem") == "LibreLazys.pt"
+
+    def test_shared_checkpoint_tasks_get_no_cli_name(self):
+        """CLIP/SigLIP2/PE embed reuse the -cls file; no -embed name exists."""
+        names = set(cli_config.get_all_cli_names())
+        assert "clip-b16-cls" in names
+        assert not any(
+            name.startswith(("clip-", "siglip2-", "pe-")) and name.endswith("-embed")
+            for name in names
+        )
+        assert resolve_model_name("clip-b16-embed") == "clip-b16-embed"
+
+    def test_weight_unavailable_reason(self):
+        assert cli_config.weight_unavailable_reason("yolo9-s") is None
+        assert cli_config.weight_unavailable_reason("facerec-l") is None
+        assert cli_config.weight_unavailable_reason("best.pt") is None
+        assert "lost upstream" in cli_config.weight_unavailable_reason("yolo1-t")
+        assert "Gaze360" in cli_config.weight_unavailable_reason("l2cs-r50")
 
     def test_case_insensitive(self):
         assert resolve_model_name("YOLOX-S") == "LibreYOLOXs.pt"
@@ -299,6 +325,136 @@ class TestBuildTrainKwargs:
         assert "pretrained" not in kwargs
         assert "val" not in kwargs
         assert "unknown" not in kwargs
+
+    def test_rfdetr_direct_mapping_keeps_single_cls(self, tmp_path):
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            {
+                "project": str(tmp_path),
+                "name": "single-cls",
+                "exist_ok": True,
+                "single_cls": True,
+            },
+            user_provided={"single_cls"},
+        )
+
+        assert kwargs["single_cls"] is True
+
+    def test_compile_reaches_both_flagship_train_kwargs(self, tmp_path):
+        assert build_train_kwargs({"compile": "default"})["compile"] == "default"
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            {"project": str(tmp_path), "name": "c", "exist_ok": True, "compile": "default"}
+        )
+        assert kwargs["compile"] == "default"
+
+    def test_rfdetr_cli_run_dir_is_not_incremented_twice(self, monkeypatch, tmp_path):
+        """The CLI pre-increments and creates the run dir, so the wrapper must
+        write into that exact dir instead of incrementing it again."""
+        rfdetr_model = pytest.importorskip("libreyolo.models.rfdetr.model")
+        from libreyolo.models.rfdetr.config import RFDETRConfig
+        from libreyolo.training.trainer import BaseTrainer
+
+        class _SaveDirTrainer:
+            """Resolves save_dir exactly like BaseTrainer.setup() on rank 0."""
+
+            def __init__(self, model, wrapper_model=None, **kwargs):
+                self.config = RFDETRConfig(
+                    data=kwargs["data"],
+                    project=kwargs["project"],
+                    name=kwargs["name"],
+                    exist_ok=kwargs["exist_ok"],
+                )
+
+            def train(self):
+                return {"save_dir": str(BaseTrainer._get_save_dir(self))}
+
+        monkeypatch.setattr(rfdetr_model, "RFDETRTrainer", _SaveDirTrainer)
+
+        wrapper = rfdetr_model.LibreRFDETR.__new__(rfdetr_model.LibreRFDETR)
+        wrapper.model = object()
+        wrapper.size = "n"
+        wrapper.nb_classes = 2
+        wrapper.input_size = 560
+        wrapper.task = "detect"
+
+        params = {"project": str(tmp_path), "name": "rfdetr_exp", "exist_ok": False}
+        for expected in ("rfdetr_exp", "rfdetr_exp2"):
+            kwargs = cli_config._build_rfdetr_train_kwargs(params)
+            assert kwargs["output_dir"] == str(tmp_path / expected)
+            result = wrapper.train(data="data.yaml", **kwargs)
+            assert result["save_dir"] == str(tmp_path / expected)
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "rfdetr_exp",
+            "rfdetr_exp2",
+        ]
+
+    @pytest.mark.parametrize("resume", [True, "path"], ids=["resume=true", "resume=path"])
+    def test_rfdetr_cli_resume_writes_into_the_source_run(self, tmp_path, resume):
+        checkpoint = tmp_path / "runs" / "rf" / "weights" / "last.pt"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"")
+        params = {
+            "project": str(tmp_path / "runs" / "train"),
+            "name": "rfdetr_exp",
+            "exist_ok": False,
+            "resume": True if resume is True else str(checkpoint),
+        }
+
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            params, model_path=str(checkpoint), user_provided={"resume"}
+        )
+
+        assert kwargs["output_dir"] == str(tmp_path / "runs" / "rf")
+        assert kwargs["exist_ok"] is True
+        assert kwargs["resume"] == str(checkpoint)
+        assert not (tmp_path / "runs" / "train").exists()
+
+    def test_rfdetr_cli_resume_forwards_only_user_options(self, tmp_path):
+        """CLI defaults (epochs, batch, lr0, ...) overrode the saved settings
+        of a resumed RF-DETR run and could reject it as already finished."""
+        checkpoint = tmp_path / "runs" / "rf" / "weights" / "last.pt"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"")
+        params = {
+            "project": str(tmp_path / "runs" / "train"),
+            "name": "rfdetr_exp",
+            "exist_ok": False,
+            "resume": True,
+            "epochs": 100,
+            "batch": 4,
+            "lr0": 1e-4,
+            "workers": 8,
+            "patience": 50,
+            "ema": True,
+        }
+
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            params, model_path=str(checkpoint), user_provided={"resume", "epochs"}
+        )
+
+        assert kwargs["epochs"] == 100
+        assert not {"batch", "lr0", "num_workers", "use_ema", "early_stopping",
+                    "early_stopping_patience"} & kwargs.keys()
+        new_run = cli_config._build_rfdetr_train_kwargs(
+            {**params, "resume": False}, user_provided=set()
+        )
+        assert (new_run["batch"], new_run["num_workers"]) == (4, 8)
+
+    def test_rfdetr_cli_resume_keeps_an_explicit_run_name(self, tmp_path):
+        checkpoint = tmp_path / "runs" / "rf" / "weights" / "last.pt"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"")
+        params = {
+            "project": str(tmp_path / "out"),
+            "name": "continued",
+            "exist_ok": False,
+            "resume": True,
+        }
+
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            params, model_path=str(checkpoint), user_provided={"resume", "name"}
+        )
+
+        assert kwargs["output_dir"] == str(tmp_path / "out" / "continued")
 
 
 class TestGetCfgDefaults:

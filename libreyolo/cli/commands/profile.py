@@ -12,7 +12,7 @@ Built for agents. Every subcommand prints results to stdout and supports
 
 ``run`` and ``infer`` emit the same self-contained ``profile.json`` (schema
 ``libreyolo.profile.analysis/v1``), so every lens below works on either. The
-profiler only measures — read the verdict, change the training/config/code
+profiler only measures: read the verdict, change the training/config/code
 yourself, re-run, ``compare``, repeat until images/sec is maxed (or latency is
 minimised).
 """
@@ -286,7 +286,7 @@ def infer_cmd(
         st = a.get("stages_ms") or {}
         print(f"stages   preprocess {st.get('preprocess')} ms | forward {st.get('forward')} ms | "
               f"postprocess/NMS {st.get('postprocess')} ms")
-        print(f">> {str(a.get('bound')).upper()} — {a.get('bound_why')}")
+        print(f">> {str(a.get('bound')).upper()}: {a.get('bound_why')}")
         print(f"profile: {pj}")
         print(f"next:    libreyolo profile summary {pj}")
 
@@ -322,8 +322,8 @@ def summary_cmd(
     print(f"host overhead {a['host_overhead_ms_per_step']} ms/step  |  "
           f"{a['launches_per_step']} kernel launches/step")
     if a.get("memory_pressure"):
-        print("** MEMORY-PRESSURE: VRAM thrash — utilisation/throughput here are unreliable **")
-    print(f">> {str(a['bound']).upper()} — {a['bound_why']}")
+        print("** MEMORY-PRESSURE: VRAM thrash, utilisation/throughput here are unreliable **")
+    print(f">> {str(a['bound']).upper()}: {a['bound_why']}")
     print("kernel mix:")
     for c in a["categories"]:
         print(f"  {c['name']:<17} {c['pct']:5.1f}%   {c['ms_per_step']:.1f} ms/step")
@@ -339,7 +339,7 @@ def get_cmd(
     field: Optional[str] = typer.Argument(None, help="Metric name (omit to list metrics)"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Print ONE metric — minimal output for tight loops (img_per_s, forward_ms, gpu_util...)."""
+    """Print ONE metric, minimal output for tight loops (img_per_s, forward_ms, gpu_util...)."""
     a = _load(trace)
     m = a["metrics"]
     if not field:
@@ -380,7 +380,7 @@ def kernels_cmd(
     phase: Optional[str] = typer.Option(None, "--phase", help="Restrict to a phase (forward/backward/dataload/to_device/optimizer)"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Drill to individual GPU kernels — the bottom of the analysis."""
+    """Drill to individual GPU kernels, the bottom of the analysis."""
     a = _load(trace)
     if phase:
         ks = a["kernels_by_phase"].get(phase)
@@ -439,7 +439,7 @@ def compare_cmd(
     after: str = typer.Argument(..., help="new profile_trace.json"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Diff two profiles — did the change help? (the optimise-loop closer)."""
+    """Diff two profiles: did the change help? (the optimise-loop closer)."""
     a, b = _load(before), _load(after)
 
     def per_img(x):
@@ -454,7 +454,7 @@ def compare_cmd(
         sa, sb = x.get("img_per_s_std"), y.get("img_per_s_std")
         na, nb = x.get("img_per_s_n", 1), y.get("img_per_s_n", 1)
         if na < 2 or nb < 2 or sa is None or sb is None:
-            return None, "single run — use 'run --repeat N' for a significance call"
+            return None, "single run, use 'run --repeat N' for a significance call"
         se = math.sqrt(sa ** 2 / na + sb ** 2 / nb)
         return (abs(mb - ma) > 2 * se), f"|d|={abs(mb - ma):.1f} vs 2*SE={2 * se:.1f}"
 
@@ -545,4 +545,4 @@ def whatif_cmd(
     print(f"  step   {step} -> ~{new_step:.0f} ms")
     if new_imgs and cur_imgs:
         print(f"  img/s  {cur_imgs} -> ~{new_imgs:.0f}{_pct(cur_imgs, new_imgs)}")
-    print("  (rough — verify by actually profiling the change)")
+    print("  (rough, verify by actually profiling the change)")

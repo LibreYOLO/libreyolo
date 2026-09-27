@@ -97,9 +97,10 @@ def convert_weights(
 
     print("\nConversion summary:")
     print(f"  Converted: {stats['converted']} keys")
-    print(f"  Skipped (auxiliary head): {stats['skipped']} keys")
+    print(f"  Skipped (unmapped aux leftovers): {stats['skipped']} keys")
     print(f"  Failed: {stats['failed']} keys")
     print("  DFL projection is model-derived; no fixed DFL weights added")
+    print("  letterbox_pad: center (MTL training geometry)")
 
     nc = infer_nb_classes(state_dict) or 80
     names = _extract_names(weights, nc)
@@ -107,7 +108,12 @@ def convert_weights(
 
     print(f"\nSaving converted weights to {output_path}")
     wrapped = wrap_libreyolo_checkpoint(
-        converted, model_family="yolo9", size=config, nc=nc, names=names,
+        converted,
+        model_family="yolo9",
+        size=config,
+        nc=nc,
+        names=names,
+        letterbox_pad="center",
     )
     save_checkpoint(wrapped, output_path)
 

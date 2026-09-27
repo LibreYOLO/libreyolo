@@ -11,6 +11,7 @@ from .pose_validator import PoseValidator
 from .point_validator import PointValidator
 from .depth_validator import DepthValidator
 from .normal_validator import NormalValidator
+from .albedo_validator import AlbedoValidator
 from .edge_validator import EdgeValidator
 from .restore_validator import RestoreValidator
 from .matte_validator import MatteValidator
@@ -34,6 +35,7 @@ __all__ = [
     "FOMOValidator",
     "DepthValidator",
     "NormalValidator",
+    "AlbedoValidator",
     "EdgeValidator",
     "RestoreValidator",
     "MatteValidator",

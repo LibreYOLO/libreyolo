@@ -148,7 +148,28 @@ class TestVideoSource:
 
 
 class TestVideoWriter:
+    def test_rejects_frames_with_changed_dimensions(self, tmp_path, monkeypatch):
+        class FakeWriter:
+            def isOpened(self):
+                return True
+
+            def write(self, frame):
+                raise AssertionError("mismatched frame must not reach OpenCV")
+
+            def release(self):
+                pass
+
+        monkeypatch.setattr(cv2, "VideoWriter", lambda *args: FakeWriter())
+        writer = VideoWriter(tmp_path / "output.avi", fps=10.0, width=32, height=32)
+
+        with pytest.raises(ValueError, match="frame size changed"):
+            writer.write_frame(np.zeros((16, 32, 3), dtype=np.uint8))
+        writer.release()
+
     def test_mp4_prefers_h264_codec(self, tmp_path, monkeypatch):
+        from libreyolo.utils import video as video_mod
+
+        monkeypatch.setattr(video_mod, "_UNAVAILABLE_CODECS", set())
         assert _codec_candidates("output.mp4")[0] == "avc1"
 
         calls = []
@@ -178,6 +199,10 @@ class TestVideoWriter:
         assert calls == [avc1]
 
     def test_mp4_falls_back_to_mp4v(self, tmp_path, monkeypatch, caplog):
+        from libreyolo.utils import video as video_mod
+
+        monkeypatch.setattr(video_mod, "_UNAVAILABLE_CODECS", set())
+        caplog.set_level("INFO", logger="libreyolo.utils.video")
         calls = []
         avc1 = cv2.VideoWriter_fourcc(*"avc1")
         mp4v = cv2.VideoWriter_fourcc(*"mp4v")
@@ -204,7 +229,44 @@ class TestVideoWriter:
 
         assert writer.codec == "mp4v"
         assert calls == [avc1, mp4v]
-        assert "falling back to mp4v" in caplog.text
+        assert "saving" in caplog.text and "mp4v" in caplog.text
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+    def test_h264_probe_cached_per_process(self, tmp_path, monkeypatch):
+        from libreyolo.utils import video as video_mod
+
+        monkeypatch.setattr(video_mod, "_UNAVAILABLE_CODECS", set())
+        calls = []
+        mp4v = cv2.VideoWriter_fourcc(*"mp4v")
+
+        class FakeWriter:
+            def __init__(self, opened):
+                self.opened = opened
+
+            def isOpened(self):
+                return self.opened
+
+            def release(self):
+                pass
+
+        def fake_video_writer(path, fourcc, fps, size):
+            calls.append(fourcc)
+            return FakeWriter(opened=fourcc == mp4v)
+
+        monkeypatch.setattr(cv2, "VideoWriter", fake_video_writer)
+
+        VideoWriter(tmp_path / "a.mp4", fps=10.0, width=32, height=32).release()
+        VideoWriter(tmp_path / "b.mp4", fps=10.0, width=32, height=32).release()
+
+        # avc1 probed once, then skipped; mp4v opened for both files.
+        avc1 = cv2.VideoWriter_fourcc(*"avc1")
+        assert calls == [avc1, mp4v, mp4v]
+
+        # A different frame size is probed again: an H.264 encoder may reject
+        # only certain dimensions.
+        calls.clear()
+        VideoWriter(tmp_path / "c.mp4", fps=10.0, width=64, height=64).release()
+        assert calls == [avc1, mp4v]
 
     def test_write_and_read_back(self, tmp_path):
         out_path = str(tmp_path / "output.mp4")
@@ -386,3 +448,38 @@ class TestCollectVideoResults:
             collect_video_results(iter([1, 2, 3]), path, vid_stride=1)
             memory_warnings = [x for x in w if "stream=True" in str(x.message)]
             assert len(memory_warnings) == 1
+
+
+def test_collected_video_results_drop_source_frames(sample_video):
+    from PIL import Image
+
+    from libreyolo.utils.results import Results
+
+    frames = [
+        Results(boxes=None, orig_shape=(4, 4), orig_img=Image.new("RGB", (4, 4)))
+        for _ in range(3)
+    ]
+    collected = collect_video_results(iter(frames), sample_video, vid_stride=1)
+
+    assert [r.orig_img for r in collected] == [None, None, None]
+
+
+def test_collected_video_frame_plots_by_decoding_its_frame(sample_video, tmp_path, monkeypatch):
+    import torch
+
+    from libreyolo.utils.results import Boxes, Results
+
+    frames = {idx: frame for frame, idx in VideoSource(sample_video)}
+    result = Results(
+        boxes=Boxes(torch.tensor([[4.0, 4.0, 30.0, 30.0]]), torch.tensor([0.9]), torch.tensor([0.0])),
+        orig_shape=(64, 64),
+        path=sample_video,
+        names={0: "thing"},
+        frame_idx=4,
+    )
+
+    np.testing.assert_array_equal(result.plot(), result.plot(img=frames[4]))
+
+    monkeypatch.chdir(tmp_path)
+    result.plot(save=True)
+    assert (tmp_path / "results_test_video_4.jpg").exists()

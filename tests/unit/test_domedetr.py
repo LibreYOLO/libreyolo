@@ -336,16 +336,24 @@ def test_bare_filename_download_explains_itself():
     assert "no dataset suffix" in message
     assert "LibreDOMEDETRs-aitod.pt" in message
     assert "LibreDOMEDETRs-visdrone.pt" in message
-    assert "convert_domedetr_weights.py" in message
 
 
-def test_suffixed_filename_download_points_upstream():
-    """Even a canonical name is not hosted: say why and how to get it."""
-    with pytest.raises(FileNotFoundError) as excinfo:
-        LibreDOMEDETR.get_download_url("LibreDOMEDETRm-visdrone.pt")
-    message = str(excinfo.value)
-    assert "not rehosted" in message
-    assert "RicePasteM/Dome-DETR" in message
+def test_suffixed_filename_download_uses_libreyolo_mirror():
+    filename = "LibreDOMEDETRm-visdrone.pt"
+    assert LibreDOMEDETR.get_download_url(filename) == (
+        "https://huggingface.co/LibreYOLO/LibreDOMEDETRm-visdrone/"
+        f"resolve/main/{filename}"
+    )
+
+
+def test_download_notice_discloses_restricted_weight_terms():
+    notice = LibreDOMEDETR.get_download_notice(
+        "LibreDOMEDETRs-aitod.pt", "https://example.invalid/checkpoint.pt"
+    )
+    assert "ACADEMIC RESEARCH PURPOSES ONLY" in notice
+    assert "NOT covered by LibreYOLO's MIT license" in notice
+    assert "Apache-2.0" in notice
+    assert "responsible" in notice
 
 
 @pytest.mark.parametrize(

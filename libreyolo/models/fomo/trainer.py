@@ -216,9 +216,7 @@ class FOMOTrainer(BaseTrainer):
                 if save_plots is not None
                 else bool(getattr(self.config, "save_plots", False)) and is_final_epoch
             )
-            val_save_dir = (
-                str(self.save_dir / "val") if val_save_plots else None
-            )
+            val_save_dir = self._validation_save_dir()
 
             val_config = ValidationConfig(
                 data=self.config.data,
@@ -317,7 +315,6 @@ class FOMOTrainer(BaseTrainer):
             raise
 
     def _checkpoint_extra_metadata(self) -> Dict[str, Any]:
-        return {
-            "task": "point",
-            "best_metric_key": "metrics/grid_F1",
-        }
+        # Direct trainer users may omit the model wrapper, whose task would
+        # otherwise supply this value to the shared checkpoint writer.
+        return {"task": "point"}

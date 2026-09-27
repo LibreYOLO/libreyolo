@@ -1,16 +1,67 @@
 """Training configuration dataclasses for LibreYOLO."""
 
 import logging
+import math
 import warnings
 from dataclasses import asdict, dataclass, fields
+from numbers import Real
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 import yaml
 
+from libreyolo.data.utils import normalize_classes_field
 from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.image_size import normalize_imgsz
+from libreyolo.utils.plot_samples import validate_plot_samples
 
 logger = logging.getLogger(__name__)
+
+
+# ``train(compile=...)`` values besides True/False: torch.compile's modes.
+# True means "default".
+COMPILE_MODES = (
+    "default",
+    "reduce-overhead",
+    "max-autotune",
+    "max-autotune-no-cudagraphs",
+)
+
+
+def normalize_compile(value) -> Union[bool, str]:
+    """Normalize ``compile`` to ``False`` or one of :data:`COMPILE_MODES`."""
+    if isinstance(value, bool):
+        return "default" if value else False
+    if isinstance(value, str):
+        mode = value.strip().lower()
+        if mode in ("true", "1", "yes"):
+            return "default"
+        if mode in ("false", "0", "no", ""):
+            return False
+        if mode in COMPILE_MODES:
+            return mode
+    raise ValueError(
+        f"compile must be True, False or one of {', '.join(COMPILE_MODES)}; "
+        f"got {value!r}"
+    )
+
+
+def validate_class_weighting(cls_pw=0.0, class_weights=False) -> float:
+    """Validate the power option and its exclusive legacy boolean alternative."""
+    if not isinstance(class_weights, bool):
+        raise ValueError("class_weights must be True or False")
+    if (
+        isinstance(cls_pw, bool)
+        or not isinstance(cls_pw, Real)
+        or not 0.0 <= cls_pw <= 1.0
+        or not math.isfinite(cls_pw)
+    ):
+        raise ValueError("cls_pw must be a finite number in [0, 1]")
+    if class_weights and cls_pw > 0:
+        raise ValueError(
+            "Choose cls_pw>0 or class_weights=True, not both; "
+            "they use different weight normalization."
+        )
+    return float(cls_pw)
 
 
 def load_train_cfg(path) -> dict:
@@ -51,6 +102,22 @@ class TrainConfig:
     data: Optional[str] = None
     data_dir: Optional[str] = None
     imgsz: Union[int, Tuple[int, int], List[int], str] = 640
+    # Train every detection label as class 0 without changing source annotations.
+    # Supported by G0/G1 detection families only; shared API/CLI gates reject
+    # unsupported families and tasks before a trainer is built.
+    single_cls: bool = False
+    # Train on only these original dataset class ids; every other class's
+    # boxes are dropped as if never annotated. Ids are kept as-is, not
+    # compacted to a contiguous range, so predictions stay directly
+    # comparable to the original dataset/checkpoint numbering -- the model
+    # head still covers every index up to the highest kept id. Source
+    # annotation files are untouched. Supported by G0/G1 detection families
+    # only, same gate as single_cls (both can resize the classification head
+    # via _rebuild_for_new_classes when the dataset's declared nc differs
+    # from the checkpoint's).
+    # Accepts a comma-separated string too (CLI convenience, matching how
+    # device="0,1" is written), e.g. "0,3,5".
+    classes: Optional[Union[List[int], str]] = None
 
     # Training
     epochs: int = 300
@@ -63,7 +130,7 @@ class TrainConfig:
     # Single device or multi-device spec. Accepts:
     #   - "auto" / "" → auto-pick (cuda → mps → cpu)
     #   - "cpu", "mps", "0", "cuda:0", 0 → single device
-    #   - [0, 1] or "0,1" → multi-GPU, requires torchrun launch
+    #   - [0, 1] or "0,1" → automatic local multi-GPU DDP (torchrun also works)
     device: Union[str, int, List[int]] = "auto"
     # SyncBatchNorm across ranks under DDP. Off here; BatchNorm-heavy CNN
     # families (e.g. yolo9) override to True so BN statistics are computed
@@ -112,12 +179,24 @@ class TrainConfig:
     #     op (soft labels). At most one op runs per batch: MixUp is applied with
     #     probability ``mixup``, otherwise CutMix with probability ``cutmix``, so
     #     the two are additive and should sum to at most 1.
-    # Note: on the CLI, ``--mixup`` is the detection ``mixup_prob`` alias; the
-    # classification ``mixup`` knob is Python-API only (model.train(mixup=...)).
+    # Note: on the CLI, ``--mixup`` is task-aware: on a classification model it
+    # feeds this ``mixup`` field (default off), on detection models it is the
+    # ``mixup_prob`` alias. See libreyolo/cli/aliases.py and
+    # docs/classification_augmentation.md.
     auto_augment: Optional[str] = None
     erasing: float = 0.0
     mixup: float = 0.0
     cutmix: float = 0.0
+    #   - scale: RandomResizedCrop area range for training. A float is the
+    #     lower bound (upper bound 1.0), or pass an explicit (min, max).
+    #   - crop_pct: shorter-side resize ratio for the deterministic eval crop
+    #     used by the in-training validation pass. None keeps the model
+    #     family's native value, which is also what export records, so an
+    #     override here is a deliberate train/val-only choice.
+    # Kept in sync with classify_dataset.DEFAULT_CROP_SCALE by a unit test;
+    # duplicated as a literal so TrainConfig stays torchvision-free.
+    scale: Union[float, Tuple[float, float]] = (0.5, 1.0)
+    crop_pct: Optional[float] = None
 
     # Training features
     ema: bool = True
@@ -135,6 +214,15 @@ class TrainConfig:
     # differs from the captured shape (multi-scale, last partial batch) run
     # eager. See docs/training_cuda_graphs.md.
     cuda_graph: bool = False
+    # Compile the training network with torch.compile (Inductor). True means
+    # "default"; also accepts "reduce-overhead", "max-autotune" or
+    # "max-autotune-no-cudagraphs". The loss, optimizer, EMA, validation and
+    # checkpoints stay eager. CUDA single-GPU runs of families with a
+    # compiled training boundary only; other runs train eager after a
+    # warning. With cuda_graph=True (or a mode that implies it) the compiler
+    # replays CUDA graphs instead of the eager capture manager, except under
+    # gradient accumulation. See docs/training_compile.md.
+    compile: Union[bool, str] = False
     # Layer freezing. An int freezes the first N family-defined freeze groups;
     # a list freezes explicit group indices or module-name selectors; a string
     # freezes matching module/parameter names.
@@ -142,7 +230,7 @@ class TrainConfig:
     # Parameter-efficient fine-tuning. ``lora=True`` injects LoRA adapters into
     # the transformer components of supported families (RF-DETR: DINOv2
     # backbone attention; D-FINE/DEIM: encoder/decoder Linears with the CNN
-    # backbone frozen) and trains only the adapters plus the parts that must
+    # backbone frozen; see docs/lora.md for every family) and trains only the adapters plus the parts that must
     # stay dense (heads, projections), for low-VRAM fine-tuning on a custom
     # dataset. Requires the optional ``peft`` dependency
     # (``pip install "libreyolo[lora]"``). Families that do not support LoRA
@@ -178,6 +266,8 @@ class TrainConfig:
     name: str = "exp"
     exist_ok: bool = False
     save_period: int = 10
+    # Validate every N epochs and always after the final one; <= 0 (or
+    # ``val=False``) turns validation during training off.
     eval_interval: int = 10
     # Prediction/NMS cap used by validation during training.
     max_det: int = 300
@@ -189,6 +279,9 @@ class TrainConfig:
     # warning if the faster-coco-eval package is not installed.
     faster_coco_eval: bool = True
     save_plots: bool = False
+    # Sample images kept for the validation sample-image plot; 0 none,
+    # -1 all. Plot budget only, never changes what is scored (#830).
+    plot_samples: int = 8
     # Compute the family's training objective on validation batches and emit
     # metrics/loss plus its per-component values. Off by default because target
     # assignment adds validation time and memory use. Families that do not
@@ -208,6 +301,38 @@ class TrainConfig:
     # flag also enables caching in the per-epoch validation loop. 'disk' is
     # the safest choice with dataloader workers; default is off.
     cache: Union[bool, str] = False
+    # Opt-in epoch-length floor for tiny datasets. When min_samples > 0 and
+    # the training dataset has fewer images, each epoch draws min_samples
+    # samples with replacement instead of one short pass over the dataset, so
+    # per-epoch overhead (dataloader spin-up, validation, checkpointing) stops
+    # dominating wall-clock time on ~100-image datasets. Under DDP the draw is
+    # sharded across ranks (rounded up to a multiple of world_size) and
+    # reshuffled per epoch via set_epoch. Dataloader workers are clamped to
+    # the dataset length while the floor is active. 0 (the default) is off:
+    # behavior is identical to before the knob existed. Only families that
+    # build their train loader through the shared create_dataloader honor it.
+    min_samples: int = 0
+    # Opt-in LVIS-style repeat-factor sampling. Rare classes are oversampled
+    # so long-tailed sets (RF100-style) see them every epoch. Off by default:
+    # the historical uniform / DistributedSampler is unchanged. Honored by
+    # families that build the train loader through create_dataloader.
+    class_balanced: bool = False
+    # Classification-only inverse-frequency power; arithmetic mean-one weights.
+    cls_pw: float = 0.0
+    # Legacy sample-normalized weighting. Mutually exclusive with cls_pw > 0.
+    class_weights: bool = False
+    # Rolling uniform average of the N best checkpoints ranked by the
+    # watched validation metric, written to weights/average.pt at the end
+    # of training. 0 (default) is off: best.pt / last.pt are unchanged.
+    average_best: int = 0
+    # Export the model to ONNX before epoch 1 and fail the run if export
+    # breaks. Numeric compare runs only when torch and ONNX layouts match.
+    export_check: bool = False
+    # Recompute BatchNorm running stats from this many train images after
+    # the last epoch (before its validation), and refresh a historical
+    # best checkpoint if it remains selected. 0 (default) is off. No-op on
+    # LayerNorm-only families.
+    precise_bn: int = 0
     patience: int = 50
     resume: bool = False
     log_interval: int = 10
@@ -230,6 +355,7 @@ class TrainConfig:
 
     def __post_init__(self):
         self.amp_dtype = normalize_amp_dtype(self.amp_dtype)
+        self.compile = normalize_compile(self.compile)
         self.imgsz = normalize_imgsz(
             self.imgsz,
             name="imgsz",
@@ -240,22 +366,49 @@ class TrainConfig:
         if self.eval_max_det is not None:
             self.eval_max_det = int(self.eval_max_det)
             if self.eval_max_det < 1:
-                raise ValueError(
-                    f"eval_max_det must be >= 1, got {self.eval_max_det}"
-                )
+                raise ValueError(f"eval_max_det must be >= 1, got {self.eval_max_det}")
+        self.min_samples = int(self.min_samples)
+        if self.min_samples < 0:
+            raise ValueError(f"min_samples must be >= 0, got {self.min_samples}")
+        self.average_best = int(self.average_best)
+        if self.average_best < 0:
+            raise ValueError(f"average_best must be >= 0, got {self.average_best}")
+        self.precise_bn = int(self.precise_bn)
+        if self.precise_bn < 0:
+            raise ValueError(f"precise_bn must be >= 0, got {self.precise_bn}")
+        self.single_cls = bool(self.single_cls)
+        self.class_balanced = bool(self.class_balanced)
+        self.cls_pw = validate_class_weighting(self.cls_pw, self.class_weights)
+        self.export_check = bool(self.export_check)
+        self.classes = normalize_classes_field(self.classes)
+        self.plot_samples = validate_plot_samples(self.plot_samples)
 
     @classmethod
-    def from_kwargs(cls, **kwargs):
-        """Construct config, warning on unknown keys."""
+    def from_kwargs(cls, /, **kwargs):
+        """Construct config, warning on unknown keys.
+
+        ``val=False``, the ecosystem's spelling, turns validation during
+        training off (``eval_interval=0``), as the CLI ``val=false`` does.
+        ``mosaic`` and ``fliplr``, the ecosystem's and the CLI's names for
+        ``mosaic_prob`` and ``flip_prob``, are accepted too. ``cls`` is positional
+        only so an ecosystem ``cls`` loss-gain key is warned about like other
+        unknown keys instead of colliding with it.
+        """
+        val = kwargs.pop("val", True)
+        kwargs = apply_train_aliases(kwargs)
         valid = {f.name for f in fields(cls)}
         unknown = set(kwargs) - valid
         if unknown:
             warnings.warn(
-                f"Unknown training config keys (ignored): {sorted(unknown)}",
+                f"Unknown training config keys (ignored): {sorted(unknown)}"
+                + _typo_hint(unknown, valid),
                 stacklevel=2,
             )
         filtered = {k: v for k, v in kwargs.items() if k in valid}
-        return cls(**filtered)
+        config = cls(**filtered)
+        if not val:
+            config.eval_interval = 0
+        return config
 
     def to_dict(self) -> dict:
         """Convert to dict with tuples converted to lists for YAML/checkpoint."""
@@ -271,6 +424,78 @@ class TrainConfig:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
+
+
+# Ecosystem train and augmentation argument names (docs.ultralytics.com/usage/cfg).
+# An unknown key spelled exactly like one of them is an option LibreYOLO does
+# not have, not a typo, so it gets no "did you mean" hint (``lrf`` is not
+# ``lr0``, the ``cls`` loss gain is not ``cls_pw``).
+_ECOSYSTEM_TRAIN_ARGS = frozenset(
+    {
+        "model", "data", "epochs", "time", "patience", "batch", "imgsz", "save",
+        "save_period", "cache", "device", "workers", "project", "name",
+        "exist_ok", "save_dir", "pretrained", "cls_remap", "optimizer", "seed",
+        "deterministic", "verbose", "single_cls", "classes", "rect",
+        "multi_scale", "cos_lr", "close_mosaic", "resume", "amp", "quantize",
+        "fraction", "profile", "freeze", "lr0", "lrf", "momentum",
+        "weight_decay", "warmup_epochs", "warmup_momentum", "warmup_bias_lr",
+        "distill_model", "dis", "box", "cls", "cls_pw", "dfl", "pose", "kobj",
+        "rle", "angle", "dlog", "dgrad", "dlam", "nbs", "overlap_mask",
+        "mask_ratio", "dropout", "val", "nms", "plots", "compile",
+        "channels_last", "max_det", "hsv_h", "hsv_s", "hsv_v", "degrees",
+        "translate", "scale", "shear", "perspective", "flipud", "fliplr", "bgr",
+        "mosaic", "mixup", "cutmix", "copy_paste", "copy_paste_mode",
+        "auto_augment", "erasing", "augmentations",
+    }
+)
+
+
+def _typo_hint(unknown: set, valid: set) -> str:
+    """`` (did you mean 'epochs'?)`` for unknown keys close to a real one."""
+    from ..cli.errors import suggest_key
+
+    # The CLI spellings train() also accepts.
+    candidates = sorted(valid | {"mosaic", "fliplr", "val"})
+    hints = [
+        (key, suggest_key(key, candidates))
+        for key in sorted(unknown)
+        if key not in _ECOSYSTEM_TRAIN_ARGS
+    ]
+    hints = [(key, match) for key, match in hints if match]
+    if not hints:
+        return ""
+    if len(unknown) == 1:
+        return f" (did you mean {hints[0][1]!r}?)"
+    return " (did you mean " + ", ".join(
+        f"{match!r} for {key!r}" for key, match in hints
+    ) + "?)"
+
+
+def apply_train_aliases(kwargs: dict, task: str | None = None) -> dict:
+    """Map the CLI's train spellings to their TrainConfig fields.
+
+    ``mosaic`` -> ``mosaic_prob`` and ``fliplr`` -> ``flip_prob`` for every
+    task. ``mixup`` -> ``mixup_prob`` only when ``task`` is given and is not
+    ``classify``, where ``mixup`` is the batch-MixUp field itself (the CLI's
+    task-aware table in ``cli/aliases.py``). An alias and its field with
+    different values conflict.
+    """
+    from ..cli.aliases import CLASSIFY_TRAIN_ALIASES, train_aliases
+
+    aliases = dict(CLASSIFY_TRAIN_ALIASES if task is None else train_aliases(task))
+    aliases["fliplr"] = "flip_prob"
+    resolved = dict(kwargs)
+    for alias, field_name in aliases.items():
+        if alias not in resolved:
+            continue
+        value = resolved.pop(alias)
+        if field_name in resolved and resolved[field_name] != value:
+            raise ValueError(
+                f"Conflicting {alias} values: {alias}={value} and "
+                f"{field_name}={resolved[field_name]}"
+            )
+        resolved[field_name] = value
+    return resolved
 
 
 @dataclass(kw_only=True)
@@ -340,8 +565,18 @@ class YOLO9Config(TrainConfig):
     sync_bn: bool = True
     # Per-image ground-truth cap in the train transforms. Dense datasets
     # (e.g. aerial imagery) exceed the historical 100-box default; boxes
-    # beyond the cap are silently dropped, so raise it for such data.
-    max_labels: int = 100
+    # beyond the cap are silently dropped. 300 matches the MTL/YOLO-NAS
+    # recipe and is a training-only change (old checkpoints still load).
+    max_labels: int = 300
+    # PGI auxiliary-head loss weight. 0 disables the branch. Training-only;
+    # inference stays single-head. Resume of a checkpoint without ``aux.*``
+    # weights keeps the single-head graph.
+    aux_weight: float = 0.25
+    # SGD momentum at the start of warmup (MTL LinearL: 0.8 → 0.937).
+    warmup_momentum: float = 0.8
+    # Letterbox pad for new training. ``None`` inherits the loaded
+    # checkpoint stamp, or top-left when the checkpoint is unmarked.
+    letterbox_pad: Optional[str] = None
     # Copy-paste instance augmentation (segmentation task only). ``copy_paste``
     # is the per-sample probability (0 disables it); ``copy_paste_mode`` selects
     # the source: "flip" reuses the same sample mirrored, "mixup" pulls a second
@@ -404,9 +639,10 @@ class DFINEConfig(TrainConfig):
     """D-FINE-specific training defaults.
 
     Training is a v1 cut: AdamW with no-wd on norms/biases, flat LR with
-    warmup + cosine tail, hflip-only aug, no mosaic/mixup. AMP off by
-    default — D-FINE's decoder clamps activations to ±65504 (FP16 max)
-    which strongly suggests FP32 is required.
+    warmup + cosine tail, hflip-only aug, no mosaic/mixup. AMP on by
+    default: upstream's official training commands all pass ``--use-amp``,
+    and the decoder's ±65504 clamp is the FP16-range guard that makes that
+    safe (it is not evidence that FP32 is required).
     """
 
     optimizer: str = "adamw"
@@ -450,7 +686,7 @@ class DFINEConfig(TrainConfig):
     mask_match_cost: float = 1.0
     mask_dice_match_cost: float = 1.0
 
-    amp: bool = False
+    amp: bool = True
     epochs: int = 132
     name: str = "dfine_exp"
 
@@ -489,6 +725,10 @@ class DOMEDETRConfig(DFINEConfig):
     defe_density_map_weight: float = 1.0
     density_recall_penalty: float = 0.3
     defe_reg_loss_weight: float = 1.0
+
+    # Upstream's dist_train.sh trains WITHOUT --use-amp (unlike D-FINE), so
+    # Dome-DETR pins fp32 rather than inheriting D-FINE's AMP default.
+    amp: bool = False
 
     epochs: int = 160
     name: str = "domedetr_exp"
@@ -540,7 +780,8 @@ class DEIMConfig(TrainConfig):
     multi_scale: bool = True
     aug_stop_epoch_ratio: float = 0.91
 
-    amp: bool = False
+    # Upstream's official training commands pass --use-amp, same as D-FINE.
+    amp: bool = True
     epochs: int = 132
     name: str = "deim_exp"
 
@@ -783,6 +1024,51 @@ class DEIMv2Config(TrainConfig):
     name: str = "deimv2_exp"
 
 
+TINYFORMER_SIZE_DEFAULTS = {
+    # Released TinyFormer PBM COCO recipes, flattened from
+    # configs/tinyformer/tinyformer_dinov3_*_coco_pbm.yml in
+    # mmpmmpmmpjosh/TinyFormer. s/m/l/x reuse DEIMv2's DINO-size recipes
+    # verbatim; xl is TinyFormer's ViT-B addition (halved base LR).
+    "s": dict(DEIMV2_SIZE_DEFAULTS["s"]),
+    "m": dict(DEIMV2_SIZE_DEFAULTS["m"]),
+    "l": dict(DEIMV2_SIZE_DEFAULTS["l"]),
+    "x": dict(DEIMV2_SIZE_DEFAULTS["x"]),
+    "xl": {
+        "imgsz": 640,
+        "epochs": 58,
+        "batch": 32,
+        "lr0": 2.5e-4,
+        "weight_decay": 1.25e-4,
+        "warmup_iters": 2000,
+        "flat_epochs": 29,
+        "no_aug_epochs": 8,
+        "min_lr_ratio": 0.5,
+        "backbone_lr_mult": 0.02,
+        "base_size_repeat": 3,
+        "sanitize_min_size": 1,
+        "aug_stop_epoch_ratio": 50 / 58,
+        "losses": ("mal", "boxes", "local"),
+        "use_uni_set": True,
+        "change_matcher": True,
+        "iou_order_alpha": 4.0,
+        "matcher_change_epoch": 45,
+    },
+}
+
+
+@dataclass(kw_only=True)
+class TinyFormerConfig(DEIMv2Config):
+    """TinyFormer fine-tuning defaults.
+
+    TinyFormer keeps DEIMv2's Dense O2O training contract and DINOv3 optimizer
+    grouping; every size runs a DINO-lineage tower, so ImageNet normalisation
+    is unconditional. Size-specific recipes are applied by
+    ``TinyFormerTrainer`` from ``TINYFORMER_SIZE_DEFAULTS``.
+    """
+
+    name: str = "tinyformer_exp"
+
+
 @dataclass(kw_only=True)
 class ECConfig(TrainConfig):
     """EC-specific training defaults.
@@ -862,7 +1148,7 @@ class ECSegConfig(ECConfig):
     mask_downsample_ratio: int = 4
 
     @classmethod
-    def from_kwargs(cls, **kwargs):
+    def from_kwargs(cls, /, **kwargs):
         cfg = super().from_kwargs(**kwargs)
         size = str(cfg.size).lower()
         if size in {"l", "x"}:
@@ -946,8 +1232,56 @@ class YOLONASConfig(TrainConfig):
     mixup_scale: Tuple[float, float] = (0.5, 1.5)
     shear: float = 0.0
     ema_decay: float = 0.9997
-    amp: bool = False
+    # Upstream's coco2017_yolo_nas_s.yaml trains with mixed_precision: True.
+    amp: bool = True
     name: str = "yolonas_exp"
+
+
+@dataclass(kw_only=True)
+class PPYOLOEConfig(TrainConfig):
+    """PP-YOLOE training defaults.
+
+    Optimizer, weight decay, warmup shape, cosine floor, EMA decay and the
+    augmentation probabilities follow the released
+    ``coco2017_ppyoloe_train_params`` recipe. Two deliberate departures, both
+    because ``train()`` is a fine-tune entry point rather than a 500-epoch
+    from-scratch run:
+
+    - ``lr0`` defaults well below the source's from-scratch 2e-3 / 1e-3.
+      ``libreyolo.models.ppyoloe.trainer.SOURCE_RECIPE_LR0`` records the
+      per-size recipe values; pass ``lr0=`` to reproduce them.
+    - ``static_assigner_epochs=None`` scales the source's epoch-150-of-500
+      ATSS to TaskAligned switch to the requested budget. Set an integer to
+      pin it.
+    """
+
+    # BatchNorm-heavy pure CNN, same rationale as YOLO-NAS / YOLO9.
+    sync_bn: bool = True
+    optimizer: str = "adamw"
+    lr0: float = 5e-4
+    momentum: float = 0.9
+    weight_decay: float = 1e-4
+    scheduler: str = "cos"
+    warmup_epochs: int = 1
+    warmup_lr_start: float = 1e-6
+    no_aug_epochs: int = 0
+    min_lr_ratio: float = 0.1
+    # Source recipe has no mosaic; affine + mixup + flip + HSV + rot90 + BGR swap.
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.5
+    hsv_prob: float = 0.5
+    flip_prob: float = 0.5
+    rot90_prob: float = 0.5
+    rgb2bgr_prob: float = 0.25
+    degrees: float = 0.0
+    translate: float = 0.25
+    mosaic_scale: Tuple[float, float] = (0.5, 1.5)
+    mixup_scale: Tuple[float, float] = (0.5, 1.5)
+    shear: float = 0.0
+    ema_decay: float = 0.9997
+    amp: bool = False
+    static_assigner_epochs: Optional[int] = None
+    name: str = "ppyoloe_exp"
 
 
 @dataclass(kw_only=True)
@@ -1000,6 +1334,44 @@ class YOLONASPoseConfig(YOLONASConfig):
     amp: bool = True
     eval_interval: int = 1
     name: str = "yolonas_pose_exp"
+
+
+@dataclass(kw_only=True)
+class YOLONASOBBConfig(YOLONASConfig):
+    """YOLO-NAS-R (oriented boxes) training defaults.
+
+    Loss weights, assigner top-k, optimizer and schedule follow upstream's
+    DOTA recipe at the pinned YOLO-NAS-R commit
+    (``recipes/training_hyperparams/default_yolo_nas_r_train_params.yaml``):
+    AdamW at 5e-5 with weight decay 3.5e-6, cosine to 0.1 of the initial LR,
+    EMA 0.9997, no AMP, assigner top-k 12, and loss weights
+    ``classification 2.5 / iou 2.0 / dfl 0.5``.
+
+    Augmentation is flips plus HSV only -- see
+    :class:`libreyolo.data.augment.yolonas.YOLONASOBBTrainTransform` for why
+    mosaic, mixup and affine are not offered for rotated boxes.
+    """
+
+    classification_loss_weight: float = 2.5
+    iou_loss_weight: float = 2.0
+    dfl_loss_weight: float = 0.5
+    bbox_assigner_topk: int = 12
+    bbox_assigned_alpha: float = 1.0
+    bbox_assigned_beta: float = 6.0
+    use_varifocal_loss: bool = True
+    max_labels: int = 300
+
+    lr0: float = 5e-5
+    weight_decay: float = 3.5e-6
+    warmup_epochs: int = 1
+    min_lr_ratio: float = 0.1
+    epochs: int = 100
+    ema_decay: float = 0.9997
+    amp: bool = False
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    eval_interval: int = 1
+    name: str = "yolonas_obb_exp"
 
 
 @dataclass(kw_only=True)
@@ -1153,6 +1525,114 @@ class SegformerConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class PPLiteSegConfig(TrainConfig):
+    """PP-LiteSeg training defaults — the source Cityscapes recipe.
+
+    SGD (momentum 0.9, weight decay 5e-4) with the STDC backbone at ``lr0`` and
+    every other parameter at ``lr0 * head_lr_mult``; polynomial decay (power
+    0.9) after 10 warmup epochs; EMA at 0.9999; mixed precision off, as the
+    released recipe specifies. ``lr0=0.01`` is the source value for an
+    *effective* batch of 32 (8 per GPU across 4 GPUs) — scale it if you train
+    at a different effective batch.
+
+    ``imgsz`` here is the train crop, which is not the validation canvas for
+    the 75 sizes: ``LibrePPLiteSeg.train()`` fills it from the size's recipe
+    and validation runs at ``semantic_val_imgsz``.
+    """
+
+    optimizer: str = "sgd"
+    lr0: float = 0.01
+    momentum: float = 0.9
+    weight_decay: float = 5e-4
+    # Non-backbone LR multiplier (source `multiply_head_lr: 10.`).
+    head_lr_mult: float = 10.0
+    zero_weight_decay_on_bias_and_bn: bool = True
+
+    scheduler: str = "poly"
+    poly_power: float = 0.9
+    warmup_epochs: int = 10
+    warmup_lr_start: float = 0.0
+    min_lr_ratio: float = 0.0
+
+    # Edge-attention kernel of the compound loss (source `edge_kernel: 5`).
+    edge_kernel: int = 5
+
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    flip_prob: float = 0.5
+    degrees: float = 0.0
+    translate: float = 0.0
+    shear: float = 0.0
+    # Photometric jitter is family-local (LibrePPLiteSeg.semantic_photometric);
+    # SemanticDataset never reads config.hsv_prob, so declaring it here would
+    # be a knob that silently does nothing.
+
+    ema: bool = True
+    ema_decay: float = 0.9999
+    # The released recipe trains in full precision; opting into AMP changes it.
+    amp: bool = False
+
+    imgsz: Union[int, Tuple[int, int], List[int], str] = (512, 1024)
+    epochs: int = 800
+    batch: int = 8
+    eval_interval: int = 1
+
+    name: str = "ppliteseg_exp"
+
+
+@dataclass(kw_only=True)
+class UNetConfig(TrainConfig):
+    """U-Net training defaults — the mmseg Cityscapes UNet-S5-D16 recipe.
+
+    SGD (momentum 0.9, weight decay 5e-4) with polynomial decay (power 0.9)
+    after a short warmup; EMA on; mixed precision off, matching the released
+    full-precision Cityscapes schedule. ``lr0=0.01`` is the source value for
+    an effective batch of 16 (4 per GPU across 4 GPUs in the 4x4 config) —
+    scale it if you train at a different effective batch.
+
+    ``imgsz`` is the train crop (512x1024), sampled with the family's
+    ``rescale_crop`` recipe (source rescale 0.5..2.0, random crop, cat_max_ratio
+    0.75); validation runs whole frames at ``semantic_val_imgsz`` (1024x2048).
+    Auxiliary CE is weighted 0.4 via ``aux_weight``.
+    """
+
+    # BatchNorm-heavy CNN: sync BN stats across ranks under DDP.
+    sync_bn: bool = True
+    optimizer: str = "sgd"
+    lr0: float = 0.01
+    momentum: float = 0.9
+    weight_decay: float = 5e-4
+    nesterov: bool = False
+    zero_weight_decay_on_bias_and_bn: bool = False
+
+    scheduler: str = "poly"
+    poly_power: float = 0.9
+    warmup_epochs: int = 2
+    warmup_lr_start: float = 0.0
+    min_lr_ratio: float = 0.0
+
+    aux_weight: float = 0.4
+
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    flip_prob: float = 0.5
+    degrees: float = 0.0
+    translate: float = 0.0
+    shear: float = 0.0
+
+    ema: bool = True
+    ema_decay: float = 0.999
+    amp: bool = False
+
+    imgsz: Union[int, Tuple[int, int], List[int], str] = (512, 1024)
+    epochs: int = 160
+    batch: int = 4
+    eval_interval: int = 1
+
+    name: str = "unet_exp"
+
+
+@dataclass(kw_only=True)
 class LingBotVisionConfig(TrainConfig):
     """LingBot-Vision semantic training defaults — the report's linear probe.
 
@@ -1233,4 +1713,3 @@ class FOMOConfig(TrainConfig):
     distance_tolerance: float = 1.5
 
     name: str = "fomo_exp"
-

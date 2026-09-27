@@ -6,9 +6,13 @@ from typing import Optional
 import typer
 
 from ..command_utils import (
+    exit_if_out_of_range,
+    exit_imgsz_error,
     exit_stage_error,
     exit_with_error,
     help_json_callback,
+    is_device_op_error,
+    is_imgsz_error,
     load_model_or_exit,
     parse_imgsz_str,
     resolve_model_or_exit,
@@ -37,6 +41,9 @@ def export_cmd(
     batch: int = typer.Option(1, help="Export batch size"),
     half: bool = typer.Option(False, help="FP16 precision"),
     int8: bool = typer.Option(False, help="INT8 quantization"),
+    quantize: Optional[str] = typer.Option(
+        None, help="Precision: 16 (FP16), 8 (INT8) or 32 (FP32); replaces half/int8"
+    ),
     dynamic: bool = typer.Option(False, help="Dynamic input shapes (ONNX)"),
     simplify: bool = typer.Option(True, help="ONNX graph simplification"),
     nms: bool = typer.Option(
@@ -75,6 +82,7 @@ def export_cmd(
 ) -> None:
     """Export a model to a deployment format."""
     out = OutputHandler(json_mode=json_output, quiet=quiet)
+    exit_if_out_of_range(out, batch=batch, conf=conf, iou=iou, max_det=max_det)
 
     # Resolve format aliases (engine -> tensorrt, litert -> tflite) so JSON
     # output and messages always report the canonical format name.
@@ -82,6 +90,22 @@ def export_cmd(
 
     fmt = format.lower()
     fmt = BaseExporter._aliases.get(fmt, fmt)
+
+    if quantize is not None:
+        precision = {"16": "fp16", "8": "int8", "32": "fp32"}.get(quantize.strip())
+        if precision is None:
+            exit_with_error(
+                out,
+                "config_range_error",
+                f"quantize must be 16, 8 or 32, got {quantize!r}.",
+            )
+        if (half and precision != "fp16") or (int8 and precision != "int8"):
+            exit_with_error(
+                out,
+                "config_conflict",
+                f"quantize={quantize} conflicts with half={half}, int8={int8}.",
+            )
+        half, int8 = precision == "fp16", precision == "int8"
 
     if half and int8:
         out.warning("Both half and int8 were requested. Using INT8 precision.")
@@ -167,6 +191,8 @@ def export_cmd(
     try:
         output_path = loaded_model.export(format=fmt, **export_kwargs)
     except ValueError as e:
+        if parsed_imgsz is not None and is_imgsz_error(e):
+            exit_imgsz_error(out, e)
         if "Unsupported export format" in str(e):
             exit_with_error(
                 out,
@@ -179,8 +205,12 @@ def export_cmd(
     except ImportError as e:
         exit_with_error(out, "export_dep_missing", str(e))
     except NotImplementedError as e:
+        if is_device_op_error(e):
+            exit_stage_error(out, stage="Export", detail=e)
         exit_with_error(out, "format_precision_unsupported", str(e))
     except Exception as e:
+        if parsed_imgsz is not None and is_imgsz_error(e):
+            exit_imgsz_error(out, e)
         exit_stage_error(out, stage="Export", detail=e)
 
     # File size
@@ -200,20 +230,26 @@ def export_cmd(
         else:
             input_h, input_w = parsed_imgsz
     else:
-        native = (
-            loaded_model._get_input_size()
-            if hasattr(loaded_model, "_get_input_size")
-            else loaded_model.INPUT_SIZES.get(loaded_model.size, 640)
-        )
-        input_h = input_w = native
+        native = getattr(loaded_model, "_last_export_imgsz", None)
+        if not isinstance(native, (int, tuple, list)):
+            native = (
+                loaded_model._get_input_size()
+                if hasattr(loaded_model, "_get_input_size")
+                else loaded_model.INPUT_SIZES.get(loaded_model.size, 640)
+            )
+        if isinstance(native, (tuple, list)):
+            input_h, input_w = int(native[0]), int(native[1])
+        else:
+            input_h = input_w = native
 
+    channels = 2 if isinstance(getattr(loaded_model, "input_profile", None), dict) else 3
     data_out = {
         "source_model": model,
         "model_family": loaded_model.FAMILY,
         "format": fmt,
         "output_path": str(output_path),
         "file_size_mb": round(size_mb, 1),
-        "input_shape": [batch, 3, input_h, input_w],
+        "input_shape": [batch, channels, input_h, input_w],
         "dynamic": dynamic,
         "half": half,
         "int8": int8,
@@ -226,7 +262,7 @@ def export_cmd(
         data_out["_human_text"] = (
             f"Exported {loaded_model.FAMILY}-{loaded_model.size} to {fmt.upper()}: "
             f"{output_path} ({size_mb:.1f} MB)\n"
-            f"  Input: [{batch}, 3, {input_h}, {input_w}], "
+            f"  Input: [{batch}, {channels}, {input_h}, {input_w}], "
             f"dynamic={dynamic}, half={half}, int8={int8}"
         )
 

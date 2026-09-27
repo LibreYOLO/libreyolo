@@ -84,7 +84,7 @@ def dataset_data_yaml(dataset):
 
 
 MIN_MAP = 0.05
-DETR_RF1_FAMILIES = {"dfine", "deim", "deimv2", "rtdetr"}
+DETR_RF1_FAMILIES = {"dfine", "deim", "deimv2", "tinyformer", "rtdetr"}
 
 # Families without a training implementation cannot participate in the RF1
 # contract. Keep their concrete missing capability separate from trainable
@@ -148,6 +148,7 @@ _RF1_NOT_APPLICABLE = {
 }
 
 _RF1_VALIDATION_GAPS = {
+    "gtr": "CPU forward/backward, synthetic overfit and checkpoint reload checked; RF1 GPU validation pending.",
     "picodet": (
         "PICODET-s/320 has not reliably cleared the RF1 mAP floor on this "
         "30-image fixture. Training remains directly callable and is covered "
@@ -217,6 +218,14 @@ def rf1_train_kwargs(family: str, size: str) -> dict:
                 "l": 5e-4,
                 "x": 5e-4,
             }[size],
+            "multi_scale": False,
+            "aug_stop_epoch_ratio": 0.0,
+        }
+    if family == "tinyformer":
+        # TinyFormer reuses DEIMv2's DINO-size recipes; every size is a DINO
+        # tower, so the RF1 overrides mirror the deimv2 s/m/l/x entries.
+        return {
+            "lr0": {"s": 5e-4, "m": 5e-4, "l": 5e-4, "x": 5e-4, "xl": 2.5e-4}[size],
             "multi_scale": False,
             "aug_stop_epoch_ratio": 0.0,
         }
@@ -295,7 +304,7 @@ def test_rf1_training(family, size, weights, dataset_data_yaml, tmp_path):
     # recipe, but under pytest's long-lived host process the larger cases become
     # flaky. Run them in a subprocess so RF1 measures the actual fine-tune path
     # instead of pytest process state.
-    if family in {"dfine", "deim", "deimv2"}:
+    if family in {"dfine", "deim", "deimv2", "tinyformer"}:
         run_name = f"{family}_{size}"
         train_kwargs = rf1_train_kwargs(family, size)
         run_direct_subprocess(
@@ -500,7 +509,7 @@ def test_load_finetuned_checkpoint(family, size, weights, dataset_data_yaml, tmp
     train_epochs = rf1_epochs(family)
     workers, val_workers = rf1_workers(family)
 
-    if family in {"dfine", "deim", "deimv2"}:
+    if family in {"dfine", "deim", "deimv2", "tinyformer"}:
         run_name = f"{family}_{size}"
         train_kwargs = rf1_train_kwargs(family, size)
         run_direct_subprocess(

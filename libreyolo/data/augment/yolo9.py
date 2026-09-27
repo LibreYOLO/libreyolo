@@ -41,9 +41,11 @@ from .segments import (
 logger = logging.getLogger(__name__)
 
 
-def preproc(img, input_size, swap=(2, 0, 1)):
+def preproc(img, input_size, swap=(2, 0, 1), letterbox_pad=None):
     """Letterbox to RGB float32/0-1 (matches YOLO9ValPreprocessor and weights)."""
-    return letterbox_preproc(img, input_size, swap, to_rgb=True, scale=True)
+    return letterbox_preproc(
+        img, input_size, swap, to_rgb=True, scale=True, letterbox_pad=letterbox_pad
+    )
 
 
 class YOLO9TrainTransform:
@@ -56,7 +58,7 @@ class YOLO9TrainTransform:
 
     def __init__(
         self,
-        max_labels=100,
+        max_labels=300,
         flip_prob=0.5,
         vertical_flip_prob=0.0,
         hsv_prob=1.0,
@@ -64,6 +66,7 @@ class YOLO9TrainTransform:
         output_label_dim=None,
         flipud=None,
         rot90_prob=0.0,
+        letterbox_pad=None,
     ):
         """
         Args:
@@ -88,6 +91,7 @@ class YOLO9TrainTransform:
         self.mask_downsample_ratio = mask_downsample_ratio
         self.output_label_dim = output_label_dim
         self.rot90_prob = rot90_prob
+        self.letterbox_pad = letterbox_pad
 
     def __call__(self, image, targets, input_dim, segments=None):
         """
@@ -135,7 +139,9 @@ class YOLO9TrainTransform:
                 image = image[:, ::-1]
             if random.random() < self.vertical_flip_prob:
                 image = image[::-1, :]
-            image, _ = preproc(image, input_dim)
+            image, _ = preproc(
+                image, input_dim, letterbox_pad=self.letterbox_pad
+            )
             if return_masks:
                 # No instances -> zero mask rows (masks are variable-length
                 # per image and padded to the batch max at collate, #527).
@@ -205,12 +211,27 @@ class YOLO9TrainTransform:
             segments_t = _flip_segments_ud(segments_t, height)
 
         # Resize with letterbox
-        image_t, r = preproc(image_t, input_dim)
+        src_h, src_w = image_t.shape[:2]
+        image_t, r = preproc(
+            image_t, input_dim, letterbox_pad=self.letterbox_pad
+        )
 
-        # Scale boxes by resize ratio
+        # Scale boxes by resize ratio, then shift by pad (0 for topleft).
+        from libreyolo.preprocess.letterbox import letterbox_geometry
+
+        _ratio, _nh, _nw, pad_left, pad_top = letterbox_geometry(
+            src_h, src_w, input_dim[0], input_dim[1], self.letterbox_pad
+        )
         boxes = boxes * r
+        boxes[:, [0, 2]] = boxes[:, [0, 2]] + pad_left
+        boxes[:, [1, 3]] = boxes[:, [1, 3]] + pad_top
         segments_t = _transform_segments(
-            segments_t, scale=r, width=input_dim[1], height=input_dim[0]
+            segments_t,
+            scale=r,
+            padw=pad_left,
+            padh=pad_top,
+            width=input_dim[1],
+            height=input_dim[0],
         )
 
         # Filter out tiny boxes (after resize)
@@ -224,12 +245,25 @@ class YOLO9TrainTransform:
 
         # Fallback to original if all boxes filtered
         if len(boxes_t) == 0:
-            image_t, r = preproc(image_o, input_dim)
+            src_h, src_w = image_o.shape[:2]
+            image_t, r = preproc(
+                image_o, input_dim, letterbox_pad=self.letterbox_pad
+            )
+            _ratio, _nh, _nw, pad_left, pad_top = letterbox_geometry(
+                src_h, src_w, input_dim[0], input_dim[1], self.letterbox_pad
+            )
             boxes_t = boxes_o * r
+            boxes_t[:, [0, 2]] = boxes_t[:, [0, 2]] + pad_left
+            boxes_t[:, [1, 3]] = boxes_t[:, [1, 3]] + pad_top
             labels_t = labels_o
             angles_t = angles_o
             segments_t = _transform_segments(
-                segments_o, scale=r, width=input_dim[1], height=input_dim[0]
+                segments_o,
+                scale=r,
+                padw=pad_left,
+                padh=pad_top,
+                width=input_dim[1],
+                height=input_dim[0],
             )
 
         # Normalize coordinates to [0, 1]
@@ -289,7 +323,9 @@ class YOLO9ValTransform:
             img: Preprocessed image
             dummy: Dummy labels array
         """
-        img, _ = preproc(img, input_size, self.swap)
+        img, _ = preproc(
+            img, input_size, self.swap, letterbox_pad=getattr(self, "letterbox_pad", None)
+        )
         return img, np.zeros((1, 5))
 
 
@@ -466,6 +502,24 @@ class YOLO9MosaicMixupDataset:
         img, label = self.preproc(img, label, self.input_dim)
         return img, label, img_info, img_id
 
+    def _rand_partner_index(self):
+        """Sample a partner index, preferring images with annotations.
+
+        Uniform draws on background-heavy datasets frequently land on
+        label-free images, silently degrading mosaic tiles (and mixup
+        partners) to unsupervised pixels. Retry like the YOLOX mixup does;
+        if every sampled candidate is background, keep the last draw so
+        the augmentation still works on datasets with no foreground
+        labels. Extra RNG draws happen only after an empty candidate, so
+        fully annotated datasets sample identically.
+        """
+        index = 0
+        for _ in range(20):
+            index = random.randint(0, len(self.dataset) - 1)
+            if len(self.dataset.load_anno(index)) > 0:
+                break
+        return index
+
     def _get_mosaic_item(self, idx):
         """Get a mosaic-augmented item."""
         input_h, input_w = self.input_dim
@@ -474,8 +528,8 @@ class YOLO9MosaicMixupDataset:
         yc = int(random.uniform(0.5 * input_h, 1.5 * input_h))
         xc = int(random.uniform(0.5 * input_w, 1.5 * input_w))
 
-        # Get 4 random indices
-        indices = [idx] + [random.randint(0, len(self.dataset) - 1) for _ in range(3)]
+        # Get 4 random indices, preferring annotated partners
+        indices = [idx] + [self._rand_partner_index() for _ in range(3)]
 
         # Create mosaic canvas
         mosaic_img = np.full((input_h * 2, input_w * 2, 3), 114, dtype=np.uint8)
@@ -632,9 +686,10 @@ class YOLO9MosaicMixupDataset:
         then re-pad. Mirrors the shared YOLOX mixup, which merges labels before
         padding.
         """
-        # Get another random image (mixup only runs on the non-segment path,
-        # so _get_normal_item returns (img, label, ...); ignore the tail).
-        idx2 = random.randint(0, len(self.dataset) - 1)
+        # Get another random image, preferring an annotated partner (mixup
+        # only runs on the non-segment path, so _get_normal_item returns
+        # (img, label, ...); ignore the tail).
+        idx2 = self._rand_partner_index()
         img2, labels2, *_ = self._get_normal_item(idx2)
 
         # Mix images (beta(32, 32) ≈ 0.5, so both images are ~equally visible
@@ -642,7 +697,7 @@ class YOLO9MosaicMixupDataset:
         r = np.random.beta(32.0, 32.0)
         img = (img * r + img2 * (1 - r)).astype(img.dtype)
 
-        max_labels = getattr(self.preproc, "max_labels", 100)
+        max_labels = getattr(self.preproc, "max_labels", 300)
         label_dim = labels.shape[1]
 
         # Drop padding (class == -1) from both, then merge the real objects.

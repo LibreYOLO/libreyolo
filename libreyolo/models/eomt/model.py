@@ -75,6 +75,15 @@ class LibreEoMT(BaseModel):
     PANOPTIC_TTA_DEDUP_IOU: ClassVar[float] = 0.5
 
     WEIGHT_VARIANTS: ClassVar[Tuple[str, ...]] = ("1280",)
+    # Sizes s/b are published for panoptic only.
+    UNPUBLISHED_WEIGHTS: ClassVar[Dict[str, str]] = {
+        f"LibreEoMT{size}-{suffix}": (
+            f"EoMT {suffix} weights are published for size l only; use "
+            f"LibreEoMTl-{suffix}.pt or LibreEoMT{size}-panoptic.pt."
+        )
+        for size in ("s", "b")
+        for suffix in ("seg", "sem")
+    }
 
     semantic_resize_mode: ClassVar[str] = "split"
     semantic_imgsz_divisor: ClassVar[int] = 16

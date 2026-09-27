@@ -212,7 +212,12 @@ def wrap_libreyolo_checkpoint(
     schema_version: str = SCHEMA_VERSION,
     **extra_metadata: Any,
 ) -> dict[str, Any]:
-    """Build a strict LibreYOLO v1.0 metadata-wrapped checkpoint."""
+    """Build a strict LibreYOLO v1.0 metadata-wrapped checkpoint.
+
+    Foreign converters should pass ``names=None`` when source labels are absent
+    to derive defaults from their resolved ``nc``. An explicit empty container
+    instead follows sparse-name normalization and receives generic labels.
+    """
     normalized_task = normalize_task(task)
     if normalized_task is None:
         raise CheckpointMetadataError("task is required.")
@@ -320,9 +325,53 @@ def validate_checkpoint_metadata(
         if not isinstance(imgsz, int) or isinstance(imgsz, bool) or imgsz <= 0:
             errors.append("imgsz must be a positive int.")
 
+        if "fitness_source" in checkpoint:
+            if checkpoint["fitness_source"] != "callback":
+                errors.append("fitness_source must be 'callback' when present.")
+            if checkpoint.get("best_metric_key") != "fitness/custom":
+                errors.append(
+                    "callback fitness requires best_metric_key='fitness/custom'."
+                )
+
+    if isinstance(checkpoint, dict) and "input_profile" in checkpoint:
+        from .event_histogram import validate_input_profile
+        try:
+            validate_input_profile(checkpoint["input_profile"], family=checkpoint.get("model_family"), task=checkpoint.get("task"))
+            if checkpoint.get("input_initialization") not in {"random", "rgb_mean"}:
+                errors.append("input_initialization must be random or rgb_mean for event histograms")
+        except ValueError as exc:
+            errors.append(str(exc))
     if strict and errors:
         raise CheckpointMetadataError("; ".join(errors))
     return errors
+
+
+def reject_unsupported_input_kind(metadata: Any, *, artifact: str) -> None:
+    """Refuse to load an exported graph whose input rank the backends cannot feed.
+
+    Most exported artifacts take a 4D ``(B, C, H, W)`` image tensor, and the
+    shared preprocessing path builds exactly that. An artifact that records
+    ``input_kind="video"`` wants a 5D ``(B, F, C, H, W)`` clip instead. Until
+    the shared video-input backend contract exists, loading such a graph would
+    silently run frame-by-frame image preprocessing and fail with an opaque
+    input-rank error deep inside the runtime. Fail here instead, with the
+    reason and the working alternative.
+    """
+    if not isinstance(metadata, dict):
+        return
+    input_kind = metadata.get("input_kind")
+    if isinstance(input_kind, str) and input_kind.lower() == "video":
+        frames = metadata.get("frames")
+        raise NotImplementedError(
+            f"{artifact} is a fixed-frame video-embedding graph "
+            f"(input_kind='video'"
+            + (f", frames={frames}" if frames is not None else "")
+            + "), which expects a 5D (B, F, C, H, W) clip tensor. LibreYOLO's "
+            "exported-backend preprocessing currently builds 4D image tensors "
+            "only, so this artifact cannot be driven through LibreYOLO(...) "
+            "yet. Feed it directly with onnxruntime / torch.jit, or use the "
+            "image-embedding export and pool frames yourself."
+        )
 
 
 def warn_on_metadata_schema_version(

@@ -16,7 +16,11 @@ import yaml
 from libreyolo.export.exporter import PaddleExporter
 
 pytestmark = pytest.mark.unit
-_PROCESS_SYNC_TIMEOUT = 10
+_PROCESS_SYNC_TIMEOUT = 30
+# Window used to assert the second process stays blocked. Only meaningful
+# after both children have signalled readiness, so it measures the lock and
+# not interpreter startup.
+_LOCK_CONTENTION_WINDOW = 1.0
 
 
 def _wrapper(family: str = "yolo9", task: str = "detect") -> MagicMock:
@@ -26,9 +30,15 @@ def _wrapper(family: str = "yolo9", task: str = "detect") -> MagicMock:
     return model
 
 
-def _hold_paddle_install_lock(output_path, entered, release):
+def _hold_paddle_install_lock(output_path, ready, entered, release):
     from libreyolo.export.paddle import _paddle_install_lock
 
+    # Announce readiness *before* contending. A spawned child has to boot a new
+    # interpreter and import libreyolo first, which costs far more than the
+    # window the mutual-exclusion assertion uses. Signalling here lets the test
+    # pay that cost explicitly, so the window afterwards measures the lock
+    # rather than process startup.
+    ready.put(True)
     with _paddle_install_lock(Path(output_path)):
         entered.put(True)
         release.wait(timeout=_PROCESS_SYNC_TIMEOUT)
@@ -152,26 +162,50 @@ def test_export_paddle_restores_previous_artifact_when_install_fails(
 
 
 def test_paddle_install_lock_serializes_processes(tmp_path):
+    """A second process must not enter the install lock while the first holds it.
+
+    Two things this test has to avoid, both of which it got wrong before:
+
+    * The mutual-exclusion assertion is a *negative* one ("the second process
+      does not signal"), so it only means something once that process is
+      actually ready to contend. A spawned child spends over a second booting
+      an interpreter and importing libreyolo, which is longer than the window
+      itself, so without a readiness handshake the assertion held whatever the
+      lock did -- it passed even against a no-op lock.
+    * Only started processes may be joined. Building the list as they start
+      keeps a timeout here from being replaced by "can only join a started
+      process" from the cleanup path, which hid the real cause.
+    """
     ctx = multiprocessing.get_context("spawn")
+    ready = ctx.Queue()
     entered = ctx.Queue()
     release_first = ctx.Event()
     release_second = ctx.Event()
     output = tmp_path / "model_paddle"
-    first = ctx.Process(
-        target=_hold_paddle_install_lock,
-        args=(str(output), entered, release_first),
-    )
-    second = ctx.Process(
-        target=_hold_paddle_install_lock,
-        args=(str(output), entered, release_second),
-    )
+    started = []
+
+    def spawn(release):
+        process = ctx.Process(
+            target=_hold_paddle_install_lock,
+            args=(str(output), ready, entered, release),
+        )
+        process.start()
+        started.append(process)
+        # Wait out interpreter startup and imports before relying on any timing.
+        ready.get(timeout=_PROCESS_SYNC_TIMEOUT)
+        return process
 
     try:
-        first.start()
+        first = spawn(release_first)
         entered.get(timeout=_PROCESS_SYNC_TIMEOUT)
-        second.start()
+
+        second = spawn(release_second)
+        # The second child is past its imports and about to take the lock, so
+        # this window now measures the lock. Against a no-op lock the child
+        # signals within milliseconds and this assertion fails, which is the
+        # point.
         with pytest.raises(queue.Empty):
-            entered.get(timeout=0.3)
+            entered.get(timeout=_LOCK_CONTENTION_WINDOW)
 
         release_first.set()
         entered.get(timeout=_PROCESS_SYNC_TIMEOUT)
@@ -183,7 +217,7 @@ def test_paddle_install_lock_serializes_processes(tmp_path):
     finally:
         release_first.set()
         release_second.set()
-        for process in (first, second):
+        for process in started:
             if process.is_alive():
                 process.terminate()
             process.join(timeout=_PROCESS_SYNC_TIMEOUT)

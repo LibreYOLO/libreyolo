@@ -40,6 +40,12 @@ class LibreQwen3VL(LibreVLMModel):
     BBOX_KEY = "bbox_2d"
     COORD_DIVISOR = 1000.0
 
+    # First trainable family: grounding-pretrained, Apache-2.0, native
+    # transformers classes, and an official upstream fine-tuning recipe this
+    # implementation mirrors (LoRA on the LM, frozen vision tower). Recipe in
+    # ``training/recipes.py``.
+    TRAINABLE = True
+
     # Apache-2.0 weights: no restrictive-license notice needed.
     _LICENSE_NOTICE = ""
 

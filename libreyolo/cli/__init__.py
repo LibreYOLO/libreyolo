@@ -9,7 +9,7 @@ import typer
 
 app = typer.Typer(
     name="libreyolo",
-    help="LibreYOLO — open source YOLO detection toolkit.",
+    help="LibreYOLO: open source YOLO detection toolkit.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -34,18 +34,20 @@ def _root(
         help="Show LibreYOLO version and exit.",
     ),
 ) -> None:
-    """LibreYOLO — open source YOLO detection toolkit."""
+    """LibreYOLO: open source YOLO detection toolkit."""
 
 
 def _configure_warning_filters() -> None:
     """Suppress only known high-noise dependency deprecations."""
     import warnings
 
-    warnings.filterwarnings(
-        "ignore",
-        message=r"`torch\.jit\.script` is deprecated\..*",
-        category=DeprecationWarning,
-    )
+    # Newer torch raises this one as a FutureWarning.
+    for category in (DeprecationWarning, FutureWarning):
+        warnings.filterwarnings(
+            "ignore",
+            message=r"`torch\.jit\.script` is deprecated\..*",
+            category=category,
+        )
     warnings.filterwarnings(
         "ignore",
         message=r"rfdetr\.util\.box_ops is deprecated;.*",
@@ -101,7 +103,7 @@ def entrypoint() -> None:
     # handed to ``app()`` stay in their raw key=value form so each command's
     # ``KeyValueCommand`` does the per-command rewrite (it knows whether a flag
     # has a real ``--no-<flag>`` form). Emitting ``--no-verbose`` here would break
-    # commands whose ``--verbose`` is one-way (e.g. predict) — see issue #490 #41.
+    # commands whose ``--verbose`` is one-way (e.g. predict), see issue #490 #41.
     logging_argv = _normalize_logging_flags(argv)
     _setup_logging_from_argv(logging_argv)
 
@@ -117,6 +119,20 @@ def entrypoint() -> None:
     app.command("verify", cls=KeyValueCommand)(special.compare_cmd)
     # Face identification: build a gallery from a folder-per-person tree.
     app.command("enroll", cls=KeyValueCommand)(special.enroll_cmd)
+
+    from .commands.detany3d import detany3d_cmd
+
+    app.command("detany3d", cls=KeyValueCommand)(detany3d_cmd)
+    from .commands.fcos3d import fcos3d_cmd
+
+    app.command("fcos3d", cls=KeyValueCommand)(fcos3d_cmd)
+    from .commands.wilddet3d import wilddet3d_cmd
+
+    app.command("wilddet3d", cls=KeyValueCommand)(wilddet3d_cmd)
+
+    from .commands.mood3d import mood3d_cmd
+
+    app.command("3dmood", cls=KeyValueCommand)(mood3d_cmd)
 
     # Core mode commands
     app.command("predict", cls=KeyValueCommand)(predict.predict_cmd)

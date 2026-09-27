@@ -50,11 +50,14 @@ from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402
 from .yolo9_p2.model import LibreYOLO9P2  # noqa: E402  (must precede LibreYOLO9: P2 checkpoints also match the base backbone/neck patterns)
 from .yolo9.model import LibreYOLO9  # noqa: E402
 from .yolonas.model import LibreYOLONAS  # noqa: E402
+from .tinyformer.model import LibreTinyFormer  # noqa: E402  (DEIMv2 derivative; routing is enforced by can_load on backbone.sda. in both directions, not by this line — importing it pulls in models.deimv2 first, so it registers *after* LibreDEIMv2 regardless of position here)
 from .deimv2.model import LibreDEIMv2  # noqa: E402
 from .rtdetrv4.model import LibreRTDETRv4  # noqa: E402  (must precede LibreDFINE — sibling arch, more-specific can_load)
 from .domedetr.model import LibreDOMEDETR  # noqa: E402  (D-FINE derivative; routing is enforced by can_load on encoder.DeFE. in both directions, not by this line — importing it pulls in models.dfine first, so it registers *after* LibreDFINE regardless of position here)
 from .dfine.model import LibreDFINE  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
+# GTR subclasses D-FINE; import after its existing siblings to preserve registry order.
+from .gtr.model import LibreGTR  # noqa: E402
 
 # Vanilla DETR uses a unique top-level query embedding plus packed PyTorch
 # cross-attention weights. Register it before descendants with broader DETR
@@ -84,6 +87,7 @@ from .ssd.model import LibreSSD  # noqa: E402  (VGG extras + paired MultiBox hea
 from .centernet.model import LibreCenterNet  # noqa: E402
 from .efficientdet.model import LibreEfficientDet  # noqa: E402  (BiFPN keys are unique; inference-only)
 from .picodet.model import LibrePICODET  # noqa: E402
+from .ppyoloe.model import LibrePPYOLOE  # noqa: E402  (head.pred_cls/pred_reg + CSPResNet stem keys are unique)
 from .rtdetr.model import LibreRTDETR  # noqa: E402  (registered before LibreRTDETRv2 so metadata-less ckpts default to v1)
 from .rtdetrv2.model import LibreRTDETRv2  # noqa: E402
 from .rtmdet.model import LibreRTMDet  # noqa: E402
@@ -96,6 +100,7 @@ from .yolo2.model import LibreYOLO2  # noqa: E402
 from .yolo1.model import LibreYOLO1  # noqa: E402  (VOC museum; can_load keyed on unique yolo1. FC head)
 from .yolo7.model import LibreYOLO7  # noqa: E402  (can_load keyed on unique implicit_a.implicit)
 from .hrnet.model import LibreHRNet  # noqa: E402,F401  (top-down pose; unique stage-fusion fingerprint)
+from .dekr.model import LibreDEKR  # noqa: E402,F401  (bottom-up pose; unique offset_final_layer stack)
 from .l2cs.model import LibreL2CS  # noqa: E402,F401  (import registers family)
 from .fomo.model import LibreFOMO  # noqa: E402,F401  (import registers family)
 from .midas.model import LibreMiDaS  # noqa: E402,F401  (depth-only MiDaS museum family)
@@ -104,25 +109,35 @@ from .depth_anything.model import (  # noqa: E402,F401  (import registers family
 )
 from .zipdepth.model import LibreZipDepth  # noqa: E402,F401  (depth-only; can_load keyed on encoder.stem_half + decoder.convex_up)
 from .moge2.model import LibreMoGe2  # noqa: E402,F401  (normal-only; official Microsoft MIT checkpoint)
+from .marigold_v2.model import LibreMarigoldV2  # noqa: E402,F401 (heavy dependencies load only at construction)
 from .teed.model import LibreTEED  # noqa: E402,F401  (edge-only; MIT source)
 from .dexined.model import LibreDexiNed  # noqa: E402,F401  (edge-only; MIT source)
 from .depth_anything3.model import (  # noqa: E402,F401  (import registers family)
     LibreDepthAnything3,
 )
 from .nafnet.model import LibreNAFNet  # noqa: E402,F401  (restore-only)
+from .ddcolor.model import LibreDDColor  # noqa: E402,F401  (restore-only colorization)
+from .hvi_cidnet.model import LibreHVICIDNet  # noqa: E402,F401  (restore-only low-light enhancement)
+from .lama.model import LibreLaMa  # noqa: E402,F401  (mask-guided restore/inpainting)
 from .birefnet.model import LibreBiRefNet  # noqa: E402,F401  (matte-only; can_load keyed on squeeze_module+gdt_convs_attn+ipt_blk)
 from .feynobg.model import LibreFeyNobg  # noqa: E402,F401  (matte-only; BiRefNet keys + 24-block stage-3 marker, disjoint from birefnet)
+from .ben2.model import LibreBEN2  # noqa: E402,F401  (matte-only; BEN2 cross-attention/refinement fingerprint)
+from .vitmatte.model import LibreViTMatte  # noqa: E402,F401  (trimap-guided matte)
 from .realesrgan.model import LibreRealESRGAN  # noqa: E402,F401  (restore/super-resolution; RRDBNet+SRVGG keys are unique)
+from .quicksrnet.model import LibreQuickSRNet  # noqa: E402,F401  (restore/super-resolution; exact compact CNN fingerprint)
 from .swinir.model import LibreSwinIR  # noqa: E402,F401  (restore/super-resolution; RSTB keys are unique)
 from .fcn.model import LibreFCN  # noqa: E402,F401  (semantic-only; FCN head + embedded ResNet fingerprint)
 from .eomt.model import LibreEoMT  # noqa: E402,F401  (semantic-only; EoMT query/mask keys are unique)
 from .deeplabv3.model import LibreDeepLabv3  # noqa: E402,F401  (semantic-only; ASPP branch/project keys are unique)
 from .pidnet.model import LibrePIDNet  # noqa: E402,F401  (semantic-only; can_load uses PIDNet fusion keys)
+from .ppliteseg.model import LibrePPLiteSeg  # noqa: E402,F401  (semantic-only; can_load needs SPPM branches + UAFM 4->2->1 attention + PP-LiteSeg proj convs together)
+from .unet.model import LibreUNet  # noqa: E402,F401  (semantic-only; can_load needs encoder.4.1.convs + decoder interp_upsample + FCN heads together)
 from .segformer.model import LibreSegformer  # noqa: E402,F401  (semantic-only; can_load uses decode_head/encoder.stages keys, unique to this family)
 from .lingbotvision.model import LibreLingBotVision  # noqa: E402,F401  (semantic-only; can_load keyed on backbone.rope_embed.periods + storage_tokens + predict head)
 from .vit.model import LibreViT  # noqa: E402  (classify-only; top-level classic-ViT signature)
 from .mobilenetv4.model import LibreMobileNetV4  # noqa: E402  (classify-only; can_load is highly specific)
 from .convnext.model import LibreConvNeXt  # noqa: E402  (classify-only; can_load is highly specific)
+from .convnextv2.model import LibreConvNeXtV2  # noqa: E402
 from .deit.model import LibreDeiT  # noqa: E402  (classify-only museum family; exact ViT geometry)
 from .swin.model import LibreSwin  # noqa: E402  (classify-only; V1 window-bias signature rejects SwinV2/backbone-only checkpoints)
 from .efficientnetv2.model import LibreEfficientNetV2  # noqa: E402  (classify-only; can_load is highly specific)
@@ -142,9 +157,28 @@ from .clip.model import LibreCLIP  # noqa: E402,F401  (import registers family)
 # matter. NB: SigLIP carries logit_bias, which CLIP lacks.
 from .siglip2.model import LibreSigLIP2  # noqa: E402,F401  (import registers family)
 
+# Native Perception Encoder Core towers (no timm / open_clip at runtime; the
+# OpenAI BPE tokenizer is reused from LibreCLIP), so it registers eagerly.
+# can_load is uniquely keyed on visual.trunk.attn_pool.latent +
+# visual.trunk.patch_embed.proj.weight + text.text_projection, a signature no
+# other family carries, so order does not matter.
+from .pe.model import LibrePE  # noqa: E402,F401  (import registers family)
+
 # PP-OCRv5 text detection + recognition pipeline. can_load is uniquely keyed
 # on the composite det.*/rec.* checkpoint layout, so order does not matter.
 from .ppocr.model import LibrePPOCR  # noqa: E402,F401  (import registers family)
+
+# V-JEPA 2 video encoder + attentive probe: a native pure-torch port (no
+# transformers at runtime), so it registers eagerly. can_load is keyed on a 5D
+# Conv3d tubelet patch embedding, which no image family can produce, so
+# registration order does not matter. OpenCV is imported lazily inside the clip
+# sampler, keeping video decoding off the global import path.
+from .vjepa2.model import LibreVJEPA2  # noqa: E402,F401  (import registers family)
+
+# LeVJEPA video encoder: native inference graph with a CLS clip embedding and
+# dense block-causal patch tokens. Its fingerprint includes a tubelet-1 Conv3d,
+# CLS token and fused qkv weights, so it cannot collide with V-JEPA 2.
+from .levjepa.model import LibreLeVJEPA  # noqa: E402,F401  (import registers family)
 
 
 def _ensure_rfdetr():
@@ -294,7 +328,10 @@ def LibreYOLO(
     Args:
         model_path: Path to weights (.pt), ONNX (.onnx), ExecuTorch (.pte),
                     MNN (.mnn), TensorRT (.engine), OpenVINO/Paddle/ncnn
-                    directory, or a Triton HTTP(S) model URL.
+                    directory, a Triton HTTP(S) model URL, or a Hugging Face
+                    Hub reference: "owner/repo" or
+                    "hf://owner/repo[@revision][/file.pt]" (requires the
+                    optional huggingface_hub package).
         size: Model size variant (auto-detected from weights if omitted).
         reg_max: Regression max for DFL (YOLOv9 only, default: 16).
         nb_classes: Number of classes (auto-detected if omitted).
@@ -318,6 +355,17 @@ def LibreYOLO(
         from ..backends.triton import TritonBackend
 
         return TritonBackend(model_path, device=device, task=task)
+
+    # Hugging Face Hub references ("owner/repo" or "hf://owner/repo") resolve
+    # to a checkpoint in the shared huggingface_hub cache, then flow through
+    # the exact same safe-load + metadata-validation path as a local file.
+    from ..utils.hf_hub import maybe_resolve_hub_reference
+
+    hub_source = None
+    hub_checkpoint = maybe_resolve_hub_reference(model_path)
+    if hub_checkpoint is not None:
+        hub_source = model_path
+        model_path = hub_checkpoint
 
     model_path = _resolve_weights_path(model_path)
 
@@ -461,10 +509,22 @@ def LibreYOLO(
                 except ModuleNotFoundError:
                     pass
             if size is None:
+                from ..utils.hf_hub import looks_like_repo_id
+
+                hub_hint = ""
+                if looks_like_repo_id(model_path):
+                    # A same-named local file or directory shadowed the bare
+                    # owner/repo form (local always wins), so point at the
+                    # explicit Hub syntax that bypasses that precedence.
+                    hub_hint = (
+                        f"\nIf you meant a Hugging Face Hub model, use the "
+                        f"explicit form: LibreYOLO('hf://{model_path}')."
+                    )
                 raise ValueError(
                     f"Model weights file not found: {model_path}\n"
                     f"Cannot auto-download: unable to determine size from filename.\n"
-                    f"Please specify size explicitly or provide a valid weights file path."
+                    f"Please specify size explicitly or provide a valid weights "
+                    f"file path.{hub_hint}"
                 )
 
         try:
@@ -552,6 +612,22 @@ def LibreYOLO(
                 "; ".join(metadata_errors),
                 _METADATA_CONVERSION_HELP,
             )
+        elif hub_source is not None:
+            # Guessing a family from raw tensor keys is a coin flip for a file
+            # pulled off the open Hub: an unrelated model can satisfy some
+            # family's can_load() and then fail with a nonsense error about
+            # that family. Metadata is the contract for Hub loads, so refuse
+            # here and name the repo instead.
+            raise ValueError(
+                f"'{hub_source}' does not contain a LibreYOLO checkpoint.\n"
+                f"Hugging Face models are loaded by their LibreYOLO metadata "
+                f"(schema v1.0), and this file has none, so its architecture "
+                f"cannot be identified.\n"
+                f"If it is an upstream checkpoint LibreYOLO can convert, "
+                f"download it and load it from a local path, which enables "
+                f"the legacy architecture-detection path.\n"
+                f"{_METADATA_CONVERSION_HELP}"
+            )
         else:
             logger.warning(
                 "LibreYOLO metadata was not found in %s. Loading through the "
@@ -614,7 +690,7 @@ def LibreYOLO(
         # and DEIMv2 legitimately match D-FINE/DEIM-ish decoder keys and should
         # be allowed to win via their more-specific detectors.
         if {"dfine", "deim"}.issubset(matching_families) and not (
-            matching_families & {"ec", "deimv2"}
+            matching_families & {"ec", "deimv2", "tinyformer"}
         ):
             raise ValueError(
                 "Ambiguous D-FINE/DEIM checkpoint: both families share the same "
@@ -798,6 +874,7 @@ __all__ = [
     "LibreDeformableDETR",
     "LibreDINODETR",
     "LibreEC",
+    "LibreGTR",
     "LibrePICODET",
     "LibreRTMDet",
     "LibreYOLO3",
@@ -806,6 +883,7 @@ __all__ = [
     "LibreYOLO1",
     "LibreYOLO7",
     "LibreHRNet",
+    "LibreDEKR",
     "LibreRTDETR",
     "LibreRTDETRv2",
     "LibreRTDETRv4",
@@ -813,23 +891,32 @@ __all__ = [
     "LibreMiDaS",
     "LibreDepthAnythingV2",
     "LibreMoGe2",
+    "LibreMarigoldV2",
     "LibreTEED",
     "LibreDexiNed",
     "LibreDepthAnything3",
     "LibreNAFNet",
+    "LibreDDColor",
+    "LibreHVICIDNet",
+    "LibreLaMa",
     "LibreBiRefNet",
     "LibreFeyNobg",
+    "LibreBEN2",
+    "LibreViTMatte",
     "LibreRealESRGAN",
+    "LibreQuickSRNet",
     "LibreSwinIR",
     "LibreFCN",
     "LibreEoMT",
     "LibreDeepLabv3",
     "LibrePIDNet",
+    "LibreUNet",
     "LibreSegformer",
     "LibreLingBotVision",
     "LibreViT",
     "LibreMobileNetV4",
     "LibreConvNeXt",
+    "LibreConvNeXtV2",
     "LibreSwin",
     "LibreEfficientNetV2",
     "LibreVGG",
@@ -837,7 +924,10 @@ __all__ = [
     "LibreAlexNet",
     "LibreCLIP",
     "LibreSigLIP2",
+    "LibrePE",
     "LibrePPOCR",
+    "LibreVJEPA2",
+    "LibreLeVJEPA",
     "LibreFaceEmbedder",
     "try_ensure_rfdetr",
 ]

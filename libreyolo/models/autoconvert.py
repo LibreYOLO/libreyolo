@@ -182,6 +182,14 @@ def _checkpoint_names(loaded: Any, nc: int | None = None) -> Any | None:
         return _trim_names_to_nc(names, nc)
 
     args = loaded.get("args") or loaded.get("hyper_parameters") or {}
+    if not args:
+        # SuperGradients (YOLO-NAS detect/pose and YOLO-NAS-R) stores the
+        # dataset's class names under ``processing_params``. Without this, an
+        # auto-converted Deci checkpoint silently ends up with class_0..class_N
+        # instead of its real COCO / DOTA2 labels.
+        processing_params = loaded.get("processing_params")
+        if isinstance(processing_params, dict):
+            args = processing_params
     class_names = (
         args.get("class_names")
         if isinstance(args, dict)
@@ -486,8 +494,13 @@ def _wrap_claim(
     nc = detected_nc or 80
     names = _checkpoint_names(loaded, nc)
     if names is None:
-        names = cls.default_checkpoint_names(nc)
+        names = cls.default_checkpoint_names(nc, task=task)
     extra_metadata: dict[str, Any] = {}
+    if cls.FAMILY == "yolo9":
+        # Official MTL YOLOv9 weights were trained center-padded. Stamp
+        # the converted checkpoint so 1.6 infer/val match that geometry
+        # without flipping unmarked LibreYOLO <=1.5 user checkpoints.
+        extra_metadata["letterbox_pad"] = "center"
     if task == "restore":
         # Restore checkpoints use a single schema placeholder, not a semantic
         # class label. Foreign restoration releases normally carry no names.
@@ -498,6 +511,11 @@ def _wrap_claim(
         # releases normally carry no names, so never fabricate ``class_0``.
         nc = 1
         names = {0: "depth"}
+    if task == "matte":
+        # Alpha-matte checkpoints also use a schema-only slot. Keep raw
+        # upstream auto-conversion consistent with the matte task contract.
+        nc = 1
+        names = {0: "matte"}
     if task == "pose":
         num_keypoints = None
         detect_keypoints = getattr(cls, "detect_num_keypoints", None)
@@ -521,6 +539,13 @@ def _wrap_claim(
     converted = {
         k: (v.float() if v.is_floating_point() else v) for k, v in converted.items()
     }
+    # Families may carry source-specific weight terms or rectangular geometry
+    # that tensor-layout recognition alone cannot supply. Others keep the
+    # existing generic metadata path.
+    metadata_hook = getattr(cls, "upstream_checkpoint_metadata", None)
+    if callable(metadata_hook):
+        extra_metadata.update(metadata_hook(loaded, source=source))
+        names = extra_metadata.pop("names", names)
     try:
         wrapped = wrap_libreyolo_checkpoint(
             converted,
@@ -616,9 +641,28 @@ def _rfdetr_class_metadata(
     raw_nc: int | None,
 ) -> tuple[int, Any | None]:
     """Resolve RF-DETR public class metadata without guessing custom 90-class heads."""
-    if raw_nc == 90 and _is_coco_rfdetr_checkpoint(loaded):
+    is_coco = raw_nc == 90 and _is_coco_rfdetr_checkpoint(loaded)
+    if isinstance(loaded, dict) and _name_count(loaded.get("names")) == 0:
+        # Fill missing labels only after resolving the class space. Stale
+        # nested names must not turn a custom 90-class checkpoint into COCO.
+        nc = 80 if is_coco else (1 if raw_nc == 0 else raw_nc or 80)
+        nested = {key: value for key, value in loaded.items() if key != "names"}
+        if _name_count(_checkpoint_names(nested)) == nc:
+            loaded = nested
+    if is_coco:
         # COCO arch-classes (91 outputs incl. background) -> LibreYOLO's COCO-80.
-        return 80, _checkpoint_names(loaded, 80)
+        names = _checkpoint_names(loaded, 80)
+        # Omit empty foreign placeholders so wrapping restores COCO labels,
+        # rather than padding an empty mapping with generic class_i names.
+        return 80, names or None
+
+    if raw_nc == 0:
+        # RF-DETR scores classes with independent sigmoids (focal loss); there
+        # is no background logit. The usual extra output is an unused index
+        # slot for COCO-style ids, but upstream sizes the head from the
+        # dataset's category count, so a one-category dataset yields a single
+        # output and logit 0 is that class (upstream predicts class_id 0).
+        return 1, _checkpoint_names(loaded, 1)
 
     nc = raw_nc if raw_nc else 80
     return nc, _checkpoint_names(loaded, nc)
@@ -690,7 +734,14 @@ def _canonical_path(source: Path, prefix: str, size: str, task: str) -> Path:
     """Build a source-specific converted checkpoint path beside source."""
     suffix = task_to_suffix(task)
     task_part = f"-{suffix}" if suffix else ""
-    return source.parent / f"{source.stem}-{prefix}{size}{task_part}.pt"
+    canonical = f"{prefix}{size}{task_part}"
+    # Link-out families download the upstream artifact straight to its
+    # canonical LibreYOLO name, so appending the canonical stem again would
+    # produce e.g. LibrePPYOLOEs-LibrePPYOLOEs.pt. Keep the cache beside the
+    # source under a distinct name without repeating it.
+    if source.stem == canonical:
+        return source.parent / f"{canonical}-converted.pt"
+    return source.parent / f"{source.stem}-{canonical}.pt"
 
 
 def _atomic_torch_save(value: Any, path: Path, *, mode: int | None = None) -> None:

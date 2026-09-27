@@ -1346,10 +1346,14 @@ class YoloNASPoseDFLHead(nn.Module):
         )
 
         self.cls_convs = nn.Sequential(
-            ConvBNReLU(bbox_inter, bbox_inter, kernel_size=3, stride=1, padding=1, bias=False),
+            ConvBNReLU(
+                bbox_inter, bbox_inter, kernel_size=3, stride=1, padding=1, bias=False
+            ),
         )
         self.reg_convs = nn.Sequential(
-            ConvBNReLU(bbox_inter, bbox_inter, kernel_size=3, stride=1, padding=1, bias=False),
+            ConvBNReLU(
+                bbox_inter, bbox_inter, kernel_size=3, stride=1, padding=1, bias=False
+            ),
         )
 
         pose_block = partial(ConvBNReLU, kernel_size=3, stride=1, padding=1, bias=False)
@@ -1434,7 +1438,13 @@ class YoloNASPoseDFLHead(nn.Module):
         pose_logits = cls_output[:, self.num_classes :, :, :]
         cls_output = cls_output[:, : self.num_classes, :, :]
         pose_regression = pose_output.reshape(
-            (pose_output.size(0), self.num_keypoints, 2, pose_output.size(2), pose_output.size(3))
+            (
+                pose_output.size(0),
+                self.num_keypoints,
+                2,
+                pose_output.size(2),
+                pose_output.size(3),
+            )
         )
         return reg_output, cls_output, pose_regression, pose_logits
 
@@ -1510,7 +1520,9 @@ class YoloNASPoseNDFLHeads(nn.Module):
         self.eval_size = input_size
         device = next(self.parameters()).device
         dtype = next(self.parameters()).dtype
-        anchor_points, stride_tensor = self._generate_anchors(dtype=dtype, device=device)
+        anchor_points, stride_tensor = self._generate_anchors(
+            dtype=dtype, device=device
+        )
         self.register_buffer("anchor_points", anchor_points, persistent=False)
         self.register_buffer("stride_tensor", stride_tensor, persistent=False)
 
@@ -1594,11 +1606,13 @@ class YoloNASPoseNDFLHeads(nn.Module):
                 - self.grid_cell_offset
             )
         else:
-            pose_regression_list = (
-                pose_regression_list + anchor_points.unsqueeze(0).unsqueeze(2)
-            )
+            pose_regression_list = pose_regression_list + anchor_points.unsqueeze(
+                0
+            ).unsqueeze(2)
 
-        pose_regression_list = pose_regression_list * stride_tensor.unsqueeze(0).unsqueeze(2)
+        pose_regression_list = pose_regression_list * stride_tensor.unsqueeze(
+            0
+        ).unsqueeze(2)
         pred_pose_scores = pose_logits_list.sigmoid()
         decoded = (pred_bboxes, pred_scores, pose_regression_list, pred_pose_scores)
 
@@ -1613,10 +1627,10 @@ class YoloNASPoseNDFLHeads(nn.Module):
             )
         )
         raw_predictions = (
-            cls_score_list,        # [B, A, nc] classification logits
-            reg_distri_list,       # [B, A, 4*(reg_max+1)] raw DFL distribution
+            cls_score_list,  # [B, A, nc] classification logits
+            reg_distri_list,  # [B, A, 4*(reg_max+1)] raw DFL distribution
             pose_regression_list,  # [B, A, K, 2] decoded pose coords (image px)
-            pose_logits_list,      # [B, A, K] keypoint visibility logits
+            pose_logits_list,  # [B, A, K] keypoint visibility logits
             anchors_t,
             anchor_points_t,
             num_anchors_list,
@@ -1686,6 +1700,291 @@ class LibreYOLONASPoseModel(nn.Module):
         """Rebuild the pose head for a new class count (fine-tuning hook)."""
         self.heads.replace_num_classes(num_classes)
         self.num_classes = num_classes
+
+    def prep_model_for_conversion(
+        self, input_size=None, full_fusion: bool = False, **kwargs
+    ):
+        for module in self.modules():
+            if module is not self and hasattr(module, "prep_model_for_conversion"):
+                module.prep_model_for_conversion(
+                    input_size=input_size, full_fusion=full_fusion, **kwargs
+                )
+
+    def fuse_reparam(self, full_fusion: bool = False):
+        self.prep_model_for_conversion(full_fusion=full_fusion)
+        return self
+
+    def forward(self, x: Tensor):
+        feats = self.backbone(x)
+        feats = self.neck(feats)
+        return self.heads(feats)
+
+
+# ---------------------------------------------------------------------------
+# Rotated (OBB) head + model — YOLO-NAS-R
+# ---------------------------------------------------------------------------
+#
+# Ported from SuperGradients (Apache-2.0) at the pinned YOLO-NAS-R PR head
+# 69141b55c1161d939939a270523a7eca5a645f72:
+#   src/super_gradients/training/models/detection_models/yolo_nas_r/
+#       yolo_nas_r_dfl_head.py, yolo_nas_r_ndfl_heads.py, yolo_nas_r_variants.py
+#
+# The backbone and neck are identical to the detection variants (the rotated
+# arch_params differ from the detection ones only in the head class names), so
+# LibreYOLONASOBBModel reuses them unchanged.
+
+
+class YoloNASRDFLHead(YoloNASDFLHead):
+    """Detection DFL head with rotated-box outputs.
+
+    Keeps the detection head's stem / cls_convs / reg_convs / cls_pred verbatim
+    and swaps the regression branch for the rotated parameterisation:
+
+    - ``reg_pred``    -> ``2 * (reg_max + 1)`` width/height DFL logits
+    - ``offset_pred`` -> 2 center offsets (zero-initialised, as upstream)
+    - ``rot_pred``    -> 1 rotation logit
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        inter_channels: int,
+        width_mult: float,
+        first_conv_group_size: int,
+        num_classes: int,
+        stride: int,
+        reg_max: int,
+        cls_dropout_rate: float = 0.0,
+        reg_dropout_rate: float = 0.0,
+    ):
+        super().__init__(
+            in_channels=in_channels,
+            inter_channels=inter_channels,
+            width_mult=width_mult,
+            first_conv_group_size=first_conv_group_size,
+            num_classes=num_classes,
+            stride=stride,
+            reg_max=reg_max,
+            cls_dropout_rate=cls_dropout_rate,
+            reg_dropout_rate=reg_dropout_rate,
+        )
+        inter_channels = width_multiplier(inter_channels, width_mult, 8)
+        self.reg_pred = nn.Conv2d(inter_channels, 2 * (reg_max + 1), 1, 1, 0)
+        self.rot_pred = nn.Conv2d(inter_channels, 1, kernel_size=1, stride=1, padding=0)
+        self.offset_pred = nn.Conv2d(
+            inter_channels, 2, kernel_size=1, stride=1, padding=0
+        )
+        nn.init.zeros_(self.offset_pred.weight)
+        nn.init.zeros_(self.offset_pred.bias)
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+        """Return ``(reg_output, cls_output, offset_output, rot_output)``."""
+        x = self.stem(x)
+
+        cls_feat = self.cls_dropout_rate(self.cls_convs(x))
+        cls_output = self.cls_pred(cls_feat)
+
+        reg_feat = self.reg_dropout_rate(self.reg_convs(x))
+        reg_output = self.reg_pred(reg_feat)
+        rot_output = self.rot_pred(reg_feat)
+        offset_output = self.offset_pred(reg_feat)
+
+        return reg_output, cls_output, offset_output, rot_output
+
+
+class YoloNASRNDFLHeads(nn.Module):
+    """Three-stride rotated head stack.
+
+    In eager mode returns ``(decoded, raw)`` where ``decoded`` is the tuple
+    ``(boxes_cxcywhr [B, A, 5], scores [B, A, C])`` and ``raw`` is the dict of
+    intermediate logits the loss consumes. Under tracing / export only
+    ``decoded`` is returned, matching the detection head's contract and the
+    raw export contract documented for this family.
+    """
+
+    def __init__(
+        self,
+        num_classes: int,
+        in_channels: Tuple[int, int, int],
+        width_mult: float,
+        grid_cell_offset: float = 0.5,
+        reg_max: int = 16,
+    ):
+        super().__init__()
+        self.in_channels = tuple(in_channels)
+        self.num_classes = num_classes
+        self.grid_cell_offset = grid_cell_offset
+        self.reg_max = reg_max
+        proj = torch.linspace(0, self.reg_max, self.reg_max + 1).reshape(
+            [1, self.reg_max + 1, 1, 1]
+        )
+        self.register_buffer("proj_conv", proj, persistent=False)
+
+        self.head1 = YoloNASRDFLHead(
+            in_channels[0], 128, width_mult, 0, num_classes, 8, reg_max
+        )
+        self.head2 = YoloNASRDFLHead(
+            in_channels[1], 256, width_mult, 0, num_classes, 16, reg_max
+        )
+        self.head3 = YoloNASRDFLHead(
+            in_channels[2], 512, width_mult, 0, num_classes, 32, reg_max
+        )
+        self.num_heads = 3
+        self.fpn_strides = (8, 16, 32)
+
+    def replace_num_classes(self, num_classes: int):
+        self.head1.replace_num_classes(num_classes)
+        self.head2.replace_num_classes(num_classes)
+        self.head3.replace_num_classes(num_classes)
+        self.num_classes = num_classes
+
+    @property
+    def out_channels(self):
+        return None
+
+    def _generate_anchors(self, feats):
+        """Grid-cell centres and per-anchor strides, derived from the features.
+
+        The ranges are built with ``ones_like``/``cumsum`` over slices of the
+        feature map rather than ``torch.arange(..., device=...)``: under
+        ``torch.jit.trace`` an explicit ``device=`` argument is baked into the
+        graph as a constant, which made the exported TorchScript module fail
+        with a cuda/cpu mismatch. Deriving from the tensor keeps the graph
+        device-agnostic (and spatially dynamic) while the eager arithmetic is
+        unchanged.
+        """
+        anchor_points = []
+        stride_tensor = []
+
+        for i, stride in enumerate(self.fpn_strides):
+            feat = feats[i]
+            row = feat[0, 0, 0, :]
+            col = feat[0, 0, :, 0]
+            shift_x = torch.cumsum(torch.ones_like(row), dim=0) - 1.0
+            shift_y = torch.cumsum(torch.ones_like(col), dim=0) - 1.0
+            shift_x = shift_x + self.grid_cell_offset
+            shift_y = shift_y + self.grid_cell_offset
+            shift_y, shift_x = torch.meshgrid(shift_y, shift_x, indexing="ij")
+            anchor_point = torch.stack([shift_x, shift_y], dim=-1)
+            anchor_points.append(anchor_point.reshape([-1, 2]))
+            stride_tensor.append(
+                torch.ones_like(anchor_point.reshape([-1, 2])[:, :1]) * float(stride)
+            )
+        return torch.cat(anchor_points), torch.cat(stride_tensor)
+
+    def forward(self, feats: Tuple[Tensor, ...]):
+        feats = feats[: self.num_heads]
+        cls_score_list = []
+        reg_distri_list = []
+        reg_dist_reduced_list = []
+        offsets_list = []
+        rot_list = []
+
+        for i, feat in enumerate(feats):
+            b, _, h, w = feat.shape
+            hw = h * w
+            head = getattr(self, "head" + str(i + 1))
+            reg_output, cls_output, offset_output, rot_output = head(feat)
+
+            reg_distri_list.append(torch.permute(reg_output.flatten(2), [0, 2, 1]))
+
+            reg_dist_reduced = torch.permute(
+                reg_output.reshape([-1, 2, self.reg_max + 1, hw]), [0, 2, 3, 1]
+            )
+            reg_dist_reduced = (
+                torch.softmax(reg_dist_reduced, dim=1).mul(self.proj_conv).sum(1)
+            )
+
+            cls_score_list.append(cls_output.reshape([b, -1, hw]))
+            reg_dist_reduced_list.append(reg_dist_reduced)
+            offsets_list.append(torch.flatten(offset_output, 2))
+            rot_list.append(torch.flatten(rot_output, 2))
+
+        cls_score_list = torch.permute(torch.cat(cls_score_list, dim=-1), [0, 2, 1])
+        offsets_list = torch.permute(torch.cat(offsets_list, dim=-1), [0, 2, 1])
+        rot_list = torch.permute(torch.cat(rot_list, dim=-1), [0, 2, 1])
+        # Upstream limits the predicted angle to [-3*pi/4, pi/4] (OpenCV
+        # counter-clockwise convention). Canonicalisation to LibreYOLO's
+        # [-pi/2, pi/2) long-side contract happens at the public
+        # postprocessing boundary, not here, so raw parity is preserved.
+        rot_list = (rot_list.sigmoid() - 0.25) * math.pi
+
+        reg_distri_list = torch.cat(reg_distri_list, dim=1)
+        reg_dist_reduced_list = torch.cat(reg_dist_reduced_list, dim=1)
+
+        anchor_points, stride_tensor = self._generate_anchors(feats)
+
+        sizes = reg_dist_reduced_list * stride_tensor
+        centers = (offsets_list + anchor_points) * stride_tensor
+        pred_boxes = torch.cat([centers, sizes, rot_list], dim=-1)
+        pred_scores = cls_score_list.sigmoid()
+        decoded_predictions = pred_boxes, pred_scores
+
+        if torch.jit.is_tracing():
+            return decoded_predictions
+
+        raw_predictions = {
+            "score_logits": cls_score_list,
+            "size_dist": reg_distri_list,
+            "size_reduced": reg_dist_reduced_list,
+            "angles": rot_list,
+            "offsets": offsets_list,
+            "anchor_points": anchor_points,
+            "strides": stride_tensor,
+            "reg_max": self.reg_max,
+        }
+        return decoded_predictions, raw_predictions
+
+
+class LibreYOLONASOBBModel(nn.Module):
+    """YOLO-NAS-R: the YOLO-NAS backbone/neck with a rotated-box head."""
+
+    def __init__(
+        self,
+        config: str = "s",
+        nb_classes: int = 18,
+        in_channels: int = 3,
+        reg_max: int = 16,
+        bn_eps: float = 1e-3,
+        bn_momentum: float = 0.03,
+        inplace_act: bool = True,
+    ):
+        super().__init__()
+        if config not in _VARIANT_CONFIGS:
+            raise ValueError(f"Unknown YOLO-NAS config '{config}'")
+
+        variant = _VARIANT_CONFIGS[config]
+        self.config = config
+        self.nc = nb_classes
+        self.reg_max = reg_max
+
+        self.backbone = YoloNASBackbone(variant, in_channels=in_channels)
+        self.neck = YoloNASPANNeckWithC2(list(self.backbone.out_channels), variant)
+        self.heads = YoloNASRNDFLHeads(
+            num_classes=nb_classes,
+            in_channels=tuple(self.neck.out_channels),
+            width_mult=variant["head_width_mult"],
+            reg_max=reg_max,
+        )
+        self._initialize_weights(bn_eps, bn_momentum, inplace_act)
+
+    @property
+    def head(self):
+        return self.heads
+
+    def _initialize_weights(self, bn_eps: float, bn_momentum: float, inplace_act: bool):
+        for m in self.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.eps = bn_eps
+                m.momentum = bn_momentum
+            elif inplace_act and isinstance(
+                m, (nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, nn.Mish)
+            ):
+                m.inplace = True
+
+    def replace_num_classes(self, num_classes: int):
+        self.heads.replace_num_classes(num_classes)
+        self.nc = num_classes
 
     def prep_model_for_conversion(
         self, input_size=None, full_fusion: bool = False, **kwargs

@@ -32,7 +32,7 @@ from ..tasks import normalize_task
 from ..utils.general import log_saved_result, resolve_save_path
 from ..utils.image_loader import ImageInput, ImageLoader
 from ..utils.logging import ensure_default_logging
-from ..utils.predict_args import normalize_predict_kwargs
+from ..utils.predict_args import normalize_classes, normalize_predict_kwargs
 from ..utils.results import Boxes, Results
 from ..utils.screen import ScreenSource, grab_screen
 from ..utils.source import SourceKind, build_stream_source, classify_source
@@ -316,6 +316,7 @@ class LibreEnsemble:
         screen captures yield fused Results one at a time.
         """
         normalize_predict_kwargs(kwargs)
+        classes = normalize_classes(classes)
         del batch
 
         n = len(self.members)

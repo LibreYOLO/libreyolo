@@ -20,6 +20,7 @@ from .base import BaseLogger as BaseLogger
 from .clearml_logger import ClearMLLogger as ClearMLLogger
 from .comet_logger import CometLogger as CometLogger
 from .dvclive_logger import DVCLiveLogger as DVCLiveLogger
+from .hf_hub_logger import HuggingFaceHubLogger as HuggingFaceHubLogger
 from .mlflow_logger import MLflowLogger as MLflowLogger
 from .neptune_logger import NeptuneLogger as NeptuneLogger
 from .tensorboard_logger import TensorBoardLogger as TensorBoardLogger
@@ -35,6 +36,10 @@ _LOGGER_FACTORIES = {
     "mlflow": MLflowLogger,
     "wandb": WandbLogger,
 }
+
+# The Hub logger needs a target repo, so its string form carries it inline:
+# loggers="hf:owner/repo" (also accepted: "huggingface:owner/repo").
+_HF_LOGGER_PREFIXES = ("hf:", "huggingface:")
 
 
 def resolve_loggers(loggers: Any) -> list[Any]:
@@ -52,11 +57,22 @@ def resolve_loggers(loggers: Any) -> list[Any]:
     for item in loggers:
         if isinstance(item, str):
             key = item.strip().lower()
-            if key not in _LOGGER_FACTORIES:
+            if key.startswith(_HF_LOGGER_PREFIXES):
+                repo_id = item.strip().partition(":")[2]
+                resolved.append(HuggingFaceHubLogger(repo_id))
+            elif key in ("hf", "huggingface"):
                 raise ValueError(
-                    f"Unknown logger {item!r}. Valid names: {sorted(_LOGGER_FACTORIES)}"
+                    "The Hugging Face Hub logger needs a target repository: "
+                    "use loggers='hf:owner/repo', or pass a configured "
+                    "HuggingFaceHubLogger instance."
                 )
-            resolved.append(_LOGGER_FACTORIES[key]())
+            elif key not in _LOGGER_FACTORIES:
+                raise ValueError(
+                    f"Unknown logger {item!r}. Valid names: "
+                    f"{sorted(_LOGGER_FACTORIES) + ['hf:owner/repo']}"
+                )
+            else:
+                resolved.append(_LOGGER_FACTORIES[key]())
         else:
             resolved.append(item)
     return resolved

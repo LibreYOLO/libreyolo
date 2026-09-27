@@ -33,6 +33,9 @@ from libreyolo.models.deim.ms_deform import (
 from libreyolo.models.dfine.ms_deform import (
     deformable_attention_core_func_v2 as dfine_core,
 )
+from libreyolo.models.ec.decoder import (
+    _ms_deform_attn_core_pytorch_pose as ec_pose_core,
+)
 from libreyolo.models.ec.utils import deformable_attention_core_func_v2 as ec_core
 from libreyolo.models.grounding_dino.nn import _msda as gdino_core
 from libreyolo.models.lwdetr.nn import ms_deform_attn_core_pytorch as lwdetr_core
@@ -67,9 +70,10 @@ MOCK_OUTPUT = torch.full((BATCH, LEN_Q, HEADS * CHANNELS), 7.0)
 def _clean_registry_env(monkeypatch):
     monkeypatch.delenv("LIBREYOLO_KERNELS", raising=False)
     monkeypatch.delenv("LIBREYOLO_QUANT_KERNELS", raising=False)
-    # Hub kernels are on by default when the `kernels` package is installed;
-    # pin them off so these tests behave the same on any machine.
+    # Accelerated providers are on by default when their extras/runtime
+    # exist; pin them off so these tests behave the same on any machine.
     monkeypatch.setenv("LIBREYOLO_HUB_KERNELS", "0")
+    monkeypatch.setenv("LIBREYOLO_TRITON_MSDA", "0")
     kernels.clear_cache()
     yield
     kernels.unregister("ms_deform_attn", "mock")
@@ -221,6 +225,19 @@ def _call_ovdeim(value, locations, weights):
     )
 
 
+def _pose_split_value(value):
+    """Classic layout -> pose ``(bs * heads, c, hw)`` per level."""
+    return tuple(
+        value.permute(0, 2, 3, 1)
+        .flatten(0, 1)
+        .split([height * width for height, width in SHAPES], dim=-1)
+    )
+
+
+def _call_ec_pose(value, locations, weights):
+    return ec_pose_core(_pose_split_value(value), SHAPES, locations, weights)
+
+
 FAMILY_CORES = {
     "lwdetr": _call_lwdetr,
     "grounding_dino": _call_gdino,
@@ -230,6 +247,7 @@ FAMILY_CORES = {
     "deim": _call_deim,
     "ec": _call_ec,
     "ec_reshape": _call_ec_reshape,
+    "ec_pose": _call_ec_pose,
     "ovdeim": _call_ovdeim,
 }
 
@@ -352,6 +370,15 @@ def test_dfine_forced_manual_grid_sample_never_reaches_slot(recorded, monkeypatc
         dfine_core(*args)
     finally:
         ms_deform._FORCE_MANUAL_GRID_SAMPLE.reset(token)
+    assert recorded == []
+
+
+def test_ec_pose_malformed_value_does_not_adapt(recorded):
+    """A value tuple that cannot reshape onto the slot must not be offered."""
+    from libreyolo.models.ec.decoder import _pose_value_to_slot
+
+    value, locations, _weights = _classic_inputs()
+    assert _pose_value_to_slot(_pose_split_value(value)[:1], locations) is None
     assert recorded == []
 
 

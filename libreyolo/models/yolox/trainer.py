@@ -8,7 +8,7 @@ loss extraction, and bias initialisation.
 import torch
 from typing import Dict, Type
 
-from libreyolo.training.trainer import BaseTrainer
+from libreyolo.training.trainer import BaseTrainer, ensure_mutation_reaches_workers
 from libreyolo.training.config import TrainConfig, YOLOXConfig
 from ...training.scheduler import WarmupCosineScheduler
 from ...training.augment import TrainTransform, MosaicMixupDataset
@@ -88,6 +88,9 @@ class YOLOXTrainer(BaseTrainer):
             raw.head.initialize_biases(0.01)
 
     def on_mosaic_disable(self):
+        ensure_mutation_reaches_workers(
+            self.train_loader, self.train_loader.dataset, "close_mosaic"
+        )
         self.train_loader.dataset.close_mosaic()
         raw = getattr(self.model, "module", self.model)
         raw.head.use_l1 = True

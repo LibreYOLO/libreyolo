@@ -83,6 +83,10 @@ class LibreLingBotVision(BaseModel):
     DEFAULT_TASK: ClassVar[str] = "semantic"
     REQUIRE_TASK_SUFFIX: ClassVar[bool] = True
     INPUT_SIZES: ClassVar[Dict[str, int]] = {size: 512 for size in SIZE_CONFIGS}
+    # g is the 1.1B teacher: loadable and fine-tunable, but no LibreYOLO-hosted
+    # checkpoint exists for it (see the module docstring). Kept as data so
+    # get_download_url and the error message cannot drift apart.
+    UNPUBLISHED_SIZES: ClassVar[Tuple[str, ...]] = ("g",)
 
     # ViT square canvas: stretch-resize (like LibreDINOv2), patch-16 grid.
     semantic_resize_mode: ClassVar[str] = "stretch"
@@ -90,6 +94,42 @@ class LibreLingBotVision(BaseModel):
     # The linear-probe recipe uses no photometric jitter; SemanticDataset
     # defaults to 0.5, so declare it explicitly (see LibreSegformer precedent).
     semantic_hsv_prob: ClassVar[float] = 0.0
+
+    # ------------------------------------------------------------------
+    # Weight download
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        """Refuse to auto-download the sizes that have no published weights.
+
+        Sizes s/b/l are hosted under ``LibreYOLO/``; g is the 1.1B teacher and
+        is not. Left to the base implementation, ``lingbotvision-g`` builds a
+        URL for a repo that does not exist and the user gets an HTTP failure
+        against ``LibreYOLO/LibreLingBotVisiong-sem``, which reads like an
+        outage rather than a checkpoint that was never published. Raise with
+        the reason instead.
+
+        The size guard matters: ``download_weights`` asks every registered
+        family in turn and takes the first non-None answer, so raising on a
+        filename that is not ours would hijack another family's download.
+        """
+        name = Path(filename).name
+        size = cls.detect_size_from_filename(name)
+        if size is None:
+            return None
+        if size in cls.UNPUBLISHED_SIZES:
+            published = ", ".join(
+                f"{cls.FAMILY}-{s}" for s in SIZE_CONFIGS if s not in cls.UNPUBLISHED_SIZES
+            )
+            raise FileNotFoundError(
+                f"{name}: LibreYOLO publishes no weights for {cls.FAMILY}-{size}. "
+                f"Size {size} is the upstream teacher backbone, supported for loading "
+                f"and fine-tuning from a local checkpoint but never mirrored under "
+                f"LibreYOLO/. Pass a local .pt path, or use one of the published "
+                f"sizes: {published}."
+            )
+        return super().get_download_url(name)
 
     # ------------------------------------------------------------------
     # Registry / can_load interface

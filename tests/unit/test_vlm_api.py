@@ -81,8 +81,14 @@ class TestFactoryResolution:
 
         assert _ALIASES["qwen3-vl-8b"] == (LibreQwen3VL, "8b")
         assert _ALIASES["lfm2-vl-450m"] == (LibreLFM2VL, "450m")
+        assert _ALIASES["lfm2-vl-3b"] == (LibreLFM2VL, "3b")
         assert _ALIASES["smolvlm2"] == (LibreSmolVLM2, "2.2b")
         assert _ALIASES["locate-anything"] == (LibreLocateAnything, "3b")
+
+        from libreyolo.models.vlm.northmicro import LibreNorthMicroVision
+
+        assert _ALIASES["north-micro-vision"] == (LibreNorthMicroVision, "2.4b")
+        assert _ALIASES["north-micro-vision-2.4b"] == (LibreNorthMicroVision, "2.4b")
 
         from libreyolo.models.vlm.internvl3 import LibreInternVL3
 
@@ -94,12 +100,59 @@ class TestFactoryResolution:
         assert _ALIASES["florence-2"] == (LibreFlorence2, "base")
         assert _ALIASES["kosmos-2"] == (LibreKosmos2, "224")
 
+        from libreyolo.models.vlm.gemma4 import LibreGemma4
+        from libreyolo.models.vlm.moondream import LibreMoondream
+
+        assert _ALIASES["gemma-4"] == (LibreGemma4, "e4b")
+        assert _ALIASES["gemma-4-e2b"] == (LibreGemma4, "e2b")
+        assert _ALIASES["moondream"] == (LibreMoondream, "2")
+        assert _ALIASES["moondream-3"] == (LibreMoondream, "3")
+
     def test_unknown_alias_raises_before_loading(self):
         from libreyolo.models.vlm import LibreVLM
 
         # Raises during resolution, before any model download/load.
         with pytest.raises(ValueError):
             LibreVLM("definitely-not-a-real-model")
+
+
+class TestLFM2CoordinateConvention:
+    """The 3B emits 0-1000 boxes; smaller sizes emit [0, 1] (offline)."""
+
+    def test_3b_shadows_divisor_and_prompt(self):
+        from libreyolo.models.vlm.lfm2 import LibreLFM2VL
+
+        assert LibreLFM2VL._COORD_DIVISORS["3b"] == 1000.0
+        assert LibreLFM2VL.COORD_DIVISOR == 1.0  # class default untouched
+
+        m = object.__new__(LibreLFM2VL)
+        m.COORD_DIVISOR = 1000.0
+        assert "0-1000 scale" in m._format_detection_prompt("boat")
+
+        small = object.__new__(LibreLFM2VL)  # falls back to the class attr
+        assert "[0,1]" in small._format_detection_prompt("boat")
+
+
+class TestNorthMicroTransformersGuard:
+    """North Micro Vision fails fast on transformers < 5.16 (offline)."""
+
+    def test_old_transformers_raises_with_hint(self, monkeypatch):
+        transformers = pytest.importorskip("transformers")
+        from libreyolo.models.vlm import northmicro
+
+        monkeypatch.setattr(transformers, "__version__", "5.15.0")
+        with pytest.raises(ImportError, match="transformers>=5.16.0"):
+            northmicro._require_transformers()
+
+    def test_new_transformers_passes(self, monkeypatch):
+        transformers = pytest.importorskip("transformers")
+        from libreyolo.models.vlm import northmicro
+
+        monkeypatch.setattr(transformers, "__version__", "5.16.0")
+        northmicro._require_transformers()
+        # dev builds of the next minor also pass
+        monkeypatch.setattr(transformers, "__version__", "5.16.0.dev0")
+        northmicro._require_transformers()
 
 
 class TestSnapshotComplete:

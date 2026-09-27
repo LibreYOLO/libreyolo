@@ -79,7 +79,7 @@ class YOLO9Trainer(BaseTrainer):
 
         return YOLO9ValidationLoss(
             model,
-            max_labels=int(getattr(self.config, "max_labels", 100)),
+            max_labels=int(getattr(self.config, "max_labels", 300)),
         )
 
     def get_freeze_groups(self) -> List[FreezeGroup]:
@@ -100,17 +100,73 @@ class YOLO9Trainer(BaseTrainer):
                     groups.append((f"neck.{name}", module))
         if head is not None:
             groups.append(("head", head))
+        aux = getattr(model, "aux", None)
+        if aux is not None:
+            groups.append(("aux", aux))
+        aux_head = getattr(model, "aux_head", None)
+        if aux_head is not None:
+            groups.append(("aux_head", aux_head))
         return groups or super().get_freeze_groups()
+
+    def _resolved_letterbox_pad(self) -> str | None:
+        from libreyolo.preprocess.letterbox import normalize_letterbox_pad
+
+        configured = getattr(self.config, "letterbox_pad", None)
+        if configured:
+            pad = normalize_letterbox_pad(configured)
+            if self.wrapper_model is not None:
+                self.wrapper_model.letterbox_pad = pad
+            return pad
+        return getattr(self.wrapper_model, "letterbox_pad", None)
 
     def create_transforms(self):
         preproc = YOLO9TrainTransform(
-            max_labels=getattr(self.config, "max_labels", 100),
+            max_labels=getattr(self.config, "max_labels", 300),
             flip_prob=self.config.flip_prob,
             vertical_flip_prob=getattr(self.config, "flipud", 0.0),
             hsv_prob=self.config.hsv_prob,
             rot90_prob=getattr(self.config, "rot90", 0.0),
+            letterbox_pad=self._resolved_letterbox_pad(),
         )
         return preproc, YOLO9MosaicMixupDataset
+
+    def _checkpoint_extra_metadata(self):
+        extra = super()._checkpoint_extra_metadata()
+        from libreyolo.preprocess.letterbox import normalize_letterbox_pad
+
+        pad = self._resolved_letterbox_pad()
+        extra["letterbox_pad"] = normalize_letterbox_pad(pad)
+        return extra
+
+    def setup(self):
+        # Attach PGI before optimizer / EMA / DDP when the resume file has it.
+        # ``train(resume=True)`` already did this; this covers setup-first
+        # callers that only pass the path to ``resume()`` later.
+        path = getattr(getattr(self, "wrapper_model", None), "model_path", None)
+        if path and self.wrapper_model is not None:
+            self.wrapper_model._maybe_enable_aux_from_path(
+                path, getattr(self.config, "aux_weight", 0.25)
+            )
+        return super().setup()
+
+    def resume(self, checkpoint_path: str):
+        if self.wrapper_model is not None:
+            self.wrapper_model._maybe_enable_aux_from_path(
+                checkpoint_path, getattr(self.config, "aux_weight", 0.25)
+            )
+            from libreyolo.utils.serialization import load_trusted_torch_file
+            from libreyolo.preprocess.letterbox import normalize_letterbox_pad
+
+            checkpoint = load_trusted_torch_file(
+                checkpoint_path,
+                map_location="cpu",
+                context="yolo9 resume letterbox probe",
+            )
+            if isinstance(checkpoint, dict) and "letterbox_pad" in checkpoint:
+                self.wrapper_model.letterbox_pad = normalize_letterbox_pad(
+                    checkpoint.get("letterbox_pad")
+                )
+        return super().resume(checkpoint_path)
 
     def create_scheduler(self, iters_per_epoch: int):
         scheduler_name = self.config.scheduler
@@ -122,6 +178,8 @@ class YOLO9Trainer(BaseTrainer):
                 warmup_epochs=self.config.warmup_epochs,
                 warmup_lr_start=self.config.warmup_lr_start,
                 min_lr_ratio=self.config.min_lr_ratio,
+                warmup_momentum=getattr(self.config, "warmup_momentum", None),
+                momentum=getattr(self.config, "momentum", None),
             )
         elif scheduler_name in ("cos", "warmcos"):
             return CosineAnnealingScheduler(
@@ -136,14 +194,18 @@ class YOLO9Trainer(BaseTrainer):
             raise ValueError(f"Unknown scheduler: {scheduler_name}")
 
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
-        def _scalar(v):
-            return v.item() if isinstance(v, torch.Tensor) else v
-
-        return {
-            "box": _scalar(outputs.get("box", 0)),
-            "cls": _scalar(outputs.get("cls", 0)),
-            "dfl": _scalar(outputs.get("dfl", 0)),
-        }
+        # Transfer every logging scalar with ONE .cpu() call (the rfdetr
+        # pattern from PR #761): a per-key ``.item()`` here would be one GPU
+        # pipeline drain each per logged step (issue #763).
+        values = {name: outputs.get(name, 0) for name in ("box", "cls", "dfl")}
+        tensor_names = [n for n, v in values.items() if isinstance(v, torch.Tensor)]
+        if tensor_names:
+            stacked = torch.stack(
+                [values[n].detach().reshape(()).float() for n in tensor_names]
+            ).cpu()
+            for i, name in enumerate(tensor_names):
+                values[name] = stacked[i]
+        return {name: float(v) for name, v in values.items()}
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         return self.model(imgs, targets=targets)
@@ -155,9 +217,13 @@ class YOLO9Trainer(BaseTrainer):
         without targets returns the concatenated head maps, and
         ``assemble`` replays exactly the loss path ``LibreYOLO9Model.
         forward`` takes with targets (anchors tracking the input size,
-        then the head's loss over the raw maps). Restricted to the plain
+        then the head's loss over the raw maps). With the PGI auxiliary
+        branch (the fine-tuning default) the graphed network also returns
+        the auxiliary head maps, and ``assemble`` adds that head's loss via
+        :meth:`LibreYOLO9Model.combine_aux_losses`. Restricted to the plain
         detect head: subclasses with derived heads (e2e dual assignment)
         or other tasks compute loss at a different boundary and run eager.
+        The compile path (``BaseTrainer.compile_train_spec``) reuses this.
         """
         from libreyolo.training.cuda_graph import (
             CudaGraphTrainSpec,
@@ -166,18 +232,51 @@ class YOLO9Trainer(BaseTrainer):
         from .nn import DDetect, LibreYOLO9Model
 
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        model = self.model
         if task != "detect":
             return None
-        if not isinstance(self.model, LibreYOLO9Model):
+        if not isinstance(model, LibreYOLO9Model):
             return None
-        if type(self.model.head) is not DDetect:
+        if type(model.head) is not DDetect:
             return None
 
-        network = GraphableNetwork(self.model)
+        if getattr(model, "aux", None) is not None:
+            if type(getattr(model, "aux_head", None)) is not DDetect or model.aux_weight <= 0:
+                return None
+            network = GraphableNetwork(_PGITrainForward(model))
+
+            def assemble(flat, imgs, targets, polygons=None):
+                maps = network.rebuild(flat)
+                img_size = [imgs.shape[3], imgs.shape[2]]
+                losses = []
+                for head, raw in ((model.head, maps["main"]), (model.aux_head, maps["aux"])):
+                    loss_fn = head._get_loss_fn(imgs.device)
+                    loss_fn.update_anchors(img_size)
+                    losses.append(loss_fn(raw, targets))
+                return model.combine_aux_losses(*losses)
+
+            return CudaGraphTrainSpec(network=network, assemble=assemble)
+
+        network = GraphableNetwork(model)
 
         def assemble(flat, imgs, targets, polygons=None):
-            loss_fn = self.model.head._get_loss_fn(imgs.device)
+            loss_fn = model.head._get_loss_fn(imgs.device)
             loss_fn.update_anchors([imgs.shape[3], imgs.shape[2]])
             return loss_fn(network.rebuild(flat), targets)
 
         return CudaGraphTrainSpec(network=network, assemble=assemble)
+
+
+class _PGITrainForward(torch.nn.Module):
+    """Main and PGI auxiliary raw head maps of a training forward."""
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x: torch.Tensor):
+        model = self.model
+        p3, p4, p5, b5 = model.backbone(x, return_b5=True)
+        main = model.head(list(model.neck(p3, p4, p5)))
+        aux = model.aux_head(list(model.aux(p3, p4, b5)))
+        return {"main": main, "aux": aux}

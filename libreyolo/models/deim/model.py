@@ -19,6 +19,8 @@ from .nn import LibreDEIMModel
 from ...postprocess.deim import postprocess
 from .utils import preprocess_image, unwrap_deim_checkpoint
 
+_TRAIN_DEFAULTS = DEIMConfig()
+
 
 class LibreDEIM(BaseModel):
     """LibreYOLO wrapper for DEIM.
@@ -35,6 +37,7 @@ class LibreDEIM(BaseModel):
     SUPPORTS_CUDA_GRAPH = True
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     TRAIN_CONFIG = DEIMConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = DEIMValPreprocessor
     TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
 
@@ -47,6 +50,8 @@ class LibreDEIM(BaseModel):
         # Dome-DETR also descends from D-FINE and carries pre_bbox_head, but it
         # is a different architecture (DeFE/MWAS/PAQI), not an ambiguous
         # sibling, so reject it outright rather than leaving it to ordering.
+        if "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" in weights_dict:
+            return False
         if any(k.startswith("encoder.DeFE.") for k in weights_dict):
             return False
         return any("decoder.pre_bbox_head." in k for k in weights_dict)
@@ -111,6 +116,7 @@ class LibreDEIM(BaseModel):
         device: str = "auto",
         **kwargs,
     ):
+        checkpoint = model_path if isinstance(model_path, dict) else None
         if isinstance(model_path, dict):
             model_path = unwrap_deim_checkpoint(model_path)
         super().__init__(
@@ -120,6 +126,8 @@ class LibreDEIM(BaseModel):
             device=device,
             **kwargs,
         )
+        if checkpoint is not None:
+            self._cache_checkpoint_train_config(checkpoint)
         if isinstance(model_path, str):
             self._load_weights(model_path)
 
@@ -205,7 +213,7 @@ class LibreDEIM(BaseModel):
         name: str = "deim_exp",
         exist_ok: bool = False,
         resume: bool = False,
-        amp: bool = False,
+        amp: bool = _TRAIN_DEFAULTS.amp,
         patience: int = 50,
         callbacks: TrainCallbacks = None,
         loggers=None,
@@ -240,7 +248,11 @@ class LibreDEIM(BaseModel):
         from .trainer import DEIMTrainer
 
         try:
-            data_config = load_data_config(data, autodownload=True)
+            data_config = load_data_config(
+                data,
+                autodownload=True,
+                single_cls=bool(kwargs.get("single_cls", False)),
+            )
             data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
@@ -290,13 +302,8 @@ class LibreDEIM(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreDEIM('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()
@@ -335,6 +342,7 @@ class LibreDEIM(BaseModel):
 
         try:
             loaded = torch.load(model_path, map_location="cpu", weights_only=False)
+            self._cache_checkpoint_train_config(loaded)
             state_dict = unwrap_deim_checkpoint(loaded)
             state_dict = self._strip_ddp_prefix(dict(state_dict))
 

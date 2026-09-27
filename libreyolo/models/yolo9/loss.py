@@ -12,7 +12,7 @@ from torch import Tensor, nn
 from torch.nn import BCEWithLogitsLoss
 
 from libreyolo.data import default_oks_sigmas
-from libreyolo.training.distributed import all_reduce_avg_scalar
+from libreyolo.training.distributed import all_reduce_avg_scalar_tensor
 from libreyolo.utils.box_ops import compute_iou as calculate_iou
 
 
@@ -489,7 +489,11 @@ class BoxMatcher:
 
 class YOLO9Loss:
     """
-    Combined loss for YOLOv9 training (single head, no auxiliary).
+    Combined loss for one YOLOv9 detection head.
+
+    The optional PGI auxiliary head uses a second ``YOLO9Loss`` instance;
+    ``LibreYOLO9Model`` adds ``aux_weight * aux_loss`` when that branch is
+    attached. Inference never instantiates this class.
 
     Computes:
     - Box loss (CIoU)
@@ -565,8 +569,8 @@ class YOLO9Loss:
         if self.vec2box is None or self.vec2box.image_size != image_size:
             self._init_vec2box(image_size)
 
-    def _global_cls_norm(self, targets_cls: Tensor) -> float:
-        """Positive count for loss normalization.
+    def _global_cls_norm(self, targets_cls: Tensor) -> Tensor:
+        """Positive count for loss normalization, as a 0-dim device tensor.
 
         Multi-GPU training must divide by the global count so DDP's gradient
         averaging matches single-GPU on the same global batch (issue #484).
@@ -574,10 +578,14 @@ class YOLO9Loss:
         yolo9 task losses so the normalizer contract lives in one place.
         Rank-0-only validation explicitly selects the local path because it
         cannot enter a collective while the other ranks wait at a barrier.
+
+        Returned as a tensor rather than ``.item()``-ed: the value is only
+        ever a divisor, and the ``.item()`` here cost one full GPU pipeline
+        drain per training step (issue #763).
         """
         if self.distributed_normalize:
-            return all_reduce_avg_scalar(targets_cls.sum())
-        return float(targets_cls.detach().float().sum().clamp_min(1.0).item())
+            return all_reduce_avg_scalar_tensor(targets_cls.sum())
+        return targets_cls.detach().float().sum().clamp_min(1.0)
 
     def __call__(
         self, predictions: List[Tensor], targets: Tensor
@@ -662,17 +670,14 @@ class YOLO9Loss:
             "box_loss": loss_box_weighted,
             "dfl_loss": loss_dfl_weighted,
             "cls_loss": loss_cls_weighted,
-            # Scalar values for logging
-            "box": loss_box_weighted.item()
-            if isinstance(loss_box_weighted, Tensor)
-            else loss_box_weighted,
-            "dfl": loss_dfl_weighted.item()
-            if isinstance(loss_dfl_weighted, Tensor)
-            else loss_dfl_weighted,
-            "cls": loss_cls_weighted.item()
-            if isinstance(loss_cls_weighted, Tensor)
-            else loss_cls_weighted,
-            "num_fg": valid_masks.sum().item() / max(B, 1),
+            # Logging values, kept as detached 0-dim tensors: the four
+            # per-key ``.item()`` calls here were four GPU pipeline drains
+            # every training step (issue #763). The float conversion happens
+            # once, batched, in ``get_loss_components``.
+            "box": loss_box_weighted.detach(),
+            "dfl": loss_dfl_weighted.detach(),
+            "cls": loss_cls_weighted.detach(),
+            "num_fg": valid_masks.sum().detach() / max(B, 1),
         }
 
         return loss_dict

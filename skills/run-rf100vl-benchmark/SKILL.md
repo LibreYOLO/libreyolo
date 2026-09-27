@@ -39,12 +39,28 @@ knowledge those two do not cover.
 | Selection | validate every epoch, EMA weights, keep best AP50:95 | Roboflow reference code |
 | Epoch budget | fixed 100, early stopping DISABLED (`patience: 0`) | Roboflow reference code; the harness enforces it |
 | Effective batch | 16 (physical batch x gradient accumulation) | Roboflow reference code |
-| Precision | fp32; bf16 only via explicit `amp_dtype`; never fp16 autocast | LibreYOLO policy |
+| Precision | whatever the family's upstream reference trains at, declared in the recipe and recorded in every submission. fp32 for the YOLO trio, fp16 for `ec`, bf16 for `rfdetr`. Never a precision its authors do not use, in either direction | harness #10; measured 2026-08 |
 | Eval thresholds | conf 0.001; NMS IoU 0.65 for NMS families, identical at selection and final eval; DETR families are NMS-free top-k | LibreYOLO policy |
 | Seed | 0 | LibreYOLO policy |
 | Recipes | one pinned JSON per family in the harness (`va_bench/recipes/rf100vl/`), sha recorded in every run, same recipe for all 100 datasets | LibreYOLO policy |
 | Execution (YOLO) | `cuda_graph: true` and `cache: "disk"` in the recipe protocol when the installed LibreYOLO supports them (bit-identical; covered by recipe hash). Verify capture per family, per commit and per card: see "CUDA graphs and cache" | measured 2026-08 |
 | COCO evaluator | faster-coco-eval (Apache-2.0), now the LibreYOLO default; record the backend in artifacts | measured 2026-08 |
+
+**"Roboflow reference code" means what they RAN, not what the library
+defaults to.** For RF-DETR those differ, and the difference is invisible in a
+result table. Their maintainer states it in
+[rf-detr#266](https://github.com/roboflow/rf-detr/issues/266): the published
+RF100-VL numbers used "the default arguments but with batch size 16 and grad
+accum 1", posted three hours after the 1.2.0 release, so read the defaults off
+that tag rather than off `develop`, which has since drifted (`batch_size` now
+takes `"auto"`, `amp_dtype` became a selector). The library default is batch 4
+with accum 4. Both give effective batch 16, but `multi_scale` draws a fresh
+resolution per forward, so accum 4 averages four scales into an optimizer step
+where they averaged one. Two things in their numbers are not reproducible at
+all and belong in the recipe as disclosed deviations: they initialised from
+private Objects365 checkpoints that were never released (they estimate ~0.1
+mAP), and their table predates their own fix for an incorrectly initialised
+head.
 
 Never report toolkit-native trapezoidal mAP; it inflates up to 2.7 AP on
 RF100-VL versus pycocotools (paper, App B). LibreYOLO validation is
@@ -59,8 +75,9 @@ scoring against 112 s training** — 4.4×, and 6.9 of that dataset's 9.6 h.
 faster-coco-eval removes it: verified across all 100 test splits at
 max_det=500, **1381/1400 metric values bit-identical, max deviation 2.22e-16
 (one float64 ULP), headline mean AP delta exactly 0**, wall 131.4 s → 8.4 s
-(15.6× overall, 56× on gwhd2021). The dense outliers to expect are
-`gwhd2021`, `recode-waste`, `uavdet-small`. Keep stock pycocotools as the
+(15.6× overall, 56× on gwhd2021). Scoring cost tracks the MEAN boxes/image, so
+the datasets to expect it on are `uavdet-small` (75.9), `recode-waste` (44.3)
+and `gwhd2021` (42.9), against a median of 4.9. Keep stock pycocotools as the
 reference implementation for audit; do not silently swap backends without
 recording which one ran.
 
@@ -68,8 +85,9 @@ Validation frequency is protocol-mandated every epoch (gdino
 `val_interval=1`; rt-detr / d-fine / lw-detr call `evaluate()` unconditionally,
 lw-detr twice). The knob that exists is validation COST (image cache, hoisted
 validator, graphed val forward), not frequency. LibreYOLO's own
-`TrainConfig.eval_interval` defaults to 10 — a short smoke never validates
-unless you pass `eval_interval=1`.
+`TrainConfig.eval_interval` defaults to 10 and the final epoch always
+validates, so a short smoke validates once at the end; pass
+`eval_interval=1` to validate every epoch.
 
 ## Where the work happens
 
@@ -244,20 +262,66 @@ same size, 1.7× apart. Activation memory, cuDNN workspace autotuning,
 allocator behaviour and CUDA-graph static buffers all dominate, and none of
 them follow parameter count.
 
-Measure instead. It costs about a minute per model:
+Measure instead, with a 2-epoch smoke campaign rather than the profiler:
 
 ```bash
-libreyolo profile run <data.yaml> --weights <W> --size <s> \
-  --imgsz 640 --batch 16 --steps 20 --device 0   # prints "peak VRAM"
+va-bench rf100vl-campaign --model <M> --recipe <R> \
+  --datasets <one-dense-dataset> --gpus 0 --jobs-per-gpu 1 --smoke-epochs 2
 ```
 
-Run the probe matrix on the target GPU before committing a campaign, and take
-~20% headroom. The registry's `params_millions`/`gflops` fields are `0.0` for
-most non-flagship specs, so they cannot stand in for this.
+**Do not size a lane with `libreyolo profile run`.** It does not capture CUDA
+graphs and does not run EMA or validation, so it under-reports the real lane.
+It measured yolo9-m at 15721 MB, which looks survivable on a 16 GB card; the
+graphed campaign then OOM'd on **all 100 datasets** with 13.61 GiB sitting in
+graph private pools. The profiler is the right tool for *where time goes*, not
+for how much memory a lane needs.
 
-Being wrong is survivable but not free: the harness falls back to grad-accum
-(keeping effective batch 16) and **restarts that dataset from epoch 0**, so a
-bad guess costs throughput and wasted epochs, not correctness.
+Pick a **dense** dataset for the smoke, not a convenient one. `actions` is
+sparse and gave ec-m 13939 MB; the real campaign peaked at 14787 MB on
+`gwhd2021` (43.6 boxes/image).
+
+**Dense for memory and dense for scoring are different lists, and this skill
+used to give the scoring one for both jobs.** Peak VRAM is set by the WORST
+SINGLE IMAGE in a batch, not the average, so size a lane against max
+boxes/image: `exploratorium-daphnia` (349), `all-elements` (279),
+`penguin-finder-seg` (246). The scoring-cost trio above is a poor proxy for it:
+`gwhd2021` maxes at 190 and `uavdet-small`, densest of all by mean, at only
+109. Measured on the train splits, which is what the harness reads when it
+builds the batch plan.
+
+The same asymmetry sets the OOM fallback: `dense_oom_fallback` triggers on
+`max_annotations_per_image`, so at the recipes' threshold of 200 exactly those
+three datasets drop to the fallback batch, on every family. That is a protocol
+deviation on 3 of 100 datasets which fires whether or not the lane would
+actually have OOM'd, so check it is the trade you want before dataset one.
+
+Take ~20% headroom. The registry's `params_millions`/`gflops` fields are `0.0`
+for most non-flagship specs, and parameter count does not predict memory
+anyway: yolo9-m at 20.1M needs 15207 MB while yolonas-s at 19.05M needs 7615,
+2x apart at nearly identical size.
+
+Being wrong is survivable but not free: for `rfdetr` the harness falls back to
+grad-accum and **restarts that dataset from epoch 0**. For every other family
+the fallback is not wired up (`_batch_plan` gates it on
+`spec.family == "rfdetr"`), so a mid-run OOM is fatal for that dataset even
+though the scheduler asks for a fallback.
+
+### Packing: decide by utilisation, not by free memory
+
+Two lanes fit is not the same as two lanes help. Run one lane and read
+`utilization.gpu`:
+
+| model | 1 lane VRAM | 1 lane util | verdict |
+|---|---|---|---|
+| ec-s | 7.0 GB | 44% | 2 lanes: **~2x throughput**, second lane nearly free |
+| ec-m | 10.3 GB | ~100% | 1 lane: packing buys nothing, and 2 would not fit |
+| yolonas-s | 9-11 GB | 88-100% | 1 lane |
+
+Measured on ec-s: 78.0 s/epoch alone against 80.3 s with a neighbour, so the
+second lane cost ~2% and doubled the work. On a saturated model there is no
+idle capacity to sell, and packing only adds OOM risk. Sample utilisation over
+30 s or so, because ~20% of each epoch is validation, where a single sample
+legitimately reads 0%.
 
 ### Disk: project it, do not eyeball it
 
@@ -297,7 +361,20 @@ op. Total self-CUDA ≪ total self-CPU ⇒ launch-bound (CUDA graphs).
 **First check that the GPU counters attached at all.** On a rented box where
 CUPTI fails to load, the profiler still prints a full report, but every
 device-side number is zero and the VERDICT line is then an artifact rather
-than a measurement. Measured 2026-08 on an 8x RTX 5060 Ti box:
+than a measurement. The cause is a version mismatch, not a permissions
+problem, so the NVIDIA doc link the error prints is a red herring:
+
+```
+CUPTI initialization failed: CUPTI_ERROR_INVALID_DEVICE (2)
+```
+
+CUPTI has to match the DRIVER, not the toolkit. A Vast host on driver
+595.58.03 (CUDA 13.2) with an sm_120 card meets the `cu128` wheel's bundled
+`nvidia-cuda-cupti-cu12 12.8.90` and cannot enumerate the device. There is no
+cheap fix: `nvidia-cuda-cupti-cu13` on PyPI is a 0.0.1 stub, the image ships
+no system CUPTI, and a real fix needs torch built for CUDA 13. **Rent a host
+whose driver CUDA major matches the wheel's CUPTI major, or accept
+wall-clock-only profiling.** Measured 2026-08 on an 8x RTX 5060 Ti box:
 
 ```
 REAL step 362.3 ms = dataload 0.1 ms + compute 362.3 ms  ->  44.2 img/s
@@ -389,6 +466,13 @@ it, rather than carrying a private patch on the box.
 - **Ctrl-C mid-checkpoint can corrupt `last.pt`** and poison resume for that
   dataset. Stop gracefully: `tmux send-keys -t bench C-c`, wait for the
   orchestrator to exit, then `vastai stop instance` if keeping the box.
+- **`pkill` on live workers does the same thing, and an agent restarting a
+  campaign will reach for it.** One dataset out of 33 came back as a 0.5 MB
+  `last.pt` after a routine restart, and the next attempt died on
+  `PytorchStreamReader ... failed finding central directory`. The recovery is
+  to delete the corrupt file so the dataset restarts clean; the retry pass
+  then picks it up. Worth sweeping every `last.pt` with a `torch.load` after
+  any hard kill, because the corruption is silent until the resume.
 - A **stopped** box bills disk only; restart needs those exact GPUs still
   free. Decide stop-vs-destroy from disk $/day, re-stage cost (~35 min,
   nearly free bandwidth), and whether banked checkpoints are usable
@@ -465,6 +549,20 @@ result, it is a bug report.** Adjacent sizes land ~3 points apart.
 - Package-cleaned data only. Raw Universe exports keep the dummy class and
   score near zero.
 - Dataset named `-grccs`: `--datasets=-grccs` (space form is eaten by argparse).
+  The same leading hyphen breaks any shell tooling you write around the
+  campaign: `grep -qxF "$d"` parses it as options and exits 2, so a cleanup
+  guard written that way fails open and deletes the cache of a dataset that is
+  actively training. Use `grep -qxF -- "$d"`.
+- **Anything that fails at worker startup destroys the most expensive datasets
+  first.** Longest-first scheduling puts the biggest datasets in the opening
+  batch, which is exactly the batch that races on a shared resource. A weight
+  auto-conversion race took out `flir-camera-objects` (8792 images),
+  `paper-parts` (8423) and `underwater-objects` (5253) on every launch, while
+  the small datasets sailed through. If the same names keep failing, suspect
+  startup contention rather than the datasets.
+- **A single `nvidia-smi` sample is not a health check.** Roughly 20% of each
+  epoch is validation, where utilisation legitimately reads 0% while ~12 GB
+  stays allocated. Sample over 30 s, or read epoch progress instead.
 - Never resume after changing physical batch, accumulation, **or recipe
   fields covered by the run signature** (including `cuda_graph` / `cache`).
 - Dense datasets can OOM rfdetr; harness falls back to grad-accum and

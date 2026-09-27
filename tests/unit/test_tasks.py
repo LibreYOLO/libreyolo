@@ -102,11 +102,14 @@ def test_task_type_literal_is_public():
         "depth",
         "edge",
         "normal",
+        "albedo",
         "restore",
         "matte",
         "ocr",
         "embed",
         "mesh",
+        "detect3d",
+        "act",
     }
 
 

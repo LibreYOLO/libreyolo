@@ -119,7 +119,7 @@ def list_builtin_datasets() -> list:
     return [f.stem for f in BUILTIN_DATASETS_DIR.glob("*.yaml")]
 
 
-def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
+def get_img_files(path: Union[str, Path, List], prefix: str = "", *, formats=None) -> List[Path]:
     """
     Get list of image files from various input formats.
 
@@ -139,11 +139,12 @@ def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
         FileNotFoundError: If path doesn't exist.
         ValueError: If no valid images found.
     """
+    formats = IMG_FORMATS if formats is None else formats
     if isinstance(path, list):
         # Handle list of paths recursively
         img_files = []
         for p in path:
-            img_files.extend(get_img_files(p, prefix))
+            img_files.extend(get_img_files(p, prefix, formats=formats))
         return img_files
 
     path = Path(path)
@@ -155,7 +156,7 @@ def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
     if path.is_dir():
         # Directory: recursively find all images
         img_files = []
-        for ext in IMG_FORMATS:
+        for ext in formats:
             img_files.extend(path.rglob(f"*{ext}"))
             img_files.extend(path.rglob(f"*{ext.upper()}"))
         return sorted(set(img_files))
@@ -175,11 +176,11 @@ def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
                     if not img_path.is_absolute():
                         # Relative to txt file's parent directory
                         img_path = path.parent / img_path
-                    if img_path.suffix.lower() in IMG_FORMATS:
+                    if img_path.suffix.lower() in formats:
                         img_files.append(img_path)
         return sorted(img_files)
 
-    elif path.suffix.lower() in IMG_FORMATS:
+    elif path.suffix.lower() in formats:
         # Single image file
         if not path.exists():
             raise FileNotFoundError(f"Image file not found: {path}")
@@ -231,8 +232,73 @@ def img2label_paths(img_paths: List[Path]) -> List[Path]:
     return label_paths
 
 
+def normalize_classes_field(
+    classes: Optional[Union[List[int], str]],
+) -> Optional[List[int]]:
+    """Normalize and validate a ``classes=`` field to a clean int list.
+
+    Accepts ``None``, a list of ids, or a comma-separated string (CLI
+    convenience, matching how ``device="0,1"`` is written), e.g. ``"0,3,5"``.
+    Raises on an empty list, a negative id, or a duplicate id -- the same
+    checks regardless of entry point, so a malformed value (a typo'd CLI
+    string, an empty list, a corrupted checkpoint's saved training config)
+    fails loudly here instead of silently building an empty or wrong remap
+    later in ``build_class_remap``. Shared by ``TrainConfig`` and
+    ``ValidationConfig`` so ``classes=`` is validated the same way whether it
+    was given directly or auto-inherited from a checkpoint.
+    """
+    if classes is None:
+        return None
+    if isinstance(classes, str):
+        classes = [c for c in classes.split(",") if c.strip()]
+    parsed = [int(c) for c in classes]
+    if not parsed:
+        raise ValueError("classes must be a non-empty list when given")
+    if any(c < 0 for c in parsed):
+        raise ValueError(f"classes must be non-negative ids, got {parsed}")
+    if len(set(parsed)) != len(parsed):
+        raise ValueError(f"classes must not contain duplicates, got {parsed}")
+    return parsed
+
+
+def build_class_remap(
+    classes: Optional[List[int]], single_cls: bool = False
+) -> Optional[Dict[int, int]]:
+    """Build the ``{orig_id: new_id}`` mapping for training on a class
+    subset. ``None`` when ``classes`` is ``None`` (no filtering).
+
+    Without ``single_cls``, every kept id maps to itself: original class ids
+    are preserved (not compacted to a contiguous range), so a checkpoint
+    trained this way stays interchangeable with the full dataset's ids --
+    external tools (a standard COCO-style evaluator, an exported ONNX model
+    read by raw index, a person who knows "id 7 = train") need no
+    translation layer. The cost is that the head still covers every index up
+    to the highest kept id; slots for ids below it that were not requested
+    simply never receive positive supervision, the same as a class with zero
+    occurrences in an ordinary dataset.
+
+    With ``single_cls``, every kept id maps to ``0`` instead: classes filters
+    which boxes count at all, single_cls then collapses the kept ones to one
+    merged class -- that direction is an intentional, explicit remap in
+    either case. Shared by ``load_data_config`` and by the ``data_dir=`` (no
+    dataset yaml) training path, which has no ``load_data_config`` call to
+    derive it from.
+    """
+    if classes is None:
+        return None
+    ordered = sorted(set(int(c) for c in classes))
+    if single_cls:
+        return {orig_id: 0 for orig_id in ordered}
+    return {orig_id: orig_id for orig_id in ordered}
+
+
 def load_data_config(
-    data: str, autodownload: bool = True, allow_scripts: bool = False
+    data: str,
+    autodownload: bool = True,
+    allow_scripts: bool = False,
+    *,
+    single_cls: bool = False,
+    classes: Optional[List[int]] = None,
 ) -> Dict:
     """
     Load dataset configuration from YAML file.
@@ -251,6 +317,18 @@ def load_data_config(
         allow_scripts: Whether to allow execution of Python download scripts
             embedded in YAML configs. When False, only URL-based downloads are
             permitted and script-based downloads are skipped with a warning.
+        single_cls: Return a one-class detection view while retaining the source
+            class names privately for native COCO category mapping.
+        classes: Train on only these original dataset class ids. Ids are
+            kept as-is, not compacted to a contiguous range, so predictions
+            stay directly comparable to the original dataset/checkpoint
+            numbering. ``nc``/``names`` are left untouched (the head still
+            covers every index up to the highest kept id); ``_class_remap``
+            (``{orig_id: orig_id}`` for kept ids) is returned in the config
+            for callers to thread into label parsers, which drop boxes for
+            ids not present. Source annotations are untouched. Combined with
+            ``single_cls``, the kept classes collapse to one merged class
+            (``{orig_id: 0}``) instead.
 
     Returns:
         Dictionary with dataset configuration including:
@@ -272,6 +350,14 @@ def load_data_config(
     # Load YAML
     with open(yaml_path, "r") as f:
         config = yaml.safe_load(f)
+
+    from ..utils.event_histogram import validate_input_profile
+    profile = validate_input_profile(config.get("input_profile"))
+    if profile is not None:
+        if config.get("channels", 2) != 2:
+            raise ValueError("Event histogram datasets require channels: 2")
+        if config.get("annotations"):
+            raise ValueError("Event histogram datasets currently use YOLO text labels")
 
     # Resolve dataset root path
     dataset_path = _resolve_dataset_path(config, yaml_path)
@@ -303,7 +389,7 @@ def load_data_config(
                 config[split] = str(split_path)
 
             try:
-                img_files = get_img_files(split_path)
+                img_files = get_img_files(split_path, formats={".npy"} if profile else None)
                 if img_files:
                     config[f"{split}_img_files"] = img_files
                     config[f"{split}_label_files"] = img2label_paths(img_files)
@@ -315,6 +401,32 @@ def load_data_config(
 
     # Keep 'root' for backward compatibility
     config["root"] = str(dataset_path)
+
+    if classes is not None:
+        ordered = sorted(set(int(c) for c in classes))
+        declared_nc = config.get("nc")
+        if declared_nc is not None and any(c >= int(declared_nc) for c in ordered):
+            raise ValueError(
+                f"classes={ordered} contains an id outside this dataset's "
+                f"declared nc={declared_nc}"
+            )
+        config["_class_remap"] = build_class_remap(ordered, single_cls=single_cls)
+        if single_cls:
+            # Collapsing to one merged class is still an explicit remap;
+            # stash the originals the same way plain single_cls does below.
+            config["_original_names"] = config.get("names")
+            config["_original_nc"] = config.get("nc")
+            config["nc"] = 1
+            config["names"] = {0: "object"}
+        # Without single_cls, nc/names are left exactly as declared: classes=
+        # keeps original dataset class ids, it does not compact them, so
+        # there is nothing to override here -- only which boxes reach the
+        # loss changes, threaded separately via _class_remap.
+    elif single_cls:
+        config["_original_names"] = config.get("names")
+        config["_original_nc"] = config.get("nc")
+        config["nc"] = 1
+        config["names"] = {0: "object"}
 
     return config
 

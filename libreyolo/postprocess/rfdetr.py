@@ -311,39 +311,25 @@ def postprocess(
 
             # Class-index remap (LibreYOLO contiguous pose convention).
             #
-            # The GroupPose schema ``num_keypoints_per_class`` (e.g. ``[0, 17]``)
-            # makes the keypoint-bearing "person" class the INTERNAL index 1, so
-            # the model emits detection label 1. LibreYOLO's person-only pose
-            # convention is contiguous index 0 (nc=1, names={0: "person"}). Map
-            # the internal predicted class to its position among the
-            # keypoint-bearing classes (``kp_classes.index(internal)``), so
-            # person -> 0. Detections whose predicted class is NOT a
-            # keypoint-bearing class (e.g. internal class 0, the empty slot) are
-            # not valid pose detections and are dropped -- upstream returns only
-            # the person class. Keypoints/scores/boxes for the kept detections are
-            # left byte-identical (they are only re-indexed, not recomputed).
-            kp_classes = [
-                cls_idx
-                for cls_idx, count in enumerate(num_keypoints_per_class or [])
-                if count > 0
-            ]
+            # The GroupPose schema ``num_keypoints_per_class`` (e.g. ``[0, 17]``
+            # or ``[0, 2, 0, 4]``) reserves a leading empty slot, so the model
+            # emits INTERNAL label ``j + 1`` for LibreYOLO contiguous class ``j``
+            # (person -> 0 for the person-only schema). Detections predicted as
+            # the empty slot itself, or as a head column past the schema, are not
+            # valid pose detections and are dropped -- upstream returns only the
+            # schema classes. Classes whose
+            # keypoint count is 0 are kept as box-only detections with zeroed
+            # keypoints. Keypoints/scores/boxes for the kept detections are left
+            # byte-identical (they are only re-indexed, not recomputed).
+            offset = (
+                1
+                if len(num_keypoints_per_class or []) > 1
+                and int(num_keypoints_per_class[0]) == 0
+                else 0
+            )
             labels_i = labels[i]
-            if kp_classes:
-                kp_class_tensor = torch.as_tensor(
-                    kp_classes, dtype=labels_i.dtype, device=labels_i.device
-                )
-                # remap[internal] = contiguous index, or -1 when not keypoint-bearing.
-                remap = labels_i.new_full((num_classes,), -1)
-                remap[kp_class_tensor] = torch.arange(
-                    len(kp_classes), dtype=labels_i.dtype, device=labels_i.device
-                )
-                contiguous_labels = remap[labels_i]
-                keep_kp = contiguous_labels >= 0
-            else:
-                # No keypoint-bearing class in the schema: nothing is a valid
-                # pose detection. Keep the (empty-mask) filter consistent.
-                contiguous_labels = labels_i
-                keep_kp = labels_i.new_zeros(labels_i.shape, dtype=torch.bool)
+            contiguous_labels = labels_i - offset
+            keep_kp = (labels_i >= offset) & (labels_i < len(num_keypoints_per_class or []))
 
             res_i["labels"] = contiguous_labels[keep_kp]
             res_i["boxes"] = boxes[i][keep_kp]

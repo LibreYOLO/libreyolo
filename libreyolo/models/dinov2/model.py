@@ -41,11 +41,13 @@ from ...training.callbacks import TrainCallbacks
 from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
-from ..base.model import BaseModel
-from ..rfdetr.config import RFDETRConfig
+from ..base.model import BaseModel, _drop_disabled_eval_interval
+from .config import DINOv2Config
 from libreyolo.training.ddp_spawn import ddp_aware
 
 logger = logging.getLogger(__name__)
+
+_TRAIN_DEFAULTS = DINOv2Config()
 
 
 class _DINOv2ModelWrapper(nn.Module):
@@ -266,9 +268,22 @@ class LibreDINOv2(BaseModel):
         "embed",
     )
     WEIGHT_TASKS: ClassVar[Tuple[str, ...]] = ("semantic", "classify")
+    # No task heads are published; the family starts from the DINOv2 backbone.
+    # LibreDINOv2n.pt is left routable for the backbone-only mirror that
+    # scripts/mirror_dinov2.py builds.
+    UNPUBLISHED_WEIGHTS: ClassVar[Dict[str, str]] = {
+        f"LibreDINOv2{size}{suffix}": (
+            "LibreDINOv2 ships no trained heads. Build "
+            f"LibreDINOv2(size={size!r}, nb_classes=N{task_arg}) from the "
+            "pretrained DINOv2 backbone and train it."
+        )
+        for size in ("n", "s", "m", "l")
+        for suffix, task_arg in (("", ""), ("-cls", ", task='classify'"))
+        if (size, suffix) != ("n", "")
+    }
     DEFAULT_TASK: ClassVar[str] = "semantic"
 
-    TRAIN_CONFIG: ClassVar[type] = RFDETRConfig
+    TRAIN_CONFIG: ClassVar[type] = DINOv2Config
 
     # Stretch-resize and DINOv2 patch divisibility.
     semantic_resize_mode: ClassVar[str] = "stretch"
@@ -485,11 +500,23 @@ class LibreDINOv2(BaseModel):
             layers["head"] = head
         return layers
 
-    @staticmethod
-    def _get_preprocess_numpy():
-        """Return a stretch-resize + [0,1] normalisation callable."""
+    def _get_preprocess_numpy(self):
+        """Calibration preprocessing for the task this model runs.
+
+        Classify/embed go through the classification eval transform, the one
+        ``predict()`` and ``val()`` use (#886); semantic keeps the stretch
+        resize + [0, 1] scaling its model normalizes from.
+        """
         import cv2
         import numpy as _np
+
+        if self.task in ("classify", "embed"):
+
+            def _classify_preprocess_numpy(img_rgb_hwc, input_size=None):
+                pil = Image.fromarray(_np.asarray(img_rgb_hwc).astype("uint8"))
+                return self._get_eval_transform(input_size)(pil).numpy(), 1.0
+
+            return _classify_preprocess_numpy
 
         def _preprocess_numpy(img_rgb_hwc, input_size=518):
             h = input_size if isinstance(input_size, int) else input_size[0]
@@ -510,14 +537,12 @@ class LibreDINOv2(BaseModel):
         color_format: str = "auto",
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        """Stretch-resize to square; the model applies ImageNet norm."""
+        """Classify/embed: the eval transform. Semantic: stretch-resize to square."""
         effective_res = input_size if input_size is not None else self.input_size
         if self.task in ("classify", "embed"):
-            from ...data.classify_dataset import build_classify_transforms
-
             img = ImageLoader.load(image, color_format=color_format)
             orig_w, orig_h = img.size
-            transform = build_classify_transforms(effective_res, augment=False)
+            transform = self._get_eval_transform(effective_res)
             return transform(img).unsqueeze(0), img, (orig_w, orig_h), 1.0
         if effective_res % self.semantic_imgsz_divisor:
             raise ValueError(
@@ -744,15 +769,29 @@ class LibreDINOv2(BaseModel):
     # Training
     # =========================================================================
 
+    def _resume_saved_settings(self, resume_path: str | Path) -> dict[str, Any]:
+        """Training settings saved in a resume checkpoint, minus the ones a
+        resume never restores (architecture, device, run directory)."""
+        from dataclasses import fields
+
+        from ..base.model import _RESUME_UNRESTORED_KEYS
+
+        valid = {field.name for field in fields(DINOv2Config)}
+        return {
+            key: value
+            for key, value in self._checkpoint_train_config(resume_path).items()
+            if key in valid and key not in _RESUME_UNRESTORED_KEYS
+        }
+
     @ddp_aware(batch_key="batch_size")
     def train(
         self,
-        data: str,
-        epochs: int = 100,
+        data: str | None = None,
+        epochs: int | None = None,
         batch_size: int | None = None,
         lr: float | None = None,
-        output_dir: str = "runs/train",
-        resume=None,
+        output_dir: str | None = None,
+        resume: str | Path | bool | None = None,
         callbacks: TrainCallbacks = None,
         **kwargs,
     ) -> Dict:
@@ -760,6 +799,19 @@ class LibreDINOv2(BaseModel):
 
         Task is taken from ``self.task``; ``DINOv2Trainer`` (via ``RFDETRTrainer``)
         routes the classify vs semantic data/loss branches accordingly.
+
+        ``output_dir``, when given, splits into ``project`` (parent) and
+        ``name`` (leaf); ``project=`` / ``name=`` kwargs take precedence.
+        Defaults to ``<DINOv2Config.project>/<DINOv2Config.name>`` when omitted.
+
+        ``resume``: checkpoint path, or True to resume from this run's own
+        ``weights/last.pt``.
+
+        ``cls_pw`` (classification only, float in [0, 1], default 0) controls
+        inverse-frequency weighting strength with mean-one class weights.
+        ``class_weights=True`` retains legacy sample-normalized weighting and
+        cannot be combined with ``cls_pw>0``. Neither option changes sampling.
+        See docs/classification_training.md for compatibility and resume rules.
         """
         if self.task == "embed":
             raise NotImplementedError(
@@ -770,17 +822,66 @@ class LibreDINOv2(BaseModel):
 
         from .trainer import DINOv2Trainer
 
-        output_path = _Path(output_dir)
         train_kwargs = dict(kwargs)
         project = train_kwargs.pop("project", None)
         name = train_kwargs.pop("name", None)
-        exist_ok = train_kwargs.pop("exist_ok", True)
+        exist_ok_given = "exist_ok" in train_kwargs
+        exist_ok = train_kwargs.pop("exist_ok", _TRAIN_DEFAULTS.exist_ok)
         batch = train_kwargs.pop("batch", None)
         lr0 = train_kwargs.pop("lr0", None)
-        if project is None:
-            project = output_path.parent
-        if name is None:
-            name = output_path.name
+        resume_checkpoint = None
+        resumes_own_run = False
+        if resume and output_dir is None and project is None and name is None:
+            # A run checkpoint (<run>/weights/*.pt), loaded or passed as a
+            # path, keeps writing into its own run.
+            resume_checkpoint = self._loaded_run_checkpoint(
+                None if resume is True else resume
+            )
+            if resume_checkpoint is not None and resume_checkpoint.parent.parent.name:
+                project = resume_checkpoint.parent.parent.parent
+                name = resume_checkpoint.parent.parent.name
+                resumes_own_run = True
+        if output_dir is not None:
+            output_path = _Path(output_dir)
+            if project is None:
+                project = output_path.parent
+            if name is None:
+                name = output_path.name
+        else:
+            if project is None:
+                project = _TRAIN_DEFAULTS.project
+            if name is None:
+                name = _TRAIN_DEFAULTS.name
+        run_dir = _Path(project) / str(name)
+        if (resume is True or resumes_own_run) and not exist_ok_given:
+            # The resumed run is this exact run_dir; keep writing there unless
+            # exist_ok=False asks for a new run.
+            exist_ok = True
+
+        resume_path = None
+        if resume:
+            if resume_checkpoint is not None:
+                resume_path = resume_checkpoint
+            else:
+                resume_path = (
+                    run_dir / "weights" / "last.pt" if resume is True else resume
+                )
+            # Continue with the run's saved settings; explicit arguments win.
+            saved = self._resume_saved_settings(resume_path)
+            _drop_disabled_eval_interval(saved, train_kwargs.get("val"))
+            if data is None:
+                data = saved.get("data")
+            if epochs is None:
+                epochs = saved.get("epochs")
+            if batch is None and batch_size is None:
+                batch = saved.get("batch")
+            if lr0 is None and lr is None:
+                lr0 = saved.get("lr0")
+            for key, value in saved.items():
+                if key not in train_kwargs and key not in ("data", "epochs", "batch", "lr0"):
+                    train_kwargs[key] = value
+        if epochs is None:
+            epochs = _TRAIN_DEFAULTS.epochs
 
         if batch is not None and batch_size is not None and batch != batch_size:
             raise ValueError(
@@ -802,12 +903,18 @@ class LibreDINOv2(BaseModel):
         if resolved_device is None:
             resolved_device = str(self.device)
 
+        if not data:
+            raise ValueError(
+                "DINOv2 train() needs data= (a dataset yaml)"
+                + ("; the resume checkpoint saved none." if resume else ".")
+            )
+
         trainer = DINOv2Trainer(
             model=self.model,
             wrapper_model=self,
             data=data,
             epochs=epochs,
-            batch_size=resolved_batch,
+            batch=resolved_batch,
             lr0=resolved_lr0,
             imgsz=train_kwargs.pop("imgsz", self.input_size),
             size=self.size,
@@ -820,6 +927,9 @@ class LibreDINOv2(BaseModel):
             callbacks=callbacks,
             **train_kwargs,
         )
+        if resume:
+            trainer.setup()
+            trainer.resume(str(resume_path))
 
         result = trainer.train()
         self._restore_after_training(result)

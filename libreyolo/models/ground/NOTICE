@@ -1,0 +1,37 @@
+LibreGround
+==========
+
+The factory, click parser, and adapter control flow under
+``libreyolo/models/ground/`` are original LibreYOLO code. They load Hugging
+Face snapshots and do not vendor upstream model source. The ShowUI system
+instruction is the exception: it is copied verbatim from the permissively
+licensed upstream model card, as recorded below and in
+``THIRD_PARTY_NOTICES.txt``.
+
+Hosted weight snapshots
+-----------------------
+
+Florence-2-base (``LibreYOLO/LibreGroundFlorence2base``)
+    Mirrored from ``florence-community/Florence-2-base`` at
+    ``00921df66db728a9ceb750f5eca43e5c203a2051``.
+    Weight license: MIT (``microsoft/Florence-2-base`` LICENSE).
+
+ShowUI-2B (``LibreYOLO/LibreShowUI2b``)
+    Mirrored from ``showlab/ShowUI-2B`` at
+    ``cabec4fcc48d15ffd3efe0b33ea9bc7d41509d60``.
+    The pinned upstream model card declares ``license: mit`` for the
+    weights. The ShowUI training/inference repository
+    (https://github.com/showlab/ShowUI) is Apache-2.0. The Qwen2-VL-2B
+    base (``Qwen/Qwen2-VL-2B-Instruct``) is Apache-2.0. Those Apache
+    obligations apply to the code and the base model; they are not a
+    re-license of the ShowUI-2B weight grant.
+    ``libreyolo/models/ground/showui.py`` copies the grounding system
+    instruction verbatim from the pinned model card above (MIT). The MIT
+    text is preserved verbatim from ``showlab/ShowUI`` commit
+    ``59e059c4df62db0857cc7a7ef0b15d067a30c274``. The mirror also ships
+    Qwen2-VL's Apache-2.0 text as ``LICENSE-APACHE-2.0``.
+
+Qwen3-VL-2B (``LibreYOLO/LibreGroundQwen3VL2b``)
+    Mirrored from ``Qwen/Qwen3-VL-2B-Instruct`` at
+    ``89644892e4d85e24eaac8bacfd4f463576704203``.
+    Weight license: Apache-2.0.

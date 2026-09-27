@@ -52,6 +52,7 @@ file = name + ".pt"
 | RFDETR | `LibreRFDETR` | `LibreRFDETRn.pt`, `LibreRFDETRn-seg.pt`, `LibreRFDETRx-pose.pt` |
 | DETR | `LibreDETR` | `LibreDETRr50.pt` (original DETR; Apache-2.0 code + weights; inference-only) |
 | LWDETR | `LibreLWDETR` | `LibreLWDETRt.pt` (LW-DETR, RF-DETR's ancestor; Apache-2.0 code + weights; inference-only) |
+| DOMEDETR | `LibreDOMEDETR` | `LibreDOMEDETRs-aitod.pt`, `LibreDOMEDETRs-visdrone.pt` (dataset-specific tiny-object weights; academic-research-only, see below) |
 | FasterRCNN | `LibreFasterRCNN` | `LibreFasterRCNNn.pt` (modernized torchvision Faster R-CNN; BSD-3-Clause implied for weights, with the pretrained-model caveat on every card; inference-only) |
 | RetinaNet | `LibreRetinaNet` | `LibreRetinaNetr50.pt` (torchvision RetinaNet; BSD-3-Clause implied for weights, with the pretrained-model caveat on every card; inference-only) |
 | SSD | `LibreSSD` | `LibreSSD300.pt` (torchvision SSD300 VGG16; BSD-3-Clause implied for the checkpoint, Oxford VGG feature-weight lineage CC BY 4.0; inference-only) |
@@ -80,13 +81,20 @@ file = name + ".pt"
 | Swin | `LibreSwin` | `LibreSwint-cls.pt` (Swin V1; MIT weights; inference-only) |
 | CLIP | `LibreCLIP` | `LibreCLIPb32-cls.pt` (zero-shot, open-vocab classify) |
 | SigLIP2 | `LibreSigLIP2` | `LibreSigLIP2b16-cls.pt` (zero-shot, open-vocab classify) |
+| PE | `LibrePE` | `LibrePEb16-cls.pt` (Perception Encoder Core; zero-shot classify + image/text/video embed) |
+| V-JEPA 2 | `LibreVJEPA2` | `LibreVJEPA2l256-embed.pt` (video clip embedding), `LibreVJEPA2l256-cls-ssv2.pt` (attentive-probe video classify) |
+| LeVJEPA | `LibreLeVJEPA` | `LibreLeVJEPAl-embed.pt` (16-frame clip and patch embeddings; CC BY-NC 4.0 weights) |
 | NAFNet | `LibreNAFNet` | `LibreNAFNets-restore.pt` (restore-only; `-sidd` variant = SIDD denoise) |
+| BEN2 | `LibreBEN2` | `LibreBEN2b-matte.pt` (matte / background-removal; MIT code + weights; inference-only) |
 | BiRefNet | `LibreBiRefNet` | `LibreBiRefNetl-matte.pt` (matte / background-removal; `l` is MIT, `t`/lite has no explicit weights-license tag) |
 | FeyNobg | `LibreFeyNobg` | `LibreFeyNobgl-matte.pt` (matte / background-removal; Apache-2.0 code+weights; also ships `-fp8`/`-nvfp4` pre-quantized repos, see below) |
 | RealESRGAN | `LibreRealESRGAN` | `LibreRealESRGANx4-restore.pt` (super-resolution; sizes `x4`/`x2`/`x4t`) |
+| QuickSRNet | `LibreQuickSRNet` | `LibreQuickSRNetm2-restore.pt` (Medium 2x super-resolution; BSD-3-Clause) |
 | SwinIR | `LibreSwinIR` | `LibreSwinIRm-restore.pt` (4x super-resolution; sizes `s`/`m`/`l`; Apache-2.0) |
 | PPOCR | `LibrePPOCR` | `LibrePPOCRt-ocr.pt` (PP-OCRv5 text det+rec; sizes `t`/`l`; Apache-2.0) |
 | PIDNet | `LibrePIDNet` | `LibrePIDNets-sem.pt` (semantic-only) |
+| PPLiteSeg | `LibrePPLiteSeg` | `LibrePPLiteSegt50-sem.pt` (semantic-only; sizes `t50`/`b50`/`t75`/`b75`, natively rectangular. Weights are **non-commercial** — Cityscapes dataset terms, see below) |
+| UNet | `LibreUNet` | `LibreUNets-sem.pt` (semantic-only; size `s`, evaluates at 1024x2048. Apache-2.0 weights, as mmsegmentation declares) |
 | LingBotVision | `LibreLingBotVision` | `LibreLingBotVisions-sem.pt` (semantic-only; Apache-2.0 backbone + LibreYOLO-trained ADE20K head) |
 | SegFormer | `LibreSegformer` | `LibreSegformerb0-sem.pt` (semantic-only; ADE20K. Weights are **non-commercial** — NVIDIA Source Code License, see below) |
 | EoMT | `LibreEoMT` | `LibreEoMTl-sem.pt` (semantic), `LibreEoMTl-seg.pt` (COCO instance), `LibreEoMTs-panoptic.pt` (COCO panoptic) |
@@ -94,7 +102,8 @@ file = name + ".pt"
 | DepthAnythingV2 | `LibreDepthAnythingV2` | `LibreDepthAnythingV2s-depth.pt` (only `s` is Apache; b/l/g are CC-BY-NC, see below) |
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
-| FOMO | `LibreFOMO` | `LibreFOMOs-point.pt` (no weights hosted yet; license-gate first) |
+| GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
+| FOMO | `LibreFOMO` | `LibreFOMOs-point.pt` (hosted s/m/l are randomly initialised MIT weights; upstream FOMO weights are cc-by-nc-4.0 and not mirrored) |
 
 Never-upload families: **L2CS** (Gaze360 terms forbid redistribution) and any
 weight whose upstream/training-data license fails the gate in
@@ -103,8 +112,26 @@ hosting weights**: non-commercial but redistributable weights (CC-BY-NC, the
 NVIDIA Source Code License) are hosted — ship the upstream license verbatim,
 tag the card correctly, and lead with a non-commercial banner (SegFormer
 precedent); downstream users are responsible for complying with the weight
-license. Only weights whose terms forbid redistribution (L2CS) or whose
-license is unknown stay unhosted. The
+license. Only weights whose terms forbid redistribution (L2CS) stay unhosted.
+An *unknown* upstream weight license is not an automatic no: it is a
+**maintainer call**, and where the releasing project declares a permissive
+license at project level the maintainer has approved rehosting on that implied
+basis (EfficientDet, torchvision Faster R-CNN / FCOS / SSD, DOME-DETR, and the
+3D mirrors below). Every such card, LICENSE and NOTICE must say the grant is
+implied by the releasing project and is LibreYOLO's disclosed interpretation,
+never publisher-confirmed.
+
+The `detect3d` sibling families mirror the **raw upstream checkpoint
+byte-for-byte** under its original filename, rather than converting to the v1.0
+schema, because their loaders read the unchanged upstream format. They keep the
+5-file contract otherwise and pin `HF_REVISION` + `WEIGHT_SHA256` in the
+family's `model.py`: `LibreWildDet3D` (SAM License),
+`LibreFCOS3D` (`license: other` + `license_name: nuscenes-non-commercial`;
+implied Apache basis, nuScenes non-commercial training data) and
+`LibreDetAny3D` (`license: cc-by-nc-4.0`; implied Apache basis for DetAny3D's
+own parameters, CC BY-NC 4.0 applied as the strictest known term for its
+UniDepth v2 depth lineage). Their filenames are upstream's, so they are
+deliberately absent from the canonical whitelist below. The
 open-vocabulary and SAM/VLM tiers ship HF *snapshot directories*
 (`LibreGroundingDINOt`, `LibreOWLv2b16`, ...), not single `.pt` files; their
 repos mirror upstream snapshot layout plus card, so the 5-file contract below
@@ -158,6 +185,12 @@ LibreDEIMv2atto.pt, LibreDEIMv2femto.pt, LibreDEIMv2pico.pt,
 LibreDEIMv2n.pt, LibreDEIMv2s.pt, LibreDEIMv2m.pt,
 LibreDEIMv2l.pt, LibreDEIMv2x.pt,
 
+LibreTinyFormers.pt, LibreTinyFormerm.pt, LibreTinyFormerl.pt,
+LibreTinyFormerx.pt, LibreTinyFormerxl.pt,
+LibreTinyFormers-visdrone.pt, LibreTinyFormerm-visdrone.pt,
+LibreTinyFormerl-visdrone.pt, LibreTinyFormerx-visdrone.pt,
+LibreTinyFormerx-obj2coco.pt, LibreTinyFormerxl-obj2coco.pt,
+
 LibrePICODETs.pt, LibrePICODETm.pt, LibrePICODETl.pt,
 
 LibreRTDETRr18.pt, LibreRTDETRr34.pt, LibreRTDETRr50.pt,
@@ -182,13 +215,18 @@ LibreRFDETRn.pt, LibreRFDETRs.pt, LibreRFDETRm.pt,
 LibreRFDETRl.pt, LibreRFDETRn-seg.pt, LibreRFDETRs-seg.pt,
 LibreRFDETRm-seg.pt, LibreRFDETRl-seg.pt, LibreRFDETRx-pose.pt,
 LibreRFDETRn-obb.pt, LibreRFDETRs-obb.pt, LibreRFDETRm-obb.pt,
-LibreRFDETRl-obb.pt,
+LibreRFDETRl-obb.pt, LibreRFDETRm-ui.pt,
 
 LibreDETRr50.pt, LibreDETRr50dc5.pt,
 LibreDETRr101.pt, LibreDETRr101dc5.pt,
 
 LibreLWDETRt.pt, LibreLWDETRs.pt, LibreLWDETRm.pt,
 LibreLWDETRl.pt, LibreLWDETRx.pt,
+
+LibreDOMEDETRs-aitod.pt, LibreDOMEDETRm-aitod.pt,
+LibreDOMEDETRl-aitod.pt,
+LibreDOMEDETRs-visdrone.pt, LibreDOMEDETRm-visdrone.pt,
+LibreDOMEDETRl-visdrone.pt,
 
 LibreFasterRCNNn.pt, LibreFasterRCNNs.pt,
 LibreFasterRCNNm.pt, LibreFasterRCNNl.pt,
@@ -211,10 +249,19 @@ LibreDeformableDETRr50twostage.pt,
 LibreDINODETRr50.pt, LibreDINODETRr50s5.pt,
 LibreDINODETRswinl.pt,
 
+LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
+LibreGTRs-obb.pt, LibreGTRx-obb.pt,
+
 LibreECs.pt, LibreECm.pt, LibreECl.pt, LibreECx.pt,
 LibreECs-pose.pt, LibreECm-pose.pt, LibreECl-pose.pt,
 LibreECx-pose.pt, LibreECs-seg.pt, LibreECm-seg.pt,
 LibreECl-seg.pt, LibreECx-seg.pt,
+
+LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
+LibreGTRs-depth.pt, LibreGTRm-depth.pt, LibreGTRl-depth.pt,
+LibreGTRx-depth.pt,
+LibreGTRs-seg.pt, LibreGTRm-seg.pt, LibreGTRl-seg.pt,
+LibreGTRx-seg.pt,
 
 LibreMobileNetV4s-cls.pt, LibreMobileNetV4m-cls.pt,
 LibreMobileNetV4l-cls.pt,
@@ -241,16 +288,28 @@ LibreCLIPb32-cls.pt, LibreCLIPb16-cls.pt, LibreCLIPl14-cls.pt,
 
 LibreSigLIP2b16-cls.pt, LibreSigLIP2so400m-cls.pt,
 
+LibrePEt16-cls.pt, LibrePEs16-cls.pt, LibrePEb16-cls.pt,
+LibrePEl14-cls.pt, LibrePEg14-cls.pt,
+LibreVJEPA2l256-embed.pt, LibreVJEPA2h256-embed.pt,
+LibreVJEPA2g256-embed.pt, LibreVJEPA2g384-embed.pt,
+LibreVJEPA2l256-cls-ssv2.pt, LibreVJEPA2l256-cls-diving48.pt,
+LibreVJEPA2g384-cls-ssv2.pt, LibreVJEPA2g384-cls-diving48.pt,
+LibreLeVJEPAl-embed.pt,
+
 LibreNAFNets-restore.pt, LibreNAFNetl-restore.pt,
 LibreNAFNetl-restore-sidd.pt,
 
 LibreRealESRGANx4-restore.pt, LibreRealESRGANx2-restore.pt,
 LibreRealESRGANx4t-restore.pt,
 
+LibreQuickSRNetm2-restore.pt,
+
 LibreSwinIRs-restore.pt, LibreSwinIRm-restore.pt,
 LibreSwinIRl-restore.pt,
 
 LibrePPOCRt-ocr.pt, LibrePPOCRl-ocr.pt,
+
+LibreBEN2b-matte.pt,
 
 LibreBiRefNett-matte.pt, LibreBiRefNetl-matte.pt,
 
@@ -258,6 +317,13 @@ LibreFeyNobgl-matte.pt, LibreFeyNobgl-matte-fp16.pt,
 LibreFeyNobgl-matte-fp8.pt,
 
 LibrePIDNets-sem.pt, LibrePIDNetm-sem.pt, LibrePIDNetl-sem.pt,
+
+LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
+LibreGTRs-sem.pt, LibreGTRm-sem.pt, LibreGTRl-sem.pt, LibreGTRx-sem.pt,
+
+LibrePPLiteSegt50-sem.pt, LibrePPLiteSegb50-sem.pt,
+LibrePPLiteSegt75-sem.pt, LibrePPLiteSegb75-sem.pt,
+LibreUNets-sem.pt,
 
 LibreLingBotVisions-sem.pt, LibreLingBotVisionb-sem.pt,
 LibreLingBotVisionl-sem.pt,
@@ -281,6 +347,8 @@ LibreDepthAnythingV2l-depth.pt, LibreDepthAnythingV2g-depth.pt,
 
 LibreDepthAnything3l-depth.pt,
 
+LibreMoGe2s-normal.pt, LibreMoGe2b-normal.pt, LibreMoGe2l-normal.pt,
+
 LibreZipDepthb-depth.pt, LibreZipDepthbnpu-depth.pt,
 
 LibreFOMOs-point.pt, LibreFOMOm-point.pt, LibreFOMOl-point.pt
@@ -303,6 +371,24 @@ through derivative works. Their cards use `license: other` +
 `license_name: nvidia-source-code-license-segformer` + `license_link`, lead with
 a non-commercial banner, and the loader prints the restriction before every
 auto-download. Never tag them `apache-2.0` because the *code* is Apache.
+**LibrePPLiteSeg t50/b50/t75/b75 are NON-COMMERCIAL** for the same shape of
+reason, but the restriction comes from the *training data*, not the code: the
+checkpoints are Cityscapes-trained, and the
+[Cityscapes license](https://www.cityscapes-dataset.com/license/) allows
+distributing abstract derivative models while restricting the dataset and its
+derivatives to non-commercial use. Their cards use `license: other` +
+`license_name: cityscapes-non-commercial` + `license_link`, lead with a
+non-commercial banner, and the loader prints the restriction before every
+auto-download. The `LICENSE` file carries the Apache-2.0 (super-gradients) and
+MIT (STDC-Seg) code texts *plus* the Cityscapes weight terms, because the code
+and the weights are genuinely different surfaces. Never tag them `apache-2.0`.
+**LibreGTR{s,m,l,x}-sem are NON-COMMERCIAL** on the same Cityscapes grounds
+(MIT code and weight-repository declaration, Cityscapes training data): same
+card tags, banner and `LICENSE` split (GTR MIT text plus Cityscapes weight
+terms). **LibreUNets-sem is Apache-2.0**: mmsegmentation's official
+UNet-S5-D16 Cityscapes checkpoint keeps the license upstream declares for it,
+like PIDNet's MIT Cityscapes weights; the card carries a Cityscapes dataset
+note, not a non-commercial banner.
 Faster R-CNN's four torchvision checkpoints and FCOS's torchvision checkpoint
 have no per-object license file; the maintainer approved BSD-3-Clause rehosting
 on the releasing-project **implied** basis. Every card and NOTICE must say that
@@ -315,9 +401,26 @@ and CC license, and state the torchvision training plus LibreYOLO metadata
 changes. Do not describe CC BY 4.0 as the license for torchvision's SSD code.
 A name being *valid* does not make it *hostable*; run the gate.
 
+**LibreDOMEDETR s/m/l AI-TOD-V2 and VisDrone weights are ACADEMIC-RESEARCH-ONLY.**
+The upstream Hugging Face card has no license metadata or LICENSE file and
+simultaneously says the project is Apache-2.0 and the weights are "for academic
+research purposes only". The maintainer approved rehosting by treating the
+Apache statement as the redistribution basis while preserving the stricter
+academic-use sentence. Cards use `license: other` +
+`license_name: dome-detr-academic-research-only` + a revision-pinned upstream
+`license_link`, lead with an academic-only banner, and disclose that this is a
+LibreYOLO interpretation rather than upstream clarification. Every mirror's
+LICENSE and NOTICE reproduce the complete context. The loader warns before
+every auto-download. Never tag these repos `apache-2.0` or imply commercial
+clearance.
+
 The `-visdrone` suffix is a `WEIGHT_VARIANTS` dataset variant (grammar in
 `docs/nomenclature.md`): only families that declare `WEIGHT_VARIANTS` in
 their `model.py` may carry one, and plain COCO-default weights never do.
+TinyFormer declares `("visdrone", "obj2coco")`; its `l`/`x`/`xl` checkpoints
+embed finetuned DINOv3 towers, so those repos ship Meta's DINOv3 License
+Agreement alongside the Apache-2.0 code license (same split as the DEIMv2
+DINO sizes), while `s`/`m` use the DEIMv2-distilled ViT-Tiny towers.
 
 Pre-quantized variant repos (`-fp8`, `-nvfp4`; FeyNobg only today): built by
 `weights/upload_feynobg_hf.py --recipe <r>` from a finalized quantized
@@ -348,6 +451,18 @@ use `pipeline_tag: zero-shot-image-classification`, `license: apache-2.0`
 upstream repo and commit pin), note the vendored SentencePiece tokenizer, and
 omit the VA Benchmarks section. Conversion is a metadata wrap
 (`weights/convert_siglip2_weights.py`); learned parameters are unchanged.
+
+LibrePE is the Perception Encoder Core zero-shot classifier and embedder. Its HF
+cards use `pipeline_tag: zero-shot-image-classification`, `license: apache-2.0`
+(weights derive from the Apache-2.0 OpenCLIP-compatible `timm/PE-Core-*`
+repositories — state the repo **and** the exact revision pin), and omit the VA
+Benchmarks section. The cards must say the artifact is a **converted
+OpenCLIP-compatible** PE Core checkpoint, not an unmodified official
+`facebook/PE-Core-*` package checkpoint, and must not repeat any claim from the
+official `perception_models` repository, whose `LICENSE.PE` (Apache-2.0)
+conflicts with its `setup.py` package license. Conversion is a metadata wrap
+(`weights/convert_pe_weights.py`); learned parameters are unchanged. Note the
+`g14` memory profile (1.88B-parameter vision tower) so users are not surprised.
 
 Common rule violations to reject before upload:
 

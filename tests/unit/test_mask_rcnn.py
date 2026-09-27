@@ -92,3 +92,64 @@ def test_validator_slices_native_mask_detection_list():
         }
     ]
     assert validator._slice_batch_predictions(predictions, 0) is predictions[0]
+
+
+def test_hosted_spelling_resolves_to_the_suffixless_repo():
+    """The hosted repo is ``LibreYOLO/LibreMaskRCNNr50``, no ``-seg`` suffix."""
+    from libreyolo import LibreMaskRCNN
+
+    assert LibreMaskRCNN.get_download_url("LibreMaskRCNNr50.pt") == (
+        "https://huggingface.co/LibreYOLO/LibreMaskRCNNr50"
+        "/resolve/main/LibreMaskRCNNr50.pt"
+    )
+
+
+def test_torchvision_spelling_still_resolves_suffixless():
+    """Upstream filenames carry no task suffix and keep the base mapping."""
+    from libreyolo import LibreMaskRCNN
+
+    assert LibreMaskRCNN.get_download_url("maskrcnn_resnet50_fpn_v2_coco.pt") == (
+        "https://huggingface.co/LibreYOLO/LibreMaskRCNNr50"
+        "/resolve/main/LibreMaskRCNNr50.pt"
+    )
+
+
+def test_seg_spelling_is_rejected_with_the_canonical_name():
+    """``LibreMaskRCNNr50-seg.pt`` names a repo that does not exist.
+
+    The filename regex accepts the ``-seg`` spelling (DEFAULT_TASK is
+    segment), so left to the base implementation it builds a dead URL. The
+    resolver must reject it before any URL is built and name the hosted
+    spelling instead.
+    """
+    from libreyolo import LibreMaskRCNN
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        LibreMaskRCNN.get_download_url("LibreMaskRCNNr50-seg.pt")
+    message = str(excinfo.value)
+    assert "LibreMaskRCNNr50.pt" in message
+    assert "huggingface" not in message.lower()
+
+
+def test_download_guard_ignores_foreign_filenames():
+    """``download_weights`` polls every family; never hijack another's name."""
+    from libreyolo import LibreMaskRCNN
+
+    assert LibreMaskRCNN.get_download_url("LibreYOLOXs.pt") is None
+    assert LibreMaskRCNN.get_download_url("LibreRFDETRn-seg.pt") is None
+
+
+def test_cli_names_agree_with_the_resolver():
+    """The CLI and the resolver must reject the same spelling.
+
+    ``mask_rcnn-r50`` and its advertised ``mask_rcnn-r50-seg`` alias both map
+    to the hosted suffixless checkpoint; the raw ``LibreMaskRCNNr50-seg.pt``
+    file spelling stays rejected on both surfaces (the CLI exits with
+    model_not_found, the resolver raises before building a URL).
+    """
+    from libreyolo.cli.config import is_known_weight_filename, resolve_model_name
+
+    assert resolve_model_name("mask_rcnn-r50") == "LibreMaskRCNNr50.pt"
+    assert resolve_model_name("mask_rcnn-r50-seg") == "LibreMaskRCNNr50.pt"
+    assert is_known_weight_filename("LibreMaskRCNNr50.pt") is True
+    assert is_known_weight_filename("LibreMaskRCNNr50-seg.pt") is False

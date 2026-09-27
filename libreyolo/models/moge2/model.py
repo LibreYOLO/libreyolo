@@ -63,6 +63,24 @@ class LibreMoGe2(BaseModel):
         768: "b",
         1024: "l",
     }
+    # Sizes LibreYOLO mirrors on its own Hugging Face org. MoGe-2 is MIT, which
+    # permits redistribution, so these no longer depend on a third-party repo
+    # staying put.
+    #
+    # The mirror serves the *converted* LibreYOLO checkpoint, so the upstream
+    # digests in _OFFICIAL_WEIGHTS cannot describe it; these are pinned
+    # separately. The mirror URL resolves `main`, which is mutable, so this
+    # pinning is what stops a replaced or corrupted upload from loading
+    # silently. Regenerate a value only when the mirror is deliberately
+    # re-uploaded.
+    #
+    # Sizes absent from this map still download from upstream and are still
+    # checksum-pinned against _OFFICIAL_WEIGHTS.
+    _MIRROR_SHA256: ClassVar[Dict[str, str]] = {
+        "s": "0b3c1301ddcae5569234010905f093fa8bec5866c7c06197761ea501651f9d9c",
+        "l": "342c13b7028a2e87d164ee9647ad4f34d822dcb73221004c9f25d0458e17580a",
+    }
+
     _OFFICIAL_WEIGHTS: ClassVar[Dict[str, tuple[str, str]]] = {
         "s": (
             "https://huggingface.co/Ruicheng/moge-2-vits-normal/resolve/"
@@ -117,11 +135,42 @@ class LibreMoGe2(BaseModel):
         size = cls.detect_size_from_filename(filename)
         if size is None or cls.detect_task_from_filename(filename) != "normal":
             return None
+        if size in cls._MIRROR_SHA256:
+            # BaseModel builds the LibreYOLO org URL for the canonical filename.
+            return super().get_download_url(filename)
         entry = cls._OFFICIAL_WEIGHTS.get(size)
         return entry[0] if entry else None
 
+    @staticmethod
+    def _sha256(path: str) -> str:
+        digest = hashlib.sha256()
+        with open(path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
     @classmethod
     def verify_downloaded_file(cls, local_path: str, source_url: str) -> None:
+        # Mirror and upstream serve different bytes (converted vs original), so
+        # each has its own recorded digest. Both are checked: `resolve/main` is
+        # mutable, and an unverified mirror would be a weaker guarantee than the
+        # upstream path it replaced.
+        if source_url.startswith("https://huggingface.co/LibreYOLO/"):
+            size = next(
+                (s for s in cls._MIRROR_SHA256 if f"LibreMoGe2{s}-normal" in source_url),
+                None,
+            )
+            if size is None:
+                raise ValueError(f"Unrecognized MoGe-2 mirror URL: {source_url}")
+            expected = cls._MIRROR_SHA256[size]
+            actual = cls._sha256(local_path)
+            if actual != expected:
+                raise ValueError(
+                    f"MoGe-2 {size} mirrored checkpoint SHA-256 mismatch: "
+                    f"expected {expected}, got {actual}."
+                )
+            return
+
         size = next(
             (
                 size
@@ -133,11 +182,7 @@ class LibreMoGe2(BaseModel):
         if size is None:
             raise ValueError(f"Unrecognized MoGe-2 weight URL: {source_url}")
         expected = cls._OFFICIAL_WEIGHTS[size][1]
-        digest = hashlib.sha256()
-        with open(local_path, "rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        actual = digest.hexdigest()
+        actual = cls._sha256(local_path)
         if actual != expected:
             raise ValueError(
                 f"MoGe-2 {size} checkpoint SHA-256 mismatch: "

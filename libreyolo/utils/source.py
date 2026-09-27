@@ -7,10 +7,12 @@ from falling through to :class:`ImageLoader` as if they were file paths.
 
 from __future__ import annotations
 
+import io
 import re
 import sys
 import threading
 from collections import deque
+from collections.abc import Sized
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
@@ -20,6 +22,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import numpy as np
 
+from .image_loader import SUPPORTED_EXTENSIONS as IMAGE_EXTENSIONS
 from .screen import is_screen_source
 from .video import is_video_file
 
@@ -44,6 +47,7 @@ class SourceKind(str, Enum):
 
     IMAGE = "image"
     IMAGE_BATCH = "image_batch"
+    IMAGE_SEQUENCE = "image_sequence"
     DIRECTORY = "directory"
     VIDEO = "video"
     SCREEN = "screen"
@@ -71,7 +75,7 @@ class StreamFrame:
     frame_bgr: np.ndarray
     frame_idx: int
     source_index: int
-    source_label: str
+    source_label: str | None
     fps: float
 
 
@@ -149,6 +153,7 @@ def _is_stream_item(source: Any) -> bool:
         or is_network_stream(source)
         or is_youtube_url(source)
         or is_video_file(source)
+        or _is_probed_video_file(source)
     )
 
 
@@ -172,8 +177,62 @@ def _read_stream_list(path: Path) -> tuple[int | str, ...]:
     return tuple(sources)
 
 
+def _opens_as_video(path: Path) -> bool:
+    """Return whether an existing file of unknown type is a video.
+
+    Files Pillow can decode stay images. Anything else is probed with the
+    same ``cv2.VideoCapture`` that :class:`~libreyolo.utils.video.VideoSource`
+    uses, so camera dumps with uncommon or missing extensions still play.
+    """
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            image.load()
+        return False
+    except Image.DecompressionBombError:
+        return False
+    except Exception:
+        pass
+    try:
+        import cv2
+    except ImportError:
+        return False
+    # An absolute path keeps a file named e.g. "0" from reaching a camera.
+    capture = cv2.VideoCapture(str(path.absolute()))
+    try:
+        return bool(capture.isOpened())
+    finally:
+        capture.release()
+
+
+def _is_probed_video_file(source: Any) -> bool:
+    """An existing file without an image extension that opens as a video."""
+    if not isinstance(source, (str, Path)):
+        return False
+    if Path(source).suffix.lower() in IMAGE_EXTENSIONS:
+        return False
+    existing = _existing_path(source)
+    return existing is not None and existing.is_file() and _opens_as_video(existing)
+
+
+def _is_batched_array(source: Any) -> bool:
+    """A 4-D NumPy array or tensor is a batch of images (NCHW or NHWC)."""
+    if isinstance(source, np.ndarray):
+        return source.ndim == 4
+    # Checked through sys.modules so torch-free deployments never import it;
+    # a tensor cannot exist unless torch is already loaded.
+    torch = sys.modules.get("torch")
+    return torch is not None and isinstance(source, torch.Tensor) and source.dim() == 4
+
+
 def classify_source(source: Any) -> SourceSpec:
-    """Classify one public prediction source without opening it."""
+    """Classify one public prediction source.
+
+    Only existing files whose extension is neither a known image nor a known
+    video format are opened, to tell images from videos. List items are
+    classified the same way. Directories collect images only.
+    """
     if is_screen_source(source):
         return SourceSpec(SourceKind.SCREEN, source)
 
@@ -197,6 +256,20 @@ def classify_source(source: Any) -> SourceSpec:
             )
         return SourceSpec(SourceKind.IMAGE_BATCH, source, items)
 
+    if _is_batched_array(source):
+        return SourceSpec(SourceKind.IMAGE_BATCH, source, tuple(source))
+
+    # BytesIO is both a supported atomic ImageInput and an iterator over bytes.
+    # Keep it on the single-image path before recognizing lazy frame iterators.
+    if isinstance(source, io.BytesIO):
+        return SourceSpec(SourceKind.IMAGE, source)
+
+    if hasattr(source, "__next__"):
+        # A bare iterator/generator of already-loaded images (e.g. PIL frames
+        # produced incrementally). Unlike IMAGE_BATCH its length is unknown
+        # ahead of time, so it must stay lazy for the whole call.
+        return SourceSpec(SourceKind.IMAGE_SEQUENCE, source)
+
     if isinstance(source, (str, Path)):
         path = Path(source)
         if path.suffix.lower() == STREAM_LIST_EXTENSION:
@@ -207,6 +280,8 @@ def classify_source(source: Any) -> SourceSpec:
         existing = _existing_path(source)
         if existing is not None and existing.is_dir():
             return SourceSpec(SourceKind.DIRECTORY, source)
+        if _is_probed_video_file(source):
+            return SourceSpec(SourceKind.VIDEO, source)
 
     return SourceSpec(SourceKind.IMAGE, source)
 
@@ -552,6 +627,101 @@ class MultiStreamSource:
     def release(self) -> None:
         for stream in self.streams:
             stream.release()
+
+
+class ImageSequenceSource:
+    """Iterate an in-memory or lazily-produced sequence of images as frames.
+
+    Wraps a finite list/tuple or a lazy iterator of already-loaded images
+    (paths, PIL Images, ndarrays, tensors) so it can drive the same
+    frame-by-frame loop (:func:`~libreyolo.utils.video.run_video_inference`)
+    used for video files and live streams. This is what lets
+    :meth:`~libreyolo.models.base.model.BaseModel.track` track across a
+    batch or stream of images instead of only video files.
+
+    Args:
+        images: A finite sequence or an iterator/generator of image inputs.
+            A finite sequence reports its length up front; an iterator's
+            length is unknown and iteration stays lazy for the whole call.
+        vid_stride: Process every N-th image (default ``1`` = every image).
+        fps: Frame rate to report for the sequence. There is no real
+            capture rate for a bag of images, so this only affects derived
+            timing (a tracker's lost-track buffer, or the fps written into
+            a saved output video).
+        save_name: Base name used to derive an output path when saving.
+        color_format: Channel order of NumPy frames, passed to
+            ``ImageLoader``: ``"auto"`` (default) and ``"bgr"`` read them as
+            BGR (OpenCV), ``"rgb"`` as RGB.
+
+    Note:
+        Can only be iterated once, like :class:`~libreyolo.utils.video.VideoSource`.
+    """
+
+    num_streams = 1
+
+    def __init__(
+        self,
+        images: Sequence[Any] | Iterator[Any],
+        *,
+        vid_stride: int = 1,
+        fps: float = 30.0,
+        save_name: str = "sequence",
+        color_format: str = "auto",
+    ):
+        self._images = images
+        self._vid_stride = max(1, int(vid_stride))
+        self.fps = float(fps)
+        if not np.isfinite(self.fps) or self.fps <= 0:
+            raise ValueError(f"fps must be a finite value > 0, got {fps}")
+        self.save_name = save_name
+        raw_total = len(images) if isinstance(images, Sized) else 0
+        self.total_frames = (
+            (raw_total + self._vid_stride - 1) // self._vid_stride
+            if raw_total
+            else 0
+        )
+        self._color_format = color_format
+        self.width = 0
+        self.height = 0
+        self._iterated = False
+
+    def __enter__(self) -> "ImageSequenceSource":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        pass
+
+    def __iter__(self) -> Iterator[StreamFrame]:
+        if self._iterated:
+            raise RuntimeError(
+                "ImageSequenceSource has already been consumed. "
+                "Create a new instance to iterate again."
+            )
+        self._iterated = True
+
+        import cv2
+
+        from .image_loader import ImageLoader
+
+        # Fewer frames are retained at higher strides, so the fps reported
+        # alongside them must drop proportionally -- otherwise a saved
+        # output video plays back vid_stride times too fast (mirrors how
+        # VideoSource's stride is compensated for in run_video_inference).
+        effective_fps = self.fps / self._vid_stride
+
+        for frame_idx, item in enumerate(self._images):
+            if frame_idx % self._vid_stride:
+                continue
+            pil_img = ImageLoader.load(item, color_format=self._color_format)
+            frame_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            label = str(item) if isinstance(item, (str, Path)) else None
+            yield StreamFrame(
+                frame_bgr=frame_bgr,
+                frame_idx=frame_idx,
+                source_index=0,
+                source_label=label,
+                fps=effective_fps,
+            )
 
 
 def build_stream_source(

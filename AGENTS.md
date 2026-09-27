@@ -108,7 +108,9 @@
   evidence.
 
 ## Pull Request (PR) policy
-- Before pushing PR changes, run `greptile review --agent --branch <target-branch>` when the Greptile CLI is available and address valid findings.
+- Before opening a PR, and before pushing further changes to it, run
+  `greptile review --agent --branch <target-branch>` when the Greptile CLI is
+  available, and fix the valid findings first so the PR opens clean.
 - All development PRs target `dev`, never `release`. This holds regardless of
   which branch GitHub shows as the default: `release` is the public default
   branch, but it only receives curated release merges, not feature PRs.

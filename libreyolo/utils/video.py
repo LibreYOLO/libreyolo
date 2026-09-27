@@ -3,7 +3,7 @@
 import logging
 import warnings
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterator, Protocol, Tuple, Union
+from typing import Any, Callable, Generator, Iterator, List, Protocol, Tuple, Union
 
 import numpy as np
 
@@ -13,18 +13,39 @@ logger = logging.getLogger(__name__)
 
 MP4_CODEC_CANDIDATES = ("avc1", "mp4v")
 
+# ``(codec, width, height)`` combinations that failed to open in this process.
+# OpenCV's FFmpeg backend prints its own errors to stderr while probing (for
+# example ``h264_v4l2m2m`` or ``Failed to initialize VideoWriter``), so probe
+# once per process rather than once per video. The frame size is part of the
+# key because some H.264 encoders reject odd dimensions that ``mp4v`` accepts,
+# and one such video must not disable H.264 for every later one.
+_UNAVAILABLE_CODECS: set = set()
+
 # Video extensions supported via OpenCV's VideoCapture
 VIDEO_EXTENSIONS = {
+    ".3g2",
+    ".3gp",
     ".asf",
     ".avi",
+    ".dav",
+    ".f4v",
+    ".flv",
     ".gif",
+    ".h264",
+    ".h265",
+    ".hevc",
+    ".m2ts",
     ".m4v",
     ".mkv",
     ".mov",
     ".mp4",
     ".mpeg",
     ".mpg",
+    ".mts",
+    ".mxf",
+    ".ogv",
     ".ts",
+    ".vob",
     ".wmv",
     ".webm",
 }
@@ -219,11 +240,18 @@ class VideoWriter:
             )
 
         self._path = str(path)
+        self._frame_size = (int(width), int(height))
         Path(path).parent.mkdir(parents=True, exist_ok=True)
 
         self.codec = None
         self._writer = None
-        for codec in _codec_candidates(self._path):
+        candidates = _codec_candidates(self._path)
+        failed = []
+        last_resort = candidates[-1]
+        for codec in candidates:
+            key = (codec, width, height)
+            if key in _UNAVAILABLE_CODECS and codec != last_resort:
+                continue
             fourcc = cv2.VideoWriter_fourcc(*codec)
             writer = cv2.VideoWriter(self._path, fourcc, fps, (width, height))
             if writer.isOpened():
@@ -231,15 +259,22 @@ class VideoWriter:
                 self._writer = writer
                 break
             writer.release()
+            failed.append(key)
 
         if self._writer is None:
             raise ValueError(f"Cannot open video writer for: {self._path}")
+        # Only remember failures once a later codec proved the path itself is
+        # writable, so a bad output path does not poison the cache.
+        _UNAVAILABLE_CODECS.update(failed)
 
-        if self.codec != "avc1" and Path(self._path).suffix.lower() == ".mp4":
-            logger.warning(
-                "Could not open H.264 video writer; falling back to %s for %s",
-                self.codec,
+        if self.codec != candidates[0]:
+            # Expected on most Linux OpenCV wheels, which ship without an H.264
+            # encoder. The output is still a valid MP4, so this is not a warning.
+            logger.info(
+                "H.264 encoder not available in this OpenCV build; saving %s with %s. "
+                "Any FFmpeg errors printed above come from that probe and can be ignored.",
                 self._path,
+                self.codec,
             )
 
     # ------------------------------------------------------------------
@@ -256,6 +291,16 @@ class VideoWriter:
 
     def write_frame(self, frame_bgr: np.ndarray):
         """Write a single BGR frame."""
+        if self._writer is None:
+            raise RuntimeError("VideoWriter has already been released")
+        height, width = frame_bgr.shape[:2]
+        if (width, height) != self._frame_size:
+            expected_width, expected_height = self._frame_size
+            raise ValueError(
+                "Video frame size changed from "
+                f"{expected_width}x{expected_height} to {width}x{height}. "
+                "All frames in a saved video must have the same dimensions."
+            )
         self._writer.write(frame_bgr)
 
     def release(self):
@@ -277,6 +322,71 @@ class VideoWriter:
 _LARGE_VIDEO_THRESHOLD = 500
 
 
+def uniform_frame_indices(total_frames: int, num_frames: int) -> List[int]:
+    """Deterministic uniform frame indices over a finite video.
+
+    The sampling rule is fixed so validation and inference agree:
+
+    * the temporal endpoints are always included when at least two frames are
+      requested and available;
+    * the last available frame is repeated **only** when the video yields fewer
+      frames than requested.
+
+    Args:
+        total_frames: Number of frames the video actually decodes.
+        num_frames: Number of frames to sample (must be positive).
+
+    Returns:
+        A list of ``num_frames`` frame indices in non-decreasing order.
+    """
+    if num_frames < 1:
+        raise ValueError(f"num_frames must be positive; got {num_frames}.")
+    if total_frames < 1:
+        raise ValueError("Video decoded zero frames.")
+    if num_frames == 1 or total_frames == 1:
+        return [0] * num_frames if total_frames == 1 else [0]
+    if total_frames >= num_frames:
+        step = (total_frames - 1) / (num_frames - 1)
+        return [int(round(i * step)) for i in range(num_frames)]
+    # Short video: take every frame, then hold the last one.
+    return list(range(total_frames)) + [total_frames - 1] * (num_frames - total_frames)
+
+
+def sample_clip_frames(path: Union[str, Path], num_frames: int) -> List:
+    """Uniformly sample ``num_frames`` RGB ``PIL.Image`` frames from a finite video.
+
+    Family-independent: decoding and sampling live here, while tensor layout,
+    preprocessing and temporal pooling stay family-local.
+    """
+    import cv2
+    from PIL import Image
+
+    with VideoSource(path) as source:
+        total = int(source.total_frames)
+        cap = source._cap
+        if total < 1:
+            # Some containers do not report a frame count; fall back to a scan.
+            total = 0
+            while cap.grab():
+                total += 1
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        if total < 1:
+            raise ValueError(f"Video decoded zero frames: {path}")
+
+        wanted = uniform_frame_indices(total, num_frames)
+        frames = []
+        for index in wanted:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, index)
+            ok, frame_bgr = cap.read()
+            if not ok:
+                if not frames:
+                    raise ValueError(f"Could not decode frame {index} of {path}.")
+                frames.append(frames[-1])
+                continue
+            frames.append(Image.fromarray(frame_bgr[:, :, ::-1].copy()))
+    return frames
+
+
 def collect_video_results(
     gen: Generator,
     source: Union[str, Path],
@@ -293,7 +403,14 @@ def collect_video_results(
             f"Consider using stream=True to avoid high memory usage.",
             stacklevel=3,
         )
-    return list(gen)
+    results = []
+    for result in gen:
+        # A collected list must not hold every decoded frame; stream=True
+        # keeps each frame's source image for plotting.
+        if getattr(result, "_orig_img", None) is not None:
+            result.orig_img = None
+        results.append(result)
+    return results
 
 
 def run_video_inference(
@@ -322,29 +439,18 @@ def run_video_inference(
         show: Display frames in a cv2 window.
         output_path: Output path for saved video.
         annotate_fn: Optional callable ``(pil_img, result) -> pil_img`` for
-            custom annotation (e.g. tracking labels). When *None*, the default
-            ``draw_boxes()`` annotation is used.
+            custom annotation (e.g. tracking labels). When *None*, the frame is
+            drawn with ``draw_results()``, as ``Results.plot()`` does.
         progress: Show a tqdm progress bar (frames processed, fps).
 
     Yields:
         ``Results`` for each processed frame.
     """
     import cv2
-    import torch
     from PIL import Image
     from tqdm import tqdm
 
-    from .drawing import (
-        draw_boxes,
-        draw_depth_map,
-        draw_edge_map,
-        draw_normal_map,
-        draw_keypoints,
-        draw_masks,
-        draw_matte,
-        draw_obb,
-        draw_points,
-    )
+    from .drawing import draw_results
 
     if isinstance(source, (str, Path)):
         frame_source = VideoSource(source, vid_stride=vid_stride)
@@ -405,7 +511,11 @@ def run_video_inference(
                     frame_bgr = frame_item.frame_bgr
                     frame_idx = int(frame_item.frame_idx)
                     source_index = int(frame_item.source_index)
-                    source_label = str(frame_item.source_label)
+                    source_label = (
+                        str(frame_item.source_label)
+                        if frame_item.source_label is not None
+                        else None
+                    )
                     frame_fps = float(frame_item.fps or effective_fps or 30.0)
                 else:
                     frame_bgr, frame_idx = frame_item
@@ -427,103 +537,8 @@ def run_video_inference(
                 if save or show:
                     if annotate_fn is not None:
                         annotated_pil = annotate_fn(pil_img, result)
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "probs", None) is not None
-                    ):
-                        annotated_pil = pil_img
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "points", None) is not None
-                    ):
-                        if len(result.points) > 0:
-                            annotated_pil = draw_points(
-                                pil_img,
-                                result.points.xy.tolist(),
-                                result.points.conf.tolist(),
-                                result.points.cls.tolist(),
-                                class_names=result.names,
-                            )
-                        else:
-                            annotated_pil = pil_img
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "restored", None) is not None
-                    ):
-                        annotated_pil = Image.fromarray(
-                            result.restored.array, mode="RGB"
-                        )
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "matte", None) is not None
-                    ):
-                        # Checkerboard-composited cutout preview (video frames
-                        # cannot carry an alpha channel, so the transparency is
-                        # visualized instead).
-                        annotated_pil = draw_matte(pil_img, result.matte.array)
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "depth_map", None) is not None
-                    ):
-                        depth_np = result.depth_map.data
-                        if isinstance(depth_np, torch.Tensor):
-                            depth_np = depth_np.cpu().numpy()
-                        annotated_pil = draw_depth_map(pil_img, depth_np)
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "normal_map", None) is not None
-                    ):
-                        normal_np = result.normal_map.data
-                        if isinstance(normal_np, torch.Tensor):
-                            normal_np = normal_np.cpu().numpy()
-                        annotated_pil = draw_normal_map(pil_img, normal_np)
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "edges", None) is not None
-                    ):
-                        edge_np = result.edges.data
-                        if isinstance(edge_np, torch.Tensor):
-                            edge_np = edge_np.cpu().numpy()
-                        annotated_pil = draw_edge_map(pil_img, edge_np)
-                    elif len(result) > 0:
-                        annotated_pil = pil_img
-                        if result.masks is not None:
-                            masks_np = result.masks.data
-                            if isinstance(masks_np, torch.Tensor):
-                                masks_np = masks_np.cpu().numpy()
-                            annotated_pil = draw_masks(
-                                annotated_pil,
-                                masks_np,
-                                result.boxes.cls.tolist(),
-                            )
-                        if result.obb is not None:
-                            annotated_pil = draw_obb(
-                                annotated_pil,
-                                result.obb.xywhr.tolist(),
-                                result.obb.conf.tolist(),
-                                result.obb.cls.tolist(),
-                                class_names=result.names,
-                                track_ids=(
-                                    result.obb.id.tolist()
-                                    if result.obb.id is not None
-                                    else None
-                                ),
-                            )
-                        else:
-                            annotated_pil = draw_boxes(
-                                annotated_pil,
-                                result.boxes.xyxy.tolist(),
-                                result.boxes.conf.tolist(),
-                                result.boxes.cls.tolist(),
-                                class_names=result.names,
-                            )
-                        if result.keypoints is not None:
-                            kpts_np = result.keypoints.data
-                            if isinstance(kpts_np, torch.Tensor):
-                                kpts_np = kpts_np.cpu().numpy()
-                            annotated_pil = draw_keypoints(annotated_pil, kpts_np)
                     else:
-                        annotated_pil = pil_img
+                        annotated_pil = draw_results(result, pil_img)
 
                     annotated_bgr = cv2.cvtColor(
                         np.array(annotated_pil), cv2.COLOR_RGB2BGR

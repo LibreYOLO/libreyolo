@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, Tuple
 
 import torch
@@ -124,7 +125,35 @@ class LibreFCN(BaseModel):
         return int(weight.shape[0])
 
     @classmethod
-    def default_checkpoint_names(cls, nc: int) -> Optional[Dict[int, str]]:
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        """Reject the ``-sem`` spelling instead of building a dead URL.
+
+        This family's hosted repos are suffixless (``LibreYOLO/LibreFCNr50``),
+        unlike the ``-sem`` convention of its semantic siblings, so the base
+        implementation turns ``LibreFCNr50-sem.pt`` into a URL for a repo that
+        does not exist and the download fails with an HTTP error that reads
+        like an outage. Name the correct spelling instead.
+
+        The size guard matters: ``download_weights`` asks every registered
+        family in turn and takes the first non-None answer, so raising on a
+        filename that is not ours would hijack another family's download.
+        """
+        name = Path(filename).name
+        size = cls.detect_size_from_filename(name)
+        if size is None:
+            return None
+        if cls.detect_task_from_filename(name) is not None:
+            canonical = f"{cls.FILENAME_PREFIX}{size}{cls.WEIGHT_EXT}"
+            raise FileNotFoundError(
+                f"{name}: LibreYOLO hosts {cls.FILENAME_PREFIX} weights without "
+                f"a task suffix. Use '{canonical}' instead."
+            )
+        return super().get_download_url(name)
+
+    @classmethod
+    def default_checkpoint_names(
+        cls, nc: int, task: Optional[str] = None
+    ) -> Optional[Dict[int, str]]:
         """Supply the published VOC-style labels for bare official weights."""
         if nc != len(VOC_NAMES):
             return None

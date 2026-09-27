@@ -149,7 +149,11 @@ class _ActObserverMixin:
 
     def _observe(self, x: torch.Tensor):
         with torch.no_grad():
-            if getattr(self, "_q_obs_method", "minmax") == "percentile":
+            method = getattr(self, "_q_obs_method", "minmax")
+            if method in ("mse", "entropy"):
+                self._observe_histogram(x)
+                return
+            if method == "percentile":
                 # Mean of per-batch (0.1%, 99.9%) quantiles: robust to the
                 # activation outliers that make pure min/max ranges crush
                 # int8 resolution (worst on the smallest models). Strided
@@ -179,15 +183,87 @@ class _ActObserverMixin:
                 self._q_act_hi.copy_(hi)
                 self._q_calibrated.fill_(1)
 
+    def _observe_histogram(self, x: torch.Tensor):
+        """Accumulate the |x| histogram the mse/entropy sweeps consume."""
+        from .calibrate import accumulate_abs_histogram
+
+        x_lo = float(x.detach().amin())
+        x_hi = float(x.detach().amax())
+        lo_run = getattr(self, "_q_obs_lo_run", None)
+        if lo_run is None:
+            self._q_obs_lo_run, self._q_obs_hi_run = x_lo, x_hi
+        else:
+            self._q_obs_lo_run = min(lo_run, x_lo)
+            self._q_obs_hi_run = max(self._q_obs_hi_run, x_hi)
+        (
+            self._q_obs_hist,
+            self._q_obs_hist_amax,
+            self._q_obs_hist_top,
+        ) = accumulate_abs_histogram(
+            getattr(self, "_q_obs_hist", None),
+            getattr(self, "_q_obs_hist_amax", 0.0),
+            x,
+            getattr(self, "_q_obs_hist_top", 0.0),
+        )
+
     def finalize_observation(self):
-        """Write percentile statistics into the calibrated range buffers."""
+        """Write the collected statistics into the calibrated range buffers."""
+        if hasattr(self, "_q_obs_lo_run"):
+            from .calibrate import entropy_amax, mse_amax
+
+            hist = getattr(self, "_q_obs_hist", None)
+            if hist is None or getattr(self, "_q_obs_hist_amax", 0.0) == 0.0:
+                # Every calibration sample was zero: mass sits in bin 0 and
+                # no range was ever established.
+                lo, hi = 0.0, 0.0
+            else:
+                select = (
+                    mse_amax
+                    if getattr(self, "_q_obs_method", "minmax") == "mse"
+                    else entropy_amax
+                )
+                amax = select(
+                    hist,
+                    self._q_obs_hist_amax,
+                    getattr(self, "_q_aformat", "int8"),
+                    # One-sided (post-ReLU style) distributions deploy all
+                    # 256 int8 codes on one side of zero after the window
+                    # intersection below; the sweep must simulate that
+                    # resolution or it systematically over-clips.
+                    one_sided=self._q_obs_lo_run >= 0.0 or self._q_obs_hi_run <= 0.0,
+                )
+                # The sweep chose a symmetric clip; intersect it with the
+                # observed signed range so one-sided activations (post-ReLU)
+                # keep their one-sided affine window.
+                lo = max(self._q_obs_lo_run, -amax)
+                hi = min(self._q_obs_hi_run, amax)
+                if lo > hi:
+                    # A near-constant one-sided distribution can put all its
+                    # mass inside the last histogram bin, letting the sweep
+                    # return an amax a fraction of a bin below max|x| and
+                    # inverting the intersection. Fall back to the observed
+                    # window rather than emit a degenerate range.
+                    lo, hi = self._q_obs_lo_run, self._q_obs_hi_run
+            with torch.no_grad():
+                self._q_act_lo.fill_(lo)
+                self._q_act_hi.fill_(hi)
+                self._q_calibrated.fill_(1)
         n = getattr(self, "_q_obs_n", 0)
         if n:
             with torch.no_grad():
                 self._q_act_lo.fill_(self._q_obs_lo_sum / n)
                 self._q_act_hi.fill_(self._q_obs_hi_sum / n)
                 self._q_calibrated.fill_(1)
-        for attr in ("_q_obs_lo_sum", "_q_obs_hi_sum", "_q_obs_n"):
+        for attr in (
+            "_q_obs_lo_sum",
+            "_q_obs_hi_sum",
+            "_q_obs_n",
+            "_q_obs_lo_run",
+            "_q_obs_hi_run",
+            "_q_obs_hist",
+            "_q_obs_hist_amax",
+            "_q_obs_hist_top",
+        ):
             if hasattr(self, attr):
                 delattr(self, attr)
 

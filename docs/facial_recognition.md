@@ -105,7 +105,7 @@ with `face_boxes=[...]`.
   this is an inference product consuming opaque ONNX graphs.
 
 The face-region contract is recorded in
-[`adr/0013-embed-task-contract.md`](adr/0013-embed-task-contract.md) and amended
+[`adr/0017-embed-task-contract.md`](adr/0017-embed-task-contract.md) and amended
 by the general three-shape contract in
 [`adr/0015-embed-generalization.md`](adr/0015-embed-generalization.md).
 

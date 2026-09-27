@@ -17,6 +17,123 @@ from libreyolo.validation.preprocessors import RTDETRValPreprocessor
 pytestmark = pytest.mark.unit
 
 
+@pytest.mark.parametrize("size", ["r18", "r34", "r50", "r50m", "r101", "l", "x"])
+def test_download_route_requires_own_canonical_filename(size):
+    filename = f"LibreRTDETR{size}.pt"
+    assert LibreRTDETR.get_download_url(filename).endswith("/" + filename)
+    assert LibreRTDETR.get_download_url(filename.lower()).endswith("/" + filename)
+    assert LibreRTDETR.get_download_url(f"OtherModel-{size}.pt") is None
+    assert LibreRTDETR.get_download_url("LibreMarigoldV2b-depth-log-stage1.pt") is None
+    assert LibreRTDETR.detect_size_from_filename(f"checkpoint-{size}-finetuned.pth") == size
+
+
+@pytest.mark.parametrize(
+    "filename,expected",
+    [
+        ("rtdetr-l.pt", "LibreRTDETRl.pt"),
+        ("rtdetr-x.pt", "LibreRTDETRx.pt"),
+        ("LibreRTDETR-l.pt", "LibreRTDETRl.pt"),
+        ("LibreRTDETR-x.pt", "LibreRTDETRx.pt"),
+        ("rtdetr-r50.pt", "LibreRTDETRr50.pt"),
+        ("LibreRTDETR-r50.pt", "LibreRTDETRr50.pt"),
+        ("detr-r50-e632da11.pth", "LibreDETRr50.pt"),
+        ("LibreDETR-r50.pt", "LibreDETRr50.pt"),
+        ("LibreDETR-r101-dc5.pt", "LibreDETRr101dc5.pt"),
+        ("my_detr-r50.pt", "LibreDETRr50.pt"),
+        ("LibreDETRr50.pt", "LibreDETRr50.pt"),
+    ],
+)
+def test_rtdetr_and_detr_names_download_their_own_weights(filename, expected):
+    """1.5.0 downloaded LibreRTDETRl.pt for rtdetr-l.pt; the #850 narrowing
+    dropped that, and rtdetr-r50.pt fetched the DETR checkpoint instead."""
+    from libreyolo.models import _ensure_rfdetr
+    from libreyolo.models.base.model import BaseModel
+
+    _ensure_rfdetr()
+    url = next(
+        (url for cls in BaseModel._registry if (url := cls.get_download_url(filename))),
+        None,
+    )
+    assert url is not None and url.endswith("/" + expected)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "rtdetr-r50.pt",
+        "LibreRTDETR-r50.pt",
+        "librertdetr-r101.pt",
+        "dinodetr-r50.pt",
+        "LibreDINODETR-r50.pt",
+        "dino-detr-r50.pt",
+        "deformable_detr-r50.pt",
+        "rt-detr-r50.pt",
+    ],
+)
+def test_detr_does_not_claim_other_detr_family_names(filename):
+    from libreyolo.models.detr.model import LibreDETR
+
+    assert LibreDETR.get_download_url(filename) is None
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "last.pt",  # the canonical regression case
+        "last_yolonas.pt",
+        "learn.pt",
+        "learn_rate_2.pt",
+        "xlnet.pt",
+        "xtra.pt",
+    ],
+)
+def test_single_char_prefix_does_not_match(filename):
+    """Filenames starting with a single-char size code must not be misrouted
+    to LibreRTDETR by the basename.startswith() fallback (issue: last.pt was
+    being matched as size "l").
+    """
+    assert LibreRTDETR.detect_size_from_filename(filename) is None
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "model_xlnet.pt",  # "_xl" substring of "model_xlnet"
+        "model_train_xl.pt",  # "_x" inside word "xl"
+        "model_lstm-finetuned.pt",  # "_l" inside word "lstm"
+        "model_last_epoch.pt",  # "_l" inside word "last"
+        "run-l-finetuned.pt",  # legitimate single-char suffix
+    ],
+)
+def test_delimiter_bounded_match(filename):
+    """The delimiter fallback must require a non-alphanumeric character after
+    the size code; otherwise substrings inside longer English words match.
+    """
+    if filename == "run-l-finetuned.pt":
+        # Legitimate use: -l- with '-' on the right side.
+        assert LibreRTDETR.detect_size_from_filename(filename) == "l"
+    else:
+        assert LibreRTDETR.detect_size_from_filename(filename) is None
+
+
+@pytest.mark.parametrize(
+    "filename,expected_size",
+    [
+        ("LibreRTDETRr18.pt", "r18"),
+        ("LibreRTDETRr50.pt", "r50"),
+        ("LibreRTDETRr50m.pt", "r50m"),
+        ("LibreRTDETRr101.pt", "r101"),
+        ("LibreRTDETRx.pt", "x"),
+        ("LibreRTDETRl.pt", "l"),
+        ("path/to/LibreRTDETRr50.pt", "r50"),
+        ("runs/train/exp/weights/r50-finetuned.pt", "r50"),
+    ],
+)
+def test_canonical_filenames_still_resolve(filename, expected_size):
+    """Canonical RT-DETR filenames and multi-char size suffixes keep working."""
+    assert LibreRTDETR.detect_size_from_filename(filename) == expected_size
+
+
 class TestRTDETRRegistry:
     """Test RTDETR model registration."""
 

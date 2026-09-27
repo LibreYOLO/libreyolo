@@ -79,6 +79,34 @@ configs = {
         "compact_arch_name": "vitsplus",
         "check_hash": False,
     },
+    # Added for the TinyFormer XL backbone (mirrors the upstream TinyFormer
+    # fork's dinov3_vitb16 entry).
+    "dinov3_vitb16": {
+        "img_size": 224,
+        "patch_size": 16,
+        "in_chans": 3,
+        "pos_embed_rope_base": 100,
+        "pos_embed_rope_normalize_coords": "separate",
+        "pos_embed_rope_rescale_coords": 2,
+        "pos_embed_rope_dtype": "fp32",
+        "embed_dim": 768,
+        "depth": 12,
+        "num_heads": 12,
+        "ffn_ratio": 4,
+        "qkv_bias": True,
+        "drop_path_rate": 0.0,
+        "layerscale_init": 1.0e-05,
+        "norm_layer": "layernormbf16",
+        "ffn_layer": "mlp",
+        "ffn_bias": True,
+        "proj_bias": True,
+        "n_storage_tokens": 4,
+        "mask_k_bias": True,
+        "pretrained": True,
+        "weights": Weights.LVD1689M,
+        "compact_arch_name": "vitb",
+        "check_hash": False,
+    },
 }
 
 logger = logging.getLogger("dinov3")

@@ -45,6 +45,7 @@ class LibreResNet(BaseModel):
     DEFAULT_TASK = "classify"
     REQUIRE_TASK_SUFFIX = True  # canonical weights are LibreResNet<size>-cls.pt
     TRAIN_CONFIG = ResNetConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
 
     # timm a1 eval crop_pct (matches the upstream benchmark preprocessing).
     CROP_PCT = {"18": 0.95, "34": 0.95, "50": 0.95, "101": 0.95}
@@ -222,6 +223,12 @@ class LibreResNet(BaseModel):
         known name (e.g. ``"imagenette160"``), or a ``.zip`` URL. The head is
         rebuilt to the dataset's class count automatically. Cross-entropy +
         AdamW + cosine; the ImageNet-pretrained backbone transfers cleanly.
+
+        ``cls_pw`` (classification only, float in [0, 1], default 0) controls
+        inverse-frequency weighting strength with mean-one class weights.
+        ``class_weights=True`` retains legacy sample-normalized weighting and
+        cannot be combined with ``cls_pw>0``. Neither option changes sampling.
+        See docs/classification_training.md for compatibility and resume rules.
         """
         from .trainer import ResNetTrainer
 
@@ -253,14 +260,8 @@ class LibreResNet(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreResNet('path/to/last.pt', size='50'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
 
         results = trainer.train()
         best_ckpt = results.get("best_checkpoint")

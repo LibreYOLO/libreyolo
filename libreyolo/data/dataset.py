@@ -17,12 +17,12 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, RandomSampler, Sampler
 from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
 
 from .cache import ImageCacheMixin
-from .utils import polygon_to_cxcywh
+from .yolo_coco_api import parse_yolo_label_line
 from .obb import (
     canonicalize_xywhr,
     corners_to_xywhr,
@@ -35,28 +35,12 @@ from libreyolo.utils.image_size import imgsz_to_hw
 logger = logging.getLogger(__name__)
 
 
-def _yolo_coords_to_rings(
-    coords: List[float], width: int, height: int
-) -> List[np.ndarray]:
-    """Convert one normalized YOLO polygon row to the shared ring contract."""
-    ring = np.array(coords, dtype=np.float32).reshape(-1, 2)
-    ring[:, 0] *= width
-    ring[:, 1] *= height
-    return [ring]
-
-
-def _yolo_box_to_ring(cx: float, cy: float, w: float, h: float, width: int, height: int) -> List[np.ndarray]:
-    """Convert one normalized YOLO bbox row to a rectangular ring."""
-    x1 = (cx - w / 2) * width
-    y1 = (cy - h / 2) * height
-    x2 = (cx + w / 2) * width
-    y2 = (cy + h / 2) * height
+def _xyxy_to_ring(x1: float, y1: float, x2: float, y2: float) -> List[np.ndarray]:
+    """Convert one pixel-space box to the shared ring contract."""
     ring = np.array(
         [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
         dtype=np.float32,
     )
-    ring[:, 0] = np.clip(ring[:, 0], 0.0, float(width))
-    ring[:, 1] = np.clip(ring[:, 1], 0.0, float(height))
     return [ring]
 
 
@@ -253,6 +237,9 @@ class YOLODataset(ImageCacheMixin, Dataset):
         load_segments: bool = False,
         load_obb: bool = False,
         num_classes: int | None = None,
+        single_cls: bool = False,
+        class_remap: dict[int, int] | None = None,
+        input_profile: dict | None = None,
     ):
         """
         Initialize YOLO dataset.
@@ -264,14 +251,30 @@ class YOLODataset(ImageCacheMixin, Dataset):
             preproc: Preprocessing transform.
             img_files: List of image paths (for file list mode).
             label_files: List of label paths (optional, inferred if not provided).
-            num_classes: Optional class-count bound used for OBB label validation.
+            num_classes: Optional class-count bound checked against every
+                parsed label; out-of-range ids are skipped with a warning
+                (non-OBB) or excluded (OBB) instead of reaching the loss.
+            single_cls: Remap every non-negative class id to class 0.
+                Ignored when ``class_remap`` is given.
+            class_remap: Optional ``{orig_id: new_id}`` mapping for training
+                on a class subset (see ``load_data_config(classes=...)``).
+                Boxes whose original class id is not a key are dropped. For
+                plain ``classes=`` this is an identity mapping (kept ids are
+                unchanged); ``single_cls`` combined with ``classes=`` maps
+                every kept id to ``0`` instead.
         """
+        from ..utils.event_histogram import validate_input_profile
+        self.input_profile = validate_input_profile(input_profile)
+        if self.input_profile and (load_segments or load_obb):
+            raise ValueError("Event histograms support detection only")
         self.img_size = imgsz_to_hw(img_size, name="img_size")
         self.preproc = preproc
         self._input_dim = self.img_size
         self.load_segments = load_segments
         self.load_obb = load_obb
         self.num_classes = num_classes
+        self.class_remap = class_remap
+        self.single_cls = bool(single_cls)
         if self.load_segments and self.load_obb:
             raise ValueError("YOLODataset cannot load segmentation and OBB labels together")
 
@@ -305,7 +308,7 @@ class YOLODataset(ImageCacheMixin, Dataset):
 
             # Collect image files from directory
             self.img_files = []
-            for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+            for ext in (["*.npy"] if self.input_profile else ["*.jpg", "*.jpeg", "*.png", "*.bmp"]):
                 self.img_files.extend(self.img_dir.glob(ext))
                 self.img_files.extend(self.img_dir.glob(ext.upper()))
             self.img_files = sorted(set(self.img_files))
@@ -412,18 +415,21 @@ class YOLODataset(ImageCacheMixin, Dataset):
             return str(label_dir)
         return "dataset"
 
+    @staticmethod
+    def _stored_image_size(img_file):
+        # Stored orientation matches IMREAD_IGNORE_ORIENTATION in _decode_image.
+        with Image.open(img_file) as im:
+            return im.size
+
     def _load_label(self, label_file: Path, img_file: Path) -> Tuple:
         """Load annotation for a single image."""
         # Read image to get dimensions
         try:
-            with Image.open(img_file) as im:
-                # Use the stored (non-EXIF-rotated) dimensions so label-space
-                # dims match the pixels from cv2.imdecode below, which is called
-                # with IMREAD_IGNORE_ORIENTATION. Both stay in stored orientation
-                # on every OpenCV build (imdecode's native EXIF handling is
-                # build-dependent, so relying on it would mismatch dims vs pixels
-                # on builds that ignore EXIF).
-                width, height = im.size
+            if self.input_profile:
+                from ..utils.event_histogram import load_histogram
+                height, width = load_histogram(img_file).shape[:2]
+            else:
+                width, height = self._stored_image_size(img_file)
         except (FileNotFoundError, UnidentifiedImageError, OSError) as e:
             raise FileNotFoundError(f"Cannot read image: {img_file}") from e
 
@@ -442,8 +448,15 @@ class YOLODataset(ImageCacheMixin, Dataset):
                         try:
                             cls_id, corners = parse_yolo_obb_label_line(
                                 parts,
-                                num_classes=self.num_classes,
+                                # single_cls discards the source class id, so the
+                                # class-count bound does not apply to it. The YOLO
+                                # box path already works this way: parse_yolo_label_line
+                                # remaps to 0 and only then checks the range. Passing
+                                # the bound here instead dropped every row whose
+                                # source id was >= num_classes.
+                                num_classes=None if self.single_cls else self.num_classes,
                                 clip=True,
+                                class_remap=self.class_remap,
                             )
                             pixel_corners = corners.copy()
                             pixel_corners[:, 0] *= width
@@ -454,26 +467,40 @@ class YOLODataset(ImageCacheMixin, Dataset):
                             skipped_obb_rows += 1
                             first_obb_error = first_obb_error or f"{label_file.name}: {exc}"
                             continue
+                        if self.single_cls and self.class_remap is None:
+                            cls_id = 0
                         labels.append([*proxy.tolist(), cls_id, float(xywhr[4])])
-                    elif len(parts) >= 5:
-                        cls_id = int(parts[0])
+                    else:
+                        # Use the validation parser as the single source of
+                        # truth for YOLO boxes and polygons. It derives polygon
+                        # extents, rejects malformed/non-finite rows, clips both
+                        # endpoints to the image, and drops boxes with no
+                        # visible area. Training and scoring therefore consume
+                        # identical geometry (#814).
+                        parsed = parse_yolo_label_line(
+                            line,
+                            width,
+                            height,
+                            self.num_classes,
+                            label_file,
+                            return_segment=self.load_segments,
+                            single_cls=self.single_cls,
+                            class_remap=self.class_remap,
+                        )
+                        if parsed is None:
+                            continue
 
-                        if len(parts) > 5:
-                            # Segmentation format: derive bbox from polygon vertices
-                            coords = [float(p) for p in parts[1:]]
-                            cx, cy, w, h = polygon_to_cxcywh(coords)
-                            if self.load_segments:
-                                segments.append(_yolo_coords_to_rings(coords, width, height))
+                        if self.load_segments:
+                            cls_id, x1, y1, x2, y2, _, segment = parsed
+                            if segment:
+                                ring = np.asarray(segment, dtype=np.float32).reshape(
+                                    -1, 2
+                                )
+                                segments.append([ring])
+                            else:
+                                segments.append(_xyxy_to_ring(x1, y1, x2, y2))
                         else:
-                            cx, cy, w, h = map(float, parts[1:5])
-                            if self.load_segments:
-                                segments.append(_yolo_box_to_ring(cx, cy, w, h, width, height))
-
-                        # Convert normalized xywh to pixel xyxy
-                        x1 = (cx - w / 2) * width
-                        y1 = (cy - h / 2) * height
-                        x2 = (cx + w / 2) * width
-                        y2 = (cy + h / 2) * height
+                            cls_id, x1, y1, x2, y2, _ = parsed
 
                         labels.append([x1, y1, x2, y2, cls_id])
 
@@ -522,6 +549,9 @@ class YOLODataset(ImageCacheMixin, Dataset):
     def _decode_image(self, index: int) -> np.ndarray:
         """Decode image from disk for given index."""
         img_file = self.img_files[index]
+        if self.input_profile:
+            from ..utils.event_histogram import load_histogram
+            return load_histogram(img_file)
         img = cv2.imdecode(
             np.fromfile(str(img_file), dtype=np.uint8),
             cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION,
@@ -529,6 +559,13 @@ class YOLODataset(ImageCacheMixin, Dataset):
         if img is None:
             raise ValueError(f"Failed to load {img_file}")
         return img
+
+    def _load_image_from_disk(self, index: int) -> np.ndarray:
+        if self.input_profile:
+            # Numerical sources already are NumPy files. A .npy.npy sidecar
+            # would be discovered as another training image on the next run.
+            return self._decode_image(index)
+        return super()._load_image_from_disk(index)
 
     # load_resized_img comes from ImageCacheMixin: the deterministic resize is
     # the post-resize cache point, so the mixin owns both the math and the cache.
@@ -612,6 +649,8 @@ class COCODataset(ImageCacheMixin, Dataset):
         load_obb: bool = False,
         num_classes: int | None = None,
         names=None,
+        single_cls: bool = False,
+        classes: list[int] | None = None,
     ):
         """
         Initialize COCO dataset.
@@ -622,6 +661,14 @@ class COCODataset(ImageCacheMixin, Dataset):
             name: Image folder name (e.g., 'train2017')
             img_size: Target image size (height, width)
             preproc: Preprocessing transform
+            single_cls: Remap emitted annotations to class 0 after resolving
+                the original COCO category mapping.
+            classes: Optional list of original dataset class ids to keep;
+                categories outside this list are dropped, and kept ones stay
+                at their original label (not compacted), so ``names`` should
+                be the dataset's full, original names here -- pass
+                ``data_cfg.get("names")`` from ``load_data_config(classes=
+                ...)``, unchanged by classes= (see its docstring).
         """
         if load_segments and load_obb:
             raise ValueError("COCODataset cannot load segmentation and OBB labels together")
@@ -643,6 +690,8 @@ class COCODataset(ImageCacheMixin, Dataset):
         self.load_obb = load_obb
         self.num_classes = num_classes
         self.names = names
+        self.single_cls = bool(single_cls)
+        self.classes = list(classes) if classes is not None else None
 
         # Load COCO annotations
         ann_file = self._annotation_path()
@@ -658,7 +707,9 @@ class COCODataset(ImageCacheMixin, Dataset):
         self.category_id_to_label, self.label_to_category_id = (
             self._build_category_mappings()
         )
-        if self.names is None:
+        if self.single_cls:
+            self._classes = ("object",)
+        elif self.names is None:
             self._classes = tuple([c["name"] for c in self.cats])
         else:
             class_names = self._normalized_class_names()
@@ -717,7 +768,18 @@ class COCODataset(ImageCacheMixin, Dataset):
                     )
                 category_to_label[int(category["id"])] = name_to_label[category_name]
 
-        if self.num_classes is not None:
+        if self.classes is not None:
+            # Filter only -- kept labels stay at their original value so
+            # predictions remain directly comparable to the full dataset's
+            # numbering (see build_class_remap's docstring for why).
+            keep = set(self.classes)
+            category_to_label = {
+                category_id: label
+                for category_id, label in category_to_label.items()
+                if label in keep
+            }
+
+        if self.num_classes is not None and not self.single_cls:
             for category_id, label in category_to_label.items():
                 if label < 0 or label >= self.num_classes:
                     raise ValueError(
@@ -733,6 +795,11 @@ class COCODataset(ImageCacheMixin, Dataset):
                     "dataset YAML names must be unique."
                 )
             label_to_category[label] = category_id
+        if self.single_cls:
+            collapsed_category_id = next(iter(category_to_label), None)
+            if collapsed_category_id is None:
+                collapsed_category_id = self.class_ids[0] if self.class_ids else 0
+            label_to_category = {0: collapsed_category_id}
         return category_to_label, label_to_category
 
     def _remove_useless_info(self):
@@ -799,6 +866,10 @@ class COCODataset(ImageCacheMixin, Dataset):
                 area = 0.0
             if area <= 0.0:
                 continue
+            if obj["category_id"] not in self.category_id_to_label:
+                # Excluded by classes= filtering: drop, same as an
+                # annotation that was never made for a kept class.
+                continue
             if self.load_obb:
                 xywhr = _coco_obb_to_xywhr(obj, width, height)
                 if xywhr is None:
@@ -829,11 +900,15 @@ class COCODataset(ImageCacheMixin, Dataset):
             if self.load_obb:
                 coco_obj, proxy, angle = obj
                 cls = self.category_id_to_label[coco_obj["category_id"]]
+                if self.single_cls:
+                    cls = 0
                 res[ix, 0:4] = proxy
                 res[ix, 4] = cls
                 res[ix, 5] = angle
             else:
                 cls = self.category_id_to_label[obj["category_id"]]
+                if self.single_cls:
+                    cls = 0
                 res[ix, 0:4] = obj["clean_bbox"]
                 res[ix, 4] = cls
 
@@ -995,6 +1070,56 @@ def _pad_stack_mask_tensors(masks_list):
     return out
 
 
+class DistributedWithReplacementSampler(Sampler):
+    """With-replacement, DDP-aware sampler for the ``min_samples`` epoch floor.
+
+    Mirrors ``DistributedSampler`` semantics: every rank makes the same
+    per-epoch draw of ``total_size`` indices with replacement, seeded with
+    ``seed + epoch`` (call ``set_epoch`` each epoch, exactly like
+    ``DistributedSampler``, so draws differ per epoch while staying
+    deterministic for resume), then keeps its ``rank::num_replicas`` slice.
+    ``num_samples`` is rounded up to ``ceil(num_samples / num_replicas)`` per
+    rank so every rank yields the same count and no rank runs out of batches
+    before the others.
+    """
+
+    def __init__(
+        self,
+        dataset,
+        num_samples: int,
+        num_replicas: int,
+        rank: int,
+        seed: int = 0,
+    ):
+        if num_samples <= 0:
+            raise ValueError(f"num_samples must be positive, got {num_samples}")
+        if not 0 <= rank < num_replicas:
+            raise ValueError(
+                f"rank must be in [0, {num_replicas - 1}], got {rank}"
+            )
+        self.dataset = dataset
+        self.num_replicas = num_replicas
+        self.rank = rank
+        self.seed = seed
+        self.num_samples = math.ceil(num_samples / num_replicas)
+        self.total_size = self.num_samples * num_replicas
+        self.epoch = 0
+
+    def __iter__(self):
+        g = torch.Generator()
+        g.manual_seed(self.seed + self.epoch)
+        indices = torch.randint(
+            len(self.dataset), (self.total_size,), generator=g
+        ).tolist()
+        return iter(indices[self.rank : self.total_size : self.num_replicas])
+
+    def __len__(self) -> int:
+        return self.num_samples
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+
 def create_dataloader(
     dataset,
     batch_size: int = 16,
@@ -1002,6 +1127,8 @@ def create_dataloader(
     shuffle: bool = True,
     pin_memory: bool = True,
     sampler=None,
+    min_samples: int = 0,
+    class_balanced: bool = False,
 ):
     """
     Create a DataLoader for YOLOX training.
@@ -1016,7 +1143,73 @@ def create_dataloader(
         sampler: Optional sampler (e.g. ``DistributedSampler`` for DDP). When
             provided, the sampler's own shuffling takes over and ``shuffle``
             is forced to False to satisfy PyTorch's mutual-exclusion check.
+        min_samples: Opt-in epoch-length floor for tiny datasets. When > 0
+            and ``len(dataset) < min_samples``, each epoch draws
+            ``min_samples`` samples with replacement instead of one short
+            pass over the dataset: a with-replacement ``RandomSampler``
+            replaces shuffling, a ``DistributedSampler`` passed via
+            ``sampler`` is swapped for its with-replacement equivalent (any
+            other custom sampler is respected as-is), and ``num_workers`` is
+            clamped to ``len(dataset)``. 0 (the default) leaves the loader
+            exactly as before the knob existed.
+        class_balanced: Opt-in LVIS-style repeat-factor sampling. Off by
+            default. When on, replaces the shuffle / DistributedSampler with
+            a weighted draw; ``min_samples`` still floors the draw length.
+            Cannot be combined with a custom non-distributed sampler.
     """
+    if class_balanced:
+        from torch.utils.data.distributed import DistributedSampler
+
+        from .class_balanced import build_class_balanced_sampler
+
+        if sampler is not None and not isinstance(sampler, DistributedSampler):
+            raise ValueError(
+                "class_balanced=True cannot be combined with a custom "
+                f"sampler ({type(sampler).__name__}). Pass sampler=None or "
+                "a DistributedSampler."
+            )
+        draw = len(dataset)
+        if min_samples > 0 and 0 < len(dataset) < min_samples:
+            draw = min_samples
+            num_workers = min(num_workers, len(dataset))
+        sampler = build_class_balanced_sampler(
+            dataset, num_samples=draw, distributed_sampler=sampler
+        )
+        if is_main_process():
+            logger.info(
+                "class_balanced sampling active: %d images, drawing %d "
+                "samples per epoch%s",
+                len(dataset),
+                len(sampler),
+                " (DDP shard)" if hasattr(sampler, "num_replicas") else "",
+            )
+    elif min_samples > 0 and 0 < len(dataset) < min_samples:
+        num_workers = min(num_workers, len(dataset))
+        if sampler is None:
+            # Draws from the global torch RNG, the same source the default
+            # ``shuffle=True`` RandomSampler uses, so sampling stays
+            # reproducible under torch.manual_seed and differs epoch to
+            # epoch.
+            sampler = RandomSampler(
+                dataset, replacement=True, num_samples=min_samples
+            )
+        else:
+            from torch.utils.data.distributed import DistributedSampler
+
+            if isinstance(sampler, DistributedSampler):
+                sampler = DistributedWithReplacementSampler(
+                    dataset,
+                    num_samples=min_samples,
+                    num_replicas=sampler.num_replicas,
+                    rank=sampler.rank,
+                    seed=sampler.seed,
+                )
+        if is_main_process():
+            logger.info(
+                f"min_samples={min_samples} epoch floor active: dataset has "
+                f"{len(dataset)} images; drawing {len(sampler)} samples per "
+                f"epoch per rank with replacement"
+            )
     try:
         visible_samples = len(sampler) if sampler is not None else len(dataset)
     except TypeError:

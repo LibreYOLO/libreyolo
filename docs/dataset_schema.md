@@ -63,6 +63,13 @@ Canonical row, exactly 5 fields:
 
 `cx cy w h` is a normalized axis-aligned box. `w` and `h` must be positive.
 
+### Prepared event histograms
+
+YOLO9 and RF-DETR detection also accept `.npy` count planes with a required
+`input_profile` mapping. Labels retain the detection format above. Layout,
+polarity, normalization, accumulation duration and supported workflows are
+specified in [Input profiles](input_profiles.md). RGB datasets omit the profile.
+
 ## segment
 
 Polygon row:
@@ -335,7 +342,8 @@ Restore rules:
 - input and target resolution must match exactly;
 - validation keeps native resolution and pads only enough to stack a batch;
 - metrics are computed on the original image canvas;
-- training applies coupled crop and horizontal flip to the input/target pair.
+- training applies coupled crop, horizontal flip, vertical flip, and 90-degree
+  rotation to the input/target pair.
 
 YAML adds these optional keys on top of the common split contract:
 
@@ -348,6 +356,10 @@ YAML adds these optional keys on top of the common split contract:
 - `target_stem_suffixes`: list form of `target_stem_suffix`.
 - `degradation`: optional metadata label such as `deblur` or `denoise`.
 - `dataset`: optional dataset/provenance label such as `GoPro`.
+- `mask_dir`: same-stem binary-mask directory required by LibreLaMa validation.
+  It substitutes for the `input_dir` path component while preserving the
+  split, subdirectories, and file stem. Each mask must share its source
+  image's canvas; zero means preserve and every nonzero pixel means fill.
 
 The class-like YAML fields are schema placeholders: use `nc: 1` and
 `names: {0: image}`. Restore models expose `Results.restored`, not detections.
@@ -380,6 +392,12 @@ Matte rules:
   the shapes differ;
 - metrics are MAE and S-measure (Fan et al., ICCV 2017), computed on the
   original image canvas; best-checkpoint fitness is S-measure.
+- trimap-guided families may accept `trimap_dir=` at validation time, with one
+  `0/128/255` guide per image stem. `LibreViTMatte.val(...,
+  trimap_dir=path)` uses those guides. When the directory is omitted,
+  `trimap_radius=15` is the default: alpha values >= 0.5 form a binary
+  foreground, which is eroded and dilated by that fixed radius to derive the
+  known-foreground, unknown, and known-background regions.
 
 The class-like YAML fields are schema placeholders: use `nc: 1` and
 `names: {0: matte}`. Matte models expose `Results.matte`, not detections.
@@ -429,7 +447,19 @@ sample resolver: `libreyolo.data.ocr_dataset.resolve_ocr_samples`.
 YAML adds:
 
 - `kpt_shape`: required, `[K, 2]` or `[K, 3]`;
-- `flip_idx`: optional integer permutation of `0..K-1`.
+- `flip_idx`: optional integer permutation of `0..K-1`;
+- `kpt_names`: optional. A mapping keyed by class index or class name, each
+  value a list of keypoint names. A listed class uses only the first
+  `len(names)` keypoint rows, `[]` (or an empty value) declares a class without
+  keypoints, and unlisted classes use all `K` rows. A class may be listed once,
+  and a string key matches a class name before it is read as an index.
+  Consumed by RF-DETR pose training, whose GroupPose head sizes a keypoint
+  group per class. Rows are still `K` wide: pad unused keypoints with `0 0 0`.
+  `flip_idx` stays one permutation of all `K` rows, so it must not swap a
+  class's used rows with rows past its count. Multi-class pose needs `names`.
+  Pose validation reports keypoint mAP, which skips instances without
+  keypoints, so a class declared with `[]` is predicted but not scored, and
+  does not influence `best.pt` selection.
 
 Label row:
 
@@ -439,7 +469,9 @@ Label row:
 
 Field count is exactly `5 + K * D`, where `D` is the second `kpt_shape` value.
 Keypoint `x y` values are normalized. Visibility `v`, when present, is `0`,
-`1`, or `2`.
+`1`, or `2`. A row that does not match is skipped on its own, the rest of the
+file is kept, and the loader warns with the label file, the line number and
+the reason.
 
 ## obb
 
@@ -515,3 +547,43 @@ No LibreYOLO training or validation dataset-file contract is implemented for
 Point model families may adapt existing labels internally, for example by
 deriving object centers from YOLO box rows, but a point-only text label format
 is not defined in this document yet.
+
+## 3D detection (inference-only integration)
+
+`detect3d` currently has no LibreYOLO dataset loader, trainer, or validator.
+Ordinary 2D YOLO labels do not encode 3D calibration or cuboids and must not
+be treated as 3D ground truth. `LibreWildDet3D.val()` and
+`Libre3DMOOD.val()` raise explicitly;
+evaluation uses the upstream benchmark configurations and data terms.
+Inference takes an RGB image, original-image 3x3 camera calibration, prompts,
+and optionally a nonnegative depth array in metres with shape `(H, W)`.
+No benchmark images or dataset auto-download routes are bundled.
+
+`Libre3DMOOD` accepts text prompts only and predicts metric depth internally;
+it does not take a user-supplied depth map. Its predicted depth is an output,
+not 3D supervision or a validation target.
+
+## Albedo
+
+An albedo dataset pairs RGB photographs with floating-point linear-RGB diffuse
+reflectance arrays. Use the standard split keys:
+
+```yaml
+path: /path/to/dataset
+train: images/train
+val: images/val
+input_dir: images
+albedo_dir: albedo
+```
+
+Each `images/<split>/<name>.<image extension>` pairs with
+`albedo/<split>/<name>.npy`. The NPY array is `(H,W,3)`, floating-point, finite,
+in `[0,1]`, and has the same dimensions as its image. Values are linear RGB;
+8-bit preview PNGs and sRGB values are not accepted as quantitative targets.
+The folder-name overrides must each be one directory component. No dataset
+script or download runs unless the existing `allow_download_scripts` option
+explicitly permits it.
+
+Validation uses the selected square canvas and reports per-image linear-RGB
+PSNR and SSIM. The first model family is Marigold V2; its initial integration
+supports inference and validation, not training. See ADR 0026.

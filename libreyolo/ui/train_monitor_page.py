@@ -193,7 +193,7 @@ async function renderIndex() {
   $("runlist").innerHTML = runs.map(r => {
     const st = (r.state || "unknown").toLowerCase();
     const ep = r.total_epochs != null
-      ? `${r.current_epoch != null ? r.current_epoch + 1 : (r.state === 'completed' ? r.total_epochs : 0)}/${r.total_epochs}` : "-";
+      ? `${r.current_epoch != null ? r.current_epoch : (r.state === 'completed' ? r.total_epochs : 0)}/${r.total_epochs}` : "-";
     const best = r.best_metric != null ? `${r.best_metric_name || "best"} ${fmtNum(r.best_metric)}` : "";
     return `<a class="runcard" href="/?run=${encodeURIComponent(r.id)}">
       <div class="top"><span class="badge ${st}">${st}</span>
@@ -219,14 +219,14 @@ async function refreshStatus() {
   $("runpath").textContent = s.save_dir || RUN;
 
   const cards = [];
-  const cur = s.current_epoch != null ? s.current_epoch + 1 : (s.completed_epochs || 0);
+  const cur = s.current_epoch != null ? s.current_epoch : (s.completed_epochs || 0);
   cards.push(card("Epoch", `${cur} / ${s.total_epochs ?? "-"}`,
     s.mean_epoch_seconds ? `${fmtSecs(s.mean_epoch_seconds)}/epoch` : ""));
   cards.push(card("ETA", state === "running" ? fmtSecs(s.eta_seconds) : "-",
     `elapsed ${fmtSecs(s.elapsed_seconds)}`));
   const metricName = s.best_metric_name || s.current_metric_name || "metric";
   cards.push(card(`Best ${metricName}`, fmtNum(s.best_metric),
-    s.best_epoch != null ? `epoch ${s.best_epoch + 1}` : ""));
+    s.best_epoch != null ? `epoch ${s.best_epoch}` : ""));
   cards.push(card("Train loss", fmtNum(s.train_loss, 4),
     s.model_family ? `${s.model_family}${s.model_size || ""} ${s.task || ""}` : ""));
   if (s.metrics && s.metrics.loss != null) {
@@ -301,7 +301,7 @@ async function refreshMetrics() {
   const rows = m.rows || [];
   if (!rows.length) { $("metrics-empty").style.display = "block"; return; }
   $("metrics-empty").style.display = "none";
-  const xs = rows.map(r => r.epoch != null ? r.epoch + 1 : 0);
+  const xs = rows.map(r => r.epoch != null ? r.epoch : 0);
   const lossCols = (m.columns || []).filter(c => c.startsWith("train/") && c.includes("loss"));
   const primaryLoss = lossCols.includes("train/loss") ? "train/loss" : lossCols[0];
   const valLoss = (m.columns || []).includes("metrics/loss") ? "metrics/loss" : null;

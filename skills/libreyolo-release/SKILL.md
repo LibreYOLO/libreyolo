@@ -99,8 +99,9 @@ gh pr list -R LibreYOLO/libreyolo --base dev --state open --limit 30
 ```
 
 Confirm with the user: version label (`vX.Y.Z`), base tag, and which gates
-to run (default: all except RF5). Then proceed without further check-ins
-until the go/no-go.
+to run (default: all except RF5). RF5 is skipped by standing decision
+(issue #744 item 18), not by accident; a SKIPPED RF5 row is not an open
+defect. Then proceed without further check-ins until the go/no-go.
 
 ## Phase 1: Changelog by fan-out (facts first, prose second)
 
@@ -271,6 +272,13 @@ Only `status == "passed"` on the candidate SHA counts; then skip the re-run,
 that is the point of reusing the nightly. Anything else, including three
 consecutive green runs, is not evidence about the candidate.
 
+**A green nightly on an ancestor is not a pass on the tag.** v1.5.0 Gate B
+ran on `7fd0c5df`; the tag is `c25f6dff` (version bump, docs, and the
+Windows `os.replace` retry). The next cut must re-run (or wait for a
+nightly that already targeted) the SHA that will be tagged, not the last
+green ancestor. After the version-bump commit lands, Gate B evidence older
+than that commit is stale.
+
 Note the artifact exists **only** for the dev workflow. The release and PyPI
 workflows run on the self-hosted runner and upload nothing, so for those the
 evidence is the job list plus the run conclusion from question 1.
@@ -342,14 +350,19 @@ hotfix, use the "Minor vs patch" branch-off-`release` variant instead.
    preflight check 3 told you if there are any). Resolve conflicts on dev;
    the version line auto-merges to the clean release value, so **manually
    set dev back to the next `X.Y.Z.dev0`** (the number the user chose).
-2. **Bump + hand over the PR link.** Branch off merged dev, set
-   `pyproject.toml` to the clean `X.Y.Z` the user chose, push, then hand the
-   user the one-click compare URL
-   `https://github.com/LibreYOLO/libreyolo/compare/release...<branch>?expand=1`.
-   Per `AGENTS.md`, the **agent does not open the PR**; the human submits
-   it. Remind them: this PR shows no CI checks by design, and it must be
-   merged with a **merge commit, never squash** (squash collapses the whole
-   cycle's history).
+2. **Bump + open the release PR.** Branch off merged dev, set
+   `pyproject.toml` to the clean `X.Y.Z` the user chose, and push. Per
+   `AGENTS.md`, the agent **may open the `dev -> release` PR itself**. The
+   description must follow `.github/pull_request_template.md` with a
+   `## Code provenance` section that is accurate for the actual diff, and
+   must state that the PR shows no CI checks by design and must be merged
+   with a **merge commit, never squash** (squash collapses the whole
+   cycle's history). Opening the PR is where the agent's authority stops:
+   the human reviews, approves and merges. Handing over the one-click
+   compare URL
+   `https://github.com/LibreYOLO/libreyolo/compare/release...<branch>?expand=1`
+   instead of opening the PR remains a valid alternative, and is the better
+   one when the human wants the description in their own words.
 3. **GitHub release (human action).** Cutting the release is the user's. By
    default the agent creates **no** release object: hand over the changelog
    file and the New Release URL and let the human fill it in, so no
@@ -413,13 +426,23 @@ pip index versions libreyolo
 # POSIX (on Windows use a scratchpad venv + Scripts/python.exe):
 python -m venv /tmp/pypismoke && /tmp/pypismoke/bin/pip install libreyolo==X.Y.Z
 /tmp/pypismoke/bin/python -c "import libreyolo; assert libreyolo.__version__ == 'X.Y.Z'"
-# GPU e2e against the released branch (manual dispatch only)
-gh workflow run e2e-nightly-release.yml -R LibreYOLO/libreyolo
+# GPU e2e against the tagged SHA (mandatory dispatch; do not skip).
+# Pass the tag: the workflow otherwise resolves refs/heads/release, which
+# can move after the tag is cut. github.run.headSha is the default branch
+# at dispatch time and is not the evidence.
+gh workflow run e2e-nightly-release.yml -R LibreYOLO/libreyolo \
+  -f ref=vX.Y.Z -f force=true
+# Confirm the guard resolved that tag. The step summary line is
+# "Target: `tag vX.Y.Z@<sha>`" and <sha> must equal `git rev-parse vX.Y.Z`.
+# github.run.headSha is the default branch at dispatch time; ignore it.
 ```
 
-Append results to the scoreboard. The release is "done" when PyPI installs
-clean and the release nightly is green (or dispatched with the user's OK to
-not wait).
+Append results to the scoreboard. Dispatching the release nightly is
+required; the user may OK not waiting for it to go green, but they may
+not OK skipping the dispatch. The 1.5.0 cut credited Gate B on an
+ancestor of the tag and never dispatched this workflow (issue #744
+item 16). The release is "done" when PyPI installs clean and the
+release nightly has been dispatched against the tag SHA.
 
 ## Phase 5: Marketing handoff
 
@@ -452,6 +475,10 @@ the user to post by hand.
   nor the artifact name is the evidence. The evidence is an `e2e` job that
   concluded `success`, plus `status == "passed"` inside
   `modal-nightly-result.json`.
+- Crediting Gate B on a SHA that is not the tag. An ancestor nightly does
+  not measure the bump commit. Dispatch `e2e-nightly-release.yml` after
+  publish with `-f ref=vX.Y.Z` and check that the guard resolved that tag
+  SHA, not `refs/heads/release`.
 - Squash-merging the release PR.
 - Bumping the version on dev instead of on the release-PR branch.
 - Skipping Phase 4 because "publish.yml was green" (green publish and a

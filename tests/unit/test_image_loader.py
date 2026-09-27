@@ -103,7 +103,7 @@ class TestImageLoader:
 
     def test_load_numpy_hwc_rgb_uint8(self, sample_numpy_rgb):
         """Test loading a NumPy array in HWC RGB uint8 format."""
-        result = ImageLoader.load(sample_numpy_rgb)
+        result = ImageLoader.load(sample_numpy_rgb, color_format="rgb")
 
         assert isinstance(result, Image.Image)
         assert result.mode == "RGB"
@@ -125,6 +125,32 @@ class TestImageLoader:
         assert arr[0, 0, 0] == 255  # Red channel
         assert arr[0, 0, 2] == 0  # Blue channel
 
+    def test_load_numpy_defaults_to_bgr(self, sample_numpy_bgr):
+        """NumPy arrays are BGR by default, like cv2.imread() output."""
+        arr = np.array(ImageLoader.load(sample_numpy_bgr))
+
+        assert arr[0, 0].tolist() == [255, 0, 0]
+
+    @pytest.mark.parametrize("color_format", ["auto", "bgr"])
+    def test_load_numpy_bgra_drops_alpha(self, color_format):
+        """A 4-channel BGRA array (cv2.IMREAD_UNCHANGED) keeps its colors."""
+        arr = np.zeros((4, 4, 4), dtype=np.uint8)
+        arr[..., 2] = 255  # red in BGRA
+        arr[..., 3] = 128  # alpha
+
+        result = np.array(ImageLoader.load(arr, color_format=color_format))
+
+        assert result[0, 0].tolist() == [255, 0, 0]
+
+    def test_load_numpy_rgba_drops_alpha(self):
+        arr = np.zeros((4, 4, 4), dtype=np.uint8)
+        arr[..., 0] = 255  # red in RGBA
+        arr[..., 3] = 128
+
+        result = np.array(ImageLoader.load(arr, color_format="rgb"))
+
+        assert result[0, 0].tolist() == [255, 0, 0]
+
     def test_load_numpy_chw_format(self):
         """Test loading a NumPy array in CHW format (auto-detected)."""
         # Create a 3x100x100 CHW image (red)
@@ -142,7 +168,7 @@ class TestImageLoader:
         arr = np.zeros((100, 100, 3), dtype=np.float32)
         arr[:, :, 0] = 1.0  # Red channel (normalized)
 
-        result = ImageLoader.load(arr)
+        result = ImageLoader.load(arr, color_format="rgb")
 
         assert isinstance(result, Image.Image)
         assert result.mode == "RGB"
@@ -156,7 +182,7 @@ class TestImageLoader:
         arr = np.zeros((100, 100, 3), dtype=np.float32)
         arr[:, :, 0] = 255.0  # Red channel (unnormalized)
 
-        result = ImageLoader.load(arr)
+        result = ImageLoader.load(arr, color_format="rgb")
 
         assert isinstance(result, Image.Image)
         result_arr = np.array(result)
@@ -171,20 +197,25 @@ class TestImageLoader:
         assert isinstance(result, Image.Image)
         assert result.mode == "RGB"
 
-    def test_load_numpy_batch_nchw(self):
-        """Test loading a batch of images (NCHW format), takes first one."""
-        arr = np.zeros((2, 3, 100, 100), dtype=np.uint8)
-        arr[0, 0, :, :] = 255  # First image: red
-        arr[1, 1, :, :] = 255  # Second image: green
+    def test_load_numpy_batch_of_one_nchw(self):
+        """A batch of one image (NCHW) loads as that image."""
+        arr = np.zeros((1, 3, 100, 100), dtype=np.uint8)
+        arr[0, 0, :, :] = 255  # red
 
-        result = ImageLoader.load(arr)
+        result = ImageLoader.load(arr, color_format="rgb")
 
         assert isinstance(result, Image.Image)
         assert result.size == (100, 100)
+        assert np.array(result)[0, 0, 0] == 255
 
-        # Should get first image (red)
-        result_arr = np.array(result)
-        assert result_arr[0, 0, 0] == 255  # Red
+    def test_load_numpy_batch_of_many_raises(self):
+        """A multi-image batch is not silently cut to its first image."""
+        with pytest.raises(ValueError, match="batch of 2"):
+            ImageLoader.load(np.zeros((2, 3, 100, 100), dtype=np.uint8))
+
+    def test_load_torch_batch_of_many_raises(self):
+        with pytest.raises(ValueError, match="batch of 2"):
+            ImageLoader.load(torch.zeros(2, 3, 100, 100))
 
     # ========================
     # Torch Tensor Tests

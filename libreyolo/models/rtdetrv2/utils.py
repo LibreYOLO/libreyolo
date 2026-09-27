@@ -69,7 +69,11 @@ def deformable_attention_core_func_v2(
     ``method='discrete'`` never does, its integer-index sampling is a
     different equation.
     """
-    if method == "default" and allow_acceleration and ms_deform_attn_available():
+    if (
+        method == "default"
+        and allow_acceleration
+        and ms_deform_attn_available(value)
+    ):
         accelerated = maybe_ms_deform_attn_v2(
             value,
             spatial_shapes_tensor(value_spatial_shapes, value.device),

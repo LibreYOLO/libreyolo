@@ -15,11 +15,15 @@ The coordinate contract follows the documented LFM2-VL schema: ``bbox`` is
 from __future__ import annotations
 
 import json
+import math
 import re
+import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Tuple
 
 __all__ = [
+    "extract_molmo_points",
     "extract_detections",
+    "extract_bare_boxes",
     "normalize_bbox",
     "to_xyxy",
     "resolve_label",
@@ -138,6 +142,25 @@ def extract_detections(text: str) -> List[dict]:
     return recovered
 
 
+_BARE_QUAD = re.compile(
+    r"\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,"
+    r"\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]"
+)
+
+
+def extract_bare_boxes(text: str) -> List[List[float]]:
+    """Extract unlabeled ``[x1, y1, x2, y2]`` quads from model text.
+
+    For grounding-style models (North Micro Vision) that answer a single-class
+    query with ``[[x1, y1, x2, y2], ...]``, a flat ``[x1, y1, x2, y2]``, or
+    newline-separated quads, never with labeled objects. A prose refusal ("No
+    dogs are present ...") contains no numeric quad and maps to zero boxes.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return []
+    return [[float(v) for v in match] for match in _BARE_QUAD.findall(text)]
+
+
 def normalize_bbox(bbox) -> Optional[Tuple[float, float, float, float]]:
     """Validate/clean a normalized ``[x1, y1, x2, y2]`` box.
 
@@ -179,8 +202,9 @@ def to_xyxy(box, box_format: str = "xyxy"):
     """Convert a 4-value box in the given layout to ``[x1, y1, x2, y2]``.
 
     Supported layouts: ``xyxy`` (corners, the default), ``xywh`` (top-left plus
-    width/height), and ``cxcywh`` (center plus width/height). Returns None if the
-    value is not four finite numbers or the layout is unknown.
+    width/height), ``cxcywh`` (center plus width/height), and ``yxyx``
+    (``[ymin, xmin, ymax, xmax]``, Gemma 4 / Gemini ``box_2d``). Returns None
+    if the value is not four finite numbers or the layout is unknown.
     """
     if not isinstance(box, (list, tuple)) or len(box) != 4:
         return None
@@ -194,6 +218,9 @@ def to_xyxy(box, box_format: str = "xyxy"):
         return [a, b, a + c, b + d]
     if box_format == "cxcywh":
         return [a - c / 2.0, b - d / 2.0, a + c / 2.0, b + d / 2.0]
+    if box_format == "yxyx":
+        ymin, xmin, ymax, xmax = a, b, c, d
+        return [xmin, ymin, xmax, ymax]
     return None
 
 
@@ -229,7 +256,7 @@ def build_detection_dict(
     Boxes are read from ``item[bbox_key]``, divided by ``coord_divisor`` to
     reach the ``[0, 1]`` space (1.0 for already-normalized LFM2-VL output, 1000.0
     for Qwen-style ``bbox_2d`` on a 0-1000 scale), converted from ``box_format``
-    to corner layout (``xyxy`` / ``xywh`` / ``cxcywh``), then scaled to pixel
+    to corner layout (``xyxy`` / ``xywh`` / ``cxcywh`` / ``yxyx``), then scaled to pixel
     ``xyxy`` against ``original_size`` (W, H). Labels outside ``name_to_id`` and
     malformed boxes are skipped. If ``classes`` is provided, that class filter is
     applied before the ``max_det`` cap so requested classes are not dropped by an
@@ -263,6 +290,15 @@ def build_detection_dict(
         if allowed_classes is not None and class_id not in allowed_classes:
             continue
         raw = item.get(bbox_key)
+        if raw is None:
+            # Generative models drift between key conventions even within one
+            # family (LFM2.5-VL-3B emits "bbox" on synthetic scenes but
+            # Qwen-style "bbox_2d" on natural photos), so fall back to the
+            # known aliases. The family's coord_divisor still applies.
+            for alt in ("bbox", "bbox_2d"):
+                if alt != bbox_key and alt in item:
+                    raw = item[alt]
+                    break
         box = None
         if isinstance(raw, (list, tuple)) and len(raw) == 4:
             try:
@@ -297,3 +333,64 @@ def build_detection_dict(
         "classes": class_ids,
         "num_detections": len(boxes),
     }
+
+
+_MOLMO_POINT_TAG = re.compile(
+    r"<(?P<tag>points?)\b(?P<attrs>[^<>]*?)(?:/\s*>|>[^<>]*</(?P=tag)\s*>)",
+    re.DOTALL,
+)
+
+
+def extract_molmo_points(text: str, label: str) -> list[dict]:
+    """Parse Molmo single-image markup into normalized, query-labelled points.
+
+    Molmo2 ``coords="1 id x y ..."`` uses a 0-1000 scale. Legacy ``x/y``
+    and ``x1/y1/...`` attributes use percentages. The grammar determines the
+    scale, never the numeric magnitude. Multi-image/video groups are rejected.
+    ADR 0002 places text decoding in this pure parser module, separate from
+    model loading and inference. Keeping the scalar coordinate validation here
+    lets callers exercise it without a model or tensors. Only Molmo2 calls this
+    helper; existing JSON box parsers and other VLM adapters are unchanged.
+    See ``NOTICE`` for the upstream format reference.
+    """
+    if not isinstance(text, str):
+        return []
+    items = []
+    for match in _MOLMO_POINT_TAG.finditer(text):
+        try:
+            attrs = ET.fromstring("<point" + match["attrs"] + "/>").attrib
+        except ET.ParseError:
+            continue
+        pairs = []
+        if "coords" in attrs:
+            # XML normalizes literal tabs/newlines inside attributes to spaces.
+            # Preserve the distinction between point spacing and frame separators.
+            raw_coords = re.search(r"\bcoords\s*=\s*(['\"])(.*?)\1", match["attrs"], re.DOTALL)
+            if raw_coords is None or any(c in raw_coords[2] for c in "\t\r\n:;,"):
+                continue
+            fields = attrs["coords"].split(" ")
+            fields = [field for field in fields if field]
+            # A single still image has index 1 and complete (id, x, y) triples.
+            if not fields or fields[0] != "1" or (len(fields) - 1) % 3:
+                continue
+            if not all(re.fullmatch(r"[0-9]+", field) for field in fields):
+                continue
+            pairs = [(fields[i + 1], fields[i + 2]) for i in range(1, len(fields), 3)]
+            divisor = 1000.0
+        else:
+            divisor = 100.0
+            if match["tag"] == "point":
+                pairs = [(attrs.get("x"), attrs.get("y"))]
+            else:
+                indices = sorted(
+                    int(key[1:]) for key in attrs if re.fullmatch(r"x[1-9][0-9]*", key)
+                )
+                pairs = [(attrs[f"x{i}"], attrs.get(f"y{i}")) for i in indices]
+        for raw_x, raw_y in pairs:
+            try:
+                x, y = float(raw_x) / divisor, float(raw_y) / divisor
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if all(math.isfinite(v) and 0 <= v <= 1 for v in (x, y)):
+                items.append({"label": label, "point": [x, y]})
+    return items

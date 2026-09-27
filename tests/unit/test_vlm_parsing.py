@@ -269,11 +269,40 @@ class TestToXyxy:
 
         assert to_xyxy([0.5, 0.5, 0.25, 0.5], "cxcywh") == [0.375, 0.25, 0.625, 0.75]
 
+    def test_yxyx(self):
+        from libreyolo.models.vlm.parsing import to_xyxy
+
+        assert to_xyxy([243, 252, 956, 415], "yxyx") == [252, 243, 415, 956]
+
+    def test_gemma4_box_2d_y_first_on_0_1000_scale(self):
+        items = [{"label": "person", "box_2d": [243, 252, 956, 415]}]
+        det = build_detection_dict(
+            items,
+            {"person": 0},
+            (1000, 1000),
+            bbox_key="box_2d",
+            coord_divisor=1000.0,
+            box_format="yxyx",
+        )
+        assert det["num_detections"] == 1
+        assert det["boxes"][0] == [252.0, 243.0, 415.0, 956.0]
+        assert det["classes"][0] == 0
+
     def test_unknown_format_and_bad_shape(self):
         from libreyolo.models.vlm.parsing import to_xyxy
 
         assert to_xyxy([0.1, 0.2, 0.3, 0.4], "weird") is None
         assert to_xyxy([0.1, 0.2, 0.3], "xyxy") is None
+
+    def test_gemma4_fenced_box_2d_is_detected(self):
+        from libreyolo.models.vlm.parsing import extract_detections
+
+        items = extract_detections(
+            "```json\n"
+            '[{"box_2d": [243, 252, 956, 415], "label": "person"}]\n'
+            "```"
+        )
+        assert items == [{"box_2d": [243, 252, 956, 415], "label": "person"}]
 
     def test_qwen_style_bbox_2d_on_0_1000_scale(self):
         # Qwen emits a "bbox_2d" key on a 0-1000 scale; divide by 1000 then scale.
@@ -285,10 +314,48 @@ class TestToXyxy:
         assert det["boxes"][0] == [300.0, 250.0, 600.0, 750.0]
         assert det["classes"][0] == 8
 
-    def test_bbox_key_mismatch_drops_item(self):
-        # With bbox_key="bbox_2d", a plain "bbox" item has no usable box.
-        items = [{"label": "ship", "bbox": [0.1, 0.1, 0.2, 0.2]}]
+    def test_bbox_key_mismatch_falls_back_to_alias_key(self):
+        # Generative models drift between key conventions (LFM2.5-VL-3B emits
+        # "bbox" on synthetic scenes but "bbox_2d" on photos), so a missing
+        # bbox_key falls back to the known alias keys, same divisor.
+        items = [{"label": "ship", "bbox_2d": [100, 100, 200, 200]}]
         det = build_detection_dict(
-            items, NAME_TO_ID, (100, 100), bbox_key="bbox_2d", coord_divisor=1000.0
+            items, NAME_TO_ID, (1000, 1000), bbox_key="bbox", coord_divisor=1000.0
         )
-        assert det["num_detections"] == 0
+        assert det["num_detections"] == 1
+        assert det["boxes"][0] == [100.0, 100.0, 200.0, 200.0]
+
+    def test_bbox_key_still_preferred_over_alias(self):
+        items = [{"label": "ship", "bbox": [0.1, 0.1, 0.2, 0.2], "bbox_2d": [900, 900, 990, 990]}]
+        det = build_detection_dict(items, NAME_TO_ID, (100, 100), bbox_key="bbox")
+        assert det["num_detections"] == 1
+        assert det["boxes"][0] == [10.0, 10.0, 20.0, 20.0]
+
+
+class TestExtractBareBoxes:
+    """Unlabeled-quad extraction for grounding-style output (North Micro Vision)."""
+
+    def test_nested_arrays(self):
+        from libreyolo.models.vlm.parsing import extract_bare_boxes
+
+        text = "[[21, 121, 487, 987], [533, 40, 999, 778]]"
+        assert extract_bare_boxes(text) == [
+            [21.0, 121.0, 487.0, 987.0],
+            [533.0, 40.0, 999.0, 778.0],
+        ]
+
+    def test_flat_quad_and_lines(self):
+        from libreyolo.models.vlm.parsing import extract_bare_boxes
+
+        assert extract_bare_boxes("[54, 135, 278, 253]\n[524, 155, 599, 393]") == [
+            [54.0, 135.0, 278.0, 253.0],
+            [524.0, 155.0, 599.0, 393.0],
+        ]
+
+    def test_prose_refusal_and_empty(self):
+        from libreyolo.models.vlm.parsing import extract_bare_boxes
+
+        assert extract_bare_boxes("No dogs are present in this image.") == []
+        assert extract_bare_boxes("[]") == []
+        assert extract_bare_boxes("") == []
+        assert extract_bare_boxes(None) == []

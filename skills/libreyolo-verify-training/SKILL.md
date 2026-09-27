@@ -39,7 +39,7 @@ new trainer before anything else.
 
 ```bash
 libreyolo train model=Libre<X>.pt data=coco8.yaml epochs=100 imgsz=640 batch=8
-libreyolo val model=runs/train/exp/weights/best.pt data=coco8.yaml split=train
+libreyolo val model=runs/train/<name>/weights/best.pt data=coco8.yaml split=train  # the save_dir train printed
 ```
 
 **Rung 1: the RF1 floor (the repo's objective bar).**

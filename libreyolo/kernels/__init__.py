@@ -44,7 +44,7 @@ import importlib
 import importlib.util
 import logging
 import os
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
 from ..quant import fake_quant as _reference
 
@@ -88,6 +88,39 @@ def clear_cache():
     _RESOLVED.clear()
 
 
+def _entry_allowed(entry: dict, forced: str) -> bool:
+    if forced in ("off", "reference") and entry["name"] != "reference":
+        return False
+    if forced and forced not in ("off", "reference") and entry["name"] not in (
+        forced,
+        "reference",
+    ):
+        return False
+    predicate = entry["predicate"]
+    try:
+        return predicate is None or predicate()
+    except Exception as exc:  # a broken predicate must never break inference
+        logger.warning(
+            "Kernel predicate failed for %s: %s", entry["name"], exc
+        )
+        return False
+
+
+def iter_impls(op: str) -> Iterator[Tuple[str, Callable]]:
+    """Yield eligible ``(name, impl)`` pairs newest-first.
+
+    Unlike :func:`resolve`, this does not cache and does not stop at the
+    first eligible provider. Slots that can return None for a given input
+    (attention, GEMM) walk the rest so a rejected newer impl does not hide
+    an older one.
+    """
+    _ensure_intree_loaded()
+    forced = _forced()
+    for entry in _REGISTRY.get(op, ()):
+        if _entry_allowed(entry, forced):
+            yield entry["name"], entry["impl"]
+
+
 def _forced() -> str:
     forced = os.environ.get("LIBREYOLO_KERNELS", "").strip().lower()
     if forced:
@@ -102,7 +135,7 @@ _INTREE_ATTEMPTED = False
 # the attention provider self-register on import; each group fails
 # independently so a missing optional dependency never hides the others.
 _LAZY_PROVIDERS = (
-    # Triton fake-quant kernels (need triton; absent on Windows).
+    # Triton fake-quant kernels (need triton).
     ".quant.simulate",
     # Triton finalized-path kernels.
     ".quant.execute.fp8_fusion",
@@ -118,7 +151,7 @@ def _ensure_intree_loaded():
 
     Lazy so `import libreyolo` never pays the triton import cost, and
     skipped entirely when the env forces the reference implementations.
-    Absence of triton (e.g. Windows) is the normal fallback case.
+    Absence of triton is the normal fallback case.
     """
     global _INTREE_ATTEMPTED
     if _INTREE_ATTEMPTED or _forced() in ("off", "reference"):
@@ -140,23 +173,9 @@ def resolve(op: str) -> Optional[Callable]:
         return _RESOLVED[cache_key]
 
     impl = None
-    for entry in _REGISTRY.get(op, ()):
-        if forced in ("off", "reference") and entry["name"] != "reference":
-            continue
-        if forced and forced not in ("off", "reference") and entry["name"] not in (
-            forced,
-            "reference",
-        ):
-            continue
-        predicate = entry["predicate"]
-        try:
-            if predicate is None or predicate():
-                impl = entry["impl"]
-                break
-        except Exception as exc:  # a broken predicate must never break inference
-            logger.warning(
-                "Kernel predicate failed for %s/%s: %s", op, entry["name"], exc
-            )
+    for _name, candidate in iter_impls(op):
+        impl = candidate
+        break
     _RESOLVED[cache_key] = impl
     return impl
 

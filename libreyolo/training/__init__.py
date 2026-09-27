@@ -11,6 +11,7 @@ from .callbacks import (
     TrainEndEvent as TrainEndEvent,
     TrainEpochEvent as TrainEpochEvent,
     TrainExceptionEvent as TrainExceptionEvent,
+    TrainFitnessCallback as TrainFitnessCallback,
     TrainStartEvent as TrainStartEvent,
 )
 from .config import (
@@ -23,6 +24,7 @@ from .loggers import (
     ClearMLLogger as ClearMLLogger,
     CometLogger as CometLogger,
     DVCLiveLogger as DVCLiveLogger,
+    HuggingFaceHubLogger as HuggingFaceHubLogger,
     MLflowLogger as MLflowLogger,
     NeptuneLogger as NeptuneLogger,
     TensorBoardLogger as TensorBoardLogger,

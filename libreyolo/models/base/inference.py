@@ -24,33 +24,32 @@ from typing import (
 
 import numpy as np
 import torch
+from PIL import Image
 from torchvision.ops import batched_nms
 
 from ...postprocess.slicing import slice_batch_outputs
 from ...utils.drawing import (
     draw_boxes,
-    draw_keypoints,
-    draw_masks,
-    draw_obb,
-    draw_depth_map,
-    draw_edge_map,
-    draw_normal_map,
-    draw_mesh,
-    draw_ocr_regions,
-    draw_panoptic,
-    draw_points,
-    draw_semantic_mask,
+    draw_results,
     draw_tile_grid,
 )
 from ...utils.general import (
+    check_overlap_ratio,
     get_safe_stem,
     get_slice_bboxes,
     log_saved_result,
     resolve_save_path,
 )
 from ...utils.image_loader import ImageInput, ImageLoader
-from ...utils.predict_args import normalize_predict_kwargs
+from ...utils.image_size import reject_rectangular_imgsz, round_imgsz_to_stride
+from ...utils.predict_args import (
+    normalize_classes,
+    normalize_predict_kwargs,
+    postprocess_max_det,
+)
 from ...utils.results import (
+    keep_source,
+    AlbedoMap,
     Boxes,
     DepthMap,
     Embeddings,
@@ -75,10 +74,18 @@ from ...utils.video import (
     FrameSource,
     collect_video_results,
     run_video_inference,
+    sample_clip_frames,
 )
 from .cuda_graph import forward_maybe_graphed, with_cuda_graph_scope
 
 logger = logging.getLogger(__name__)
+
+# Tasks whose result is one row for a whole clip rather than one per frame.
+# A family still has to opt in via ``VIDEO_EMBED_MODE = "clip"``.
+_WHOLE_CLIP_TASKS = frozenset({"embed", "classify"})
+_COMMON_PREDICT_PASSTHROUGH = frozenset(
+    {"num_select", "gallery", "threshold", "clip_frames"}
+)
 
 
 def _as_float_tensor(
@@ -165,6 +172,78 @@ class InferenceRunner:
     def __init__(self, model: BaseModel):
         self.model = model
 
+    def _predict_input_contract(self) -> tuple[frozenset[str], frozenset[str]]:
+        """Return and validate the loaded family's auxiliary-input contract."""
+        declared = frozenset(getattr(self.model, "PREDICT_INPUT_KWARGS", ()) or ())
+        required = frozenset(
+            getattr(self.model, "REQUIRED_PREDICT_INPUT_KWARGS", ()) or ()
+        )
+        invalid = required - declared
+        if invalid:
+            raise ValueError(
+                f"{type(self.model).__name__} declares required prediction "
+                "input option(s) that it does not accept: "
+                f"{', '.join(sorted(invalid))}."
+            )
+        return declared, required
+
+    def _preprocess_model_input(
+        self,
+        image: ImageInput,
+        color_format: str,
+        input_size,
+        predict_input_kwargs: Optional[Dict[str, object]] = None,
+    ):
+        """Call the prediction hook, retaining support for duck-typed stubs."""
+        preprocess = getattr(self.model, "_preprocess_predict", None)
+        if preprocess is None:
+            preprocess = self.model._preprocess
+        return preprocess(
+            image,
+            color_format,
+            input_size=input_size,
+            **(predict_input_kwargs or {}),
+        )
+
+    @staticmethod
+    def _reject_guided_source_modes(
+        source_spec,
+        predict_input_kwargs: Dict[str, object],
+        *,
+        stream: bool,
+        tiling: bool,
+        augment: bool,
+    ) -> None:
+        """Keep auxiliary guides scoped to an unambiguous single image."""
+        if not predict_input_kwargs:
+            return
+
+        unsupported = []
+        if source_spec.kind == SourceKind.VIDEO:
+            unsupported.append("video")
+        if source_spec.live:
+            unsupported.append("live source")
+        if source_spec.kind == SourceKind.SCREEN:
+            unsupported.append("screen capture")
+        if source_spec.kind == SourceKind.DIRECTORY:
+            unsupported.append("directory source")
+        if source_spec.kind == SourceKind.IMAGE_BATCH:
+            unsupported.append("image batch")
+        if stream:
+            unsupported.append("stream=True")
+        if tiling:
+            unsupported.append("tiling=True")
+        if augment:
+            unsupported.append("augment=True")
+
+        if unsupported:
+            keys = ", ".join(sorted(predict_input_kwargs))
+            raise ValueError(
+                f"Guided prediction input(s) {keys} currently support only "
+                "one non-streamed, non-tiled, non-augmented image. "
+                f"Unsupported mode(s): {', '.join(unsupported)}."
+            )
+
     @with_cuda_graph_scope
     def __call__(
         self,
@@ -201,14 +280,15 @@ class InferenceRunner:
         Run inference on an image, list of images, directory, or video.
 
         Args:
-            source: Input image, list/tuple of in-memory images, directory
+            source: Input image, list/tuple of in-memory images, a batched
+                NCHW tensor or NHWC/NCHW array (one Results per image), directory
                 path, video file path, or a screen-capture source such as
                 ``"screen"``, ``"screen 1"``, or ``"screen 1 100 200 512 256"``
                 (monitor index, then ``left top width height``).
             conf: Confidence threshold.
             iou: IoU threshold for NMS.
             imgsz: Input size override (None = model default).
-            classes: Filter to specific class IDs.
+            classes: Filter to specific class IDs, a list or a single int.
             max_det: Maximum detections per image.
             save: If True, saves annotated image or video.
             batch: Images per forward pass for directory and list sources.
@@ -226,9 +306,13 @@ class InferenceRunner:
             show: If True, display annotated frames in a window (video and
                 screen sources only).
             output_path: Optional output path.
-            color_format: Color format hint.
+            color_format: Channel order of NumPy array inputs. ``"auto"``
+                (default) and ``"bgr"`` read arrays as BGR, the OpenCV
+                convention (``cv2.imread``, video frames); pass ``"rgb"`` for
+                RGB arrays. PIL images and tensors are always RGB.
             tiling: Enable tiled inference for large images.
-            overlap_ratio: Tile overlap ratio.
+            overlap_ratio: Fraction of each tile shared with its neighbour,
+                in ``[0, 1)``.
             output_file_format: Output format ("jpg", "png", "webp").
             cuda_graph: Replay the forward pass from a captured CUDA graph.
                 Small detectors are launch-bound, so collapsing the forward's
@@ -244,11 +328,42 @@ class InferenceRunner:
         Returns:
             Results, list of Results, or generator of Results (stream=True).
         """
-        kwargs = normalize_predict_kwargs(
-            kwargs, passthrough={"num_select", "gallery", "threshold"}
+        declared_predict_inputs, required_predict_inputs = (
+            self._predict_input_contract()
         )
+        kwargs = normalize_predict_kwargs(
+            kwargs,
+            passthrough=_COMMON_PREDICT_PASSTHROUGH | declared_predict_inputs,
+        )
+        predict_input_kwargs = {
+            key: kwargs.pop(key) for key in declared_predict_inputs if key in kwargs
+        }
+        classes = normalize_classes(classes)
+        missing_predict_inputs = sorted(
+            key
+            for key in required_predict_inputs
+            if key not in predict_input_kwargs or predict_input_kwargs[key] is None
+        )
+        if missing_predict_inputs:
+            raise ValueError(
+                f"{type(self.model).__name__} requires prediction input "
+                f"option(s): {', '.join(missing_predict_inputs)}."
+            )
+        source_spec = None
+        if predict_input_kwargs:
+            source_spec = classify_source(source)
+            self._reject_guided_source_modes(
+                source_spec,
+                predict_input_kwargs,
+                stream=stream,
+                tiling=tiling,
+                augment=augment,
+            )
         if device is not None:
             self._set_device(device)
+        if imgsz is not None:
+            reject_rectangular_imgsz(self.model, imgsz, "predict")
+            imgsz = round_imgsz_to_stride(self.model, imgsz, "predict")
         if (
             kwargs.get("gallery") is not None
             and getattr(self.model, "task", None) != "embed"
@@ -283,6 +398,8 @@ class InferenceRunner:
             raise ValueError(
                 "tiling and augment cannot be used together. Disable one of them."
             )
+        if tiling:
+            check_overlap_ratio(overlap_ratio)
         if augment and getattr(self.model, "task", None) == "point":
             raise ValueError(
                 "Test-time augmentation does not support point-task models yet. "
@@ -294,7 +411,65 @@ class InferenceRunner:
                 "Use augment=False for edge models."
             )
 
-        source_spec = classify_source(source)
+        if source_spec is None:
+            source_spec = classify_source(source)
+
+        # Whole-clip inference. Opt-in per family: only when the family declares
+        if getattr(self.model, "input_profile", None) is not None:
+            from ...utils.event_histogram import check_predict_options
+            check_predict_options(source_spec, augment=augment or tiling, kwargs=kwargs)
+
+        # clip support, the resolved task consumes a whole clip, and the source
+        # is a finite video. Every other family keeps the frame-by-frame path
+        # below.
+        #
+        # "embed" pools a clip into one row; "classify" scores a clip with a
+        # video head (V-JEPA 2's attentive probe). Both collapse the video to a
+        # single result, so they share this route rather than adding a second
+        # one.
+        if (
+            getattr(self.model, "VIDEO_EMBED_MODE", "frames") == "clip"
+            and getattr(self.model, "task", None) in _WHOLE_CLIP_TASKS
+        ):
+            if source_spec.live or source_spec.kind == SourceKind.SCREEN:
+                raise ValueError(
+                    f"{type(self.model).__name__} embeds a whole video as a "
+                    "single vector, which requires a finite source with a known "
+                    "end. Live cameras, network streams and screen captures are "
+                    "unbounded and would have to be buffered indefinitely. Pass "
+                    "a video file, or use task='classify' to score frames as "
+                    "they arrive."
+                )
+            if source_spec.kind == SourceKind.VIDEO:
+                if vid_stride != 1:
+                    raise ValueError(
+                        "vid_stride does not apply when a whole video is "
+                        "embedded as a single vector: frames are sampled "
+                        "uniformly across the entire clip. Use clip_frames= to "
+                        "control how many frames are sampled."
+                    )
+                if show:
+                    raise NotImplementedError(
+                        "show=True displays annotated frames as they are "
+                        "processed, which does not apply to a whole-clip "
+                        "embedding that yields one result for the entire video."
+                    )
+                clip_results = self._predict_video_clip(
+                    source_spec.source,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    classes=classes,
+                    max_det=max_det,
+                    save=save,
+                    output_path=output_path,
+                    output_file_format=output_file_format,
+                    **kwargs,
+                )
+                # Honor the streaming contract: callers passing stream=True
+                # expect an iterator, even though a whole clip collapses to a
+                # single Results.
+                return iter(clip_results) if stream else clip_results
 
         # Handle finite video input.
         if source_spec.kind == SourceKind.VIDEO:
@@ -365,7 +540,11 @@ class InferenceRunner:
         if source_spec.kind == SourceKind.IMAGE_BATCH:
             images = list(source_spec.items)
         elif source_spec.kind == SourceKind.DIRECTORY:
-            images = ImageLoader.collect_images(source_spec.source)
+            if getattr(self.model, "input_profile", None) is not None:
+                from libreyolo.utils.event_histogram import collect_histograms
+                images = collect_histograms(source_spec.source)
+            else:
+                images = ImageLoader.collect_images(source_spec.source)
             if not images:
                 return iter(()) if stream else []
 
@@ -422,9 +601,16 @@ class InferenceRunner:
             )
             if save:
                 image_path = source if isinstance(source, (str, Path)) else None
-                img_pil = ImageLoader.load(source, color_format=color_format)
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(output_path, image_path, ext=ext)
+                # Reuse the decoded source rather than fetching the input again.
+                # The private check keeps a local file from being cached on
+                # the result by the lazy ``orig_img`` load.
+                img_pil = (
+                    Image.fromarray(result.orig_img[..., ::-1])
+                    if getattr(result, "_orig_img", None) is not None
+                    else ImageLoader.load(source, color_format=color_format)
+                )
                 self._save_annotated_image(result, img_pil, save_path)
             return result
 
@@ -439,6 +625,7 @@ class InferenceRunner:
             max_det=max_det,
             color_format=color_format,
             output_file_format=output_file_format,
+            predict_input_kwargs=predict_input_kwargs,
             **kwargs,
         )
 
@@ -600,7 +787,11 @@ class InferenceRunner:
                         image if save_stem is None else save_stem,
                         ext=ext,
                     )
-                    img_pil = ImageLoader.load(image, color_format=color_format)
+                    img_pil = (
+                        Image.fromarray(result.orig_img[..., ::-1])
+                        if getattr(result, "_orig_img", None) is not None
+                        else ImageLoader.load(image, color_format=color_format)
+                    )
                     self._save_annotated_image(result, img_pil, save_path)
                 results.append(result)
             else:
@@ -651,8 +842,10 @@ class InferenceRunner:
 
         preprocessed = []
         for image in chunk:
-            input_tensor, original_img, original_size, ratio = self.model._preprocess(
-                image, color_format, input_size=effective_imgsz
+            input_tensor, original_img, original_size, ratio = (
+                self._preprocess_model_input(
+                    image, color_format, input_size=effective_imgsz
+                )
             )
             preprocessed.append(
                 (input_tensor, original_img, original_size, ratio, image)
@@ -705,13 +898,16 @@ class InferenceRunner:
                 conf,
                 iou,
                 original_size,
-                max_det=max_det,
+                max_det=postprocess_max_det(max_det, classes),
                 ratio=ratio,
                 classes=classes,
                 **kwargs,
             )
             image_path = image if isinstance(image, (str, Path)) else None
-            result = self._wrap_results(detections, original_size, image_path, classes)
+            result = self._wrap_results(
+                detections, original_size, image_path, classes, max_det=max_det
+            )
+            keep_source(result, original_img, image_path)
             if save:
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(
@@ -725,62 +921,89 @@ class InferenceRunner:
             results.append(result)
         return results
 
+    def _predict_video_clip(
+        self,
+        source,
+        *,
+        conf,
+        iou,
+        imgsz=None,
+        classes=None,
+        max_det: int = 300,
+        save: bool = False,
+        output_path=None,
+        output_file_format=None,
+        **kwargs,
+    ) -> List[Results]:
+        """Embed a finite video as a single row (``VIDEO_EMBED_MODE == "clip"``).
+
+        Decoding and uniform sampling are family-independent; tensor layout and
+        temporal pooling belong to the family's ``_forward``. Returns a
+        one-element list holding one ``Results`` for the whole clip, not one per
+        frame.
+
+        ``save=True`` writes a single annotated image built from the first
+        sampled frame -- there is no per-frame video to render, because the
+        whole clip collapses to one result.
+        """
+        clip_frames = kwargs.pop("clip_frames", getattr(self.model, "clip_frames", 8))
+        clip_frames = int(clip_frames)
+        if clip_frames < 1:
+            raise ValueError(f"clip_frames must be positive; got {clip_frames}.")
+
+        # Decoding stays shared. Temporal sampling is family-local when the
+        # family says so: uniform sampling across the whole video is right for
+        # a general clip embedder, but a checkpoint trained on a fixed window
+        # (V-JEPA 2 uses 64 frames at stride 2, centered) must be fed that
+        # window or its pooled statistics no longer match training.
+        sampler = getattr(self.model, "sample_clip_frames", None)
+        if callable(sampler):
+            frames = sampler(source, clip_frames)
+        else:
+            frames = sample_clip_frames(source, clip_frames)
+        preprocessed = [
+            self._preprocess_model_input(frame, color_format="rgb", input_size=imgsz)
+            for frame in frames
+        ]
+        tensors = [item[0] for item in preprocessed]
+        original_size = preprocessed[0][2]
+
+        # (F, C, H, W) -> (1, F, C, H, W): one clip in the batch.
+        clip = torch.cat(tensors, dim=0).unsqueeze(0)
+        with torch.no_grad():
+            output = self.model._forward(clip)
+
+        detections = self.model._postprocess(
+            output, conf, iou, original_size, max_det=max_det, classes=classes, **kwargs
+        )
+        result = self._wrap_results(detections, original_size, str(source), classes)
+        result.path = str(source)
+        # A whole-clip result plots on its first sampled frame.
+        result.orig_img = frames[0]
+
+        if save:
+            save_file = resolve_save_path(
+                output_path, str(source), ext=output_file_format or "jpg"
+            )
+            self._save_annotated_image(result, frames[0], save_file)
+        return [result]
+
     def _save_annotated_image(
         self, result: Results, original_img, save_path: Path
     ) -> None:
-        """Internal helper to draw boxes, masks, and keypoints and save to disk."""
-        # Classification and whole-image embed results carry no boxes; there is
-        # nothing to draw, so persist the source image as-is.
-        if result.boxes is None and (
-            getattr(result, "probs", None) is not None
-            or getattr(result, "embeddings", None) is not None
+        """Internal helper to render a result on its image and save to disk."""
+        # Whole-image embed results carry nothing to draw; persist the source
+        # image as-is. Classification draws its top-5 in draw_results.
+        if (
+            result.boxes is None
+            and result.probs is None
+            and getattr(result, "embeddings", None) is not None
         ):
             original_img.save(save_path)
             log_saved_result(result, save_path)
             return
-        if result.boxes is None and getattr(result, "semantic_mask", None) is not None:
-            mask_data = result.semantic_mask.data
-            if isinstance(mask_data, torch.Tensor):
-                mask_data = mask_data.cpu().numpy()
-            annotated_img = draw_semantic_mask(original_img, mask_data)
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "panoptic", None) is not None:
-            pan_data = result.panoptic.data
-            if isinstance(pan_data, torch.Tensor):
-                pan_data = pan_data.cpu().numpy()
-            annotated_img = draw_panoptic(
-                original_img,
-                pan_data,
-                result.panoptic.segments_info,
-                class_names=result.names,
-            )
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "depth_map", None) is not None:
-            depth_data = result.depth_map.data
-            if isinstance(depth_data, torch.Tensor):
-                depth_data = depth_data.cpu().numpy()
-            annotated_img = draw_depth_map(original_img, depth_data)
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "edges", None) is not None:
-            edge_data = result.edges.data
-            if isinstance(edge_data, torch.Tensor):
-                edge_data = edge_data.cpu().numpy()
-            annotated_img = draw_edge_map(original_img, edge_data)
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "normal_map", None) is not None:
-            normal_data = result.normal_map.data
-            if isinstance(normal_data, torch.Tensor):
-                normal_data = normal_data.cpu().numpy()
-            annotated_img = draw_normal_map(original_img, normal_data)
-            annotated_img.save(save_path)
+        if result.boxes is None and getattr(result, "albedo", None) is not None:
+            result.albedo.save(save_path)
             log_saved_result(result, save_path)
             return
         if result.boxes is None and getattr(result, "restored", None) is not None:
@@ -795,87 +1018,8 @@ class InferenceRunner:
             result.save(png_path, image=original_img)
             log_saved_result(result, png_path)
             return
-        if result.boxes is None and getattr(result, "ocr", None) is not None:
-            if len(result.ocr) > 0:
-                ocr_np = result.ocr.numpy()
-                annotated_img = draw_ocr_regions(
-                    original_img,
-                    ocr_np.data,
-                    ocr_np.texts,
-                    ocr_np.conf,
-                )
-            else:
-                annotated_img = original_img.copy()
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "points", None) is not None:
-            if len(result.points) > 0:
-                annotated_img = draw_points(
-                    original_img,
-                    result.points.xy.tolist(),
-                    result.points.conf.tolist(),
-                    result.points.cls.tolist(),
-                    class_names=result.names,
-                )
-            else:
-                annotated_img = original_img.copy()
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if len(result) > 0:
-            annotated_img = original_img
-            # Draw masks first (underneath boxes)
-            if result.masks is not None:
-                masks_np = result.masks.data
-                if isinstance(masks_np, torch.Tensor):
-                    masks_np = masks_np.cpu().numpy()
-                annotated_img = draw_masks(
-                    annotated_img,
-                    masks_np,
-                    result.boxes.cls.tolist(),
-                )
-            # Draw boxes
-            if result.obb is not None:
-                annotated_img = draw_obb(
-                    annotated_img,
-                    result.obb.xywhr.tolist(),
-                    result.obb.conf.tolist(),
-                    result.obb.cls.tolist(),
-                    class_names=result.names,
-                    track_ids=result.obb.id.tolist()
-                    if result.obb.id is not None
-                    else None,
-                )
-            else:
-                annotated_img = draw_boxes(
-                    annotated_img,
-                    result.boxes.xyxy.tolist(),
-                    result.boxes.conf.tolist(),
-                    result.boxes.cls.tolist(),
-                    class_names=result.names,
-                )
-            # Draw keypoints
-            if result.keypoints is not None:
-                kpts_np = result.keypoints.data
-                if isinstance(kpts_np, torch.Tensor):
-                    kpts_np = kpts_np.cpu().numpy()
-                annotated_img = draw_keypoints(annotated_img, kpts_np)
-            # Draw body meshes: projected vertices plus the skeleton through
-            # the projected joints.
-            if result.meshes is not None and len(result.meshes) > 0:
-                meshes_np = result.meshes.numpy()
-                annotated_img = draw_mesh(
-                    annotated_img,
-                    joints2d=meshes_np.joints2d,
-                    vertices2d=meshes_np.extras.get("vertices2d"),
-                    faces=meshes_np.faces,
-                    vertices3d=meshes_np.vertices,
-                )
-        else:
-            annotated_img = original_img.copy()
 
-        annotated_img.save(save_path)
+        draw_results(result, original_img).save(save_path)
         log_saved_result(result, save_path)
 
     @staticmethod
@@ -907,6 +1051,7 @@ class InferenceRunner:
         original_size: Tuple[int, int],
         image_path,
         classes: Optional[List[int]],
+        max_det: Optional[int] = None,
     ) -> Results:
         """Convert raw detection dict to a Results object.
 
@@ -916,6 +1061,9 @@ class InferenceRunner:
             original_size: (width, height) from preprocessing.
             image_path: Source path or None.
             classes: Optional class filter list.
+            max_det: With ``classes``, the number of highest-scoring boxes to
+                keep after filtering (the postprocess ran with a wider budget,
+                see ``postprocess_max_det``).
         """
         # Classification: a probs vector, no boxes. Wrap into Results.probs so
         # result.probs.top1 / .top5 work like the rest of the ecosystem.
@@ -1008,7 +1156,20 @@ class InferenceRunner:
                 orig_shape=(orig_h, orig_w),
                 path=str(image_path) if image_path else None,
                 names=self.model.names,
-                depth_map=DepthMap(depth_t.float(), (orig_h, orig_w)),
+                depth_map=DepthMap(
+                    depth_t.float(), (orig_h, orig_w),
+                    encoding=detections.get("depth_encoding", "inverse_depth"),
+                ),
+            )
+
+        albedo_data = detections.get("albedo")
+        if albedo_data is not None:
+            orig_w, orig_h = original_size
+            return Results(
+                boxes=None, orig_shape=(orig_h, orig_w),
+                path=str(image_path) if image_path else None,
+                names=self.model.names,
+                albedo=AlbedoMap(torch.as_tensor(albedo_data), (orig_h, orig_w)),
             )
 
         # Edge detection: a dense (H, W) probability map, no boxes.
@@ -1229,6 +1390,15 @@ class InferenceRunner:
             )
             if obb_t is not None:
                 obb_t = obb_t[cls_mask]
+            if max_det is not None and 0 <= max_det < len(conf_t):
+                top = torch.topk(conf_t, int(max_det)).indices.sort().values
+                boxes_t, conf_t, cls_t = boxes_t[top], conf_t[top], cls_t[top]
+                if masks_t is not None:
+                    masks_t = masks_t[top]
+                if keypoints_t is not None:
+                    keypoints_t = keypoints_t[top]
+                if obb_t is not None:
+                    obb_t = obb_t[top]
 
         # original_size from preprocess is (W, H); orig_shape is (H, W)
         orig_w, orig_h = original_size
@@ -1269,6 +1439,7 @@ class InferenceRunner:
         color_format: str = "auto",
         output_file_format: Optional[str] = None,
         save_stem: Optional[str] = None,
+        predict_input_kwargs: Optional[Dict[str, object]] = None,
         **kwargs,
     ) -> Results:
         """Run inference on a single image.
@@ -1285,8 +1456,11 @@ class InferenceRunner:
         kwargs["input_size"] = effective_imgsz
 
         # Preprocess
-        input_tensor, original_img, original_size, ratio = self.model._preprocess(
-            image, color_format, input_size=effective_imgsz
+        input_tensor, original_img, original_size, ratio = self._preprocess_model_input(
+            image,
+            color_format,
+            input_size=effective_imgsz,
+            predict_input_kwargs=predict_input_kwargs,
         )
 
         # Forward pass
@@ -1301,14 +1475,17 @@ class InferenceRunner:
             conf,
             iou,
             original_size,
-            max_det=max_det,
+            max_det=postprocess_max_det(max_det, classes),
             ratio=ratio,
             classes=classes,
             **kwargs,
         )
 
         # Wrap into Results
-        result = self._wrap_results(detections, original_size, image_path, classes)
+        result = self._wrap_results(
+            detections, original_size, image_path, classes, max_det=max_det
+        )
+        keep_source(result, original_img, image_path)
 
         # Save annotated image
         if save:
@@ -1338,8 +1515,13 @@ class InferenceRunner:
         source_label: Optional[str] = None,
         **kwargs,
     ) -> Generator[Results, None, None]:
-        """Run inference on a video file, yielding per-frame Results."""
+        """Run inference on a video file, yielding per-frame Results.
+
+        Whole-clip families are dispatched earlier, in ``__call__``, so this
+        path is always frame-by-frame.
+        """
         source_label = str(source) if source_label is None else source_label
+
         yield from run_video_inference(
             source,
             self._frame_predictor(
@@ -1375,8 +1557,8 @@ class InferenceRunner:
         kwargs["input_size"] = effective_imgsz
 
         def predict_frame(pil_img):
-            input_tensor, original_img, original_size, ratio = self.model._preprocess(
-                pil_img, "rgb", input_size=effective_imgsz
+            input_tensor, original_img, original_size, ratio = (
+                self._preprocess_model_input(pil_img, "rgb", input_size=effective_imgsz)
             )
             with torch.no_grad():
                 output = forward_maybe_graphed(
@@ -1387,12 +1569,16 @@ class InferenceRunner:
                 conf,
                 iou,
                 original_size,
-                max_det=max_det,
+                max_det=postprocess_max_det(max_det, classes),
                 ratio=ratio,
                 classes=classes,
                 **kwargs,
             )
-            return self._wrap_results(detections, original_size, source_label, classes)
+            result = self._wrap_results(
+                detections, original_size, source_label, classes, max_det=max_det
+            )
+            result.orig_img = original_img
+            return result
 
         return predict_frame
 
@@ -1541,10 +1727,10 @@ class InferenceRunner:
                 "Tiled inference does not support depth maps yet. "
                 "Use non-tiled inference for depth models."
             )
-        if getattr(self.model, "task", "detect") in ("edge", "normal"):
+        if getattr(self.model, "task", "detect") in ("edge", "normal", "albedo"):
             raise ValueError(
-                "Tiled inference does not support edge or normal maps yet. "
-                "Use non-tiled inference for dense edge/normal models."
+                "Tiled inference does not support edge, normal, or albedo maps yet. "
+                "Use non-tiled inference for these dense models."
             )
 
         if getattr(self.model, "_is_segmentation", False):
@@ -1564,6 +1750,18 @@ class InferenceRunner:
             )
 
         input_size = imgsz if imgsz is not None else self.model._get_input_size()
+        tile_imgsz = imgsz
+        if (
+            imgsz is None
+            and isinstance(input_size, (list, tuple))
+            and getattr(self.model, "_input_size_from_checkpoint", False)
+        ):
+            # A rectangular fine-tune of a square family (#899) tiles with
+            # square tiles of its long side, and infers every tile (and an
+            # image small enough to skip tiling) at that square size rather
+            # than shrinking it into the rectangle.
+            input_size = max(int(input_size[0]), int(input_size[1]))
+            tile_imgsz = input_size
         if isinstance(input_size, (list, tuple)):
             raise ValueError(
                 "Tiled inference requires a square imgsz (tiles are square). "
@@ -1581,7 +1779,7 @@ class InferenceRunner:
                 output_path=output_path,
                 conf=conf,
                 iou=iou,
-                imgsz=imgsz,
+                imgsz=tile_imgsz,
                 classes=classes,
                 max_det=max_det,
                 color_format=color_format,
@@ -1612,7 +1810,7 @@ class InferenceRunner:
                 save=False,
                 conf=conf,
                 iou=iou,
-                imgsz=imgsz,
+                imgsz=tile_imgsz,
                 classes=classes,
                 max_det=max_det,
                 **kwargs,
@@ -1645,6 +1843,7 @@ class InferenceRunner:
             "num_detections": len(final_boxes),
         }
         result = self._wrap_results(detections, original_size, image_path, classes)
+        keep_source(result, img_pil, image_path)
 
         # Attach tiling metadata as extra attributes
         result.tiled = True

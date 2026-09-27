@@ -11,7 +11,9 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from numbers import Real
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 import torch
@@ -52,9 +54,12 @@ from .distributed import (
     wants_distributed,
 )
 from .ema import ModelEMA
+from .optim import build_optimizer, restore_optimizer_state
 from .freezing import FreezeGroup, apply_freeze, default_freeze_groups
+from .qat_defaults import apply_qat_training_guards
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
 from ..data import (
+    build_class_remap,
     get_coco_annotation_file,
     get_coco_image_dir,
     get_img_files,
@@ -62,7 +67,7 @@ from ..data import (
     load_data_config,
     resolve_default_coco_image_dir,
 )
-from ..utils.image_size import imgsz_to_hw
+from ..utils.image_size import imgsz_to_hw, round_imgsz_to_stride
 from ..utils.serialization import (
     SCHEMA_VERSION,
     build_class_names,
@@ -91,7 +96,91 @@ RECTANGULAR_TRAINING_FAMILIES = {
     "yolo7": 32,
     "rtmdet": 32,
     "picodet": 64,
+    # PP-LiteSeg is natively rectangular: its released recipes train at
+    # 512x1024 (the 50 sizes) and validate at 512x1024 / 768x1536. A square
+    # canvas would not be the model the checkpoints were trained as.
+    "ppliteseg": 32,
+    # U-Net S5-D16 is natively rectangular (512x1024 Cityscapes canvas);
+    # encoder stride product is 16, not 32.
+    "unet": 16,
 }
+# Tasks each family may train on rectangularly. Detection is the historical
+# case and stays the default; a family whose rectangular support is not
+# detect-shaped declares its own tasks here.
+RECTANGULAR_TRAINING_TASKS = {
+    "ppliteseg": frozenset({"semantic"}),
+    "unet": frozenset({"semantic"}),
+}
+_DEFAULT_RECTANGULAR_TRAINING_TASKS = frozenset({"detect"})
+
+
+def ensure_mutation_reaches_workers(loader, target, hook: str) -> None:
+    """Fail loudly when a main-process mutation of ``target`` cannot reach workers.
+
+    ``close_mosaic`` / ``set_epoch`` style hooks mutate the dataset (or
+    collate) object owned by the main process. Dataloader workers hold their
+    own copies: non-persistent workers are respawned every epoch and inherit
+    the mutated state, but persistent workers live for the whole run and
+    never re-copy it, so the mutation silently never applies and epoch-gated
+    augmentation scheduling (no-aug tail, stop_epoch gating) becomes a no-op.
+
+    ``target`` is the object about to be mutated (usually
+    ``loader.dataset``, or ``loader.collate_fn`` for collate-side epoch
+    gating). No-op when the loader has no workers, when workers are not
+    persistent, or when ``target`` does not implement ``hook``.
+    """
+    if loader is None or target is None:
+        return
+    if not callable(getattr(target, hook, None)):
+        return
+    num_workers = int(getattr(loader, "num_workers", 0) or 0)
+    if num_workers <= 0:
+        return
+    if not getattr(loader, "persistent_workers", False):
+        return
+    raise RuntimeError(
+        f"{type(target).__name__}.{hook}() would have no effect: the train "
+        f"dataloader runs num_workers={num_workers} with "
+        "persistent_workers=True, and persistent workers never observe "
+        "main-process dataset mutations, so augmentation scheduling would "
+        "silently stop working. Rebuild the dataloader after the mutation "
+        "or train with persistent_workers=False."
+    )
+
+
+def log_classes_subset_notice(
+    config, num_classes: int, *, context: str = "Training"
+) -> None:
+    """Log a clear, hard-to-miss notice when classes= is filtering this run
+    to a subset of the dataset's declared classes.
+
+    classes= never changes nc/names (see build_class_remap's docstring), so
+    there is nothing in the resolved config that otherwise flags this run as
+    non-standard; without an explicit notice, "why is my model not learning
+    class X" is easy to hit with no clue why. ``context`` names the caller
+    ("Training", "Validating") since this is shared by both.
+    """
+    if not config.classes or not is_main_process():
+        return
+    kept = sorted(set(config.classes))
+    if config.single_cls:
+        logger.warning(
+            "%s on a SUBSET of classes, collapsed to one merged class "
+            "(single_cls=True): keeping original ids %s; every other "
+            "class's boxes are dropped, not trained.",
+            context,
+            kept,
+        )
+    else:
+        logger.warning(
+            "%s on a SUBSET of classes: keeping original ids %s (%d of "
+            "%d declared classes); every other class's boxes are "
+            "dropped, not trained.",
+            context,
+            kept,
+            len(kept),
+            num_classes,
+        )
 
 
 class BaseTrainer(ABC):
@@ -106,6 +195,7 @@ class BaseTrainer(ABC):
     # Whether this family supports ``lora=True`` fine-tuning. Overridden to True
     # by trainers with LoRA-amenable (transformer/nn.Linear) backbones.
     supports_lora: bool = False
+    supports_class_weights: bool = False
 
     def __init__(
         self,
@@ -116,6 +206,11 @@ class BaseTrainer(ABC):
         **kwargs,
     ):
         self.config = self._config_class().from_kwargs(**kwargs)
+        if self.config.single_cls and self.config.class_balanced and is_main_process():
+            logger.warning(
+                "class_balanced=True has no effect with single_cls=True; all labels "
+                "belong to the same class, so sampling remains uniform."
+            )
         self.config.amp_dtype = normalize_amp_dtype(
             getattr(self.config, "amp_dtype", "float16")
         )
@@ -131,9 +226,22 @@ class BaseTrainer(ABC):
                 )
         self.model = model
         self.wrapper_model = wrapper_model
+        self.config.imgsz = round_imgsz_to_stride(
+            wrapper_model, self.config.imgsz, "train"
+        )
+        self.class_weights = None
+        if (self.config.class_weights or self.config.cls_pw > 0) and (
+            getattr(wrapper_model, "task", None) != "classify"
+            or not self.supports_class_weights
+        ):
+            raise ValueError(
+                "class_weights=True or cls_pw>0 requires a supported "
+                "image-classification trainer"
+            )
         self.callbacks = TrainCallbackList(callbacks)
         for logger_callback in resolve_loggers(loggers):
             self.callbacks.append(logger_callback)
+        self._fitness_callback = self.callbacks.fitness
         # TrainingArtifactsCallback is family-gated (results.csv / summary.json
         # only for opted-in families). TrainingStatusCallback is universal: every
         # run gets a live status.json + train.log so agents and the `libreyolo
@@ -166,6 +274,13 @@ class BaseTrainer(ABC):
 
         # Device
         self.device = self._setup_device()
+        quant_manifest = getattr(self.wrapper_model, "_quant_manifest", None)
+        if quant_manifest:
+            from ..quant.api import simulation_device
+
+            self.device = simulation_device(
+                self.device, quant_manifest.get("recipe")
+            )
 
         # Training state
         self.start_epoch = 0
@@ -196,6 +311,7 @@ class BaseTrainer(ABC):
         # Profiling (opt-in via config.profile). None = disabled, zero overhead.
         self._profiler = None
         self._stop_training = False
+        self._weight_averager = None
 
         # CUDA graph capture of the training network (opt-in via
         # config.cuda_graph). None = disabled, zero overhead. The family
@@ -204,6 +320,8 @@ class BaseTrainer(ABC):
         self._cuda_graph_manager = None
         self._cuda_graph_spec = None
         self._cuda_graph_spec_resolved = False
+        # Opt-in torch.compile of the training network (config.compile).
+        self._train_compiler = None
 
     # =========================================================================
     # Config
@@ -331,10 +449,26 @@ class BaseTrainer(ABC):
         """Called before on_setup() for trainers that pre-sync class counts."""
 
     def on_mosaic_disable(self):
-        """Called when mosaic is disabled for final no-aug epochs."""
-        dataset = getattr(self.train_loader, "dataset", None)
+        """Switch off strong augmentation for the final ``no_aug_epochs`` epochs.
+
+        Detection datasets expose ``close_mosaic`` (mosaic + mixup off); the
+        classification dataset and batch mixer expose ``close_strong_aug``
+        (auto_augment / erasing / MixUp / CutMix off). Every hook goes through
+        :func:`ensure_mutation_reaches_workers` so a persistent-worker loader
+        fails loudly instead of silently keeping the augmentation on.
+        """
+        loader = self.train_loader
+        dataset = getattr(loader, "dataset", None)
         if hasattr(dataset, "close_mosaic"):
+            ensure_mutation_reaches_workers(loader, dataset, "close_mosaic")
             dataset.close_mosaic()
+        if hasattr(dataset, "close_strong_aug"):
+            ensure_mutation_reaches_workers(loader, dataset, "close_strong_aug")
+            dataset.close_strong_aug()
+        collate = getattr(loader, "collate_fn", None)
+        if hasattr(collate, "close_strong_aug"):
+            ensure_mutation_reaches_workers(loader, collate, "close_strong_aug")
+            collate.close_strong_aug()
 
     def on_forward(
         self,
@@ -367,6 +501,31 @@ class BaseTrainer(ABC):
         first training batch, only when ``config.cuda_graph`` is enabled.
         """
         return None
+
+    def compile_train_spec(self):
+        """Network/loss boundary compiled by ``train(compile=...)``.
+
+        Same contract as :meth:`cuda_graph_train_spec`, which it returns by
+        default. A family overrides it when the compiler can cover more than
+        CUDA graph capture can (YOLO9's PGI auxiliary branch). ``None`` keeps
+        the run eager.
+        """
+        return self.cuda_graph_train_spec()
+
+    def compile_dynamic(self) -> Optional[bool]:
+        """``dynamic=`` for ``torch.compile``; families with per-batch sizes
+        return True. None lets PyTorch mark a dimension dynamic once it changes."""
+        return None
+
+    def autobatch_probe(self) -> Dict:
+        """Family hook: what ``batch=-1`` probes memory with.
+
+        ``imgsz`` is the probe input size and should be the largest canvas a
+        training batch reaches. ``step`` optionally maps a probe batch to the
+        training loss, so the probe backpropagates the real loss instead of a
+        forward-only sum.
+        """
+        return {"imgsz": self.config.imgsz, "step": None}
 
     def invalidate_cuda_graph(self, reason: str) -> None:
         """Drop any captured training graph so a later batch re-captures.
@@ -401,6 +560,20 @@ class BaseTrainer(ABC):
         # getattr defaults keep partially-constructed trainers (test
         # doubles, exotic subclasses skipping BaseTrainer.__init__) on the
         # plain eager path.
+        compiler = getattr(self, "_train_compiler", None)
+        if compiler is not None:
+            flat = compiler.run(self, imgs)
+            if flat is not None:
+                return compiler.spec.assemble(flat, imgs, targets, polygons)
+            if not compiler.disabled:
+                return self.on_forward(imgs, targets, polygons=polygons)
+            # Compilation fell back to eager: a requested cuda_graph now
+            # goes to the eager capture manager, from the next batch on.
+            self._train_compiler = None
+            start_graphs = getattr(self, "_start_cuda_graph_manager", None)
+            if start_graphs is not None:
+                start_graphs()
+            return self.on_forward(imgs, targets, polygons=polygons)
         manager = getattr(self, "_cuda_graph_manager", None)
         if manager is not None and not manager.disabled:
             if not getattr(self, "_cuda_graph_spec_resolved", False):
@@ -419,8 +592,8 @@ class BaseTrainer(ABC):
                     manager.disabled = True
                     logger.warning(
                         "cuda_graph=True ignored (%s does not support "
-                        "training capture for this task); training runs "
-                        "eager.",
+                        "training capture for this model, task or "
+                        "configuration); training runs eager.",
                         type(self).__name__,
                     )
             spec = getattr(self, "_cuda_graph_spec", None)
@@ -555,16 +728,17 @@ class BaseTrainer(ABC):
             )
 
         if opt_name == "sgd":
-            optimizer = torch.optim.SGD(
+            optimizer = build_optimizer(
+                torch.optim.SGD,
                 param_groups,
                 lr=lr,
                 momentum=self.config.momentum,
                 nesterov=self.config.nesterov,
             )
         elif opt_name == "adam":
-            optimizer = torch.optim.Adam(param_groups, lr=lr)
+            optimizer = build_optimizer(torch.optim.Adam, param_groups, lr=lr)
         elif opt_name == "adamw":
-            optimizer = torch.optim.AdamW(param_groups, lr=lr)
+            optimizer = build_optimizer(torch.optim.AdamW, param_groups, lr=lr)
         else:
             raise ValueError(f"Unknown optimizer: {opt_name}")
 
@@ -739,7 +913,13 @@ class BaseTrainer(ABC):
             data_cfg = load_data_config(
                 self.config.data,
                 allow_scripts=self.config.allow_download_scripts,
+                single_cls=self.config.single_cls,
+                classes=self.config.classes,
             )
+            class_remap = data_cfg.get("_class_remap")
+            if data_cfg.get("input_profile") is not None or getattr(self.wrapper_model, "input_profile", None) is not None:
+                from ..data.event_histogram import setup_histogram_data
+                return setup_histogram_data(self, data_cfg)
             data_dir = data_cfg["root"]
             data_nc = data_cfg.get("nc")
             if data_nc is None and data_cfg.get("names") is not None:
@@ -770,7 +950,9 @@ class BaseTrainer(ABC):
                     load_segments=load_segments,
                     load_obb=load_obb,
                     num_classes=self.num_classes,
-                    names=data_cfg.get("names"),
+                    names=data_cfg.get("_original_names", data_cfg.get("names")),
+                    single_cls=self.config.single_cls,
+                    classes=self.config.classes,
                 )
             elif img_files:
                 train_dataset = YOLODataset(
@@ -780,7 +962,9 @@ class BaseTrainer(ABC):
                     preproc=preproc,
                     load_segments=load_segments,
                     load_obb=load_obb,
-                    num_classes=self.num_classes if load_obb else None,
+                    num_classes=self.num_classes,
+                    single_cls=self.config.single_cls,
+                    class_remap=class_remap,
                 )
             elif ann_file.exists():
                 train_dataset = COCODataset(
@@ -796,7 +980,9 @@ class BaseTrainer(ABC):
                     load_segments=load_segments,
                     load_obb=load_obb,
                     num_classes=self.num_classes,
-                    names=data_cfg.get("names"),
+                    names=data_cfg.get("_original_names", data_cfg.get("names")),
+                    single_cls=self.config.single_cls,
+                    classes=self.config.classes,
                 )
             else:
                 train_path = data_cfg.get("train", "images/train")
@@ -821,11 +1007,18 @@ class BaseTrainer(ABC):
                     preproc=preproc,
                     load_segments=load_segments,
                     load_obb=load_obb,
-                    num_classes=self.num_classes if load_obb else None,
+                    num_classes=self.num_classes,
+                    single_cls=self.config.single_cls,
+                    class_remap=class_remap,
                 )
         elif self.config.data_dir:
             data_dir = self.config.data_dir
-            self.num_classes = self.config.num_classes
+            # classes= only filters which boxes reach the loss; it never
+            # changes nc (kept ids are not compacted -- see build_class_remap).
+            self.num_classes = 1 if self.config.single_cls else self.config.num_classes
+            class_remap = build_class_remap(
+                self.config.classes, single_cls=self.config.single_cls
+            )
 
             if (Path(data_dir) / "annotations").exists():
                 train_dataset = COCODataset(
@@ -841,6 +1034,8 @@ class BaseTrainer(ABC):
                     load_segments=load_segments,
                     load_obb=load_obb,
                     num_classes=self.num_classes,
+                    single_cls=self.config.single_cls,
+                    classes=self.config.classes,
                 )
             else:
                 train_dataset = YOLODataset(
@@ -850,7 +1045,9 @@ class BaseTrainer(ABC):
                     preproc=preproc,
                     load_segments=load_segments,
                     load_obb=load_obb,
-                    num_classes=self.num_classes if load_obb else None,
+                    num_classes=self.num_classes,
+                    class_remap=class_remap,
+                    single_cls=self.config.single_cls,
                 )
         else:
             raise ValueError("Either 'data' or 'data_dir' must be specified")
@@ -929,7 +1126,11 @@ class BaseTrainer(ABC):
             shuffle=True,
             pin_memory=self.device.type == "cuda",
             sampler=sampler,
+            min_samples=int(getattr(self.config, "min_samples", 0) or 0),
+            class_balanced=bool(getattr(self.config, "class_balanced", False)),
         )
+
+        log_classes_subset_notice(self.config, self.num_classes)
 
         if is_main_process():
             logger.info(f"Training dataset: {len(train_dataset)} images")
@@ -947,6 +1148,23 @@ class BaseTrainer(ABC):
             )
         return train_dataset
 
+    def _effective_crop_pct(self, wrapper) -> float:
+        """Eval crop ratio: the user override when set, else the family value.
+
+        The family value is what export records in the runtime metadata, so an
+        explicit override is a deliberate train/val-only choice (#878).
+        """
+        from libreyolo.data.augment.classify import DEFAULT_CROP_PCT
+
+        override = getattr(self.config, "crop_pct", None)
+        if override is not None:
+            if not 0.0 < override <= 1.0:
+                raise ValueError(
+                    f"crop_pct must be in (0, 1], got {override}"
+                )
+            return float(override)
+        return getattr(wrapper, "crop_pct", None) or DEFAULT_CROP_PCT
+
     def _setup_classify_data(self):
         """Build the classification train dataloader from an ImageFolder root.
 
@@ -957,9 +1175,9 @@ class BaseTrainer(ABC):
         """
         from torch.utils.data import DataLoader
 
+        from ..data.augment.classify import ClassifyAugKnobs, build_classify_collate
         from ..data.classify_dataset import (
             ClassifyDataset,
-            build_classify_collate,
             get_class_names,
             resolve_classify_data,
         )
@@ -983,6 +1201,10 @@ class BaseTrainer(ABC):
             wrapper.names = {i: name for i, name in enumerate(classes)}
 
         imgsz = self.config.imgsz
+        # One place reads (and validates) every classification augmentation
+        # knob off the config; see libreyolo/data/augment/classify.py.
+        aug = ClassifyAugKnobs.from_config(self.config)
+        self._classify_aug = aug
         train_dataset = ClassifyDataset(
             dataset_root=dataset_root,
             split="train",
@@ -990,20 +1212,29 @@ class BaseTrainer(ABC):
             augment=True,
             class_to_idx=class_to_idx,
             transform_kwargs={
-                "crop_pct": getattr(wrapper, "crop_pct", 0.875),
+                "crop_pct": self._effective_crop_pct(wrapper),
                 "interpolation": getattr(wrapper, "interpolation", "bilinear"),
-                "auto_augment": getattr(self.config, "auto_augment", None),
-                "erasing": getattr(self.config, "erasing", 0.0),
+                **aug.transform_kwargs(),
             },
         )
 
+        if self.config.class_weights or self.config.cls_pw > 0:
+            counts = torch.bincount(
+                torch.tensor(train_dataset._impl.targets), minlength=num_classes
+            ).float()
+            if (counts == 0).any():
+                raise ValueError("Class weighting requires training images in every class")
+            # Full-dataset counts, before sharding: identical on every DDP rank.
+            if self.config.class_weights:
+                weights = counts.sum() / (num_classes * counts)
+            else:
+                weights = counts.pow(-self.config.cls_pw)
+                weights = weights / weights.mean()
+            self.class_weights = weights.to(self.device)
+
         # Batch-level MixUp / CutMix (soft labels) when requested; otherwise this
         # returns the plain classify collate so default training is unchanged.
-        collate_fn = build_classify_collate(
-            num_classes,
-            mixup=getattr(self.config, "mixup", 0.0),
-            cutmix=getattr(self.config, "cutmix", 0.0),
-        )
+        collate_fn = build_classify_collate(num_classes, **aug.collate_kwargs())
 
         per_rank_batch = max(1, self.config.batch // max(self.world_size, 1))
         if per_rank_batch < 2:
@@ -1083,11 +1314,17 @@ class BaseTrainer(ABC):
         )
         resize_mode = getattr(self.wrapper_model, "semantic_resize_mode", "letterbox")
         divisor = getattr(self.wrapper_model, "semantic_imgsz_divisor", None)
-        if divisor and self.config.imgsz % int(divisor):
-            raise ValueError(
-                f"Semantic training imgsz={self.config.imgsz} must be divisible "
-                f"by {int(divisor)} for this model family."
+        if divisor:
+            sides = (
+                self.config.imgsz
+                if isinstance(self.config.imgsz, (tuple, list))
+                else (self.config.imgsz,)
             )
+            if any(int(side) % int(divisor) for side in sides):
+                raise ValueError(
+                    f"Semantic training imgsz={self.config.imgsz} must be divisible "
+                    f"by {int(divisor)} for this model family."
+                )
         # Family-scoped scale-jitter range. Families that do not define this
         # attribute (default None) keep the SemanticDataset default jitter,
         # unchanged. Input standardization is family-internal (applied in the
@@ -1105,6 +1342,12 @@ class BaseTrainer(ABC):
         hsv_prob = getattr(self.wrapper_model, "semantic_hsv_prob", None)
         if hsv_prob is not None:
             semantic_kwargs["hsv_prob"] = float(hsv_prob)
+        # A family whose reference recipe uses a different photometric
+        # transform than the shared HSV-gain jitter supplies it here; families
+        # that do not define the attribute keep the shared path unchanged.
+        photometric = getattr(self.wrapper_model, "semantic_photometric", None)
+        if photometric is not None:
+            semantic_kwargs["photometric"] = photometric
         train_dataset = SemanticDataset(
             data_config,
             split="train",
@@ -1314,17 +1557,34 @@ class BaseTrainer(ABC):
         return train_dataset
 
     def _resolve_num_classes_from_data_config(self) -> int:
-        """Resolve dataset class count before criterion construction."""
-        resolved = int(self.config.num_classes)
+        """Resolve dataset class count before criterion construction.
+
+        Also stashes the dataset's class names on ``self._resolved_class_names``
+        so ``_sync_wrapped_model_num_classes`` can restore them after
+        ``_rebuild_for_new_classes`` resets the wrapper to generic
+        ``class_N`` placeholders. ``classes=`` does not affect either value
+        here -- it only filters which boxes reach the loss, never nc/names
+        (see ``build_class_remap``'s docstring for why).
+        """
+        resolved = 1 if self.config.single_cls else int(self.config.num_classes)
+        self._resolved_class_names = None
         if self.config.data:
-            # Only the YAML's class count is needed here; the dataset itself is
-            # downloaded later in _setup_data.
+            # Only the YAML's class count is needed here; the dataset itself
+            # is downloaded later in _setup_data. classes= never changes nc
+            # (kept ids are not compacted -- see build_class_remap); passing
+            # it through here still gets its out-of-range validation early.
             data_cfg = load_data_config(
                 self.config.data,
                 autodownload=False,
                 allow_scripts=self.config.allow_download_scripts,
+                single_cls=self.config.single_cls,
+                classes=self.config.classes,
             )
-            resolved = int(data_cfg.get("nc", resolved))
+            data_nc = data_cfg.get("nc")
+            if data_nc is None and data_cfg.get("names") is not None:
+                data_nc = len(data_cfg["names"])
+            resolved = int(data_nc) if data_nc is not None else resolved
+            self._resolved_class_names = data_cfg.get("names")
 
         self.num_classes = resolved
         self.config.num_classes = resolved
@@ -1337,6 +1597,32 @@ class BaseTrainer(ABC):
             value = getattr(obj, "num_classes", None)
             if value is not None:
                 return int(value)
+        return None
+
+    def _effective_names_for_sync(self) -> Optional[Dict[int, str]]:
+        """Names to stamp on the wrapper after a class-count sync, or ``None``
+        to leave whatever is already there untouched.
+
+        Scoped to single_cls/classes= on purpose: those two are the only
+        cases this trainer promises consistent class metadata for, and
+        ``_rebuild_for_new_classes`` resetting the wrapper to generic
+        ``class_N`` placeholders would otherwise leave that promise broken
+        (a classes=-trained model predicting "class4" instead of its real
+        name). An ordinary full-dataset run hitting a head-size mismatch
+        (e.g. resuming a checkpoint with a different nc) is a separate,
+        pre-existing bug with the same symptom, deliberately left alone
+        here -- fixing it is unrelated to classes= and belongs in its own
+        change, not bundled into this one.
+        """
+        if not (self.config.single_cls or self.config.classes):
+            return None
+        if self.config.single_cls:
+            return {0: "object"}
+        names = getattr(self, "_resolved_class_names", None)
+        if isinstance(names, dict):
+            return {int(k): str(v) for k, v in names.items()}
+        if names is not None:
+            return {i: str(name) for i, name in enumerate(names)}
         return None
 
     def _sync_wrapped_model_num_classes(self, num_classes: int) -> None:
@@ -1354,6 +1640,10 @@ class BaseTrainer(ABC):
         )
 
         if not needs_rebuild:
+            if wrapper is not None:
+                effective_names = self._effective_names_for_sync()
+                if effective_names is not None:
+                    wrapper.names = effective_names
             return
 
         if wrapper is None or not hasattr(wrapper, "_rebuild_for_new_classes"):
@@ -1374,6 +1664,9 @@ class BaseTrainer(ABC):
                 f"{self.get_model_family()} wrapper rebuild did not sync the model "
                 f"head to num_classes={num_classes}; got {rebuilt_nc}."
             )
+        effective_names = self._effective_names_for_sync()
+        if effective_names is not None:
+            wrapper.names = effective_names
 
     # =========================================================================
     # Setup / train / epoch
@@ -1414,6 +1707,7 @@ class BaseTrainer(ABC):
         if self._is_setup:
             return
 
+        self._sync_wrapper_subset_config()
         quant_manifest = getattr(self.wrapper_model, "_quant_manifest", None)
         if quant_manifest and quant_manifest.get("recipe") in ("fp16", "bf16"):
             raise ValueError(
@@ -1426,6 +1720,19 @@ class BaseTrainer(ABC):
             from ..quant.api import reprepare_model
 
             reprepare_model(self.wrapper_model)
+
+        if quant_manifest:
+            qat_changes = apply_qat_training_guards(self.config)
+            if qat_changes and is_main_process():
+                logger.warning(
+                    "QAT recipe '%s': disabled %s because these features can "
+                    "interfere with fake-quant observer and scale state.",
+                    quant_manifest.get("recipe", "unknown"),
+                    ", ".join(
+                        f"{option}={getattr(self.config, option)!r}"
+                        for option in qat_changes
+                    ),
+                )
 
         if getattr(self.config, "lora", False) and not self.supports_lora:
             family = self.get_model_family() if hasattr(self, "get_model_family") else "this model"
@@ -1446,10 +1753,14 @@ class BaseTrainer(ABC):
                     f"input. Supported families: {sorted(RECTANGULAR_TRAINING_FAMILIES)}."
                 )
             task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
-            if task != "detect":
+            allowed_tasks = RECTANGULAR_TRAINING_TASKS.get(
+                family.lower(), _DEFAULT_RECTANGULAR_TRAINING_TASKS
+            )
+            if task not in allowed_tasks:
                 raise ValueError(
                     f"Rectangular imgsz={tuple(imgsz)} is only supported for the "
-                    f"detect task, got task='{task}'."
+                    f"{'/'.join(sorted(allowed_tasks))} task for {family}, "
+                    f"got task='{task}'."
                 )
             stride = RECTANGULAR_TRAINING_FAMILIES.get(family.lower(), 32)
             h, w = int(imgsz[0]), int(imgsz[1])
@@ -1481,9 +1792,11 @@ class BaseTrainer(ABC):
         if getattr(self.config, "batch", 16) == -1:
             from libreyolo.training.autobatch import resolve_auto_batch, _DEFAULT_FRACTION
 
+            probe = self.autobatch_probe()
             self.config.batch = resolve_auto_batch(
                 self.model,
-                imgsz=self.config.imgsz,
+                imgsz=probe.get("imgsz", self.config.imgsz),
+                step=probe.get("step"),
                 amp=self.config.amp,
                 amp_dtype=self.config.amp_dtype,
                 world_size=self.world_size,
@@ -1540,6 +1853,7 @@ class BaseTrainer(ABC):
                 )
 
         self._setup_data()
+        self._assert_class_balanced_honored()
 
         # DDP loader invariant: trainers that own their data pipeline must
         # shard like BaseTrainer._setup_data does (issue #484: three trainers
@@ -1559,7 +1873,7 @@ class BaseTrainer(ABC):
         # _initialize_scheduler_lr() sets the correct LR on top.
         if getattr(self, "_resume_optimizer_state", None) is not None:
             try:
-                self.optimizer.load_state_dict(self._resume_optimizer_state)
+                restore_optimizer_state(self.optimizer, self._resume_optimizer_state)
                 logger.info("Optimizer state restored from resume checkpoint")
             except Exception as e:
                 logger.warning(f"Could not load deferred optimizer state: {e}")
@@ -1618,6 +1932,22 @@ class BaseTrainer(ABC):
                     self.config.ema_decay,
                     ema_tau,
                 )
+
+        average_best = int(getattr(self.config, "average_best", 0) or 0)
+        if average_best > 0:
+            from .weight_averaging import MetricGatedAverager
+
+            self._weight_averager = MetricGatedAverager(average_best)
+            if is_main_process():
+                logger.info(
+                    "Averaging the %d best checkpoints by the watched metric "
+                    "(weights/average.pt at the end of training)",
+                    average_best,
+                )
+            deferred = getattr(self, "_resume_average_pool_path", None)
+            if deferred:
+                self._restore_average_pool(deferred)
+                self._resume_average_pool_path = None
 
         # Save-dir creation, config dump, and TB writer all live on rank 0.
         # The resolved name (which may include an auto-increment suffix when
@@ -1692,26 +2022,43 @@ class BaseTrainer(ABC):
         # can only ever see the fully-built model, optimizer and criterion.
         # Unsupported run shapes downgrade to eager with one clear warning
         # instead of failing the run.
-        if getattr(self.config, "cuda_graph", False):
-            reason = None
-            if self.device.type != "cuda":
-                reason = "device is not CUDA"
-            elif self.is_distributed:
-                reason = "distributed training is not supported yet"
-            elif self.distiller is not None:
-                reason = "distillation runs are not supported"
-            if reason is not None:
-                if is_main_process():
-                    logger.warning(
-                        "cuda_graph=True ignored (%s); training runs eager.",
-                        reason,
-                    )
-            else:
-                from libreyolo.training.cuda_graph import TrainGraphManager
+        if getattr(self.config, "compile", False):
+            from libreyolo.training.compile import build_train_compiler
 
-                self._cuda_graph_manager = TrainGraphManager()
+            self._train_compiler = build_train_compiler(self)
+        # A compiled run replays CUDA graphs through the compiler, if at all:
+        # the eager capture manager would record Inductor's launches again.
+        # If compilation later falls back to eager, _forward_train starts it.
+        if self._train_compiler is None:
+            self._start_cuda_graph_manager()
 
         self._is_setup = True
+
+    def _start_cuda_graph_manager(self) -> None:
+        """Create the eager capture manager when ``cuda_graph=True`` allows it."""
+        if not getattr(self.config, "cuda_graph", False):
+            return
+        reason = None
+        if self.device.type != "cuda":
+            reason = "device is not CUDA"
+        elif self.is_distributed:
+            reason = "distributed training is not supported yet"
+        elif self.distiller is not None:
+            reason = "distillation runs are not supported"
+        if reason is not None:
+            if is_main_process():
+                logger.warning(
+                    "cuda_graph=True ignored (%s); training runs eager.",
+                    reason,
+                )
+            return
+        from libreyolo.training.cuda_graph import TrainGraphManager
+
+        # One-step-per-batch loops drop ``.grad`` between forward and
+        # backward; accumulation keeps it alive across replays.
+        self._cuda_graph_manager = TrainGraphManager(
+            preserve_accumulated_grads=self._accum_steps > 1
+        )
 
     def _ddp_find_unused_parameters(self) -> bool:
         """Subclasses override to flip when their forward graph is conditional.
@@ -1770,7 +2117,14 @@ class BaseTrainer(ABC):
         # a leftover True would silently truncate this run's first epoch.
         self._stop_training = False
         try:
+            # Containers with a CPU limit still show every host core; an
+            # oversized OpenMP pool then gets the process throttled each
+            # step. Scoped to train(): the finally below restores it.
+            from .cpu_threads import cap_torch_threads
+
+            self._threads_before_cap = cap_torch_threads()
             self.setup()
+            self._maybe_export_check()
 
             if is_main_process():
                 logger.info(f"Starting training for {self.config.epochs} epochs")
@@ -1792,7 +2146,7 @@ class BaseTrainer(ABC):
                 if is_main_process():
                     logger.info(
                         f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
-                        f"disabling mosaic/mixup immediately"
+                        f"disabling strong augmentation (mosaic/mixup, policies) immediately"
                     )
                 self.on_mosaic_disable()
 
@@ -1802,7 +2156,8 @@ class BaseTrainer(ABC):
                 if epoch == no_aug_start:
                     if is_main_process():
                         logger.info(
-                            f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs"
+                            f"Disabling strong augmentation (mosaic/mixup, policies) for final "
+                            f"{self.config.no_aug_epochs} epochs"
                         )
                     self.on_mosaic_disable()
 
@@ -1816,11 +2171,45 @@ class BaseTrainer(ABC):
                 self.epoch_losses.append(epoch_loss)
 
                 profile_truncated = bool(getattr(self, "_stop_training", False))
+                if (
+                    not profile_truncated
+                    and getattr(self, "_fitness_callback", None) is not None
+                ):
+                    val_metrics = self._apply_fitness(val_metrics)
                 is_best = (
                     False
                     if profile_truncated
                     else self._update_best_state(epoch, val_metrics)
                 )
+                # Rank 0 owns validation metrics, so broadcast the patience
+                # decision before any rank can enter the next epoch alone.
+                epochs_since_best = (
+                    (epoch + 1) - self.best_epoch if self.best_epoch else 0
+                )
+                should_stop = (
+                    self.config.patience > 0
+                    and self.best_epoch > 0
+                    and epochs_since_best >= self.config.patience
+                )
+                should_stop = self._sync_main_bool(should_stop)
+                if should_stop and not profile_truncated:
+                    save_final_plots = bool(
+                        getattr(self.config, "save_plots", False)
+                    ) and not self._is_final_epoch(epoch)
+                    if self._maybe_precise_bn(epoch, force=True):
+                        refreshed = self._validate_epoch(
+                            epoch, save_plots=save_final_plots
+                        )
+                        if getattr(self, "_fitness_callback", None) is not None:
+                            refreshed = self._apply_fitness(refreshed)
+                        if refreshed is not None:
+                            val_metrics = refreshed
+                            is_best = self._update_best_state(epoch, val_metrics)
+                    elif save_final_plots:
+                        self._validate_epoch(epoch, save_plots=True)
+                    should_stop = self._sync_main_bool(
+                        should_stop and not is_best
+                    )
                 # Write ``last.pt`` every epoch so a crash never costs more than
                 # a single epoch. ``best.pt`` (is_best) and periodic
                 # ``epoch_N.pt`` (save_period) stay gated inside
@@ -1830,6 +2219,7 @@ class BaseTrainer(ABC):
                 # partial epoch as complete would make a later resume skip the
                 # rest of it.
                 if not profile_truncated:
+                    self._maybe_offer_average(val_metrics)
                     self._save_checkpoint(
                         epoch, epoch_loss, val_metrics, is_best=is_best
                     )
@@ -1857,26 +2247,7 @@ class BaseTrainer(ABC):
                 # improvement. ``best_epoch`` is the 1-based epoch of the best
                 # result, so this stays meaningful even when validation only
                 # runs on an interval (unlike counting discrete val events).
-                epochs_since_best = (
-                    (epoch + 1) - self.best_epoch if self.best_epoch else 0
-                )
-                should_stop = (
-                    self.config.patience > 0
-                    and self.best_epoch > 0
-                    and epochs_since_best >= self.config.patience
-                )
-                if self.is_distributed:
-                    import torch.distributed as _dist
-
-                    flag = torch.tensor(int(should_stop), dtype=torch.int, device=self.device)
-                    _dist.broadcast(flag, src=0)
-                    should_stop = bool(flag.item())
                 if should_stop:
-                    if (
-                        bool(getattr(self.config, "save_plots", False))
-                        and not self._is_final_epoch(epoch)
-                    ):
-                        self._validate_epoch(epoch, save_plots=True)
                     if is_main_process():
                         logger.info(
                             f"Early stopping triggered after {epoch + 1} epochs "
@@ -1890,6 +2261,22 @@ class BaseTrainer(ABC):
             if getattr(self, "distiller", None) is not None:
                 self.distiller.cleanup()
 
+            self._refresh_best_precise_bn_checkpoint()
+            try:
+                self._write_average_checkpoint()
+            finally:
+                # Rank 0 has just written the final checkpoints. Every rank
+                # reloads them after train() returns, so no rank may leave
+                # before the writes are complete. In ``finally`` so a rank-0
+                # failure still releases its peers.
+                barrier()
+            adopt_input_size = getattr(
+                getattr(self, "wrapper_model", None),
+                "_adopt_trained_input_size",
+                None,
+            )
+            if callable(adopt_input_size):
+                adopt_input_size(getattr(self.config, "imgsz", None))
             total_time = time.time() - start_time
             if is_main_process():
                 if getattr(self, "_stop_training", False):
@@ -1904,6 +2291,7 @@ class BaseTrainer(ABC):
                     )
 
             results = self._build_train_results()
+            self._record_trained_dataset()
             end_event = self._build_train_end_event(total_time, results)
             if is_main_process():
                 self._dispatch_artifact_callbacks("on_train_end", end_event)
@@ -1920,6 +2308,44 @@ class BaseTrainer(ABC):
                 except Exception:
                     logger.exception("Training exception callback failed")
             raise
+        finally:
+            from .cpu_threads import restore_torch_threads
+
+            restore_torch_threads(getattr(self, "_threads_before_cap", None))
+            self._threads_before_cap = None
+
+    def _sync_wrapper_subset_config(self) -> None:
+        """Point the wrapper's saved-run config at this run's class subset.
+
+        Validators inherit ``single_cls``/``classes`` from the checkpoint the
+        wrapper was loaded from, so a subset-trained checkpoint validates the
+        way it was trained. Once a new run starts, that checkpoint no longer
+        describes the model: fine-tuning a ``single_cls`` checkpoint on
+        multi-class data must not validate every epoch on collapsed labels.
+        """
+        wrapper = getattr(self, "wrapper_model", None)
+        probe = getattr(wrapper, "_checkpoint_train_config", None)
+        if wrapper is None or not callable(probe):
+            return
+        wrapper._loaded_checkpoint_train_config = {
+            **probe(),
+            "single_cls": bool(getattr(self.config, "single_cls", False)),
+            "classes": getattr(self.config, "classes", None),
+        }
+
+    def _record_trained_dataset(self) -> None:
+        """Let ``val()`` without ``data=`` use this run's dataset.
+
+        Only once training finished: until then the weights still belong to
+        the checkpoint the wrapper was loaded from. Families that reload a
+        checkpoint afterwards overwrite this with the same value.
+        """
+        wrapper = getattr(self, "wrapper_model", None)
+        probe = getattr(wrapper, "_checkpoint_train_config", None)
+        data = getattr(self.config, "data", None)
+        if wrapper is None or not callable(probe) or not data:
+            return
+        wrapper._loaded_checkpoint_train_config = {**probe(), "data": data}
 
     def _dispatch_artifact_callbacks(self, method_name: str, event) -> None:
         try:
@@ -1951,6 +2377,12 @@ class BaseTrainer(ABC):
             "last_checkpoint": (
                 str(last_checkpoint) if last_checkpoint.exists() else None
             ),
+            "average_checkpoint": (
+                str(weights_dir / "average.pt")
+                if (weights_dir / "average.pt").exists()
+                else None
+            ),
+            "average_metrics": getattr(self, "_average_validation_metrics", None),
         }
 
     def _event_context(self) -> Dict[str, Any]:
@@ -2082,6 +2514,8 @@ class BaseTrainer(ABC):
         return scalar if scalar is not None else 0.0
 
     def _best_metric_name(self, val_metrics: Optional[Dict[str, Any]]) -> str:
+        if getattr(self, "_fitness_callback", None) is not None:
+            return "fitness/custom"
         if val_metrics:
             return str(
                 val_metrics.get(
@@ -2090,6 +2524,59 @@ class BaseTrainer(ABC):
                 )
             )
         return str(getattr(self, "best_metric_key", "metrics/mAP50-95"))
+
+    def _apply_fitness(
+        self, val_metrics: Optional[Dict[str, Any]], *, synchronize: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """Score once, then let all score consumers reuse the selected value.
+
+        The main loop calls this on every rank, even without validation.
+        Share scorer failures before the next training collective so peer
+        ranks do not continue alone. Final averaging already runs on rank 0
+        and therefore uses ``synchronize=False``.
+        """
+        scorer = getattr(self, "_fitness_callback", None)
+        if scorer is None:
+            return val_metrics
+        error = None
+        if is_main_process() and val_metrics:
+            try:
+                metrics = MappingProxyType(
+                    self._validation_metrics_for_event(val_metrics)
+                )
+                score = scorer(metrics)
+                if isinstance(score, torch.Tensor):
+                    if (
+                        score.ndim != 0
+                        or score.is_complex()
+                        or score.dtype == torch.bool
+                    ):
+                        raise TypeError("fitness must return a finite real scalar")
+                    score = score.detach().item()
+                if isinstance(score, bool) or not isinstance(score, Real):
+                    raise TypeError("fitness must return a finite real scalar")
+                score = float(score)
+                if not math.isfinite(score):
+                    raise ValueError("fitness must return a finite real scalar")
+                val_metrics = dict(
+                    val_metrics, best_metric=score, best_metric_key="fitness/custom"
+                )
+            except BaseException as exc:
+                error = exc
+        if synchronize and self.is_distributed:
+            import torch.distributed as _dist
+
+            status = [
+                f"{type(error).__name__}: {error}" if error is not None else None
+            ]
+            _dist.broadcast_object_list(status, src=0)
+            if status[0] is not None and error is None:
+                raise RuntimeError(
+                    f"Training fitness callback failed on rank 0: {status[0]}"
+                )
+        if error is not None:
+            raise error
+        return val_metrics
 
     def _validation_metrics_for_event(
         self, val_metrics: Optional[Dict[str, Any]]
@@ -2161,6 +2648,15 @@ class BaseTrainer(ABC):
             self.patience_counter += 1
         return is_best
 
+    def _sync_main_bool(self, value: bool) -> bool:
+        if not self.is_distributed:
+            return value
+        import torch.distributed as _dist
+
+        flag = torch.tensor(int(value), dtype=torch.int, device=self.device)
+        _dist.broadcast(flag, src=0)
+        return bool(flag.item())
+
     def _get_clip_max_norm(self) -> float:
         value = getattr(self.config, "clip_max_norm", 0.0)
         if value is None:
@@ -2184,11 +2680,24 @@ class BaseTrainer(ABC):
         for param_group in self.optimizer.param_groups:
             param_group["lr"] = self._scale_lr(base_lr, param_group)
 
+    def _apply_scheduler(self, iters: int) -> float:
+        """Step the LR scheduler and optional momentum warmup."""
+        lr = self.lr_scheduler.update_lr(iters)
+        self._set_optimizer_lr(lr)
+        update_momentum = getattr(self.lr_scheduler, "update_momentum", None)
+        if callable(update_momentum):
+            momentum = update_momentum(iters)
+            if momentum is not None:
+                for param_group in self.optimizer.param_groups:
+                    if "momentum" in param_group:
+                        param_group["momentum"] = momentum
+        return lr
+
     def _initialize_scheduler_lr(self) -> None:
         if self.optimizer is None or self.lr_scheduler is None:
             return
         init_iter = getattr(self, "start_epoch", 0) * self._scheduler_steps_per_epoch()
-        self._set_optimizer_lr(self.lr_scheduler.update_lr(init_iter))
+        self._apply_scheduler(init_iter)
 
     def _gradient_clip_parameters(self) -> List[torch.nn.Parameter]:
         if self.optimizer is None:
@@ -2352,8 +2861,7 @@ class BaseTrainer(ABC):
             del outputs, loss, total_loss_raw
 
             # LR update
-            lr = self.lr_scheduler.update_lr(self.current_iter + 1)
-            self._set_optimizer_lr(lr)
+            lr = self._apply_scheduler(self.current_iter + 1)
             num_batches += 1
 
             # Progress bar
@@ -2383,6 +2891,8 @@ class BaseTrainer(ABC):
         }
         if is_main_process():
             logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
+
+        self._maybe_precise_bn(epoch)
 
         # Validation. A profile-only run (profile_then_stop) truncated the
         # epoch, so validating the barely-trained weights would waste time and
@@ -2523,8 +3033,7 @@ class BaseTrainer(ABC):
                 if self.ema_model is not None:
                     self.ema_model.update(self.model)
                 # LR update
-                lr = self.lr_scheduler.update_lr(opt_step + 1)
-                self._set_optimizer_lr(lr)
+                lr = self._apply_scheduler(opt_step + 1)
 
             # Logging uses the raw pre-scale value (single-GPU semantics).
             loss_val = float(total_loss_raw.detach().item())
@@ -2568,6 +3077,8 @@ class BaseTrainer(ABC):
         if is_main_process():
             logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
 
+        self._maybe_precise_bn(epoch)
+
         # Validation. A profile-only run (profile_then_stop) truncated the
         # epoch, so validating the barely-trained weights would waste time and
         # could poison the best-metric state.
@@ -2583,16 +3094,25 @@ class BaseTrainer(ABC):
     # Validation
     # =========================================================================
 
+    def _validation_save_dir(self) -> Optional[str]:
+        """Where validation during training writes (config.yaml, plots, json).
+
+        Inside the run, so it never leaves runs/val/<tag>_<time> directories
+        in the working directory.
+        """
+        save_dir = getattr(self, "save_dir", None)
+        return str(Path(save_dir) / "val") if save_dir is not None else None
+
     def _should_validate_epoch(self, epoch: int) -> bool:
-        scheduled = (
-            self.config.eval_interval > 0
-            and (epoch + 1) % self.config.eval_interval == 0
+        # eval_interval <= 0 (val=False) turns validation off, final epoch
+        # included. Otherwise the final epoch always validates, so a short run
+        # still reports metrics, writes best.pt and gets its final plots and
+        # precise-BN metrics.
+        if self.config.eval_interval <= 0:
+            return False
+        return (epoch + 1) % self.config.eval_interval == 0 or self._is_final_epoch(
+            epoch
         )
-        final_plot = (
-            bool(getattr(self.config, "save_plots", False))
-            and self._is_final_epoch(epoch)
-        )
-        return scheduled or final_plot
 
     def _is_final_epoch(self, epoch: int) -> bool:
         return (epoch + 1) >= self.config.epochs
@@ -2645,12 +3165,12 @@ class BaseTrainer(ABC):
                 if save_plots is not None
                 else bool(getattr(self.config, "save_plots", False)) and is_final_epoch
             )
-            val_save_dir = (
-                str(self.save_dir / "val") if val_save_plots else None
-            )
+            val_save_dir = self._validation_save_dir()
 
             val_config = ValidationConfig(
                 data=self.config.data,
+                single_cls=getattr(self.config, "single_cls", False),
+                classes=getattr(self.config, "classes", None),
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
                 conf_thres=0.001,
@@ -2665,6 +3185,7 @@ class BaseTrainer(ABC):
                 num_workers=self.config.workers,
                 save_plots=val_save_plots,
                 save_dir=val_save_dir,
+                plot_samples=getattr(self.config, "plot_samples", 8),
                 # One knob for both loops: a run that opts into image caching
                 # for training gets the same for its (deterministic) validation.
                 cache=getattr(self.config, "cache", False),
@@ -2787,6 +3308,7 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running classification validation for epoch {epoch + 1}")
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
@@ -2796,6 +3318,10 @@ class BaseTrainer(ABC):
                 verbose=False,
                 num_workers=self.config.workers,
                 split="val",
+                # Epoch validation must use the eval crop the user asked
+                # for, or best.pt is selected against different
+                # preprocessing than val() reports (#878).
+                crop_pct=getattr(self.config, "crop_pct", None),
             )
 
             eval_pytorch_model = (
@@ -2803,8 +3329,16 @@ class BaseTrainer(ABC):
             )
             original_model = self.wrapper_model.model
             self.wrapper_model.model = eval_pytorch_model
+            # The model's own validator when it declares one, as val() uses,
+            # so families with a family dataset (V-JEPA 2 clips) validate on it.
+            validator_cls = getattr(self.wrapper_model, "validator_class", None)
+            if not (
+                isinstance(validator_cls, type)
+                and issubclass(validator_cls, ClassifyValidator)
+            ):
+                validator_cls = ClassifyValidator
             try:
-                validator = ClassifyValidator(
+                validator = validator_cls(
                     model=self.wrapper_model,
                     config=val_config,
                     **self._validation_loss_kwargs(eval_pytorch_model),
@@ -2844,10 +3378,18 @@ class BaseTrainer(ABC):
                 return None
 
             logger.info(f"Running semantic validation for epoch {epoch + 1}")
+            # A family whose reference recipe validates on a canvas different
+            # from its train crop (PP-LiteSeg's 75 sizes train on 768x768 and
+            # validate on 768x1536) declares it here; everyone else keeps
+            # validating at the training imgsz.
+            val_imgsz = (
+                getattr(self.wrapper_model, "semantic_val_imgsz", None) or self.config.imgsz
+            )
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
-                imgsz=self.config.imgsz,
+                imgsz=val_imgsz,
                 device=str(self.device),
                 half=self.config.amp and self.device.type == "cuda",
                 amp_dtype=self.config.amp_dtype,
@@ -2902,6 +3444,7 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running depth validation for epoch {epoch + 1}")
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
@@ -2956,6 +3499,7 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running restore validation for epoch {epoch + 1}")
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
@@ -3001,6 +3545,501 @@ class BaseTrainer(ABC):
             logger.debug(f"Validation traceback:\n{traceback.format_exc()}")
             return None
 
+    def _maybe_export_check(self) -> None:
+        if not bool(getattr(self.config, "export_check", False)):
+            return
+        error: Optional[BaseException] = None
+        if is_main_process():
+            try:
+                from .export_check import run_export_parity_check
+
+                wrapper = self.wrapper_model
+                if wrapper is None:
+                    raise RuntimeError("export_check=True requires a wrapper model")
+                logger.info("export_check: exporting ONNX before epoch 1")
+                run_export_parity_check(
+                    wrapper,
+                    out_dir=self.save_dir,
+                    imgsz=getattr(self.config, "imgsz", 640),
+                )
+            except BaseException as exc:
+                error = exc
+        barrier()
+        if self.is_distributed:
+            import torch.distributed as dist
+
+            payload = [None if error is None else f"{type(error).__name__}: {error}"]
+            dist.broadcast_object_list(payload, src=0)
+            if payload[0] is not None:
+                if error is not None:
+                    raise error
+                raise RuntimeError(f"export_check failed on rank 0: {payload[0]}")
+        elif error is not None:
+            raise error
+
+    def _assert_class_balanced_honored(self) -> None:
+        if not bool(getattr(self.config, "class_balanced", False)):
+            return
+        from torch.utils.data import WeightedRandomSampler
+
+        from ..data.class_balanced import DistributedClassBalancedSampler
+
+        sampler = getattr(getattr(self, "train_loader", None), "sampler", None)
+        if isinstance(
+            sampler, (WeightedRandomSampler, DistributedClassBalancedSampler)
+        ):
+            return
+        raise ValueError(
+            f"class_balanced=True is not supported for {self.get_model_family()}: "
+            "this family does not build the train loader through the shared "
+            "detection sampler. Omit class_balanced or use a family that does "
+            "(e.g. YOLO9 / YOLOX)."
+        )
+
+    def _maybe_precise_bn(self, epoch: int, *, force: bool = False) -> bool:
+        samples = int(getattr(self.config, "precise_bn", 0) or 0)
+        if samples <= 0:
+            return False
+        if not force and not self._is_final_epoch(epoch):
+            return False
+        if getattr(self, "_stop_training", False):
+            return False
+        if getattr(self, "_precise_bn_done", False):
+            return False
+        from .precise_bn import compute_precise_bn_stats
+
+        updated = 0
+        raw_model = unwrap_model(self.model)
+        frozen_ids = {id(module) for module in getattr(self, "_frozen_bn_modules", ())}
+        excluded_names = {
+            name
+            for name, module in raw_model.named_modules()
+            if id(module) in frozen_ids
+        }
+        targets = [raw_model]
+        ema = getattr(self, "ema_model", None)
+        if ema is not None and getattr(ema, "ema", None) is not None:
+            targets.append(ema.ema)
+        for net in targets:
+            updated = max(
+                updated,
+                compute_precise_bn_stats(
+                    net,
+                    self.train_loader,
+                    samples,
+                    device=self.device,
+                    excluded_names=excluded_names,
+                ),
+            )
+        self._precise_bn_done = True
+        return updated > 0
+
+    def _refresh_best_precise_bn_checkpoint(self) -> bool:
+        """Recompute BN statistics for a historical best checkpoint.
+
+        The final epoch path recalibrates the live model before validation and
+        checkpointing. If an earlier epoch remains best, rank 0 loads that
+        state and broadcasts it before recalibration so no shared filesystem is
+        required. Live last-epoch weights are restored afterward.
+        """
+        samples = int(getattr(self.config, "precise_bn", 0) or 0)
+        if samples <= 0 or getattr(self, "_stop_training", False):
+            return False
+
+        from .precise_bn import compute_precise_bn_stats
+
+        distributed = bool(getattr(self, "is_distributed", False))
+        best_epoch = int(getattr(self, "best_epoch", 0) or 0)
+        # No validated best (e.g. val=False): nothing to refresh.
+        refresh = best_epoch > 0 and best_epoch != self.current_epoch + 1
+        refresh = self._sync_main_bool(refresh)
+        if not refresh:
+            return False
+        try:
+            best_path = self.save_dir / "weights" / "best.pt"
+            checkpoint = None
+            model_state = None
+            checkpoint_error = None
+            if not distributed or is_main_process():
+                if not best_path.is_file():
+                    checkpoint_error = f"best checkpoint not found: {best_path}"
+                else:
+                    try:
+                        checkpoint = load_trusted_torch_file(
+                            best_path,
+                            map_location="cpu",
+                            context="precise BN best checkpoint",
+                        )
+                    except Exception as exc:
+                        checkpoint_error = (
+                            f"could not read best checkpoint {best_path}: {exc}"
+                        )
+                    else:
+                        model_state = (
+                            checkpoint.get("model")
+                            if isinstance(checkpoint, Mapping)
+                            else None
+                        )
+                        if not isinstance(model_state, Mapping):
+                            checkpoint_error = (
+                                f"best checkpoint has no model state: {best_path}"
+                            )
+
+            if distributed:
+                import torch.distributed as _dist
+
+                status = [checkpoint_error]
+                _dist.broadcast_object_list(status, src=0)
+                checkpoint_error = status[0]
+            if checkpoint_error is not None:
+                if is_main_process():
+                    logger.warning("precise_bn: %s", checkpoint_error)
+                return False
+
+            raw_model = unwrap_model(self.model)
+            ema = getattr(self, "ema_model", None)
+            ema_model = getattr(ema, "ema", None) if ema is not None else None
+            raw_checkpoint_state = (
+                checkpoint.get("train_model", model_state)
+                if checkpoint is not None
+                else None
+            )
+            targets = [
+                (
+                    raw_model,
+                    raw_checkpoint_state,
+                    "train_model" if ema_model is not None else "model",
+                )
+            ]
+            if ema_model is not None:
+                targets.append(
+                    (
+                        ema_model,
+                        checkpoint.get("ema", model_state)
+                        if checkpoint is not None
+                        else None,
+                        "ema",
+                    )
+                )
+
+            frozen_ids = {
+                id(module) for module in getattr(self, "_frozen_bn_modules", ())
+            }
+            excluded_names = {
+                name
+                for name, module in raw_model.named_modules()
+                if id(module) in frozen_ids
+            }
+            live_states = [
+                {
+                    key: value.detach().to("cpu").clone()
+                    for key, value in target.state_dict().items()
+                }
+                for target, _state, _key in targets
+            ]
+            refreshed_states: dict[str, dict[str, torch.Tensor]] = {}
+            updated = 0
+            try:
+                load_error = None
+                if not distributed or is_main_process():
+                    try:
+                        for target, state, _key in targets:
+                            target.load_state_dict(state, strict=True)
+                    except Exception as exc:
+                        load_error = f"could not load historical best state: {exc}"
+                if distributed:
+                    status = [load_error]
+                    _dist.broadcast_object_list(status, src=0)
+                    load_error = status[0]
+                if load_error is not None:
+                    raise RuntimeError(f"precise_bn: {load_error}")
+
+                if distributed:
+                    for target, _state, _key in targets:
+                        for value in target.state_dict().values():
+                            _dist.broadcast(value, src=0)
+
+                for target, state, key in targets:
+                    count = compute_precise_bn_stats(
+                        target,
+                        self.train_loader,
+                        samples,
+                        device=self.device,
+                        excluded_names=excluded_names,
+                    )
+                    updated = max(updated, count)
+                    if is_main_process():
+                        refreshed_states[key] = {
+                            name: value.detach().to("cpu").clone()
+                            for name, value in target.state_dict().items()
+                        }
+            finally:
+                for (target, _state, _key), live_state in zip(
+                    targets, live_states, strict=True
+                ):
+                    target.load_state_dict(live_state, strict=True)
+
+            if updated <= 0:
+                return False
+            if is_main_process():
+                assert checkpoint is not None
+                raw_state = refreshed_states[targets[0][2]]
+                selected_state = (
+                    refreshed_states["ema"] if ema_model is not None else raw_state
+                )
+                checkpoint["model"] = selected_state
+                if ema_model is not None:
+                    checkpoint["train_model"] = raw_state
+                    checkpoint["ema"] = selected_state
+                validate_checkpoint_metadata(checkpoint, strict=True)
+                torch.save(checkpoint, best_path)
+                logger.info(
+                    "precise_bn: refreshed historical best checkpoint: %s",
+                    best_path,
+                )
+            return True
+        finally:
+            if distributed:
+                barrier()
+
+    def _maybe_offer_average(self, val_metrics: Optional[Dict[str, Any]]) -> None:
+        averager = getattr(self, "_weight_averager", None)
+        if averager is None or not val_metrics or not is_main_process():
+            return
+        metric = self._best_metric_value(val_metrics)
+        source = self.ema_model.ema if self.ema_model else unwrap_model(self.model)
+        if averager.consider(source, metric):
+            logger.info(
+                "average_best: admitted snapshot (metric=%.5f, pool=%d/%d)",
+                metric,
+                averager.size,
+                averager.n,
+            )
+            self._persist_average_pool()
+
+    def _write_average_checkpoint(self) -> Optional[Path]:
+        averager = getattr(self, "_weight_averager", None)
+        if averager is None:
+            return None
+        distributed = bool(getattr(self, "is_distributed", False))
+        if not is_main_process():
+            if distributed:
+                barrier()
+            return None
+        try:
+            averaged = averager.average_state_dict()
+            if averaged is None:
+                return None
+
+            logger.info("average_best: validating averaged weights")
+            average_metrics = self._validate_average_state(averaged)
+            if getattr(self, "_fitness_callback", None) is not None:
+                average_metrics = self._apply_fitness(
+                    average_metrics, synchronize=False
+                )
+            self._average_validation_metrics = average_metrics
+            if average_metrics is None:
+                logger.warning(
+                    "average_best: averaged weights were written without validation "
+                    "metrics because final validation did not complete"
+                )
+
+            weights_dir = self.save_dir / "weights"
+            weights_dir.mkdir(exist_ok=True)
+            path = weights_dir / "average.pt"
+            names = (
+                self.wrapper_model.names
+                if self.wrapper_model is not None
+                and hasattr(self.wrapper_model, "names")
+                else build_class_names(
+                    int(getattr(self, "num_classes", self.config.num_classes))
+                )
+            )
+            checkpoint_imgsz = getattr(self.config, "imgsz", 640)
+            extra_checkpoint_meta = {}
+            if isinstance(checkpoint_imgsz, (list, tuple)):
+                cp_h, cp_w = int(checkpoint_imgsz[0]), int(checkpoint_imgsz[1])
+                checkpoint_imgsz = max(cp_h, cp_w)
+                if cp_h != cp_w:
+                    extra_checkpoint_meta["imgsz_h"] = cp_h
+                    extra_checkpoint_meta["imgsz_w"] = cp_w
+            extra_checkpoint_meta.update(self._checkpoint_extra_metadata())
+            checkpoint_task = extra_checkpoint_meta.pop(
+                "task", getattr(getattr(self, "wrapper_model", None), "task", "detect")
+            )
+            # As in _save_checkpoint, a family's extra metadata wins over the
+            # config imgsz (U-Net stores its evaluation canvas here).
+            checkpoint_imgsz = extra_checkpoint_meta.pop("imgsz", checkpoint_imgsz)
+            average_metric_key = (
+                average_metrics.get("best_metric_key") if average_metrics else None
+            )
+            average_metric_value = (
+                self._best_metric_value(average_metrics) if average_metrics else None
+            )
+            checkpoint = wrap_libreyolo_checkpoint(
+                averaged,
+                model_family=self.get_model_family(),
+                size=self.config.size,
+                task=checkpoint_task,
+                nc=int(getattr(self, "num_classes", self.config.num_classes)),
+                names=names,
+                imgsz=int(checkpoint_imgsz),
+                epoch=self.current_epoch,
+                best_mAP50_95=self.best_mAP50_95,
+                best_mAP50=self.best_mAP50,
+                best_metric_key=(
+                    "fitness/custom"
+                    if getattr(self, "_fitness_callback", None) is not None
+                    else getattr(self, "best_metric_key", "metrics/mAP50-95")
+                ),
+                best_metric_value=self.best_mAP50_95,
+                fitness_source=(
+                    "callback"
+                    if getattr(self, "_fitness_callback", None) is not None else None
+                ),
+                best_epoch=self.best_epoch,
+                is_ema_weights=self.ema_model is not None,
+                averaged_snapshot_count=averager.size,
+                average_metric_key=average_metric_key,
+                average_metric_value=average_metric_value,
+                **extra_checkpoint_meta,
+            )
+            torch.save(checkpoint, path)
+            logger.info(
+                "average_best: wrote %s from %d snapshots (source metrics=%s)",
+                path,
+                averager.size,
+                averager.metrics(),
+            )
+            return path
+        finally:
+            if distributed:
+                barrier()
+
+    def _validate_average_state(
+        self, averaged: Mapping[str, torch.Tensor]
+    ) -> Optional[Dict[str, Any]]:
+        """Validate averaged weights once without changing the live train state."""
+        source = self.ema_model.ema if self.ema_model else unwrap_model(self.model)
+        live_state = {
+            key: value.detach().to("cpu").clone()
+            for key, value in source.state_dict().items()
+        }
+        try:
+            source.load_state_dict(averaged, strict=True)
+            return self._run_validation(self.current_epoch, save_plots=False)
+        finally:
+            source.load_state_dict(live_state, strict=True)
+
+    def _average_pool_path(self, directory: Path | None = None) -> Path:
+        root = directory if directory is not None else (self.save_dir / "weights")
+        return Path(root) / "average_pool.pt"
+
+    def _persist_average_pool(self) -> None:
+        averager = getattr(self, "_weight_averager", None)
+        if averager is None or averager.size == 0 or not is_main_process():
+            return
+        save_dir = getattr(self, "save_dir", None)
+        if save_dir is None:
+            return
+        averager.save(self._average_pool_path())
+
+    def _restore_average_pool(self, checkpoint_path: str | Path) -> None:
+        averager = getattr(self, "_weight_averager", None)
+        if averager is None:
+            self._resume_average_pool_path = str(checkpoint_path)
+            return
+        checkpoint_path = Path(checkpoint_path)
+        sidecar = checkpoint_path.parent / "average_pool.pt"
+        if sidecar.is_file():
+            try:
+                loaded = averager.load(sidecar)
+            except Exception as exc:
+                logger.warning(
+                    "Could not restore average_best pool from %s: %s", sidecar, exc
+                )
+            else:
+                if loaded and is_main_process():
+                    logger.info(
+                        "average_best: restored %d snapshot(s) from %s",
+                        loaded,
+                        sidecar,
+                    )
+                return
+        # last.pt (or any non-best resume) is not the historical best. Tagging
+        # those live weights with best_mAP50_95 would let them block later
+        # snapshots while the real best stays out of average.pt.
+        seed = self._average_seed_snapshot(checkpoint_path)
+        if seed is None:
+            if is_main_process():
+                logger.info(
+                    "average_best: starting with an empty pool; no average_pool.pt "
+                    "next to %s and the resumed weights are not the recorded best",
+                    checkpoint_path,
+                )
+            return
+        seed_state, metric = seed
+        if averager.consider_state(seed_state, metric) and is_main_process():
+            logger.info(
+                "average_best: seeded pool from the recorded best weights "
+                "(metric=%.5f); no average_pool.pt next to %s",
+                metric,
+                checkpoint_path,
+            )
+
+    def _average_seed_snapshot(
+        self, checkpoint_path: Path
+    ) -> Optional[Tuple[Dict[str, torch.Tensor], float]]:
+        """State and metric that were recorded together, or None."""
+        resumed_metric = float(getattr(self, "best_mAP50_95", 0.0) or 0.0)
+        if checkpoint_path.name.lower() == "best.pt":
+            return self._live_average_source_state(), resumed_metric
+        sibling = checkpoint_path.parent / "best.pt"
+        if sibling.is_file():
+            snapshot = self._snapshot_from_checkpoint(sibling)
+            if snapshot is not None:
+                return snapshot
+        resumed_epoch = int(getattr(self, "start_epoch", 1))
+        if resumed_epoch == int(getattr(self, "best_epoch", -1)):
+            return self._live_average_source_state(), resumed_metric
+        return None
+
+    def _live_average_source_state(self) -> Dict[str, torch.Tensor]:
+        source = self.ema_model.ema if self.ema_model else unwrap_model(self.model)
+        return source.state_dict()
+
+    def _snapshot_from_checkpoint(
+        self, path: Path
+    ) -> Optional[Tuple[Dict[str, torch.Tensor], float]]:
+        try:
+            blob = load_trusted_torch_file(
+                path, map_location="cpu", context="average_best seed checkpoint"
+            )
+        except Exception as exc:
+            logger.warning("Could not read %s to seed average_best: %s", path, exc)
+            return None
+        state = blob.get("model") if isinstance(blob, Mapping) else None
+        if not isinstance(state, Mapping):
+            logger.warning(
+                "Checkpoint %s has no model state to seed average_best", path
+            )
+            return None
+        metric = None
+        for key in ("best_metric_value", "best_metric", "best_mAP50_95"):
+            try:
+                candidate = float(blob[key])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if math.isfinite(candidate):
+                metric = candidate
+                break
+        if metric is None:
+            logger.warning(
+                "Checkpoint %s has no finite best metric to seed average_best", path
+            )
+            return None
+        return state, metric
+
     # =========================================================================
     # Checkpointing
     # =========================================================================
@@ -3032,6 +4071,8 @@ class BaseTrainer(ABC):
             if val_metrics
             else getattr(self, "best_metric_key", "metrics/mAP50-95")
         )
+        if getattr(self, "_fitness_callback", None) is not None:
+            best_metric_key = "fitness/custom"
         names = (
             self.wrapper_model.names
             if self.wrapper_model is not None and hasattr(self.wrapper_model, "names")
@@ -3080,6 +4121,10 @@ class BaseTrainer(ABC):
             best_mAP50=self.best_mAP50,
             best_metric_key=best_metric_key,
             best_metric_value=self.best_mAP50_95,
+            fitness_source=(
+                "callback"
+                if getattr(self, "_fitness_callback", None) is not None else None
+            ),
             best_epoch=self.best_epoch,
             is_ema_weights=self.ema_model is not None,
             **extra_checkpoint_meta,
@@ -3154,9 +4199,15 @@ class BaseTrainer(ABC):
         logger.info(f"Checkpoint saved: {latest_path}")
 
     def _checkpoint_extra_metadata(self) -> Dict[str, Any]:
-        return {}
+        from ..utils.event_histogram import input_metadata
+        return input_metadata(self.wrapper_model)
 
     def resume(self, checkpoint_path: str):
+        if getattr(self, "_fitness_callback", None) is not None:
+            raise ValueError(
+                "Custom fitness does not support resume: callback code and state "
+                "are not saved. Load weights into a new run with resume=False."
+            )
         if not Path(checkpoint_path).exists():
             raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
 
@@ -3166,6 +4217,19 @@ class BaseTrainer(ABC):
             map_location=self.device,
             context="training resume checkpoint",
         )
+        if checkpoint.get("fitness_source") == "callback":
+            raise ValueError(
+                "Cannot resume a custom-fitness checkpoint: its scores cannot be "
+                "compared with this run. Load weights into a new run with resume=False."
+            )
+        if isinstance(checkpoint.get("input_profile"), dict) or isinstance(
+            getattr(getattr(self, "wrapper_model", None), "input_profile", None), dict
+        ):
+            from ..utils.event_histogram import check_dataset_profile
+
+            validate_checkpoint_metadata(checkpoint, strict=True)
+            check_dataset_profile(self.wrapper_model, checkpoint)
+            self.wrapper_model.input_initialization = checkpoint["input_initialization"]
         metadata_errors = validate_checkpoint_metadata(checkpoint, strict=False)
         if metadata_errors:
             logger.warning(
@@ -3176,6 +4240,29 @@ class BaseTrainer(ABC):
                 SCHEMA_VERSION,
                 "; ".join(metadata_errors),
                 SCHEMA_VERSION,
+            )
+
+        for option, default in (("class_weights", False), ("cls_pw", 0.0)):
+            saved_value = checkpoint.get("config", {}).get(option, default)
+            if saved_value != getattr(self.config, option, default):
+                raise ValueError(
+                    f"Resume requires the saved {option} setting "
+                    f"({option}={saved_value}); use a new run to change it."
+                )
+
+        if "epoch" not in checkpoint:
+            raise ValueError(
+                f"Cannot resume from {checkpoint_path}: it holds no training state. "
+                "Released weights start a new run: train without resume, "
+                "e.g. model.train(data=...)."
+            )
+        trained_epochs = int(checkpoint["epoch"]) + 1
+        if trained_epochs >= self.config.epochs:
+            raise ValueError(
+                f"Cannot resume from {checkpoint_path}: its run already trained "
+                f"{trained_epochs}/{self.config.epochs} epochs, so nothing is left "
+                "to resume. Start a new run from these weights instead: "
+                "model.train(data=...) without resume."
             )
 
         try:
@@ -3191,7 +4278,7 @@ class BaseTrainer(ABC):
         if "optimizer" in checkpoint:
             if self.optimizer is not None:
                 try:
-                    self.optimizer.load_state_dict(checkpoint["optimizer"])
+                    restore_optimizer_state(self.optimizer, checkpoint["optimizer"])
                     logger.info("Optimizer state restored")
                 except Exception as e:
                     logger.warning(f"Could not load optimizer state: {e}")
@@ -3292,6 +4379,7 @@ class BaseTrainer(ABC):
                 logger.warning(f"Could not restore RNG state: {e}")
 
         self.patience_counter = 0
+        self._restore_average_pool(checkpoint_path)
         logger.info(
             f"Resumed from epoch {self.start_epoch} "
             f"(will train to epoch {self.config.epochs})"

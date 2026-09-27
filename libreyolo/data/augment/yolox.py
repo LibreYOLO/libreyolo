@@ -136,6 +136,23 @@ class MosaicMixupDataset:
         img, label = self.preproc(img, label, self.input_dim)
         return img, label, img_info, img_id
 
+    def _rand_partner_index(self):
+        """Sample a partner index, preferring images with annotations.
+
+        Uniform draws on background-heavy datasets frequently land on
+        label-free images, silently degrading mosaic tiles to unsupervised
+        pixels. Retry like ``_mixup`` does; if every sampled candidate is
+        background, keep the last draw so mosaic still works on datasets
+        with no foreground labels. Extra RNG draws happen only after an
+        empty candidate, so fully annotated datasets sample identically.
+        """
+        index = 0
+        for _ in range(20):
+            index = random.randint(0, len(self.dataset) - 1)
+            if len(self.dataset.load_anno(index)) > 0:
+                break
+        return index
+
     def _get_mosaic_item(self, idx):
         mosaic_labels = []
         input_h, input_w = self.input_dim[0], self.input_dim[1]
@@ -144,8 +161,8 @@ class MosaicMixupDataset:
         yc = int(random.uniform(0.5 * input_h, 1.5 * input_h))
         xc = int(random.uniform(0.5 * input_w, 1.5 * input_w))
 
-        # 3 additional image indices
-        indices = [idx] + [random.randint(0, len(self.dataset) - 1) for _ in range(3)]
+        # 3 additional image indices, preferring annotated partners
+        indices = [idx] + [self._rand_partner_index() for _ in range(3)]
 
         for i_mosaic, index in enumerate(indices):
             img, _labels, _, img_id = self.dataset.pull_item(index)

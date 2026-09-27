@@ -13,6 +13,7 @@ import numpy as np
 from PIL import Image
 
 from ..postprocess.yolonas import (
+    YOLO_NAS_OBB_RESIZE_SIZE,
     YOLO_NAS_POSE_RESIZE_SIZE,
     YOLO_NAS_RESIZE_SIZE,
 )
@@ -20,6 +21,7 @@ from ..utils.image_loader import ImageInput, ImageLoader
 from . import as_batched_input
 
 YOLO_NAS_POSE_PAD_VALUE = 127
+YOLO_NAS_OBB_PAD_VALUE = 114
 
 
 def preprocess_numpy(
@@ -98,9 +100,72 @@ def preprocess_pose_image(
     return as_batched_input(img_chw), original_img, original_size, ratio
 
 
+def preprocess_obb_numpy(
+    img_rgb_hwc: np.ndarray,
+    input_size: int = YOLO_NAS_OBB_RESIZE_SIZE,
+    pad_value: int = YOLO_NAS_OBB_PAD_VALUE,
+    resize_size: int = YOLO_NAS_OBB_RESIZE_SIZE,
+) -> Tuple[np.ndarray, float]:
+    """YOLO-NAS-R (OBB) evaluation preprocessing.
+
+    Reproduces the checkpoint's own ``processing_params`` pipeline:
+    ``ReverseImageChannels`` -> ``OBBDetectionLongestMaxSizeRescale(1024)``
+    -> ``OBBDetectionBottomRightPadding(1024, pad_value=114)``
+    -> ``StandardizeImage(max_value=255)``.
+
+    Unlike the detect/pose paths this resamples with ``cv2.INTER_LINEAR``
+    rather than PIL, matching upstream's rescale: DOTA imagery is downscaled
+    hard to reach 1024 and PIL's antialiased filter would not agree.
+
+    Takes RGB HWC uint8 and returns ``(CHW float32 in [0, 1] BGR, ratio)``.
+    """
+    import cv2
+
+    orig_h, orig_w = img_rgb_hwc.shape[:2]
+    if isinstance(input_size, (list, tuple)):
+        input_h, input_w = int(input_size[0]), int(input_size[1])
+    else:
+        input_h = input_w = int(input_size)
+    if input_h != input_w:
+        raise ValueError(
+            f"YOLO-NAS OBB does not support rectangular input sizes, got "
+            f"({input_h}, {input_w}). Use a square imgsz."
+        )
+    resize_size = min(int(resize_size), input_h, input_w)
+
+    ratio = min(resize_size / orig_h, resize_size / orig_w)
+    new_w, new_h = int(round(orig_w * ratio)), int(round(orig_h * ratio))
+
+    bgr = np.ascontiguousarray(img_rgb_hwc[:, :, ::-1])
+    if (new_w, new_h) != (orig_w, orig_h):
+        bgr = cv2.resize(bgr, dsize=(new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+    padded = np.full((input_h, input_w, 3), pad_value, dtype=np.uint8)
+    padded[:new_h, :new_w] = bgr  # bottom-right padding
+
+    arr = padded.astype(np.float32) / 255.0
+    return arr.transpose(2, 0, 1), ratio
+
+
+def preprocess_obb_image(
+    image: ImageInput,
+    input_size: int = YOLO_NAS_OBB_RESIZE_SIZE,
+    color_format: str = "auto",
+):
+    img = ImageLoader.load(image, color_format=color_format)
+    original_size = img.size
+    original_img = img.copy()
+
+    img_chw, ratio = preprocess_obb_numpy(np.array(img), input_size=input_size)
+    return as_batched_input(img_chw), original_img, original_size, ratio
+
+
 __all__ = [
+    "YOLO_NAS_OBB_PAD_VALUE",
     "YOLO_NAS_POSE_PAD_VALUE",
     "preprocess_numpy",
     "preprocess_image",
+    "preprocess_obb_image",
+    "preprocess_obb_numpy",
     "preprocess_pose_image",
 ]

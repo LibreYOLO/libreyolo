@@ -70,9 +70,7 @@ def _summarize_result(result) -> tuple[str, str]:
             unit = "image"
         else:
             unit = (
-                "face"
-                if "face" in getattr(result, "names", {}).values()
-                else "region"
+                "face" if "face" in getattr(result, "names", {}).values() else "region"
             )
         unknown_unit = f"unknown {unit}"
         identities = getattr(result, "identities", None)
@@ -87,6 +85,12 @@ def _summarize_result(result) -> tuple[str, str]:
             return "embed", _plural(len(identities), unknown_unit)
         return "embed", _plural(len(embeddings), unit)
 
+    # OBB results also populate ``boxes`` with the axis-aligned proxy, so the
+    # rotated slot has to be checked first or every OBB model reports "detect".
+    obb = getattr(result, "obb", None)
+    if obb is not None:
+        return "obb", _plural(len(obb), "object")
+
     boxes = getattr(result, "boxes", None)
     if boxes is not None:
         n = len(boxes)
@@ -95,10 +99,6 @@ def _summarize_result(result) -> tuple[str, str]:
         if getattr(result, "keypoints", None) is not None:
             return "pose", _plural(n, "pose")
         return "detect", _plural(n, "object")
-
-    obb = getattr(result, "obb", None)
-    if obb is not None:
-        return "obb", _plural(len(obb), "object")
 
     points = getattr(result, "points", None)
     if points is not None:
@@ -125,6 +125,12 @@ def _summarize_result(result) -> tuple[str, str]:
 
     if getattr(result, "depth_map", None) is not None:
         return "depth", "depth map"
+
+    if getattr(result, "normal_map", None) is not None:
+        return "normal", "normal map"
+
+    if getattr(result, "albedo", None) is not None:
+        return "albedo", "albedo map"
 
     if getattr(result, "restored", None) is not None:
         scale = getattr(result, "restore_scale", 1)

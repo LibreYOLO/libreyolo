@@ -26,6 +26,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 
+from ...kernels.attention.ms_deform_attn import (
+    maybe_ms_deform_attn,
+    ms_deform_attn_available,
+    spatial_shapes_tensor,
+)
 from ..dfine.decoder import EVAL_CONSTANT_CACHE_LIMIT
 from ..dfine.denoising import get_contrastive_denoising_training_group
 from .utils import (
@@ -38,6 +43,33 @@ from .utils import (
     inverse_sigmoid,
     weighting_function,
 )
+
+
+def _cached_weighting_function(module, reg_max, up, reg_scale):
+    """Memoised ``weighting_function`` for frozen ``up`` / ``reg_scale``.
+
+    The project vector is a deterministic function of frozen parameters, but
+    recomputing it launches ~2x ``reg_max`` tiny device ops every forward.
+    ``_version`` bumps on in-place updates only (``load_state_dict``, EMA);
+    rebinding the parameter object itself would not invalidate the key, so
+    callers must mutate ``up`` / ``reg_scale`` in place.
+    """
+    if not (torch.is_tensor(up) and torch.is_tensor(reg_scale)):
+        return weighting_function(reg_max, up, reg_scale)
+    if up.requires_grad or reg_scale.requires_grad:
+        # A cached tensor would either carry a stale autograd graph or
+        # silently cut gradients; unfrozen parameters take the direct path.
+        return weighting_function(reg_max, up, reg_scale)
+    key = (up.device, up.dtype, up._version, reg_scale._version, int(reg_max))
+    cache = getattr(module, "_weighting_cache", None)
+    if cache is None:
+        cache = module._weighting_cache = {}
+    project = cache.get(key)
+    if project is None:
+        cache.clear()
+        project = weighting_function(reg_max, up, reg_scale)
+        cache[key] = project
+    return project
 
 
 class MLP(nn.Module):
@@ -376,7 +408,7 @@ class TransformerDecoder(nn.Module):
         project = (
             self.project
             if hasattr(self, "project")
-            else weighting_function(self.reg_max, up, reg_scale)
+            else _cached_weighting_function(self, self.reg_max, up, reg_scale)
         )
 
         ref_points_detach = F.sigmoid(ref_points_unact)
@@ -805,13 +837,34 @@ class ECTransformer(nn.Module):
             anchors, valid_mask = cached
         return anchors, valid_mask
 
+    def _get_training_anchors(self, spatial_shapes, memory):
+        """Anchor cache for the training branch (and eval without a fixed size).
+
+        ``_generate_anchors`` builds the grids on the host and copies them to
+        the device, which stalls every training step even though the result is
+        a pure function of the spatial shapes. Cache per (shape, device); kept
+        separate from ``_anchor_cache`` so this path stays bitwise identical to
+        the fresh ``_generate_anchors`` call it replaces (the eval cache may
+        hold buffer-derived values instead).
+        """
+        key = (self._spatial_shape_key(spatial_shapes), memory.device)
+        cache = getattr(self, "_train_anchor_cache", None)
+        if cache is None:
+            cache = self._train_anchor_cache = OrderedDict()
+        cached = cache.get(key)
+        if cached is None:
+            cached = self._generate_anchors(spatial_shapes, device=memory.device)
+            cache[key] = cached
+        cache.move_to_end(key)
+        while len(cache) > EVAL_CONSTANT_CACHE_LIMIT:
+            cache.popitem(last=False)
+        return cached
+
     def _get_decoder_input(
         self, memory, spatial_shapes, denoising_logits=None, denoising_bbox_unact=None
     ):
         if self.training or self.eval_spatial_size is None:
-            anchors, valid_mask = self._generate_anchors(
-                spatial_shapes, device=memory.device
-            )
+            anchors, valid_mask = self._get_training_anchors(spatial_shapes, memory)
         else:
             anchors, valid_mask = self._get_anchors_for_spatial_shapes(
                 spatial_shapes, memory
@@ -1251,6 +1304,30 @@ class SegmentationHead(nn.Module):
 # ===========================================================================
 
 
+def _pose_value_to_slot(value, sampling_locations):
+    """Pose ``(bs*heads, c, hw)`` levels -> slot ``(bs, Len_in, heads, c)``.
+
+    Returns None when the tuple cannot express the slot layout, so the
+    caller keeps the portable ``grid_sample`` path unchanged.
+    """
+    if not isinstance(value, (tuple, list)) or not value:
+        return None
+    if sampling_locations.dim() != 6:
+        return None
+    batch, _, n_heads, n_levels, _, xy = sampling_locations.shape
+    if xy != 2 or n_levels != len(value):
+        return None
+    head_dim = value[0].shape[1]
+    expected_rows = batch * n_heads
+    parts = []
+    for feat in value:
+        if feat.dim() != 3 or feat.shape[0] != expected_rows or feat.shape[1] != head_dim:
+            return None
+        hw = feat.shape[2]
+        parts.append(feat.reshape(batch, n_heads, head_dim, hw).permute(0, 3, 1, 2))
+    return torch.cat(parts, dim=1)
+
+
 def _ms_deform_attn_core_pytorch_pose(
     value, value_spatial_shapes, sampling_locations, attention_weights
 ):
@@ -1258,8 +1335,22 @@ def _ms_deform_attn_core_pytorch_pose(
 
     Mirrors super-gradients/DETRPose's ``ms_deform_attn_core_pytorch``: ``value``
     is a tuple of pre-split per-level tensors of shape
-    ``(bs * n_heads, head_dim, h * w)``.
+    ``(bs * n_heads, head_dim, h * w)``. The accelerated ``ms_deform_attn``
+    slot is consulted when that tuple reshapes onto the classic layout;
+    export and any shape that cannot adapt keep the ``grid_sample`` path.
     """
+    if ms_deform_attn_available(value[0]):
+        flat = _pose_value_to_slot(value, sampling_locations)
+        if flat is not None:
+            accelerated = maybe_ms_deform_attn(
+                flat,
+                spatial_shapes_tensor(value_spatial_shapes, flat.device),
+                sampling_locations,
+                attention_weights,
+            )
+            if accelerated is not None:
+                return accelerated
+
     _, head_dim, _ = value[0].shape
     bs, num_query, num_heads, num_levels, num_points, _ = sampling_locations.shape
 
@@ -1452,7 +1543,20 @@ class PoseDeformableTransformerDecoderLayer(nn.Module):
     to each other inside an instance; across-instance self-attention lets
     keypoints at the same body-index attend across detected people; deformable
     cross-attention pulls features from the encoder memory.
+
+    Upstream EdgeCrafter adds the keypoint position embedding in place in eval
+    mode (``tensor[:, :, -np:] += pos``) and out of place in training. The
+    in-place add changes the layer input itself, so at inference the embedding
+    also reaches the within-instance value and residual, the gate input, and
+    the previous layer's keypoint features that the decoder reuses for
+    refinement. The released checkpoints were evaluated that way, so eval mode
+    reproduces it here without mutating tensors; training keeps upstream's
+    query/key-only form.
     """
+
+    # The decoder mirrors upstream's eval-mode aliasing of the layer input
+    # into the previous layer's refinement features (see class docstring).
+    eval_pos_aliases_input = True
 
     def __init__(
         self,
@@ -1491,10 +1595,9 @@ class PoseDeformableTransformerDecoderLayer(nn.Module):
     @staticmethod
     def with_pos_embed(tensor, pos):
         # Add the positional embedding to the trailing (keypoint) tokens only,
-        # leaving the leading instance token untouched. Done out-of-place: an
-        # in-place slice-assign here corrupts autograd in training (the input is
-        # reused for the residual connection); values are identical to the
-        # in-place form, so inference parity is preserved.
+        # leaving the leading instance token untouched. Always out of place;
+        # eval-mode callers reassign the result to match upstream's in-place
+        # add (see class docstring).
         if pos is None:
             return tensor
         np_ = pos.shape[2]
@@ -1517,7 +1620,10 @@ class PoseDeformableTransformerDecoderLayer(nn.Module):
         bs, nq, num_kpt, d_model = tgt_pose.shape
 
         # within-instance self-attention
-        q = k = self.with_pos_embed(tgt_pose, tgt_pose_query_pos).flatten(0, 1)
+        pos_tgt = self.with_pos_embed(tgt_pose, tgt_pose_query_pos)
+        if not self.training:
+            tgt_pose = pos_tgt
+        q = k = pos_tgt.flatten(0, 1)
         tgt2 = self.within_attn(q, k, tgt_pose.flatten(0, 1))[0].reshape(
             bs, nq, num_kpt, d_model
         )
@@ -1534,8 +1640,11 @@ class PoseDeformableTransformerDecoderLayer(nn.Module):
         tgt_pose = tgt_pose.reshape(bs, num_kpt, nq, d_model).transpose(1, 2)
 
         # deformable cross-attention
+        pos_tgt = self.with_pos_embed(tgt_pose, tgt_pose_query_pos)
+        if not self.training:
+            tgt_pose = pos_tgt
         tgt2_pose = self.cross_attn(
-            self.with_pos_embed(tgt_pose, tgt_pose_query_pos).flatten(1, 2),
+            pos_tgt.flatten(1, 2),
             tgt_pose_reference_points,
             memory,
             memory_spatial_shapes,
@@ -1619,6 +1728,14 @@ class PoseTransformerDecoder(nn.Module):
             refpoint_only_pose = refpoint_pose[:, :, 1:]
             pose_query_sine = self._sine_embedding(refpoint_only_pose)
             pose_query_pos = self.half_pose_ref_point_head(pose_query_sine)
+            if (
+                not self.training
+                and layer_id > 0
+                and getattr(layer, "eval_pos_aliases_input", False)
+            ):
+                # Upstream's in-place eval add to this layer's input also lands
+                # in the previous layer's keypoint features reused below.
+                output_pose_detach = output_pose_detach + pose_query_pos
 
             output = layer(
                 tgt_pose=output,
@@ -1908,12 +2025,29 @@ class ECPoseTransformer(nn.Module):
         )
         self.deploy = True
 
+    def _get_training_anchors(self, spatial_shapes, memory):
+        """Training-branch anchor cache; see ``ECTransformer._get_training_anchors``."""
+        key = (self._spatial_shape_key(spatial_shapes), memory.device, memory.dtype)
+        cache = getattr(self, "_train_anchor_cache", None)
+        if cache is None:
+            cache = self._train_anchor_cache = OrderedDict()
+        cached = cache.get(key)
+        if cached is None:
+            cached = self._generate_anchors(
+                spatial_shapes, device=memory.device, dtype=memory.dtype
+            )
+            cache[key] = cached
+        cache.move_to_end(key)
+        while len(cache) > EVAL_CONSTANT_CACHE_LIMIT:
+            cache.popitem(last=False)
+        return cached
+
     def forward(self, feats, targets=None, samples=None):
         memory, spatial_shapes, split_sizes = self._get_encoder_input(feats)
 
         if self.training:
-            output_proposals, valid_mask = self._generate_anchors(
-                spatial_shapes, device=memory.device, dtype=memory.dtype
+            output_proposals, valid_mask = self._get_training_anchors(
+                spatial_shapes, memory
             )
             output_memory = memory.masked_fill(valid_mask, 0.0)
             output_proposals = output_proposals.repeat(memory.size(0), 1, 1)
@@ -2010,7 +2144,7 @@ class ECPoseTransformer(nn.Module):
         project = (
             self.project
             if hasattr(self, "project")
-            else weighting_function(self.reg_max, self.up, self.reg_scale)
+            else _cached_weighting_function(self, self.reg_max, self.up, self.reg_scale)
         )
 
         out_poses, out_logits, _, _, out_pre_poses, out_pre_scores = self.decoder(

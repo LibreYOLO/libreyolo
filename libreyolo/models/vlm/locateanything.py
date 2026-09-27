@@ -175,6 +175,13 @@ class LibreLocateAnything(LibreVLMModel):
     COORD_DIVISOR = 1000.0
     TRUST_REMOTE_CODE = True
 
+    TRAIN_UNSUPPORTED_REASON = (
+        "LocateAnything's upstream weights are research-only non-commercial, "
+        "so fine-tuned derivatives cannot be shipped for commercial use, and "
+        "its training loop is a bespoke upstream pipeline. Use qwen3-vl for "
+        "trainable VLM detection."
+    )
+
     _LICENSE_NOTICE = (
         "\n"
         "----------------------------------------------------------------\n"

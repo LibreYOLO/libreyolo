@@ -93,7 +93,7 @@ To support a new model, subclass it and declare the adapter:
 | `_detection_prompt()` | how to ask THIS model for boxes (override if needed)  |
 | `BBOX_KEY`        | JSON key holding the box (`bbox`, `bbox_2d`, ...)        |
 | `COORD_DIVISOR`   | scale of the coords (1.0 for [0,1], 1000.0 for 0-1000)  |
-| `BOX_FORMAT`      | box layout: `xyxy` (default), `xywh`, or `cxcywh`        |
+| `BOX_FORMAT`      | box layout: `xyxy` (default), `xywh`, `cxcywh`, or `yxyx` |
 | `_LICENSE_NOTICE` | text logged once before loading/downloading (if needed)  |
 
 The base implements the predict/track surface by satisfying the four hooks the
@@ -160,7 +160,10 @@ executing mutable upstream model-repository code under the same alias.
 
 ## Out Of Scope (v1)
 
-- Training / fine-tuning (`train()` raises; fine-tune upstream).
+- Training / fine-tuning (`train()` raises; fine-tune upstream). Superseded
+  for Qwen3-VL: LoRA detection fine-tuning shipped later behind the same
+  `train()` surface, with untrainable families keeping documented refusal
+  messages. See `docs/vlm_training.md`.
 - Dataset validation / mAP (`val()` raises; see "Confidence").
 - Export to ONNX/TensorRT/etc. (`export()` raises; generative decode).
 - CLI: the `libreyolo` command does not resolve VLM aliases in v1. The tier is a
@@ -184,10 +187,8 @@ executing mutable upstream model-repository code under the same alias.
 ## Implementation Status
 
 - `LibreVLMModel` base with `set_classes()` and `chat()`.
-- Six families: `LibreQwen3VL` (Qwen3-VL 2B/4B/8B, Apache-2.0, default),
-  `LibreLFM2VL` (LFM2.5-VL, LFM-gated), `LibreInternVL3` (Qwen-gated),
-  `LibreSmolVLM2` (Apache-2.0), `LibreFlorence2` (MIT), and `LibreKosmos2` (MIT).
-  The chat-template families parse JSON boxes; Florence-2 and Kosmos-2 use task /
-  grounding tokens and override the inference hooks. See the Available-models
-  table in [`../librevlm_design.md`](../librevlm_design.md).
+- Chat-template families parse JSON boxes (Qwen3-VL, LFM2-VL, InternVL3,
+  SmolVLM2, Gemma 4). Florence-2 and Kosmos-2 use task / grounding tokens.
+  Moondream uses native detect/point skills. See the Available-models table in
+  [`../librevlm_design.md`](../librevlm_design.md).
 - Offline parser unit tests plus a `vlm`-marked end-to-end smoke test.

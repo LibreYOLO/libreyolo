@@ -57,10 +57,13 @@ Probe with contrasting distributions rather than two uniform draws, which wash
 out through global pooling and can leave a head emitting byte-identical output
 for both. Add the family to
 `tests/e2e/test_cuda_graph_families.py` and set `SUPPORTS_CUDA_GRAPH = True`.
-That file lives under `tests/e2e/` because it carries the `general_nightly`
-marker, and the nightly target collects with `find tests/e2e -name 'test_*.py'`.
-A `general_nightly` test placed under `tests/unit/` is collected by no CI tier
-at all: the PR gate filters on `-m unit`, and the nightly never looks there.
+That file sets `pytestmark = pytest.mark.cuda_graph` and lives under
+`tests/e2e/` because several of its families pull a pretrained backbone when
+constructed, which breaks the unit tier's no-external-weights contract. The
+matrix is opt-in: run it with `-m cuda_graph`. The nightly core excludes that
+marker from its cost budget and the PR gate filters on `-m unit` inside
+`tests/unit/`, so a file marked this way is collected by no CI tier unless
+someone asks for it.
 
 Traps that have each produced a wrong answer in practice:
 
@@ -83,10 +86,20 @@ Traps that have each produced a wrong answer in practice:
 
 ## Not supported, and why
 
+Only families that set `SUPPORTS_CUDA_GRAPH = True` capture. Every other
+family raises `NotImplementedError`; most have simply not been verified yet.
+`model.graph_info()["supported"]` reports the flag for a loaded model.
+Families ruled out for a known reason:
+
 | Family | Reason |
 | --- | --- |
 | `l2cs` (gaze) | Out of scope. |
-| `sensenova` | Outside this mechanism on two independent counts, neither of them hardware. Its `_forward` takes a structured inputs object rather than a tensor, and inference is autoregressive generation over a growing KV cache, so sequence length changes every decode step. Its vision tower is no better: `bagel.py:264` feeds packed variable-length tokens with `cu_seqlens`, and the line above it calls `torch.max(...).item()`, which syncs. A stock fixed-shape `SiglipVisionModel` does capture bit-identically, but that is not the path this model takes. Supporting it means a static-shape design with graphs bucketed by length, which is a separate feature. It is also not constructible here: no random-init path and a ~15 GB checkpoint. |
+| `domedetr` | PAQI's query count is data dependent (boolean masking and a greedy NMS loop), so the forward syncs the host and changes shape per image. |
+
+`sensenova` used to sit in this table, but its vision tower has since been
+made capturable and `models/sensenova/model.py` now sets
+`SUPPORTS_CUDA_GRAPH = True` for that tower, with generation staying eager;
+the family-specific path is described in its own section below.
 
 The SAM family is supported through a family-specific path too. Its entry
 point is `set_image()` / `predict(points=)`, and the image encoder is both the
@@ -152,7 +165,7 @@ ASPP branch is the one that drifts, and the op underneath is
 by capture, and uninitialized allocations in our own code were each ruled out
 first. Note the failure mode: replay is deterministic and looks plausible, it
 is simply wrong. That is precisely the silent-wrongness this gate exists to
-prevent, so the family stays off.
+prevent, so the decoder stays eager.
 
 
 ## Interaction with hub MSDA kernels

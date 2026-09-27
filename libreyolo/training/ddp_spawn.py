@@ -5,12 +5,13 @@ is given and we're NOT in a torchrun environment.  spawn_for_model() handles:
 
   1. Saving model weights to a temp file.
   2. Resolving batch=-1 via autobatch (single-GPU probe, before spawning).
-  3. Spawning DDP workers via mp.spawn.
+  3. Launching the private DDP coordinator, which owns mp.spawn.
   4. Loading the best checkpoint back into the caller's model instance.
 
-The generic worker (_libreyolo_ddp_worker) re-imports the correct model class
-using module/class info packed into init_kw, rebuilds the model from saved
-weights, and calls model.train(**train_kw) — which falls through to the
+The generic worker (_libreyolo_ddp_worker) resolves the correct model class
+from module/class info packed into init_kw, or from the by-value class carried
+for a guarded script's ``__main__`` model. It rebuilds the model from saved
+weights and calls model.train(**train_kw) — which falls through to the
 single-device path because has_torchrun_env() returns True inside the spawned
 worker (RANK env var is set).
 """
@@ -59,9 +60,11 @@ def _libreyolo_ddp_worker(
         torch.cuda.set_device(rank)
 
     init_kw = dict(init_kw)  # copy — don't mutate caller's dict
+    cls = init_kw.pop("_class_object", None)
     module_path = init_kw.pop("_module")
     class_name = init_kw.pop("_class")
-    cls = getattr(importlib.import_module(module_path), class_name)
+    if cls is None:
+        cls = getattr(importlib.import_module(module_path), class_name)
 
     model = cls(weights_path, **init_kw)
     try:
@@ -85,6 +88,61 @@ def _libreyolo_ddp_worker(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _is_training_only_tensor_key(key: str) -> bool:
+    """Keys the inference model drops but workers need for a faithful fine-tune."""
+    return str(key).startswith("aux.") or str(key).startswith("aux_head.")
+
+
+def _training_only_tensors_from_source(path: str | Path) -> dict[str, torch.Tensor]:
+    """Pull PGI aux tensors from the parent's original checkpoint file."""
+    from libreyolo.utils.serialization import load_untrusted_torch_file
+
+    loaded = load_untrusted_torch_file(
+        str(path), map_location="cpu", context="ddp spawn aux merge"
+    )
+    if not isinstance(loaded, dict):
+        return {}
+    if isinstance(loaded.get("model"), dict):
+        state = loaded["model"]
+    elif isinstance(loaded.get("state_dict"), dict):
+        state = loaded["state_dict"]
+    else:
+        state = loaded
+    out: dict[str, torch.Tensor] = {}
+    for key, value in state.items():
+        if _is_training_only_tensor_key(key) and torch.is_tensor(value):
+            out[key] = value.cpu()
+    return out
+
+
+def _bootstrap_state_dict(model_instance: Any) -> dict[str, torch.Tensor]:
+    """Flat tensor dict for DDP workers, plus training-only tensors the live model stripped.
+
+    Must stay a plain ``{name: tensor}`` map (no ``model`` wrapper). RF-DETR
+    and others load this file by passing the dict to ``load_state_dict``.
+    """
+    state = {k: v.cpu() for k, v in model_instance.model.state_dict().items()}
+    source = getattr(model_instance, "model_path", None)
+    if source and Path(str(source)).is_file():
+        try:
+            for key, value in _training_only_tensors_from_source(source).items():
+                state.setdefault(key, value)
+        except Exception:
+            logger.debug("DDP spawn: could not merge training-only tensors from %s", source)
+    return state
+
+
+def _bootstrap_checkpoint(model_instance: Any) -> dict:
+    """Keep flat bootstrap weights unless a family opts into a metadata wrapper.
+
+    The opt-in loader must accept its own wrapper. RF-DETR and other existing
+    families still receive the plain tensor dict they require.
+    """
+    state = _bootstrap_state_dict(model_instance)
+    hook = getattr(type(model_instance), "_ddp_bootstrap_checkpoint", None)
+    return hook(model_instance, state) if callable(hook) else state
 
 
 def _build_init_kw(model_instance: Any) -> dict:
@@ -111,6 +169,12 @@ def _build_init_kw(model_instance: Any) -> dict:
         "_class": cls.__name__,
         "device": "auto",
     }
+    if cls.__module__ == "__main__":
+        # Guarded scripts may define their model wrapper at top level. The
+        # coordinator deliberately does not re-import that script, so carry
+        # just this dynamic class by value while normal library classes retain
+        # the smaller and more stable import-by-name path.
+        kw["_class_object"] = cls
     for attr in (
         "size",
         "nb_classes",
@@ -120,6 +184,7 @@ def _build_init_kw(model_instance: Any) -> dict:
         "proto_channels",
         "num_keypoints",
         "weight_variant",
+        "letterbox_pad",
     ):
         if (attr in supported or supports_kwargs) and hasattr(model_instance, attr):
             kw[attr] = getattr(model_instance, attr)
@@ -200,7 +265,7 @@ def spawn_for_model(
         fd, tmp_weights = tempfile.mkstemp(suffix=".pt")
         os.close(fd)
         torch.save(
-            {k: v.cpu() for k, v in model_instance.model.state_dict().items()},
+            _bootstrap_checkpoint(model_instance),
             tmp_weights,
         )
         tmp_weights_to_delete = tmp_weights

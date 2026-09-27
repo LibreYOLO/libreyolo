@@ -446,7 +446,7 @@ def reset_gpu_state():
 # ---------------------------------------------------------------------------
 #
 # Intentionally excluded: the Darknet-lineage museum families (yolo1, yolo2,
-# yolo3, yolo4) and yolo7. The catalog drives test_val_coco128.py, whose gate
+# yolo3, yolo4). The catalog drives test_val_coco128.py, whose gate
 # (mAP50-95 >= 0.18) and auto-download route assume COCO-trained weights with a
 # public HF download. These families do not fit that gate:
 #   - yolo1 is Pascal VOC (20 classes, not COCO), so COCO-val mAP is meaningless
@@ -454,17 +454,19 @@ def reset_gpu_state():
 #     the dog/bicycle/car golden (tests/unit/test_yolo1.py::test_yolo1b_golden_*,
 #     gated on LIBREYOLO1B_CKPT). Its pretrained tiny weights are unrecoverable
 #     upstream, so there is no auto-download route to gate on at all.
-#   - yolo2/3/4 are inference-only conversions, and yolo7 (trainable via the
-#     alternate SimOTA recipe) has no HF auto-download route either; all are
-#     covered by the offline synthetic-weight unit suites
-#     (tests/unit/test_darknet_families.py, tests/unit/test_yolo1.py,
-#     tests/unit/test_yolo7.py) plus the external numeric-parity scripts
-#     (weights/parity_darknet.py, weights/parity_yolo7.py).
+#   - yolo2/3/4 are inference-only conversions, covered by the offline
+#     synthetic-weight unit suites (tests/unit/test_darknet_families.py,
+#     tests/unit/test_yolo1.py) plus the external numeric-parity script
+#     (weights/parity_darknet.py).
 # Adding any of them here would either fail the COCO gate or need a hand-staged
 # weight the gated nightly cannot provision.
 
 # (family, size, weights)
 MODEL_CATALOG = [
+    ("gtr", "s", "LibreGTRs.pt"),
+    ("gtr", "m", "LibreGTRm.pt"),
+    ("gtr", "l", "LibreGTRl.pt"),
+    ("gtr", "x", "LibreGTRx.pt"),
     ("yolox", "n", "LibreYOLOXn.pt"),
     ("yolox", "t", "LibreYOLOXt.pt"),
     ("yolox", "s", "LibreYOLOXs.pt"),
@@ -505,6 +507,11 @@ MODEL_CATALOG = [
     ("deimv2", "m", "LibreDEIMv2m.pt"),
     ("deimv2", "l", "LibreDEIMv2l.pt"),
     ("deimv2", "x", "LibreDEIMv2x.pt"),
+    ("tinyformer", "s", "LibreTinyFormers.pt"),
+    ("tinyformer", "m", "LibreTinyFormerm.pt"),
+    ("tinyformer", "l", "LibreTinyFormerl.pt"),
+    ("tinyformer", "x", "LibreTinyFormerx.pt"),
+    ("tinyformer", "xl", "LibreTinyFormerxl.pt"),
     ("detr", "r50", "LibreDETRr50.pt"),
     ("detr", "r50dc5", "LibreDETRr50dc5.pt"),
     ("detr", "r101", "LibreDETRr101.pt"),
@@ -556,6 +563,10 @@ MODEL_CATALOG = [
     ("picodet", "s", "LibrePICODETs.pt"),
     ("picodet", "m", "LibrePICODETm.pt"),
     ("picodet", "l", "LibrePICODETl.pt"),
+    ("ppyoloe", "s", "LibrePPYOLOEs.pt"),
+    ("ppyoloe", "m", "LibrePPYOLOEm.pt"),
+    ("ppyoloe", "l", "LibrePPYOLOEl.pt"),
+    ("ppyoloe", "x", "LibrePPYOLOEx.pt"),
     ("vit", "ti", "LibreViTti-cls.pt"),
     ("vit", "s", "LibreViTs-cls.pt"),
     ("vit", "b", "LibreViTb-cls.pt"),
@@ -574,6 +585,7 @@ FLAGSHIP_FAMILIES = {"yolo9", "rfdetr"}
 # it has no plain-HTTP route, so a skip-means-failure gate cannot provision it.
 # Gaze inference stays covered by the non-gated per-family L2CS suite.
 GENERAL_NIGHTLY_INFERENCE_MODELS = [
+    ("gtr", "s", "LibreGTRs.pt"),
     ("yolox", "n", "LibreYOLOXn.pt"),
     ("yolo9", "t", "LibreYOLO9t.pt"),
     ("yolo9_e2e", "t", "LibreYOLO9E2Et.pt"),
@@ -582,12 +594,14 @@ GENERAL_NIGHTLY_INFERENCE_MODELS = [
     ("dfine", "n", "LibreDFINEn.pt"),
     ("deim", "n", "weights/LibreDEIMn.pt"),
     ("deimv2", "atto", "LibreDEIMv2atto.pt"),
+    ("tinyformer", "s", "LibreTinyFormers.pt"),
     ("ec", "s", "LibreECs.pt"),
     ("rtdetr", "r18", "LibreRTDETRr18.pt"),
     ("rtdetrv2", "r18", "weights/LibreRTDETRv2r18.pt"),
     ("rtdetrv4", "s", "weights/LibreRTDETRv4s.pt"),
     ("picodet", "s", "LibrePICODETs.pt"),
     ("rtmdet", "t", "LibreRTMDett.pt"),
+    ("ppyoloe", "s", "LibrePPYOLOEs.pt"),
 ]
 
 # Non-detect families keep task-specific opt-in checks outside the default
@@ -607,12 +621,61 @@ DEEPLABV3_SMOKE_MODELS = [
     ("deeplabv3", "mv3", "LibreDeepLabv3mv3-sem.pt"),
 ]
 
+# PP-LiteSeg, same reasoning: MODEL_CATALOG feeds the COCO detection mAP gate,
+# which a dense semantic family fails by construction. All four released
+# Cityscapes checkpoints, plus the smallest one as the smoke case. These
+# weights are NON-COMMERCIAL (Cityscapes terms); the tests only run inference.
+PPLITESEG_SEMANTIC_MODELS = [
+    ("ppliteseg", "t50", "LibrePPLiteSegt50-sem.pt"),
+    ("ppliteseg", "b50", "LibrePPLiteSegb50-sem.pt"),
+    ("ppliteseg", "t75", "LibrePPLiteSegt75-sem.pt"),
+    ("ppliteseg", "b75", "LibrePPLiteSegb75-sem.pt"),
+]
+PPLITESEG_SMOKE_MODELS = [
+    ("ppliteseg", "t50", "LibrePPLiteSegt50-sem.pt"),
+]
+
 # OBB checkpoints do not belong in MODEL_CATALOG because that matrix feeds the
 # COCO detection mAP and training gates. Keep the task-appropriate smoke case
 # separate, as for the semantic-only matrices above. The representative N
 # checkpoint has a public LibreYOLO auto-download route.
 RTDETRV2_OBB_MODELS = [
     ("rtdetrv2", "n", "LibreRTDETRv2n-obb.pt"),
+]
+
+# YOLO-NAS-R (rotated). Same reasoning as above: OBB stays out of
+# MODEL_CATALOG. The weights are not on the LibreYOLO HF org (Deci's
+# non-redistributable licence) but they do have a public auto-download route
+# through Deci's CDN, which ``_has_libreyolo_download_route`` already accepts.
+YOLONAS_OBB_MODELS = [
+    ("yolonas", "s", "LibreYOLONASs-obb.pt"),
+]
+
+# V-JEPA 2 is a video family and does not belong in MODEL_CATALOG: that matrix
+# feeds the COCO detection mAP and training gates, which a clip embedder fails
+# by construction. It is also kept out of GENERAL_NIGHTLY_INFERENCE_MODELS,
+# which is detect-only, so the general-nightly count in docs/testing.md is
+# unchanged. The representative cases below are the two smallest artifacts:
+# one encoder and one released probe.
+# DEKR is bottom-up pose and does not belong in MODEL_CATALOG: that matrix feeds
+# the COCO detection mAP and training gates, which a keypoint-only model fails
+# by construction. It is also kept out of GENERAL_NIGHTLY_INFERENCE_MODELS,
+# which is detect-only, so the general-nightly count in docs/testing.md is
+# unchanged. The weights are not on the LibreYOLO HF org (no per-artifact
+# redistribution grant was found) but they do have a public auto-download route
+# through Deci's CDN, which ``_has_libreyolo_download_route`` already accepts.
+DEKR_POSE_MODELS = [
+    ("dekr", "w32", "LibreDEKRw32-pose.pt"),
+]
+
+VJEPA2_EMBED_MODELS = [
+    ("vjepa2", "l256", "LibreVJEPA2l256-embed.pt"),
+]
+LEVJEPA_EMBED_MODELS = [
+    ("levjepa", "l", "LibreLeVJEPAl-embed.pt"),
+]
+VJEPA2_CLASSIFY_MODELS = [
+    ("vjepa2", "l256", "LibreVJEPA2l256-cls-ssv2.pt"),
 ]
 
 # Derived lists (no manual maintenance)
@@ -632,6 +695,7 @@ RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 RTDETRV2_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetrv2"]
 RTDETRV4_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetrv4"]
 PICODET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "picodet"]
+PPYOLOE_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "ppyoloe"]
 FASTER_RCNN_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "faster_rcnn"]
 RETINANET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "retinanet"]
 SSD_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "ssd"]
@@ -691,21 +755,26 @@ FAMILY_MARKERS = {
     "ssd": pytest.mark.ssd,
     "mask_rcnn": pytest.mark.mask_rcnn,
     "fcn": pytest.mark.fcn,
+    "ppliteseg": pytest.mark.ppliteseg,
     "centernet": pytest.mark.centernet,
     "fcos": pytest.mark.fcos,
     "efficientdet": pytest.mark.efficientdet,
     "deformable_detr": pytest.mark.deformable_detr,
     "dinodetr": pytest.mark.dinodetr,
     "hrnet": pytest.mark.hrnet,
+    "dekr": pytest.mark.dekr,
     "dfine": pytest.mark.dfine,
     "domedetr": pytest.mark.domedetr,
     "deim": pytest.mark.deim,
     "deimv2": pytest.mark.deimv2,
+    "tinyformer": pytest.mark.tinyformer,
     "ec": pytest.mark.ec,
+    "gtr": pytest.mark.gtr,
     "rtdetr": pytest.mark.rtdetr,
     "rtdetrv2": pytest.mark.rtdetrv2,
     "rtdetrv4": pytest.mark.rtdetrv4,
     "picodet": pytest.mark.picodet,
+    "ppyoloe": pytest.mark.ppyoloe,
     "rtmdet": pytest.mark.rtmdet,
     "l2cs": pytest.mark.l2cs,
     "fomo": pytest.mark.fomo,
@@ -791,8 +860,20 @@ DEEPLABV3_SMOKE_PARAMS = model_cases(
     DEEPLABV3_SMOKE_MODELS,
     with_weights=True,
 )
+PPLITESEG_SEMANTIC_PARAMS = model_cases(
+    PPLITESEG_SEMANTIC_MODELS,
+    with_weights=True,
+)
+PPLITESEG_SMOKE_PARAMS = model_cases(
+    PPLITESEG_SMOKE_MODELS,
+    with_weights=True,
+)
 RTDETRV2_OBB_PARAMS = model_cases(
     RTDETRV2_OBB_MODELS,
+    with_weights=True,
+)
+YOLONAS_OBB_PARAMS = model_cases(
+    YOLONAS_OBB_MODELS,
     with_weights=True,
 )
 

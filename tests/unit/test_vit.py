@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import torch
@@ -50,12 +52,16 @@ def test_registered_and_classify_only_contract():
     assert model.crop_pct == 0.9
     assert model.interpolation == "bicubic"
     assert model.validator_class is ViTClassifyValidator
-    assert ViTClassifyValidator._dataset_transform_kwargs(None) == {
-        "mean": (0.5, 0.5, 0.5),
-        "std": (0.5, 0.5, 0.5),
-        "interpolation": "bicubic",
-        "crop_pct": 0.9,
-    }
+    # The AugReg eval settings are declared on the model; validation takes
+    # its transform from the model (#886), so it is predict's transform.
+    assert model.norm_mean == (0.5, 0.5, 0.5)
+    assert model.norm_std == (0.5, 0.5, 0.5)
+    validator = ViTClassifyValidator.__new__(ViTClassifyValidator)
+    validator.model = model
+    validator.config = SimpleNamespace(crop_pct=None, imgsz=224)
+    image = Image.fromarray(np.full((301, 257, 3), 128, dtype=np.uint8))
+    val_tensor = validator._dataset_transform()["transform"](image)
+    assert torch.equal(val_tensor, model._preprocess(image)[0][0])
 
 
 def test_canonical_multichar_filename_and_required_suffix():

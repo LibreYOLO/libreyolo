@@ -56,8 +56,14 @@ class TestYolo9ConvertKey:
         out, ok = convert_key("22.heads.0.anc2vec.anc2vec.weight", "t")
         assert ok is False
 
-    def test_auxiliary_head_not_converted(self):
-        out, ok = convert_key("23.heads.0.class_conv.2.weight", "t")
+    def test_auxiliary_spp_and_head_convert(self):
+        out, ok = convert_key("23.conv1.weight", "t")
+        assert ok and out == "aux.spp.cv1.weight"
+        out, ok = convert_key("30.heads.0.class_conv.2.weight", "t")
+        assert ok and out == "aux_head.cv3.0.2.weight"
+
+    def test_unknown_aux_leftover_not_converted(self):
+        out, ok = convert_key("24.heads.0.class_conv.2.weight", "t")
         assert ok is False
 
 
@@ -90,18 +96,22 @@ class TestYolo9Inference:
 
         assert infer_nb_classes(sd) == 3
 
-    def test_convert_state_dict_drops_aux_and_anc2vec(self):
+    def test_convert_state_dict_keeps_aux_and_drops_anc2vec(self):
         sd = {
             "0.conv.weight": torch.zeros(16, 3, 3, 3),
             "22.heads.0.class_conv.2.weight": torch.zeros(5, 16, 1, 1),
             "22.heads.0.anc2vec.anc2vec.weight": torch.zeros(1, 16, 1, 1, 1),
-            "23.heads.0.class_conv.2.weight": torch.zeros(5, 16, 1, 1),
+            "23.conv1.weight": torch.zeros(16, 16, 1, 1),
+            "30.heads.0.class_conv.2.weight": torch.zeros(5, 16, 1, 1),
+            "30.heads.0.anc2vec.anc2vec.weight": torch.zeros(1, 16, 1, 1, 1),
         }
         converted, stats = convert_state_dict(sd, "t")
         assert "backbone.conv0.conv.weight" in converted
         assert "head.cv3.0.2.weight" in converted
-        assert stats["skipped"] == 1  # the aux head (layer 23)
-        assert stats["failed"] == 1  # anc2vec
+        assert "aux.spp.cv1.weight" in converted
+        assert "aux_head.cv3.0.2.weight" in converted
+        assert stats["failed"] == 1  # layer-22 anc2vec
+        assert stats["skipped"] == 1  # layer-30 anc2vec
 
 
 def _synthetic_upstream_yolo9(nc: int) -> dict:
@@ -366,6 +376,14 @@ class TestAutoconvertOrchestration:
             90,
         ) == (90, names)
 
+    def test_rfdetr_single_logit_head_is_one_class(self):
+        # A one-category upstream dataset yields a single-output head with no
+        # spare slot (raw_nc 0); it must not fall back to COCO's 80 classes.
+        assert autoconvert_module._rfdetr_class_metadata(
+            {"args": argparse.Namespace(num_classes=1, class_names=["object"])},
+            0,
+        ) == (1, ["object"])
+
     def test_rfdetr_coco_metadata_maps_90_arch_classes_to_coco80(self):
         assert autoconvert_module._rfdetr_class_metadata(
             {"args": argparse.Namespace(dataset_file="coco")},
@@ -411,6 +429,61 @@ class TestAutoconvertOrchestration:
     def test_rfdetr_explicit_nc80_is_honored_as_coco(self):
         # A checkpoint that explicitly declares 80 classes is COCO.
         assert autoconvert_module._rfdetr_class_metadata({"nc": 80}, 90)[0] == 80
+
+    @pytest.mark.parametrize("loaded", [
+        {"names": []},
+        {"names": {}},
+        {"args": argparse.Namespace(class_names=[])},
+        {"args": argparse.Namespace(class_names={})},
+    ])
+    def test_rfdetr_empty_names_without_coco_metadata_preserve_90_classes(self, loaded):
+        assert autoconvert_module._rfdetr_class_metadata(loaded, 90)[0] == 90
+
+    @pytest.mark.parametrize("names", [[], {}])
+    @pytest.mark.parametrize("metadata", [
+        {"nc": 80},
+        {"args": argparse.Namespace(num_classes=80)},
+        {"dataset": "coco"},
+    ])
+    def test_rfdetr_confirmed_coco_empty_names_restore_labels(self, names, metadata):
+        nc, names = autoconvert_module._rfdetr_class_metadata({"names": names, **metadata}, 90)
+        assert (nc, names) == (80, None)
+        wrapped = wrap_libreyolo_checkpoint(
+            {"class_embed.bias": torch.zeros(91)},
+            model_family="rfdetr", size="n", task="detect",
+            nc=nc, names=names, imgsz=384,
+        )
+        assert len(wrapped["names"]) == 80
+        assert wrapped["names"][0] == "person"
+        assert wrapped["names"][79] == "toothbrush"
+
+    @pytest.mark.parametrize("names", [[], {}])
+    @pytest.mark.parametrize("metadata", [
+        {"nc": 90},
+        {"num_classes": 90},
+        {"args": argparse.Namespace(num_classes=90)},
+        {"dataset": "custom90"},
+        {"data": {"path": "/datasets/custom90"}},
+    ])
+    def test_rfdetr_empty_names_preserve_custom_class_metadata(self, names, metadata):
+        assert autoconvert_module._rfdetr_class_metadata(
+            {"names": names, **metadata}, 90,
+        )[0] == 90
+
+    @pytest.mark.parametrize("names", [[], {}])
+    @pytest.mark.parametrize("container", ["args", "hyper_parameters"])
+    def test_rfdetr_empty_names_do_not_hide_nested_custom_names(self, names, container):
+        custom_names = [f"custom_{i}" for i in range(90)]
+        loaded = {"names": names, container: {"class_names": custom_names}}
+        assert autoconvert_module._rfdetr_class_metadata(loaded, 90) == (90, custom_names)
+        assert loaded["names"] == names
+
+    @pytest.mark.parametrize("names", [[], {}])
+    @pytest.mark.parametrize("metadata", [{}, {"nc": 90}, {"num_classes": 90}])
+    def test_rfdetr_stale_nested_coco_names_do_not_change_class_space(self, names, metadata):
+        stale_names = [f"stale_{i}" for i in range(80)]
+        loaded = {"names": names, "args": {"class_names": stale_names}, **metadata}
+        assert autoconvert_module._rfdetr_class_metadata(loaded, 90) == (90, names)
 
     def test_returns_none_for_non_upstream_file(self, tmp_path):
         src = tmp_path / "random.pt"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,9 +10,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import torch
+from PIL import Image
 
 from libreyolo.utils import source as source_module
+from libreyolo.utils.results import Probs, Results
 from libreyolo.utils.source import (
+    ImageSequenceSource,
     MultiStreamSource,
     SourceKind,
     StreamFrame,
@@ -20,7 +24,6 @@ from libreyolo.utils.source import (
     redact_source,
     resolve_youtube_stream,
 )
-from libreyolo.utils.results import Probs, Results
 from libreyolo.utils.video import run_video_inference
 
 pytestmark = pytest.mark.unit
@@ -211,6 +214,59 @@ def test_existing_numeric_filename_is_not_claimed_as_webcam(tmp_path, monkeypatc
     assert classify_source("0").kind == SourceKind.IMAGE
 
 
+@pytest.mark.parametrize("name", ["cam.mts", "cam.dav", "cam.bin", "cam"])
+def test_existing_video_with_uncommon_extension_dispatches_as_video(tmp_path, name):
+    cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
+    clip = tmp_path / "clip.mp4"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16))
+    for _ in range(2):
+        writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
+    writer.release()
+    source = clip.rename(tmp_path / name)
+
+    assert classify_source(str(source)).kind == SourceKind.VIDEO
+
+
+def _write_clip(path):
+    cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
+    clip = path.with_name(path.name + ".tmp.mp4")
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16))
+    for _ in range(2):
+        writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
+    writer.release()
+    return clip.rename(path)
+
+
+@pytest.mark.parametrize("name", ["cam.bin", "cam.dump", "cam"])
+def test_source_lists_probe_videos_like_single_sources(tmp_path, name):
+    probed = str(_write_clip(tmp_path / name))
+    known = str(_write_clip(tmp_path / "known.mp4"))
+
+    spec = classify_source([probed])
+    assert spec.kind == SourceKind.STREAMS
+    assert spec.items == (probed,)
+    assert classify_source([known, probed]).items == (known, probed)
+
+    stream_list = tmp_path / "cameras.streams"
+    stream_list.write_text(f"{probed}\n", encoding="utf-8")
+    assert classify_source(stream_list).items == (probed,)
+
+
+def test_source_list_of_extensionless_images_stays_a_batch(tmp_path):
+    path = tmp_path / "frame"
+    Image.new("RGB", (8, 8)).save(path, format="PNG")
+
+    spec = classify_source([path, str(path)])
+    assert spec.kind == SourceKind.IMAGE_BATCH
+
+
+def test_extensionless_image_file_stays_an_image(tmp_path):
+    path = tmp_path / "frame"
+    Image.new("RGB", (8, 8)).save(path, format="PNG")
+
+    assert classify_source(path).kind == SourceKind.IMAGE
+
+
 def test_missing_stream_list_fails_at_dispatch(tmp_path):
     path = Path(tmp_path) / "missing.streams"
     with pytest.raises(FileNotFoundError, match="Stream list not found"):
@@ -262,3 +318,140 @@ def test_shared_video_loop_preserves_per_camera_path_and_frame_index():
         ("camera-a", 4),
         ("camera-b", 5),
     ]
+
+
+def test_list_of_images_dispatches_as_image_batch():
+    images = [Image.new("RGB", (4, 4)), Image.new("RGB", (4, 4))]
+    spec = classify_source(images)
+    assert spec.kind == SourceKind.IMAGE_BATCH
+    assert spec.items == tuple(images)
+
+
+def test_bare_generator_dispatches_as_image_sequence():
+    def frames():
+        yield Image.new("RGB", (4, 4))
+
+    gen = frames()
+    spec = classify_source(gen)
+    assert spec.kind == SourceKind.IMAGE_SEQUENCE
+    assert spec.source is gen
+
+
+def test_ndarray_is_not_mistaken_for_an_image_sequence():
+    # np.ndarray has __iter__ but not __next__; must stay a single IMAGE.
+    assert classify_source(np.zeros((4, 4, 3), dtype=np.uint8)).kind == SourceKind.IMAGE
+
+
+@pytest.mark.parametrize(
+    "batch",
+    [np.zeros((2, 8, 8, 3), dtype=np.uint8), torch.zeros(2, 3, 8, 8)],
+    ids=["nhwc_array", "nchw_tensor"],
+)
+def test_batched_array_is_an_image_batch(batch):
+    spec = classify_source(batch)
+
+    assert spec.kind == SourceKind.IMAGE_BATCH
+    assert len(spec.items) == 2
+    assert all(item.ndim == 3 for item in spec.items)
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        np.zeros((8, 8, 3), dtype=np.uint8),
+        torch.zeros(3, 8, 8),
+        torch.zeros(1, 4, 3, 8, 8),
+    ],
+    ids=["hwc_array", "chw_tensor", "clip_tensor"],
+)
+def test_unbatched_array_stays_a_single_image(image):
+    assert classify_source(image).kind == SourceKind.IMAGE
+
+
+def test_bytesio_is_not_mistaken_for_an_image_sequence():
+    assert classify_source(io.BytesIO(b"image bytes")).kind == SourceKind.IMAGE
+
+
+class TestImageSequenceSource:
+    def test_iterates_a_finite_list_reporting_its_length(self):
+        images = [Image.new("RGB", (4, 4)) for _ in range(3)]
+        src = ImageSequenceSource(images, fps=15.0, save_name="clip")
+
+        assert src.total_frames == 3
+        with src as opened:
+            packets = list(opened)
+
+        assert [p.frame_idx for p in packets] == [0, 1, 2]
+        assert all(p.fps == 15.0 for p in packets)
+        assert all(p.frame_bgr.shape == (4, 4, 3) for p in packets)
+        assert src.save_name == "clip"
+
+    def test_iterates_a_lazy_iterator_reporting_unknown_length(self):
+        def frames():
+            for _ in range(5):
+                yield Image.new("RGB", (4, 4))
+
+        src = ImageSequenceSource(frames())
+        assert src.total_frames == 0
+
+        packets = list(src)
+        assert [p.frame_idx for p in packets] == [0, 1, 2, 3, 4]
+
+    def test_applies_vid_stride(self):
+        images = [Image.new("RGB", (4, 4)) for _ in range(5)]
+        src = ImageSequenceSource(images, vid_stride=2)
+
+        packets = list(src)
+        assert [p.frame_idx for p in packets] == [0, 2, 4]
+        assert src.total_frames == 3
+
+    def test_vid_stride_scales_down_reported_fps(self):
+        # Retaining half the frames must halve the reported fps, or a saved
+        # output video (written one retained frame per tick) plays back
+        # vid_stride times too fast.
+        images = [Image.new("RGB", (4, 4)) for _ in range(4)]
+        src = ImageSequenceSource(images, vid_stride=2, fps=30.0)
+
+        packets = list(src)
+        assert all(p.fps == 15.0 for p in packets)
+
+    def test_bgr_numpy_frames_preserve_their_color_format(self):
+        frame_bgr = np.zeros((4, 4, 3), dtype=np.uint8)
+        frame_bgr[:] = [0, 0, 255]
+        src = ImageSequenceSource([frame_bgr], color_format="bgr")
+
+        (packet,) = list(src)
+        assert packet.frame_bgr[0, 0].tolist() == [0, 0, 255]
+
+    def test_numpy_frames_default_to_bgr(self):
+        frame_bgr = np.zeros((4, 4, 3), dtype=np.uint8)
+        frame_bgr[:] = [0, 0, 255]
+        src = ImageSequenceSource([frame_bgr])
+
+        (packet,) = list(src)
+        assert packet.frame_bgr[0, 0].tolist() == [0, 0, 255]
+
+    @pytest.mark.parametrize("fps", [0, -1, np.nan, np.inf])
+    def test_rejects_invalid_fps(self, fps):
+        with pytest.raises(ValueError, match="fps must be a finite value > 0"):
+            ImageSequenceSource([Image.new("RGB", (4, 4))], fps=fps)
+
+    def test_path_items_are_reported_as_the_source_label(self, tmp_path):
+        path = tmp_path / "frame.png"
+        Image.new("RGB", (4, 4)).save(path)
+        src = ImageSequenceSource([path])
+
+        (packet,) = list(src)
+        assert packet.source_label == str(path)
+
+    def test_in_memory_items_have_no_source_label(self):
+        src = ImageSequenceSource([Image.new("RGB", (4, 4))])
+
+        (packet,) = list(src)
+        assert packet.source_label is None
+
+    def test_reiteration_raises(self):
+        src = ImageSequenceSource([Image.new("RGB", (4, 4))])
+        list(src)
+        with pytest.raises(RuntimeError, match="already been consumed"):
+            list(src)

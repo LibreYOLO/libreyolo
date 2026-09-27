@@ -1,0 +1,25 @@
+FCOS3D inference implementation
+
+Derived from OpenMMLab, Apache License 2.0:
+- https://github.com/open-mmlab/mmdetection3d
+  Revision: fe25f7a51d36e3702f961e198894580d83c4387b
+  Source: FCOSMono3DHead, AnchorFreeMono3DHead, FCOS3DBBoxCoder, FCOS3D configs.
+- https://github.com/open-mmlab/mmdetection
+  Revision: cfd5d3a985b0249de009b67d04f37263e11cdf3d
+  Source: ResNet, ResLayer and FPN.
+Copyright (c) OpenMMLab. All rights reserved.
+
+LibreYOLO changes: standalone PyTorch network, no framework registry or
+training dependencies, torchvision deform_conv2d, camera Results mapping.
+The torchvision operator is a separately installed BSD-3-Clause dependency.
+No third-party C++/CUDA operator source is bundled.
+
+This notice covers code, not the official nuScenes checkpoint. No weights are
+bundled in this port. The official checkpoint is mirrored byte-for-byte at
+LibreYOLO/LibreFCOS3D revision af69c4abfb265f63695ecbaa68b4167f0c150605.
+OpenMMLab declares no per-object checkpoint license; LibreYOLO's maintainer
+approved that mirror by treating the project's Apache-2.0 statement as the
+redistribution basis, which is LibreYOLO's disclosed interpretation and not a
+clarification from the OpenMMLab authors. The weights are trained on nuScenes
+under non-commercial terms (https://www.nuscenes.org/terms-of-use) and are not
+covered by LibreYOLO's MIT license.

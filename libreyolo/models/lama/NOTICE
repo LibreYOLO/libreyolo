@@ -1,0 +1,71 @@
+LibreLaMa opaque ONNX inference family
+=======================================
+
+LibreYOLO's Python adapter is independently written MIT-licensed code. It
+loads an immutable ONNX artifact as a uint8 state-dict buffer and does not
+copy or reimplement the native LaMa architecture.
+
+OpenCV Zoo artifact and behavioral reference
+---------------------------------------------
+Repository: https://github.com/opencv/opencv_zoo
+Pinned addition commit: 966be4cb6eefc2a4f586ed0581bf4bbaa2533070
+Path: models/inpainting_lama
+License: Apache License, Version 2.0
+Directory copyright notice: Copyright [2021] Samsung Research
+A copy of Apache License 2.0 ships at licenses/Apache-2.0.txt.
+
+The pinned OpenCV Zoo README states that all files in this directory are
+licensed under Apache-2.0. The artifact mirrored into the LibreYOLO checkpoint
+is:
+
+  filename: inpainting_lama_2025jan.onnx
+  OpenCV Hugging Face revision:
+    aee6d22f0a13e5e35af1c9a1c3afd62841fc6f3f
+  size: 92,591,623 bytes
+  SHA-256:
+    7df918ac3921d3daf0aae1d219776cf0dc4e4935f035af81841b40adcf74fdf2
+  ONNX opset: 21
+  inputs: image float32 [batch, 3, 512, 512]
+          mask  float32 [batch, 1, 512, 512]
+  output: output float32 [batch, 3, 512, 512], values in [0, 255]
+
+Artifact URL:
+https://huggingface.co/opencv/inpainting_lama/resolve/aee6d22f0a13e5e35af1c9a1c3afd62841fc6f3f/inpainting_lama_2025jan.onnx
+
+Conversion lineage
+------------------
+ONNX publisher: https://huggingface.co/Carve/LaMa-ONNX
+Pinned revision: c3c0c9e468934d62e79c329e35d82dd09ff8c444
+License: Apache License, Version 2.0
+
+Original method repository: https://github.com/advimman/lama
+Pinned repository commit: 786f5936b27fb3dacd2b1ad799e4de968ea697e7
+License: Apache License, Version 2.0
+
+Runtime
+-------
+The embedded graph is executed through ONNX Runtime, licensed under the MIT
+License. Opset 21 requires ONNX Runtime 1.18 or newer. OpenCV Zoo documents
+OpenCV 5.0 or newer for its direct demo; released OpenCV Python 4.11 cannot
+execute this graph, so LibreYOLO does not use OpenCV DNN as its runtime.
+
+Training-data notice
+--------------------
+The LaMa publisher identifies Places365-Challenge as training data. The
+official Places365 download terms limit downloaded images to non-commercial
+research and educational use and prohibit redistribution of those images:
+
+https://places2.csail.mit.edu/download-private.html
+
+Those terms do not expressly govern trained-model redistribution, while
+OpenCV Zoo expressly publishes the ONNX artifact under Apache-2.0. LibreYOLO
+relies on the artifact publisher's redistribution grant, distributes no
+Places365 image, and records that commercial training-data clearance was not
+independently established.
+
+Citation
+--------
+Roman Suvorov, Elizaveta Logacheva, Anton Mashikhin, Anastasia Remizova,
+Arsenii Ashukha, Aleksei Silvestrov, Naejin Kong, Harshith Goka, Kiwoong Park,
+and Victor Lempitsky. "Resolution-robust Large Mask Inpainting with Fourier
+Convolutions." WACV 2022.

@@ -11,7 +11,7 @@ Adapted for LibreYOLO.
 import logging
 import warnings
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -25,9 +25,11 @@ def parse_yolo_label_line(
     line: str,
     img_w: int,
     img_h: int,
-    num_classes: int,
+    num_classes: Optional[int],
     label_path: Optional[Path] = None,
     return_segment: bool = False,
+    single_cls: bool = False,
+    class_remap: Optional[Dict[int, int]] = None,
 ) -> Optional[Tuple]:
     """
     Parse a single line from a YOLO label file.
@@ -36,8 +38,16 @@ def parse_yolo_label_line(
         line: Label line from .txt file
         img_w: Image width in pixels
         img_h: Image height in pixels
-        num_classes: Total number of classes
+        num_classes: Total number of classes, or ``None`` when the caller does
+            not have the dataset class count available.
         label_path: Path to label file (for warnings)
+        single_cls: Remap non-negative class ids to class 0 before validation.
+            Ignored when ``class_remap`` is given.
+        class_remap: Optional ``{orig_id: new_id}`` mapping for training on a
+            class subset (see ``load_data_config(classes=...)``). A class id
+            not present as a key is silently dropped (excluded by design, not
+            a data error); one present is rewritten to its mapped id before
+            the bounds check below. Takes precedence over ``single_cls``.
 
     Returns:
         Tuple of (class_id, x1, y1, x2, y2, area) in pixel coordinates,
@@ -62,8 +72,12 @@ def parse_yolo_label_line(
         if len(parts) > 5:
             # Segmentation format: derive bbox from polygon vertices.
             coords = [float(p) for p in parts[1:]]
+            if len(coords) < 6 or len(coords) % 2:
+                raise ValueError("polygon rows require at least 3 coordinate pairs")
+            if not np.isfinite(coords).all():
+                raise ValueError("label coordinates must be finite")
             cx, cy, bw, bh = polygon_to_cxcywh(coords)
-            if return_segment and len(coords) >= 6:
+            if return_segment:
                 segment = []
                 for x, y in zip(coords[0::2], coords[1::2]):
                     segment.extend(
@@ -78,6 +92,8 @@ def parse_yolo_label_line(
             cy = float(parts[2])
             bw = float(parts[3])
             bh = float(parts[4])
+            if not np.isfinite((cx, cy, bw, bh)).all():
+                raise ValueError("label coordinates must be finite")
     except ValueError as e:
         if label_path:
             warnings.warn(
@@ -85,10 +101,20 @@ def parse_yolo_label_line(
             )
         return None
 
+    if class_remap is not None:
+        if class_id not in class_remap:
+            return None
+        class_id = class_remap[class_id]
+    elif single_cls and class_id >= 0:
+        class_id = 0
+
     # Validate class ID
-    if class_id < 0 or class_id >= num_classes:
+    if class_id < 0 or (num_classes is not None and class_id >= num_classes):
+        valid_range = (
+            f"[0, {num_classes - 1}]" if num_classes is not None else "non-negative"
+        )
         warnings.warn(
-            f"Class ID {class_id} out of range [0, {num_classes - 1}] in {label_path}. Skipping."
+            f"Class ID {class_id} out of range {valid_range} in {label_path}. Skipping."
         )
         return None
 
@@ -148,6 +174,8 @@ class YOLOCocoAPI:
         load_segments: bool = False,
         image_files: List[Path] | None = None,
         label_files: List[Path] | None = None,
+        single_cls: bool = False,
+        class_remap: Dict[int, int] | None = None,
     ):
         """
         Initialize COCO API for a YOLO dataset.
@@ -156,11 +184,20 @@ class YOLOCocoAPI:
             images_dir: Directory containing images
             labels_dir: Directory containing .txt label files
             class_names: List of class names (from data.yaml)
+            single_cls: Remap all non-negative ground-truth classes to class 0.
+                Ignored when ``class_remap`` is given.
+            class_remap: Optional ``{orig_id: new_id}`` mapping for scoring a
+                class subset (see ``load_data_config(classes=...)``). A class
+                id not present as a key is dropped from the ground truth,
+                matching the dataloader side of ``classes=`` so mAP is
+                computed over the requested subset, not the full dataset.
         """
         self.images_dir = Path(images_dir) if images_dir is not None else None
         self.labels_dir = Path(labels_dir) if labels_dir is not None else None
         self.class_names = class_names
         self.load_segments = load_segments
+        self.single_cls = bool(single_cls)
+        self.class_remap = class_remap
         num_classes = len(class_names)
 
         # Build COCO-style data structures
@@ -208,8 +245,12 @@ class YOLOCocoAPI:
         ann_id = 1
         for idx, img_path in enumerate(image_files):
             # Get image size
-            with Image.open(img_path) as img:
-                w, h = img.size
+            if img_path.suffix.lower() == ".npy":
+                from ..utils.event_histogram import load_histogram
+                h, w = load_histogram(img_path).shape[:2]
+            else:
+                with Image.open(img_path) as img:
+                    w, h = img.size
 
             img_id = idx
             self.imgs[img_id] = {
@@ -232,6 +273,8 @@ class YOLOCocoAPI:
                             num_classes,
                             label_path,
                             return_segment=load_segments,
+                            single_cls=self.single_cls,
+                            class_remap=self.class_remap,
                         )
                         if parsed is None:
                             continue
@@ -263,8 +306,18 @@ class YOLOCocoAPI:
                         self.imgToAnns[img_id].append(ann)
                         ann_id += 1
 
-        # Build categories
+        # Build categories. class_remap's keys are original dataset ids, which
+        # only line up with this label-index domain for plain classes=
+        # filtering -- single_cls (with or without classes=) has already
+        # collapsed class_names to one "object" entry upstream, so leave that
+        # single category alone rather than checking it against class_remap.
         for i, name in enumerate(class_names):
+            if (
+                self.class_remap is not None
+                and not self.single_cls
+                and i not in self.class_remap
+            ):
+                continue
             self.cats[i] = {"id": i, "name": name, "supercategory": "object"}
 
         logger.info(
@@ -400,7 +453,9 @@ class YOLOCocoAPI:
 
         # Add result annotations
         res_coco.anns = {}
-        for ann_id, result in enumerate(results):
+        # COCOeval stores detection ids in gtMatches and treats zero as
+        # unmatched. A zero-id prediction lets later duplicates reuse its GT.
+        for ann_id, result in enumerate(results, start=1):
             ann = {
                 "id": ann_id,
                 "image_id": result["image_id"],
@@ -476,7 +531,11 @@ class YOLOCocoAPI:
 
 
 def create_yolo_coco_api(
-    data_yaml_path: str, split: str = "val", load_segments: bool = False
+    data_yaml_path: str,
+    split: str = "val",
+    load_segments: bool = False,
+    *,
+    single_cls: bool = False,
 ) -> YOLOCocoAPI:
     """
     Create YOLOCocoAPI from a data.yaml file.
@@ -484,6 +543,7 @@ def create_yolo_coco_api(
     Args:
         data_yaml_path: Path to data.yaml file
         split: Dataset split ('train', 'val', or 'test')
+        single_cls: Build a one-class ground-truth view.
 
     Returns:
         YOLOCocoAPI instance
@@ -496,7 +556,11 @@ def create_yolo_coco_api(
 
     # Reuse the same YAML alias and dataset-root resolution logic as the main
     # loader so COCO evaluation works for dataset names like "coco128.yaml".
-    data = load_data_config(data_yaml_path, autodownload=False)
+    data = load_data_config(
+        data_yaml_path,
+        autodownload=False,
+        single_cls=single_cls,
+    )
     root = Path(data["path"])
 
     # Get class names
@@ -520,6 +584,7 @@ def create_yolo_coco_api(
             load_segments=load_segments,
             image_files=img_files,
             label_files=data.get(f"{split_key}_label_files"),
+            single_cls=single_cls,
         )
 
     images_subpath = data.get(split_key, f"images/{split_key}")
@@ -557,4 +622,5 @@ def create_yolo_coco_api(
         labels_dir=labels_dir,
         class_names=class_names,
         load_segments=load_segments,
+        single_cls=single_cls,
     )

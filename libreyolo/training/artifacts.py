@@ -423,7 +423,9 @@ class TrainingStatusCallback:
         self._epoch_time_sum += event.epoch_seconds
         self._epoch_time_count += 1
         mean_epoch = self._epoch_time_sum / max(self._epoch_time_count, 1)
-        completed = event.epoch + 1
+        # ``event.epoch`` is the one-based number of the epoch that just
+        # finished, so it is also the count of completed epochs.
+        completed = event.epoch
         remaining = max(event.total_epochs - completed, 0)
         metrics = {
             name.removeprefix("metrics/"): value
@@ -469,6 +471,11 @@ class TrainingStatusCallback:
         self._close_log()
 
     def on_train_exception(self, event: TrainExceptionEvent) -> None:
+        if not event.save_dir:
+            # Failed before the run directory existed (e.g. during setup);
+            # Path("") would put status.json in the working directory.
+            self._close_log()
+            return
         save_dir = self._save_dir(event)
         self._write(
             save_dir,

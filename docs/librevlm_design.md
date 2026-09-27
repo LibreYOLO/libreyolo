@@ -31,12 +31,16 @@ size marked with `*`. The authoritative alias tables are in
 | Aliases                                      | Family    | License             | Notes                                    |
 |----------------------------------------------|-----------|---------------------|------------------------------------------|
 | `qwen3-vl`, `-2b`, `-4b`*, `-8b`             | Qwen3-VL  | Apache-2.0          | default model; strongest detector here   |
-| `lfm2-vl`, `-450m`*, `-1.6b`                 | LFM2-VL   | LFM Open License v1.0 | edge VLM; non-permissive, logs notice   |
+| `lfm2-vl`, `-450m`*, `-1.6b`, `-3b`          | LFM2-VL   | LFM Open License v1.0 | edge VLM; non-permissive, logs notice   |
+| `north-micro-vision`, `-2.4b`*               | North Micro Vision | Apache-2.0    | Cohere Labs native-resolution VLM; needs transformers>=5.16 |
 | `internvl3`, `-1b`, `-2b`*, `-8b`            | InternVL3 | Qwen License        | Qwen-backbone weights, logs notice; weak small |
 | `florence-2`, `-base`*, `-large`             | Florence-2 | MIT                | small purpose-built detector; tight boxes |
 | `kosmos-2`*                                   | Kosmos-2  | MIT                 | 2023 grounder; loads clean, coarse boxes |
 | `smolvlm2`, `-2.2b`*, `-500m`                | SmolVLM2  | Apache-2.0          | tiny; weak detector, zero-code family    |
 | `locate-anything`, `-3b`*                     | LocateAnything | NVIDIA non-commercial | remote-code grounder; boxes and points |
+| `gemma-4`, `-e2b`, `-e4b`*                    | Gemma 4   | Apache-2.0          | native `box_2d` y-first 0-1000; needs transformers>=5.10 |
+| `moondream`, `-2`*, `-3`                      | Moondream | Apache-2.0 (`-2`); BSL 1.1 (`-3`) | native detect/point skills; `-3` logs a notice; both mirrored |
+| `molmo2`, `-4b`*, `-8b`, `-o-7b` | Molmo2 | Apache-2.0 | point-only; pinned LibreYOLO mirrors; separate `molmo2` extra |
 | `sensenova-vision`, `-7b`*                    | SenseNova-Vision | Apache-2.0 code, CC BY-NC 4.0 weights | unified multimodal; 7 tasks, vendored port, heavy |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
 
@@ -53,12 +57,37 @@ VQA are intentionally unavailable. See [`libremodus.md`](libremodus.md).
 Larger Qwen3-VL tiers (30B and up) and Qwen2.5-VL are not included: the big ones
 do not fit a single consumer GPU, and Qwen2.5-VL uses a different coordinate
 convention that would need its own family. Some strong models are deliberately
-left out for being remote-code without enough payoff (Ovis2.5, MiniCPM-V,
-Moondream2, Molmo2; fragile on current transformers), gated (PaliGemma2, Gemma3),
-too large for ~16 GB (GLM-4.1V-9B), or not a clean drop-in (Rex-Omni crashes on
-the standard Qwen2.5-VL path despite being the strongest generative detector).
+left out for being remote-code without enough payoff (Ovis2.5, MiniCPM-V),
+gated (PaliGemma2, Gemma 3), too large for ~16 GB (GLM-4.1V-9B), or
+not a clean drop-in (Rex-Omni crashes on the standard Qwen2.5-VL path despite
+being the strongest generative detector). Gemma 4 replaces Gemma 3 here:
+Apache-2.0 weights and a documented `box_2d` detection format.
 `LibreVLM()` defaults to `qwen3-vl-4b`. Detection quality varies a lot by family
-and size; Qwen3-VL, LFM2-VL, and Florence-2 are the strong ones.
+and size; Qwen3-VL, LFM2-VL, Florence-2, Gemma 4, and Moondream are the strong ones.
+
+Molmo2 defaults to `task="point"`: `LibreVLM("molmo2", names=["boat"])`
+returns `Results.points` in original-image pixels, with synthetic confidence
+1.0. It generates once per class. Its parser supports current single-image
+`<points coords="1 id x y ...">` markup (0-1000) and legacy `x`/`y` percentage
+attributes. Its decoder belongs in the pure `models/vlm/parsing.py` module
+under ADR 0002: string and scalar coordinate validation stays separate from
+model loading, generation and tensor result construction. Only Molmo2 calls
+this new helper; existing JSON box parsers and other VLM workflows are unchanged.
+It rejects video/multi-image coordinate groups. A custom `prompt`
+must contain `{label}`, replaced with each vocabulary entry; arbitrary raw
+prompts remain available through `chat()`. Box detection, point tracking,
+training, validation and export are unsupported.
+
+Install Molmo2 in a separate environment with `pip install 'libreyolo[molmo2]'`.
+The pinned remote code needs Transformers 4.57.1 and fails on 5.16.1 in both
+processor construction and rotary-embedding initialization. Other VLM extras
+require Transformers 5. The 8B and O-7B variants need more memory than 4B;
+a 16 GB peak-memory claim has not been measured.
+
+Validation: 4B passed a CPU synthetic-point check and matched direct upstream
+generation under Transformers 4.57.1. The 8B/O-7B processors and model graphs
+were checked without loading weights; their pretrained inference and CUDA
+execution remain unverified.
 
 ## Decision 1: two layers, raw chat under a detection convenience
 
@@ -81,7 +110,8 @@ reasoning are all one call away. This is the property that makes the tier
 future-proof, so it is a first-class method rather than an internal detail.
 
 `chat()` applies to the chat-template families (Qwen3-VL, LFM2-VL, SmolVLM2,
-InternVL3). The task-prompt families (Florence-2, Kosmos-2) are not chat models:
+InternVL3, Gemma 4) and to Moondream via its native `query` skill. The
+task-prompt families (Florence-2, Kosmos-2) are not chat models:
 they are driven by fixed task / grounding tokens, so their `chat()` raises
 `NotImplementedError` and only `predict()` is supported. `predict()` (the
 detection layer) works on every family.
@@ -165,16 +195,20 @@ synthetic image with a known box and read back the numbers. Verified so far:
 | Model      | Box key   | Scale  | Layout | Knobs                                   |
 |------------|-----------|--------|--------|-----------------------------------------|
 | Qwen3-VL   | `bbox_2d` | 0-1000 | xyxy   | `COORD_DIVISOR=1000`                    |
-| LFM2-VL    | `bbox`    | [0, 1] | xyxy   | defaults                                |
+| LFM2-VL 450m/1.6b | `bbox` | [0, 1] | xyxy | defaults                              |
+| LFM2.5-VL-3B | `bbox`/`bbox_2d` | 0-1000 | xyxy | per-size divisor; the 3B keeps its trained 0-1000 scale no matter what the prompt asks, and drifts between the two key names |
 | SmolVLM2   | `bbox`    | [0, 1] | xyxy   | defaults                                |
 | InternVL3  | `bbox`    | 0-1000 | xyxy   | `COORD_DIVISOR=1000` + flatten override |
 | LocateAnything | `bbox` | 0-1000 | xyxy   | remote-code adapter, boxes + points     |
+| Gemma 4    | `box_2d`  | 0-1000 | yxyx   | official Gemini-style `[ymin, xmin, ymax, xmax]` |
+| Moondream  | named `x_min..y_max` | [0, 1] | xyxy | native `detect`/`point` skills; one call per class |
+| North Micro Vision | bare `[[x1,y1,x2,y2], ...]` | 0-1000 | xyxy | per-class grounding queries; labels assigned by the adapter |
 
 Three knobs cover the output variation without touching the parser:
 
 - `BBOX_KEY` : the JSON key holding the box (`bbox`, `bbox_2d`, ...).
 - `COORD_DIVISOR` : the numeric scale (1.0 for [0,1], 1000.0 for 0-1000).
-- `BOX_FORMAT` : the box layout, `xyxy` (default), `xywh`, or `cxcywh`.
+- `BOX_FORMAT` : the box layout, `xyxy` (default), `xywh`, `cxcywh`, or `yxyx`.
 
 A model that already emits the default shape (a `bbox` key, [0,1], xyxy, through
 a chat template) needs no code at all; SmolVLM2 is such a case and its family is
@@ -184,9 +218,14 @@ InternVL3 wraps each object's boxes in an extra list, so its family overrides
 `_postprocess` to flatten before the shared builder runs; a grounding-token
 model whose boxes come from a processor `post_process_generation` call overrides
 `_preprocess`/`_forward`/`_postprocess` (Florence-2 and Kosmos-2 do exactly this).
-The tier ships seven distinct families (Qwen3-VL, LFM2-VL, SmolVLM2, InternVL3,
-Florence-2, Kosmos-2, LocateAnything) spanning all three integration styles,
-confirming it is
+North Micro Vision is a fourth style: a chat model that refuses labeled-JSON
+output but grounds single-class queries extremely well, so its family runs one
+"Locate every <label> ..." generation per vocabulary entry and assigns the
+labels itself (which also means `predict()` cost scales with the vocabulary
+size, and a query for an absent but plausible label can hallucinate a box).
+The tier ships eight distinct families (Qwen3-VL, LFM2-VL, SmolVLM2, InternVL3,
+Florence-2, Kosmos-2, LocateAnything, North Micro Vision) spanning all these
+integration styles, confirming it is
 genuinely model-agnostic. Detection *quality* varies a lot by model and size
 (Qwen3-VL, LFM2-VL, and Florence-2 are the strong ones); the framework is what is
 general, not every model's accuracy.

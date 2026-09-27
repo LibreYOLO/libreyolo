@@ -161,7 +161,7 @@ def deformable_attention_core_func_v2(
         method == "default"
         and not _FORCE_MANUAL_GRID_SAMPLE_EXPORT
         and not _FORCE_MANUAL_GRID_SAMPLE.get()
-        and ms_deform_attn_available()
+        and ms_deform_attn_available(value[0])
     ):
         accelerated = maybe_ms_deform_attn_v2(
             # Per-level (bs, n_head, c, H*W) -> the slot's (bs, Len_in, n_head, c).

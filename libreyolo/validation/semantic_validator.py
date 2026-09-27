@@ -58,11 +58,14 @@ class SemanticValidator(ValidationLossMixin, BaseValidator):
         split = self.config.split or "val"
 
         divisor = getattr(self.model, "semantic_imgsz_divisor", None)
-        if divisor and self.config.imgsz % int(divisor):
-            raise ValueError(
-                f"Semantic validation imgsz={self.config.imgsz} must be "
-                f"divisible by {int(divisor)} for this model family."
-            )
+        if divisor:
+            imgsz = self.config.imgsz
+            sides = imgsz if isinstance(imgsz, (tuple, list)) else (imgsz,)
+            if any(int(side) % int(divisor) for side in sides):
+                raise ValueError(
+                    f"Semantic validation imgsz={self.config.imgsz} must be "
+                    f"divisible by {int(divisor)} for this model family."
+                )
         resize_mode = getattr(self.model, "semantic_resize_mode", "letterbox")
         self._resize_mode = resize_mode
         dataset = SemanticDataset(
@@ -156,13 +159,15 @@ class SemanticValidator(ValidationLossMixin, BaseValidator):
         original order.
 
         ``stretch`` resize mode has no padding (the whole canvas is
-        content), so a plain full-width flip is exact there.
+        content), so a plain full-width flip is exact there. ``rescale_crop``
+        only defines a training sampler; ``SemanticDataset._resize`` validates
+        it by direct resize to the canvas, so it shares the stretch geometry.
 
         ``inplace`` mutates ``tensor`` and is for the flip-back of a logits
         tensor the caller solely owns — at ADE20K scale the defensive copy is
         1.2 GB. Never pass it for the dataloader's image batch.
         """
-        if self._resize_mode == "stretch":
+        if self._resize_mode in ("stretch", "rescale_crop"):
             return tensor.flip(-1)
         if self._resize_mode not in ("letterbox", "resize_crop"):
             # Anything else pads somewhere this window math does not model

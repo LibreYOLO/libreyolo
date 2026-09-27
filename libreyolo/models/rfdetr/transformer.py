@@ -287,11 +287,15 @@ class MSDeformAttn(nn.Module):
         # Eq(u0, 1)"). The check is a developer sanity check over spatial
         # shapes that are constant for a fixed export canvas, so evaluate it
         # in Python when the shapes are concrete and skip the tensor path.
-        if self._export and input_spatial_shapes_hw is not None:
-            # Export callers already carry the fixed canvas geometry as Python
-            # integer pairs. Validate against those values instead of reading
-            # back from input_spatial_shapes, which creates an unbacked symbol
-            # under strict torch.export capture.
+        if input_spatial_shapes_hw is not None and not isinstance(
+            len_input, torch.Tensor
+        ):
+            # Callers that carry the geometry as Python integer pairs (the
+            # RF-DETR decoder always does) validate against those values: it
+            # avoids the unbacked symbol under strict torch.export capture,
+            # and it avoids the device readback below, which is a full GPU
+            # pipeline drain per decoder layer in eager training
+            # (Tensor.__int__ syncs, invisibly to Python-level profiling).
             expected_len_in = sum(h * w for h, w in input_spatial_shapes_hw)
             assert expected_len_in == len_input, error_msg
         # The int() readback below is a host sync, which CUDA graph capture
@@ -525,7 +529,27 @@ class Transformer(nn.Module):
         values only depend on the input resolution, so build the tensor
         once per (shapes, device) and reuse it; the cached tensor is
         read-only downstream.
+
+        Under ``torch.compile`` the tensor is built in-graph instead: the
+        cache's attribute write and key comparison become Dynamo guards that
+        pin every input resolution, so each multi-scale size would recompile.
+        ``torch.full`` keeps symbolic sizes symbolic (``torch.tensor`` of
+        symbolic ints specializes them). Export keeps the cached path.
         """
+        if torch.compiler.is_compiling() and not getattr(
+            torch.compiler, "is_exporting", lambda: False
+        )():
+            return torch.stack(
+                [
+                    torch.stack(
+                        [
+                            torch.full((), h, dtype=torch.long, device=device),
+                            torch.full((), w, dtype=torch.long, device=device),
+                        ]
+                    )
+                    for h, w in spatial_shapes_hw
+                ]
+            )
         key = (tuple(spatial_shapes_hw), str(device))
         cached = getattr(self, "_spatial_shapes_cache", None)
         if cached is None or cached[0] != key:
@@ -837,11 +861,18 @@ class TransformerDecoder(nn.Module):
 
         Ported from RF-DETR v1.8.0 (GroupPose keypoint additions).
         """
+        # Schema changes can rebuild this buffer after the decoder moved to GPU.
+        # Preserve its device; on first creation use an existing decoder parameter.
+        current_mask = self._buffers.get("keypoint_class_mask")
+        device = (
+            current_mask.device if current_mask is not None
+            else self.ref_point_head.layers[0].weight.device
+        )
         if not self.num_keypoints_per_class:
-            mask = torch.zeros(1, 1, dtype=torch.bool)
+            mask = torch.zeros(1, 1, dtype=torch.bool, device=device)
         else:
             total_kp = sum(self.num_keypoints_per_class)
-            mask = torch.zeros(1 + total_kp, 1 + total_kp, dtype=torch.bool)
+            mask = torch.zeros(1 + total_kp, 1 + total_kp, dtype=torch.bool, device=device)
             offset = 1
             for class_idx_i, num_kp_i in enumerate(self.num_keypoints_per_class):
                 if num_kp_i == 0:

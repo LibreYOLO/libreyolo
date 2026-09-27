@@ -69,6 +69,10 @@ class LibreYOLO1(DarknetFamily):
     SUPPORTS_CUDA_GRAPH = True
     INPUT_SIZES = {"t": 448, "b": 448}
 
+    UNPUBLISHED_WEIGHTS = {
+        "LibreYOLO1t": "The tiny YOLOv1 weights are lost upstream; use LibreYOLO1b.pt.",
+    }
+
     CFG_BY_SIZE = {"t": "yolov1-tiny", "b": "yolov1"}
     # Conv-layer counts are byte-exact vs the real .weights: tiny has 8, full 24.
     CONV_COUNT_TO_SIZE = {8: "t", 24: "b"}

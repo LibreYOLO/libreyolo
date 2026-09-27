@@ -39,7 +39,7 @@ The base install is lightweight. Some features need **optional extras** —
 install them as `libreyolo[extra]` (or `libreyolo[all]`). Available extras:
 `onnx`, `rfdetr`, `eomt`, `tensorrt`, `openvino`, `ncnn`, `tflite` (alias
 `litert`; LiteRT is TensorFlow Lite's new name), `coreml`,
-`tracking`, `gaze`, `rtdetr`, `vlm`, `sam`, `openvocab`, `clip`, `label`,
+`tracking`, `gaze`, `rtdetr`, `vlm`, `ground`, `sam`, `openvocab`, `clip`, `label`,
 `plots`, `lora`, `tensorboard`, `mlflow`, `wandb`, `all`. `libreyolo checks`
 reports which are present.
 
@@ -58,6 +58,8 @@ from libreyolo import LibreYOLO, SAMPLE_IMAGE
 model = LibreYOLO("LibreYOLO9t.pt")
 results = model(SAMPLE_IMAGE, save=True)   # equivalently: model.predict(source=...)
 ```
+NumPy image arrays are read as BGR, the OpenCV order; pass
+`color_format="rgb"` for an RGB array such as `np.asarray(pil_image)`.
 
 **Train — needs a YOLO-format dataset YAML**
 ```bash
@@ -66,25 +68,26 @@ libreyolo train model=LibreYOLO9t.pt data=coco8.yaml epochs=100 imgsz=640 batch=
 ```python
 model.train(data="coco8.yaml", epochs=100, imgsz=640)
 ```
-> Caveat to the "same arguments" rule: **RF-DETR's train signature differs** —
-> e.g. `batch_size` (not `batch`), `lr` (not `lr0`), `output_dir` (not
-> `project`). Confirm with `libreyolo train --help-json` for the loaded model.
+> RF-DETR's `train()` also accepts its native spellings `batch_size`, `lr`
+> and `output_dir`; the standard `batch`, `lr0`, `project` and `name` work
+> too. Confirm with `libreyolo train --help-json` for the loaded model.
 
 **Validate — mAP on a split**
 ```bash
-libreyolo val model=runs/train/exp/weights/best.pt data=coco8.yaml save_json=true save_plots=true
+libreyolo val model=runs/train/yolo9_exp/weights/best.pt data=coco8.yaml save_json=true save_plots=true
 ```
 
 **Export — onnx · torchscript · tensorrt · openvino · ncnn · tflite · coreml**
 ```bash
-libreyolo export model=runs/train/exp/weights/best.pt format=onnx half=true
+libreyolo export model=runs/train/yolo9_exp/weights/best.pt format=onnx half=true
 ```
 Run `libreyolo formats` for each format's extension and FP16/INT8 support.
 
 ## Reading results
 
-`predict`/`track` return a single `Results` for a single image, or a `list` of
-`Results` for multiple inputs (a directory, a list, or video frames). Index the
+`predict` returns a single `Results` for a single image, or a `list` of
+`Results` for multiple inputs (a directory, a list, a 4-D batched array, or
+video frames); `track` yields one `Results` per frame. Index the
 list, not a single `Results` — indexing a `Results` selects one detection.
 Read them programmatically rather than re-parsing saved files:
 
@@ -106,9 +109,9 @@ Every `train` run writes live monitoring files into its `save_dir`. To check
 on a run, read `status.json` (a few tokens) instead of tailing logs:
 
 ```bash
-cat runs/train/exp/status.json   # state (running/completed/failed), epoch,
-                                 # progress, eta_seconds, latest/best metrics,
-                                 # and on failure the error message
+cat runs/train/yolo9_exp/status.json   # state (running/completed/failed), epoch,
+                                       # progress, eta_seconds, latest/best metrics,
+                                       # and on failure the error message
 ```
 
 The run's console output is tee'd to `train.log`, and `metrics.jsonl` holds
@@ -189,7 +192,8 @@ as the source of truth. By tier:
   suffix, e.g. `model = LibreYOLO("LibreResNet50-cls.pt")`. Fine-tune on an
   ImageFolder root (or a known name/`.zip` URL) with `model.train(data=...)`.
 - **Zero-shot / promptable tiers** (need `[openvocab]` / `[sam]` / `[clip]` / `[siglip2]`
-  / `[vlm]`): `LibreOpenVocab` (text-vocabulary detection), `LibreSAM` /
+  / `[vlm]`): `LibreOpenVocab` (text-vocabulary detection), `LibreGround`
+  (screenshot + instruction → click `Results.points`), `LibreSAM` /
   `LibreSAM2` / `LibreSAM3` / `LibreMobileSAM` (point/box-prompted masks;
   SAM 3 also accepts concept `text=` prompts), `LibreCLIP` / `LibreSigLIP2`
   (zero-shot classify), and the `LibreVLM` family (vision-language

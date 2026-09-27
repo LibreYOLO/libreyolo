@@ -1,0 +1,50 @@
+LibreHVI-CIDNet includes code adapted from HVI-CIDNet:
+
+Source: https://github.com/Fediory/HVI-CIDNet
+Commit: eb43d7d91e9a336c66856824ff9e4603ae41f408
+License: MIT
+Copyright (c) 2024 Fediory Feng
+
+The inference port covers net/CIDNet.py, net/HVI_transform.py, net/LCA.py,
+and net/transformer_utils.py. Module and parameter names mirror the upstream
+network. The upstream MIT einops rearrangements are expressed with equivalent
+native PyTorch reshape operations; training, losses, metrics, and dataset code
+are not included.
+
+Source path behaviorally referenced: eval_hf.py (RGB [0,1] preprocessing,
+right/bottom reflection padding to a multiple of 8, gamma/control application,
+output clamping, and crop to the original canvas). The family helper is a
+native implementation rather than a copy of that file.
+
+Architectural lineage disclosed by the upstream project:
+
+- Restormer, https://github.com/swz30/Restormer, commit
+  68dc6ac472db26f16361150cb7a96a1bc87da93f, MIT. Copyright (c) 2022 Syed
+  Waqas Zamir and contributors.
+- ConvNeXt, https://github.com/facebookresearch/ConvNeXt, commit
+  048efcea897d999aed302f2639b6270aedf8d4c8, MIT. Copyright (c) Meta
+  Platforms, Inc. and affiliates.
+- einops, https://github.com/arogozhnikov/einops, commit
+  e0d5eb4fd535945ff65d309206d0f1754a926821, MIT. Copyright (c) 2018 Alex
+  Rogozhnikov. The port has no einops runtime dependency; native PyTorch
+  implements the required reshapes.
+
+Released checkpoint used by LibreYOLO:
+
+- Repository: https://huggingface.co/Fediory/HVI-CIDNet-Generalization
+- Revision: 51481ef2546f870060c43eb6d6525399f5b3d2d3
+- File: model.safetensors (7,920,332 bytes)
+- SHA-256: 2291407125e809cc9c0614cc2d010d21d309a66eb3da33e1ee2386a68fa05894
+- Publisher-declared checkpoint license: MIT
+
+Training-data caveat
+--------------------
+
+The upstream author states that the Generalization checkpoint was trained on
+LOLv2-Synthetic with random gamma. The canonical LOLv2 source repository
+(https://github.com/flyywh/CVPR-2020-Semi-Low-Light, commit
+9f383decbd2717ab37bb9e4c133b3a0bf98ba638) publishes no dataset LICENSE or
+explicit use terms. The checkpoint publisher directly grants MIT terms for the
+released model artifact, but LibreYOLO has not independently established the
+training dataset's commercial-use terms. No LOLv2 images or other training data
+are included or redistributed by LibreYOLO.

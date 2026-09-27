@@ -2,12 +2,13 @@
 
 ## Status
 
-Accepted. This ADR amends ADR 0013; it does not replace the face-recognition
-region contract defined there.
+Accepted. This ADR amends ADR 0017 (the embed task contract, numbered 0013
+until a post-1.5.0 renumbering resolved a collision); it does not replace the
+face-recognition region contract defined there.
 
 ## Context
 
-ADR 0013 chose the generic canonical task name `embed`, but its first
+ADR 0017 chose the generic canonical task name `embed`, but its first
 implementation produced only face-region identity vectors. The same primitive
 also serves whole-image similarity and image/text retrieval: a float32,
 L2-normalized row whose dot product with another row measures agreement.

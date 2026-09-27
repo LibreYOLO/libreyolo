@@ -7,6 +7,65 @@ The full list of changes for any release is in
 [CHANGELOG.md](../CHANGELOG.md); this page carries only the parts that require
 you to edit code or re-check numbers.
 
+## v1.5.x to v1.6.0
+
+Existing YOLOv9 checkpoints keep the same predict/val boxes after the
+upgrade. Do not re-export or re-evaluate old weights expecting a silent
+letterbox flip: there is none.
+
+### What does not break
+
+- Unmarked YOLOv9 `.pt` files (every LibreYOLO ≤1.5 fine-tune, and the
+  already-published `LibreYOLO9{t,s,m,c}.pt` mirrors) keep **top-left**
+  letterbox. Inference of those files is bit-identical to 1.5.
+- The PGI auxiliary head is training-only. Old checkpoints load and infer
+  as single-head models. Export graphs stay on the main head.
+- Validation NMS defaults (`0.001` / `0.6` / `300`) are unchanged. Val
+  numbers from 1.5 remain comparable.
+
+### What does change (new training / new converts only)
+
+- Newly converted official MultimediaTechLab weights stamp
+  `letterbox_pad: center` and keep the auxiliary PGI tensors. Fine-tunes
+  that start from those files train with center-pad and PGI.
+- New YOLOv9 training defaults: `max_labels=300`, SGD momentum warmup
+  `0.8 → 0.937` over the existing 3-epoch LR warmup, and `aux_weight=0.25`
+  on stock detect (not P2/E2E). Resume of a 1.5 checkpoint without `aux.*`
+  keys stays single-head.
+- To force center-pad on an unmarked checkpoint: `model.train(...,
+  letterbox_pad="center")`. To disable PGI: `aux_weight=0`.
+
+### What you should re-check
+
+- If you compare val mAP of a **new** official convert (center-stamped)
+  against a 1.5 number that used the same weights under top-left pad, the
+  scores will move. That is the intended geometry match with upstream, not
+  a silent default flip of your old files.
+
+### Inputs, resume and validation
+
+- NumPy image arrays are read as BGR, the OpenCV order; 1.5 read them as
+  RGB unless `color_format="bgr"` was passed. Add `color_format="rgb"` where
+  you pass an RGB array such as `np.asarray(pil_image)`. `cv2.imread()`
+  output and video frames need no change.
+- A 4-D NumPy array or tensor is a batch: `predict()` returns a list with one
+  `Results` per image instead of using only the first image.
+- `train(resume=True)` and `train(resume="<run>/weights/last.pt")` restore
+  the run's saved training arguments and keep writing into that run's
+  directory; arguments you pass explicitly win. Resuming released weights,
+  or a run that already reached its `epochs`, raises a `ValueError` that
+  says so.
+- With validation on, the final epoch always validates, so runs shorter than
+  `eval_interval` now report metrics and write `best.pt`. `train(val=False)`
+  turns validation off entirely, final plots and precise-BN refresh
+  included; such runs write no `best.pt`, only `last.pt` and the periodic
+  `epoch_<n>.pt` files `save_period` asks for.
+- Validation during training writes into `<run>/val` instead of `runs/val/`
+  in the working directory.
+- CLI `train` failures are classified by exception type (`config_type_error`,
+  `config_unknown_key`, `config_unsupported`, `cuda_oom`, `io_error`)
+  instead of always `io_error`, so configuration errors now exit with 2.
+
 ## v1.4.0 to v1.5.0
 
 Nothing was removed from the public API surface: every class and function that
@@ -31,7 +90,9 @@ model.train(data="data.yaml", epochs=100, allow_experimental=True)
 model.train(data="data.yaml", epochs=100)
 ```
 
-There is no deprecation shim. A call that still passes it raises `TypeError`.
+The argument no longer has any effect. `train()` warns
+`Unknown training config keys (ignored): ['allow_experimental']` and trains
+normally; `export()` ignores it without a warning.
 
 `BaseModel.EXPERIMENTAL_WEIGHT_FILENAMES` was removed with it. The
 `get_download_notice()` hook survives and is still overridden by midas,
@@ -116,7 +177,7 @@ model.val(data="coco.yaml", faster_coco_eval=False)
 or set `LIBREYOLO_FASTER_COCO_EVAL=0`. The backend actually used is logged at
 INFO, exposed as `model.last_eval_backend` after `val()`, and included as
 `eval_backend` in the CLI JSON payload. Install the fast path with
-`pip install libreyolo[fast-eval]`.
+`pip install "libreyolo[fast-eval]"`.
 
 #### YOLOX checkpoints trained before v1.5.0 need an eps override to score faithfully
 

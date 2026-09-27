@@ -1,4 +1,4 @@
-# ADR 0015: Edge task and specialist contract
+# ADR 0018: Edge task and specialist contract
 
 Status: accepted
 Date: 2026-07-29

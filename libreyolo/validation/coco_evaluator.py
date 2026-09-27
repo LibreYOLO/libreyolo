@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Mapping, Optional
+from typing import Dict, Mapping, Optional, Tuple
 
 import numpy as np
 import torch
@@ -316,6 +316,295 @@ class COCOEvaluator:
         """Clear all accumulated results."""
         self.results = []
         self._img_ids = set()
+
+    @staticmethod
+    def _best_f1_threshold(
+        scores: np.ndarray, tps: np.ndarray, npig: int
+    ) -> Tuple[float, float]:
+        """Sweep F1 over score thresholds with a single sort plus cumsum.
+
+        ``scores`` and ``tps`` are aligned per-detection arrays (ignored
+        detections must already be removed); ``npig`` is the number of
+        non-ignored ground truths. F1 is evaluated once per distinct score,
+        always at the last detection of a tie group, so detections sharing a
+        score are included or excluded as a whole. Ties in F1 resolve to the
+        highest threshold.
+
+        Returns:
+            ``(threshold, f1)``. A NaN pair when no threshold achieves
+            F1 > 0: no predictions, no ground truth, or every prediction
+            is a false positive.
+        """
+        nan = float("nan")
+        scores = np.asarray(scores, dtype=np.float64)
+        tps = np.asarray(tps, dtype=bool)
+        if scores.size == 0 or npig <= 0:
+            return nan, nan
+        order = np.argsort(-scores, kind="stable")
+        scores = scores[order]
+        tp = tps[order].astype(np.float64)
+        tp_cum = np.cumsum(tp)
+        fp_cum = np.cumsum(1.0 - tp)
+        # Candidate cut points: the last detection of every distinct score.
+        cut = np.flatnonzero(np.diff(scores))
+        cut = np.append(cut, scores.size - 1)
+        # F1 = 2*tp / (tp + fp + npig) == 2PR / (P + R) with P = tp/(tp+fp),
+        # R = tp/npig; the denominator is always > 0 at a detection index.
+        f1 = 2.0 * tp_cum[cut] / (tp_cum[cut] + fp_cum[cut] + float(npig))
+        best = int(np.argmax(f1))  # first max == highest threshold on ties
+        if not f1[best] > 0.0:
+            return nan, nan
+        return float(scores[cut[best]]), float(f1[best])
+
+    def best_conf_thresholds(
+        self, iou_thr: float = 0.5
+    ) -> Optional[Dict[str, object]]:
+        """Per-class and micro-averaged global best confidence thresholds.
+
+        Reads the per-image match results (``evalImgs``) of the last
+        :meth:`compute` call, so no matching is re-run; with the
+        faster-coco-eval backend, which keeps matching in C++, the greedy
+        assignment is replayed on its retained IoU matrices instead (see
+        :meth:`_per_class_match_arrays`). F1 is defined at IoU ``iou_thr``
+        matching (0.50 by default; on the ``evalImgs`` path, if that
+        threshold was not evaluated, the lowest evaluated one is used) over
+        the "all" area range. Detections flagged as ignored by COCOeval,
+        which includes detections matched to crowd/ignore ground truths,
+        take part in the sweep as neither TP nor FP, and ignored ground
+        truths do not count toward recall.
+
+        Returns:
+            None when no evaluation ran or the backend exposes no usable
+            match source. Otherwise
+            ``{"global": (thr, f1), "per_class": {label: (thr, f1)}}``
+            where ``label`` is the model class index (category ids are
+            mapped back through ``label_to_category_id``) and entries are
+            NaN pairs for classes where no threshold reaches F1 > 0.
+        """
+        coco_eval = self._last_coco_eval
+        if coco_eval is None:
+            return None
+        try:
+            source = self._per_class_match_arrays(coco_eval, iou_thr)
+            if source is None:
+                return None
+            category_to_label = (
+                {v: k for k, v in self.label_to_category_id.items()}
+                if self.label_to_category_id is not None
+                else {}
+            )
+
+            per_class: Dict[int, Tuple[float, float]] = {}
+            pooled_scores = []
+            pooled_tps = []
+            total_npig = 0
+            for cat_id, (scores, tps, npig) in source.items():
+                label = category_to_label.get(int(cat_id), int(cat_id))
+                per_class[label] = self._best_f1_threshold(scores, tps, npig)
+                pooled_scores.append(scores)
+                pooled_tps.append(tps)
+                total_npig += npig
+
+            global_pair = self._best_f1_threshold(
+                np.concatenate(pooled_scores)
+                if pooled_scores
+                else np.zeros(0, dtype=np.float64),
+                np.concatenate(pooled_tps)
+                if pooled_tps
+                else np.zeros(0, dtype=bool),
+                total_npig,
+            )
+            return {"global": global_pair, "per_class": per_class}
+        except Exception as exc:  # backend without a usable match source
+            logger.debug("Best-conf sweep unavailable: %s", exc)
+            return None
+
+    def _per_class_match_arrays(
+        self, coco_eval, iou_thr: float
+    ) -> Optional[Dict[int, Tuple[np.ndarray, np.ndarray, int]]]:
+        """Per-category ``(scores, tps, npig)`` arrays for the F1 sweep.
+
+        Uses the stock pycocotools ``evalImgs`` match results when the
+        backend populates them. faster-coco-eval keeps matching in C++ and
+        leaves ``evalImgs`` empty, but retains the Python-side IoU matrices
+        (``ious``) and the prepared ``cocoGt``/``cocoDt`` annotations, so
+        the greedy COCO assignment at ``iou_thr`` is replayed on those:
+        the expensive IoU computation is reused, only the trivial matching
+        loop is repeated.
+        """
+        eval_imgs = getattr(coco_eval, "evalImgs", None)
+        if isinstance(eval_imgs, list) and eval_imgs:
+            return self._match_arrays_from_eval_imgs(coco_eval, iou_thr)
+        return self._match_arrays_from_ious(coco_eval, iou_thr)
+
+    @staticmethod
+    def _match_arrays_from_eval_imgs(
+        coco_eval, iou_thr: float
+    ) -> Dict[int, Tuple[np.ndarray, np.ndarray, int]]:
+        """Extract sweep arrays from pycocotools-shaped ``evalImgs``."""
+        params = coco_eval.params
+        iou_thrs = np.asarray(params.iouThrs, dtype=np.float64)
+        iou_matches = np.flatnonzero(np.isclose(iou_thrs, iou_thr))
+        iou_index = int(iou_matches[0]) if iou_matches.size else 0
+        area_index = list(params.areaRngLbl).index("all")
+        n_area = len(params.areaRng)
+        n_img = len(params.imgIds)
+        eval_imgs = coco_eval.evalImgs
+
+        out: Dict[int, Tuple[np.ndarray, np.ndarray, int]] = {}
+        for k, cat_id in enumerate(params.catIds):
+            scores_parts = []
+            tp_parts = []
+            npig = 0
+            base = k * n_area * n_img + area_index * n_img
+            for entry in eval_imgs[base : base + n_img]:
+                if entry is None:
+                    continue
+                gt_ignore = np.asarray(entry["gtIgnore"])
+                npig += int((gt_ignore == 0).sum())
+                dt_scores = np.asarray(entry["dtScores"], dtype=np.float64)
+                if dt_scores.size == 0:
+                    continue
+                keep = ~np.asarray(entry["dtIgnore"], dtype=bool)[iou_index]
+                matches = np.asarray(entry["dtMatches"])[iou_index]
+                scores_parts.append(dt_scores[keep])
+                tp_parts.append(matches[keep] > 0)
+            scores = (
+                np.concatenate(scores_parts)
+                if scores_parts
+                else np.zeros(0, dtype=np.float64)
+            )
+            tps = (
+                np.concatenate(tp_parts)
+                if tp_parts
+                else np.zeros(0, dtype=bool)
+            )
+            out[int(cat_id)] = (scores, tps, npig)
+        return out
+
+    @staticmethod
+    def _match_arrays_from_ious(
+        coco_eval, iou_thr: float
+    ) -> Optional[Dict[int, Tuple[np.ndarray, np.ndarray, int]]]:
+        """Replay COCO's greedy assignment on the retained IoU matrices.
+
+        Original reimplementation (no upstream code copied) of the greedy
+        matching rule COCO evaluation defines, at a single IoU threshold and
+        the "all" area range: detections are visited in score order, each
+        takes the best still-free ground truth above ``iou_thr``
+        (crowd/ignored ground truths only when no normal one qualifies) and
+        a detection matched to an ignored ground truth is dropped from the
+        sweep (neither TP nor FP). Behavioral equivalence with the reference
+        evaluator is pinned by the cross-backend parity tests in
+        tests/unit/test_best_conf_threshold.py.
+        """
+        from collections import defaultdict
+
+        ious_all = getattr(coco_eval, "ious", None)
+        coco_gt = getattr(coco_eval, "cocoGt", None)
+        coco_dt = getattr(coco_eval, "cocoDt", None)
+        if ious_all is None or coco_gt is None or coco_dt is None:
+            return None
+        params = coco_eval.params
+        max_det = int(sorted(params.maxDets)[-1])
+
+        # One pass over each annotation index. Iterating anns in insertion
+        # order preserves the per-image dataset order computeIoU consumed,
+        # so the IoU matrix axes line up below.
+        img_id_set = {int(i) for i in params.imgIds}
+        gt_by_key = defaultdict(list)
+        for ann in coco_gt.anns.values():
+            key = (int(ann["image_id"]), int(ann["category_id"]))
+            if key[0] in img_id_set:
+                gt_by_key[key].append(ann)
+        dt_by_key = defaultdict(list)
+        for ann in coco_dt.anns.values():
+            if ann.get("drop", False):
+                continue
+            key = (int(ann["image_id"]), int(ann["category_id"]))
+            if key[0] in img_id_set:
+                dt_by_key[key].append(ann)
+        imgs_by_cat = defaultdict(set)
+        for img_id, cat_id in list(gt_by_key) + list(dt_by_key):
+            imgs_by_cat[cat_id].add(img_id)
+
+        out: Dict[int, Tuple[np.ndarray, np.ndarray, int]] = {}
+        for cat_id in params.catIds:
+            scores_parts = []
+            tp_parts = []
+            npig = 0
+            for img_id in sorted(imgs_by_cat.get(int(cat_id), ())):
+                gt = gt_by_key.get((img_id, int(cat_id)), [])
+                dt = dt_by_key.get((img_id, int(cat_id)), [])
+                gt_ig = np.asarray(
+                    [
+                        g.get(
+                            "_ignore",
+                            1 if (g.get("ignore") or g.get("iscrowd")) else 0,
+                        )
+                        for g in gt
+                    ],
+                    dtype=np.int64,
+                )
+                npig += int((gt_ig == 0).sum())
+                if not dt:
+                    continue
+                # Sort exactly like evaluateImg: ignored GTs last, detections
+                # by descending score, both with a stable sort; truncate the
+                # detections to the evaluated cap.
+                gtind = np.argsort(gt_ig, kind="mergesort")
+                gt_ig = gt_ig[gtind]
+                crowd = np.asarray(
+                    [int(gt[i].get("iscrowd", 0)) for i in gtind], dtype=np.int64
+                )
+                dt_scores_full = np.asarray(
+                    [d["score"] for d in dt], dtype=np.float64
+                )
+                dtind = np.argsort(-dt_scores_full, kind="mergesort")[:max_det]
+                dt_scores = dt_scores_full[dtind]
+                # IoU rows are already in sorted-truncated detection order
+                # (computeIoU sorts and truncates); columns follow raw GT
+                # order and are permuted here to the sorted GT order.
+                ious = np.asarray(ious_all[img_id, cat_id])
+                if ious.size:
+                    ious = ious[:, gtind]
+                n_dt = len(dtind)
+                tps = np.zeros(n_dt, dtype=bool)
+                ignored = np.zeros(n_dt, dtype=bool)
+                if len(gt) and ious.size:
+                    gt_taken = np.zeros(len(gt), dtype=bool)
+                    for dind in range(n_dt):
+                        best = min(iou_thr, 1.0 - 1e-10)
+                        m = -1
+                        for gind in range(len(gt)):
+                            if gt_taken[gind] and not crowd[gind]:
+                                continue
+                            if m > -1 and gt_ig[m] == 0 and gt_ig[gind] == 1:
+                                break
+                            if ious[dind, gind] < best:
+                                continue
+                            best = ious[dind, gind]
+                            m = gind
+                        if m == -1:
+                            continue
+                        gt_taken[m] = True
+                        ignored[dind] = bool(gt_ig[m])
+                        tps[dind] = not gt_ig[m]
+                keep = ~ignored
+                scores_parts.append(dt_scores[keep])
+                tp_parts.append(tps[keep])
+            scores = (
+                np.concatenate(scores_parts)
+                if scores_parts
+                else np.zeros(0, dtype=np.float64)
+            )
+            tps = (
+                np.concatenate(tp_parts)
+                if tp_parts
+                else np.zeros(0, dtype=bool)
+            )
+            out[int(cat_id)] = (scores, tps, npig)
+        return out
 
     @staticmethod
     def _mean_valid(values: np.ndarray, *, empty: float = 0.0) -> float:

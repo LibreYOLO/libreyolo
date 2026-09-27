@@ -67,7 +67,7 @@ class LibreVLMModel(BaseModel):
     BBOX_KEY: ClassVar[str] = "bbox"
     COORD_DIVISOR: ClassVar[float] = 1.0
     # Box layout the model emits: "xyxy" (corners, default), "xywh" (top-left +
-    # size), or "cxcywh" (center + size). Set by families whose output differs.
+    # size), "cxcywh" (center + size), or "yxyx" ([ymin, xmin, ymax, xmax]).
     BOX_FORMAT: ClassVar[str] = "xyxy"
     # Greedy decoding on a small VLM can fall into a repetition loop, emitting
     # the same box until the token budget is exhausted. A mild penalty breaks
@@ -86,6 +86,12 @@ class LibreVLMModel(BaseModel):
     # Family-specific upstream license, printed once before loading/downloading.
     _LICENSE_NOTICE: ClassVar[str] = ""
     _LICENSE_NOTICE_SHOWN: ClassVar[bool] = False
+
+    # Detection fine-tuning support. A family becomes trainable by setting this
+    # True AND adding a recipe in ``training/recipes.py``; everything else
+    # raises from ``train()`` with the family's documented reason.
+    TRAINABLE: ClassVar[bool] = False
+    TRAIN_UNSUPPORTED_REASON: ClassVar[str] = ""
 
     # Off by default: all shipped families load through native transformers
     # classes, so we never execute third-party repo code. A family that genuinely
@@ -119,6 +125,7 @@ class LibreVLMModel(BaseModel):
         task: str | None = None,
         prompt: Optional[str] = None,
         max_new_tokens: Optional[int] = None,
+        checkpoint_dir: Optional[str] = None,
         **kwargs,
     ):
         if size not in self.HF_REPOS:
@@ -127,6 +134,21 @@ class LibreVLMModel(BaseModel):
                 f"Must be one of: {', '.join(self.HF_REPOS)}"
             )
         self._custom_prompt = prompt
+        # Set before super().__init__ because _init_model runs inside it.
+        self._checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
+        if self._checkpoint_dir is not None:
+            # A fine-tune is only valid on the exact base it was trained on:
+            # shadow the class repo/revision with the contract's record so the
+            # adapter never lands on a drifted upstream snapshot.
+            from .training.checkpoint import read_contract
+
+            contract = read_contract(self._checkpoint_dir)
+            base_repo = contract.get("base_repo")
+            if base_repo:
+                self.HF_REPOS = {**self.HF_REPOS, size: base_repo}
+            base_revision = contract.get("base_revision")
+            if base_revision:
+                self.HF_REVISIONS = {**self.HF_REVISIONS, size: base_revision}
         if max_new_tokens is not None:
             self.MAX_NEW_TOKENS = max_new_tokens
 
@@ -192,6 +214,31 @@ class LibreVLMModel(BaseModel):
         self.task = self._resolve_task(task)
         return self
 
+    def _chat_template_kwargs(self) -> Dict[str, Any]:
+        """Extra kwargs for ``processor.apply_chat_template``.
+
+        Families whose template needs a generation-mode flag (for example
+        Gemma 4 ``enable_thinking=False``) override this. Unknown kwargs are
+        dropped so an older processor still loads.
+        """
+        return {}
+
+    def _apply_chat_template(self, conversation):
+        kwargs = {
+            "add_generation_prompt": True,
+            "return_tensors": "pt",
+            "return_dict": True,
+            "tokenize": True,
+        }
+        extra = self._chat_template_kwargs()
+        kwargs.update(extra)
+        try:
+            return self.processor.apply_chat_template(conversation, **kwargs)
+        except TypeError:
+            for key in extra:
+                kwargs.pop(key, None)
+            return self.processor.apply_chat_template(conversation, **kwargs)
+
     def chat(
         self,
         image: ImageInput,
@@ -215,13 +262,7 @@ class LibreVLMModel(BaseModel):
                 ],
             }
         ]
-        inputs = self.processor.apply_chat_template(
-            conversation,
-            add_generation_prompt=True,
-            return_tensors="pt",
-            return_dict=True,
-            tokenize=True,
-        ).to(self.device)
+        inputs = self._apply_chat_template(conversation).to(self.device)
         inputs = self._prepare_generation_inputs(inputs)
         with torch.no_grad():
             generated = self.model.generate(
@@ -376,14 +417,60 @@ class LibreVLMModel(BaseModel):
         return model, processor
 
     def _init_model(self) -> nn.Module:
-        snapshot_dir = self._ensure_weights()
-        model, processor = self._load_pretrained(snapshot_dir)
+        checkpoint_dir = getattr(self, "_checkpoint_dir", None)
+        if checkpoint_dir is not None and (checkpoint_dir / "config.json").exists():
+            # Full fine-tune checkpoint: a self-contained model directory.
+            model, processor = self._load_pretrained(str(checkpoint_dir))
+        else:
+            snapshot_dir = self._ensure_weights()
+            model, processor = self._load_pretrained(snapshot_dir)
+            if checkpoint_dir is not None:
+                model = self._apply_adapter(model, checkpoint_dir)
+                processor = self._load_checkpoint_processor(checkpoint_dir, processor)
         self.processor = processor
         # The actual loaded weight dtype (bf16/fp16 on CUDA, fp32 on CPU). Used to
         # cast the processor's float tensors so a half-precision model never gets
         # fp32 pixel_values on a vision tower that does not self-cast.
         self._model_dtype = next(model.parameters()).dtype
         return model
+
+    def _apply_adapter(self, model: nn.Module, checkpoint_dir: Path) -> nn.Module:
+        """Apply a LoRA fine-tune checkpoint to the freshly loaded base model.
+
+        The adapter is merged into dense weights immediately: inference then
+        runs at plain-model speed with no live peft dependency on the object.
+        """
+        if not (checkpoint_dir / "adapter_config.json").exists():
+            raise FileNotFoundError(
+                f"VLM checkpoint {checkpoint_dir} has neither a full model "
+                "(config.json) nor a LoRA adapter (adapter_config.json)."
+            )
+        try:
+            from peft import PeftModel
+        except ImportError as exc:
+            raise ImportError(
+                "Loading a LoRA fine-tune checkpoint requires the 'vlm-train' "
+                "extra. Install with:\n    pip install 'libreyolo[vlm-train]'"
+            ) from exc
+        peft_model = PeftModel.from_pretrained(model, str(checkpoint_dir))
+        merged = peft_model.merge_and_unload()
+        logger.info(
+            "Loaded fine-tune adapter from %s (merged for inference).",
+            checkpoint_dir,
+        )
+        return merged
+
+    def _load_checkpoint_processor(self, checkpoint_dir: Path, fallback):
+        """Prefer the processor snapshot saved inside the checkpoint."""
+        if not (checkpoint_dir / "preprocessor_config.json").exists():
+            return fallback
+        try:
+            from transformers import AutoProcessor
+        except ImportError:
+            return fallback
+        return AutoProcessor.from_pretrained(
+            str(checkpoint_dir), trust_remote_code=self.TRUST_REMOTE_CODE
+        )
 
     def _prepare_generation_inputs(self, inputs: Any) -> Any:
         """Cast inputs and drop processor keys unsupported by ``generate``."""
@@ -474,13 +561,7 @@ class LibreVLMModel(BaseModel):
                 ],
             }
         ]
-        inputs = self.processor.apply_chat_template(
-            conversation,
-            add_generation_prompt=True,
-            return_tensors="pt",
-            return_dict=True,
-            tokenize=True,
-        )
+        inputs = self._apply_chat_template(conversation)
         # original_size is (W, H); ratio is unused because boxes come back
         # normalized to the image, so no letterbox/unpad bookkeeping is needed.
         return inputs, img, img.size, 1.0
@@ -528,14 +609,44 @@ class LibreVLMModel(BaseModel):
         )
 
     # =========================================================================
-    # Out of scope for the inference-first VLM tier
+    # Training (LoRA detection fine-tuning; trainable families only)
     # =========================================================================
 
-    def train(self, *args, **kwargs):
-        raise NotImplementedError(
-            f"Training is out of scope for {type(self).__name__} in LibreYOLO. "
-            "Fine-tune the VLM upstream and load the resulting weights."
-        )
+    def train(self, data: Optional[str] = None, **kwargs):
+        """Fine-tune this VLM as a detector on a standard detect dataset.
+
+        Args:
+            data: Path to a standard LibreYOLO detect dataset YAML. The
+                ``names`` in the YAML become the training vocabulary (any
+                phrases work) and the boxes are rendered into this family's
+                own grounding text format automatically.
+            **kwargs: ``epochs``, ``batch``, ``accumulate``, ``lr0``,
+                ``lora`` (default True), ``output_dir``/``project``/``name``,
+                ``resume``, ``callbacks``, ``loggers``, ``device``, ``seed``,
+                ``workers``, ``hflip``, ``gradient_checkpointing``.
+
+        Returns:
+            A results dict with ``save_dir``, ``best``/``last`` checkpoint
+            directories, and final metrics. Load a checkpoint with
+            ``LibreVLM(results["best"])``.
+        """
+        if not self.TRAINABLE:
+            reason = self.TRAIN_UNSUPPORTED_REASON or (
+                f"Training is not supported for {type(self).__name__} in "
+                "LibreYOLO yet. Trainable VLM families: qwen3-vl."
+            )
+            raise NotImplementedError(reason)
+        if not data:
+            raise ValueError(
+                'train() requires data=<dataset yaml>, e.g. train(data="data.yaml").'
+            )
+        from .training.trainer import VLMDetectionTrainer
+
+        return VLMDetectionTrainer(self, data=data, **kwargs).run()
+
+    # =========================================================================
+    # Out of scope for the inference-first VLM tier
+    # =========================================================================
 
     def val(self, *args, **kwargs):
         raise NotImplementedError(

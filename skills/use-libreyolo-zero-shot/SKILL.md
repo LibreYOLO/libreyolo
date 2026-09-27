@@ -5,9 +5,11 @@ description: >-
   with text vocabularies (LibreOpenVocab: Grounding DINO, OWLv2), promptable
   segmentation with points/boxes or concept text (LibreSAM: SAM-1, SAM-2,
   SAM 3, MobileSAM),
-  zero-shot classification (LibreCLIP / LibreSigLIP2 set_classes), and VLM-as-detector
-  (LibreVLM). Use when someone wants to detect arbitrary text-described
+  zero-shot classification (LibreCLIP / LibreSigLIP2 set_classes), VLM-as-detector
+  (LibreVLM), and instruction-to-click grounding (LibreGround). Use when someone
+  wants to detect arbitrary text-described
   classes without training ("find the forklifts", custom vocabulary),
+  click a UI element from a screenshot ("where is Bluetooth"),
   click-to-segment / box-to-mask, segment-everything, open-set
   classification, or asks which zero-shot model to pick. Covers choosing a
   tier, each tier's API and gotchas, extras to install, and honest guidance
@@ -17,7 +19,7 @@ description: >-
 
 # Zero-shot and promptable LibreYOLO
 
-Four tiers answer "no training data, still want results". They are separate
+Five tiers answer "no training data, still want results". They are separate
 factories from `LibreYOLO(...)`, with snapshot-style weights (a downloaded
 directory, not a `Libre*<size>.pt` checkpoint).
 
@@ -29,6 +31,7 @@ directory, not a `Libre*<size>.pt` checkpoint).
 | Mask from a click / box / concept text, or segment-everything | `LibreSAM` | `libreyolo[sam]` |
 | Whole-image label from your own label set | `LibreCLIP` / `LibreSigLIP2` | `libreyolo[clip]` / `libreyolo[siglip2]` |
 | Ask an instruction-following model to find things (slow, flexible) | `LibreVLM` | `libreyolo[vlm]` |
+| Click coordinates from a screenshot + instruction | `LibreGround` | `libreyolo[vlm]` |
 
 Combinations are normal: LibreOpenVocab boxes fed to LibreSAM as box prompts
 gives text-to-mask ("segment the forklifts") without training anything.
@@ -145,6 +148,35 @@ Prompt sensitivity differs between the two: SigLIP over-triggers on verbose
 label phrasings more than CLIP, so prefer concise class names ("English
 springer" rather than "English Springer Spaniel").
 
+## LibreGround (instruction → click)
+
+`LibreGround` is the factory for GUI / referring grounding. Image +
+instruction in, `Results.points` out. Not a new task: the output contract
+is `point`. Inference-only, same `libreyolo[vlm]` extra as `LibreVLM`.
+Contract: `docs/adr/0020` and `docs/libreground_design.md`.
+
+```python
+from libreyolo import LibreGround
+
+r = LibreGround()("screen.png", prompt="Bluetooth")   # ShowUI-2B default
+x, y = r.points.xy[0].tolist()                        # original-canvas pixels
+
+model = LibreGround("florence-2-base")                # or qwen3-vl-2b
+model.set_query("the red Save button")
+r = model.predict("folder/")
+```
+
+- There is no default COCO vocabulary. A call without `prompt=` / `set_query`
+  raises. A per-call `prompt=` does not become sticky.
+- `query=` is an alias of `prompt=`. `set_classes` forwards to `set_query`.
+- A list of queries on one image runs one generate per query and merges
+  points (class id = query index). A list of queries on a folder raises.
+- `conf` is a placeholder. `train()` / `val()` / `export()` raise.
+- Shipped aliases are ShowUI-2B (default; MIT weights, Apache-2.0 code/base),
+  Florence-2, and Qwen3-VL. Each call keeps one click per query.
+  Do not promise ScreenSpot-Pro pixel-perfect clicks from the 2B models.
+- The library returns coordinates. It does not move the OS mouse.
+
 ## LibreVLM (generative, last resort for detection)
 
 `LibreVLM(<alias>)` prompts a vision-language model and parses its text into
@@ -158,7 +190,8 @@ so any string "works", with matching honesty caveats.
 
 - Zero-shot mAP is well below a fine-tuned detector on a fixed class list;
   these tiers trade accuracy and speed for vocabulary freedom.
-- All four tiers are inference-only in LibreYOLO: no `train()`/fine-tuning,
+- The VLM / ground / open-vocab / SAM snapshot tiers are inference-only
+  in LibreYOLO: no `train()`/fine-tuning,
   and `val()` support varies (CLIP and SigLIP2 have classify validators; open-vocab
   eval runs through the standard detect path with a fixed vocabulary).
 - Everything runs through the `transformers` extra stack; first use
@@ -171,6 +204,7 @@ so any string "works", with matching honesty caveats.
 
 - `skills/use-libreyolo/`: the trained-model core library guide.
 - `docs/adr/0007-libresam-contract.md`, `docs/adr/0008-open-vocab-detector-contract.md`,
-  `docs/openvocab_design.md`, `docs/librevlm_design.md`: the contracts.
+  `docs/adr/0020-libreground-contract.md`, `docs/openvocab_design.md`,
+  `docs/librevlm_design.md`, `docs/libreground_design.md`: the contracts.
 - `skills/libreyolo-license-audit/`: weight licenses per tier if rehosting
   questions come up.

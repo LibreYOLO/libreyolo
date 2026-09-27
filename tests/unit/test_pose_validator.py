@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 import yaml
@@ -278,3 +279,43 @@ def test_pose_validator_maps_contiguous_labels_to_coco_category_ids(tmp_path):
     assert validator._prediction_category_id(1) == 3
     assert validator._prediction_category_id(3) == 3
     assert validator._prediction_category_id(7) == 1
+
+
+def test_pose_validator_warns_about_skipped_gt_label_lines(tmp_path, caplog):
+    """Ground-truth lines dropped from the metrics must name file and line (#873)."""
+    images_dir = tmp_path / "images" / "val"
+    labels_dir = tmp_path / "labels" / "val"
+    images_dir.mkdir(parents=True)
+    labels_dir.mkdir(parents=True)
+
+    Image.new("RGB", (640, 480)).save(images_dir / "img0.jpg")
+    (labels_dir / "img0.txt").write_text(
+        "0 0.5 0.5 0.25 0.5 0.4 0.3 2 0.6 0.3 2 0.6 0.7 1 0.4 0.7 0\n"
+        "0 0.5 0.5 0.25 0.5 0.4 0.3 2\n"  # only one keypoint
+    )
+    data_yaml = tmp_path / "data.yaml"
+    data_yaml.write_text(
+        yaml.safe_dump(
+            {
+                "path": str(tmp_path),
+                "val": "images/val",
+                "nc": 1,
+                "names": {0: "runway"},
+                "kpt_shape": [4, 3],
+            }
+        )
+    )
+
+    config = ValidationConfig(
+        data=str(data_yaml),
+        save_dir=str(tmp_path / "runs"),
+        verbose=False,
+    )
+    validator = PoseValidator(_DummyPoseModel(), config=config)
+    with caplog.at_level(logging.WARNING):
+        validator._setup_paths()
+
+    assert "skipped 1 ground-truth label line" in caplog.text
+    assert "img0.txt:2" in caplog.text
+    coco = json.loads((tmp_path / "runs" / "ground_truth_yolo_pose.json").read_text())
+    assert len(coco["annotations"]) == 1

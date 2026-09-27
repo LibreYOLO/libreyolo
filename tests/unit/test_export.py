@@ -626,6 +626,63 @@ class TestExporterFormats:
                 int8=False,
             )
 
+    @pytest.mark.parametrize(
+        ("model_name", "exporter_cls"),
+        [
+            ("yolox", OnnxExporter),
+            ("rtmdet", TorchScriptExporter),
+            ("yolo9", ExecuTorchExporter),
+            ("yolo9", PaddleExporter),
+        ],
+    )
+    def test_restored_rect_imgsz_falls_back_to_square_by_default(
+        self, model_name, exporter_cls, caplog
+    ):
+        # #899: a square-native fine-tune trained at (h, w) reloads with that
+        # size; a family/format pair without rectangular export keeps exporting
+        # by default, at max(h, w) instead of raising.
+        wrapper = _make_wrapper(model_name=model_name, input_size=(32, 64))
+        wrapper._get_task_input_sizes.return_value = {"s": 640}
+
+        with caplog.at_level("WARNING", logger="libreyolo.export.exporter"):
+            imgsz, _device, _output_path = exporter_cls(wrapper)._resolve_params(
+                output_path=None,
+                imgsz=None,
+                device="cpu",
+                half=False,
+                int8=False,
+            )
+
+        assert imgsz == (64, 64)
+        assert "exporting at the square imgsz=64" in caplog.text
+
+    def test_restored_rect_imgsz_is_kept_where_export_supports_it(self):
+        wrapper = _make_wrapper(model_name="yolo9", input_size=(32, 64))
+        wrapper._get_task_input_sizes.return_value = {"s": 640}
+
+        imgsz, _device, _output_path = OnnxExporter(wrapper)._resolve_params(
+            output_path=None,
+            imgsz=None,
+            device="cpu",
+            half=False,
+            int8=False,
+        )
+
+        assert imgsz == (32, 64)
+
+    def test_natively_rect_family_keeps_rejecting_unsupported_format(self):
+        wrapper = _make_wrapper(model_name="unet", input_size=(32, 64))
+        wrapper._get_task_input_sizes.return_value = {"s": (32, 64)}
+
+        with pytest.raises(NotImplementedError, match="not validated for format"):
+            PaddleExporter(wrapper)._resolve_params(
+                output_path=None,
+                imgsz=None,
+                device="cpu",
+                half=False,
+                int8=False,
+            )
+
     def test_semantic_export_rejects_unaligned_imgsz(self):
         wrapper = _make_wrapper(model_name="segformer", input_size=32)
         wrapper.task = "semantic"
@@ -1242,6 +1299,30 @@ class TestTorchScriptExport:
             result = loaded(dummy)
             assert result.shape == (1, 4)
 
+    def test_torchscript_backend_auto_device_skips_mps(self, monkeypatch, tmp_path):
+        """Auto must not pick MPS: it cannot load traced float64 constants."""
+        from libreyolo.backends.torchscript import TorchScriptBackend
+
+        output_path = tmp_path / "model.torchscript"
+        TorchScriptExporter(_make_wrapper(model_name="yolo9"))(
+            output_path=str(output_path), device="cpu"
+        )
+        real_load = torch.jit.load
+        map_locations = []
+
+        def recording_load(path, map_location=None, **kwargs):
+            map_locations.append(str(map_location))
+            return real_load(path, map_location="cpu", **kwargs)
+
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+        monkeypatch.setattr(torch.jit, "load", recording_load)
+
+        backend = TorchScriptBackend(str(output_path))
+
+        assert map_locations == ["cpu"]
+        assert str(backend.device) == "cpu"
+
     def test_rfdetr_position_embedding_dim_buffer_not_checkpointed(self):
         from libreyolo.models.rfdetr.backbone import PositionEmbeddingSine
 
@@ -1749,3 +1830,50 @@ class TestTensorRTExportConfig:
         config = load_export_config("tensorrt_default.yaml")
         assert config.precision == "fp16"
         assert config.workspace == 4.0
+
+
+class TestExportArgumentChecks:
+    """quantize= and unknown export options (ecosystem export arguments)."""
+
+    @pytest.fixture
+    def model(self):
+        from libreyolo import LibreYOLO9
+
+        return LibreYOLO9(None, size="t", device="cpu")
+
+    def test_quantize_16_exports_fp16(self, model, tmp_path):
+        """quantize=16 exported FP32 without a word; it now means half=True."""
+        onnx = pytest.importorskip("onnx")
+
+        path = model.export(
+            format="onnx", imgsz=64, quantize=16, simplify=False,
+            output_path=str(tmp_path / "q16.onnx"),
+        )
+
+        graph_input = onnx.load(path).graph.input[0]
+        assert graph_input.type.tensor_type.elem_type == onnx.TensorProto.FLOAT16
+
+    @pytest.mark.parametrize(
+        "kwargs,match",
+        [
+            ({"quantize": 4}, "quantize must be 16, 8 or 32"),
+            ({"quantize": 8, "half": True}, "conflicts with half"),
+        ],
+    )
+    def test_quantize_rejects_what_it_cannot_honor(self, model, tmp_path, kwargs, match):
+        with pytest.raises(ValueError, match=match):
+            model.export(format="onnx", imgsz=64, output_path=str(tmp_path / "m.onnx"), **kwargs)
+
+    def test_unknown_export_option_is_warned_about(self, model, tmp_path):
+        pytest.importorskip("onnx")
+        with pytest.warns(UserWarning, match=r"Unknown onnx export arguments \(ignored\): \['made_up'\]"):
+            model.export(
+                format="onnx", imgsz=64, simplify=False, made_up=1,
+                output_path=str(tmp_path / "m.onnx"),
+            )
+
+    def test_format_options_are_not_reported_as_unknown(self):
+        assert {"nms", "conf", "iou", "max_det", "deepstream"} <= OnnxExporter._accepted_export_kwargs()
+        assert {"nms", "max_det", "compute_units"} <= CoreMLExporter._accepted_export_kwargs()
+        assert "workspace" in TensorRTExporter._accepted_export_kwargs()
+        assert "workspace" not in OnnxExporter._accepted_export_kwargs()

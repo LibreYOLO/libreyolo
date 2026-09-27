@@ -16,6 +16,7 @@ inference-only and ships two complementary official variants:
 
 from __future__ import annotations
 
+import hashlib
 from functools import partial
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, Tuple
@@ -39,6 +40,16 @@ class LibreMiDaS(BaseModel):
     FAMILY = "midas"
     FILENAME_PREFIX = "LibreMiDaS"
     WEIGHT_EXT = ".pt"
+    # Sizes mirrored on the LibreYOLO org, pinned by the digest of the file the
+    # mirror serves. That file is the converted LibreYOLO checkpoint, so the
+    # upstream digests in convert.py cannot describe it. The mirror URL resolves
+    # `main`, which is mutable, so this pinning is what stops a replaced or
+    # corrupted upload from loading silently. Anything absent here still
+    # downloads the official release asset and stays pinned against upstream.
+    _MIRROR_SHA256: ClassVar[Dict[str, str]] = {
+        "s": "c87fe0e7702e6b0e4b84475dcb1e61f5daa5d06b7fc2b78c3d7a1f2d5ad0b960",
+        "l": "ccda8065b7184ff4e00357aa9d40f62f131c26c3402ac807f55321c55b18533b",
+    }
     INPUT_SIZES: ClassVar[Dict[str, int]] = {"s": 256, "l": 384}
     SUPPORTED_TASKS = ("depth",)
     DEFAULT_TASK = "depth"
@@ -75,23 +86,58 @@ class LibreMiDaS(BaseModel):
 
     @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
-        """Use checksum-pinned official assets while ADR 0006 blocks rehosting."""
+        """Serve from the LibreYOLO mirror; fall back to the official asset.
+
+        isl-org/MiDaS is MIT and that licence covers the released checkpoints,
+        so LibreYOLO redistributes them on its own org rather than depending on
+        a GitHub release staying put. ADR 0006's stricter bar, which asks for
+        training data permitting commercial use as well as redistribution, is
+        superseded for this family: the redistribution rests on the publisher's
+        own grant over the bytes, and the training-data caveat is stated on the
+        model card and in the notice below instead of blocking the mirror.
+        """
         size = cls.detect_size_from_filename(filename)
         task = cls.detect_task_from_filename(filename)
-        return UPSTREAM_URLS.get(size) if size is not None and task == "depth" else None
+        if size is None or task != "depth":
+            return None
+        if size in cls._MIRROR_SHA256:
+            return super().get_download_url(filename)
+        return UPSTREAM_URLS.get(size)
 
     @classmethod
     def get_download_notice(cls, filename: str, url: str) -> Optional[str]:
         del filename, url
         return (
-            "MiDaS depth weights are downloaded from the official isl-org/MiDaS "
-            "release and SHA-256 verified. LibreYOLO does not rehost them while "
-            "the training-dataset commercial-use clearance required by ADR 0006 "
-            "remains unresolved."
+            "MiDaS was trained on a twelve-dataset mixture whose individual "
+            "terms are not all permissive. LibreYOLO redistributes these "
+            "weights under the MIT licence isl-org applied to them; if your "
+            "use is commercial, satisfy yourself about the training-data terms."
         )
 
     @classmethod
     def verify_downloaded_file(cls, local_path: str, source_url: str) -> None:
+        # Mirror and upstream serve different bytes (converted vs original), so
+        # each has its own recorded digest. Both are checked: an unverified
+        # mirror would be a weaker guarantee than the upstream path it replaced.
+        if source_url.startswith("https://huggingface.co/LibreYOLO/"):
+            size = next(
+                (s for s in cls._MIRROR_SHA256 if f"LibreMiDaS{s}-depth" in source_url),
+                None,
+            )
+            if size is None:
+                raise ValueError(f"Unrecognized MiDaS mirror URL: {source_url}")
+            expected = cls._MIRROR_SHA256[size]
+            digest = hashlib.sha256()
+            with open(local_path, "rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            actual = digest.hexdigest()
+            if actual != expected:
+                raise ValueError(
+                    f"MiDaS {size} mirrored checkpoint SHA-256 mismatch: "
+                    f"expected {expected}, got {actual}."
+                )
+            return
         verify_and_wrap_download(local_path, source_url)
 
     def __init__(

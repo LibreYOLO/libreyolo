@@ -30,6 +30,18 @@ _TRAIN_DEFAULTS = YOLO9Config()
 logger = logging.getLogger(__name__)
 
 
+def _is_yolo9_aux_key(key: str) -> bool:
+    """True for PGI tensors (``aux.*`` neck or ``aux_head.*``)."""
+    return str(key).startswith("aux.") or str(key).startswith("aux_head.")
+
+
+def resolve_aux_weight(aux_weight) -> float:
+    """Canonical PGI weight. ``None`` is the recipe default; ``0`` stays off."""
+    if aux_weight is None:
+        return 0.25
+    return float(aux_weight)
+
+
 class LibreYOLO9(BaseModel):
     """YOLOv9 model for object detection.
 
@@ -55,10 +67,14 @@ class LibreYOLO9(BaseModel):
         "detect": INPUT_SIZES,
     }
     TRAIN_CONFIG = YOLO9Config
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = YOLO9ValPreprocessor
     # The detection forward is pure tensor work with no host sync, so it
     # captures and replays bit-identically (tests/unit/test_cuda_graph.py).
     SUPPORTS_CUDA_GRAPH = True
+    # P5 feature maps are concatenated with upsampled ones, so every input
+    # side must be a multiple of 32; other sizes are rounded up.
+    IMGSZ_STRIDE = 32
     # Additional checkpoint model_family values accepted as transfer-learning
     # sources (subclass hook; e.g. yolo9_p2 accepts base yolo9 checkpoints).
     TRANSFER_COMPATIBLE_FAMILIES: tuple = ()
@@ -160,6 +176,11 @@ class LibreYOLO9(BaseModel):
         **kwargs,
     ):
         self.reg_max = reg_max
+        # Unmarked checkpoints (LibreYOLO <=1.5) used top-left letterbox.
+        # Official MTL conversions stamp ``center``. Never flip unmarked files.
+        from ...preprocess.letterbox import DEFAULT_LETTERBOX_PAD
+
+        self.letterbox_pad = DEFAULT_LETTERBOX_PAD
         super().__init__(
             model_path=model_path,
             size=size,
@@ -208,7 +229,36 @@ class LibreYOLO9(BaseModel):
         state_dict: dict,
         checkpoint: dict | None = None,
     ) -> None:
-        return
+        if isinstance(checkpoint, dict) and "letterbox_pad" in checkpoint:
+            from ...preprocess.letterbox import normalize_letterbox_pad
+
+            self.letterbox_pad = normalize_letterbox_pad(checkpoint.get("letterbox_pad"))
+
+    def _filter_incoming_state_dict(
+        self,
+        state_dict: dict,
+        *,
+        loaded: dict | None = None,
+        checkpoint_task: str | None = None,
+    ) -> dict:
+        """Drop training-only ``aux.*`` keys when the live model is single-head.
+
+        Official conversions keep PGI weights so fine-tunes can load them.
+        Inference and old unmarked checkpoints stay on the main head only.
+        """
+        has_aux = getattr(self.model, "aux", None) is not None
+        if has_aux:
+            return state_dict
+        return {
+            k: v
+            for k, v in state_dict.items()
+            if not _is_yolo9_aux_key(k)
+        }
+
+    def _save_extra_metadata(self) -> dict:
+        from ...preprocess.letterbox import normalize_letterbox_pad
+
+        return {"letterbox_pad": normalize_letterbox_pad(self.letterbox_pad)}
 
     def _prepare_state_dict(
         self,
@@ -223,23 +273,25 @@ class LibreYOLO9(BaseModel):
             remapped[new_key] = value
         return remapped
 
-    def _rebuild_for_new_classes(self, new_nc: int):
-        """Replace only the final classification layers for different number of classes."""
-        self.nb_classes = new_nc
-        self.model.nc = new_nc
-
-        detect = self.model.head
+    def _rebuild_detect_class_layers(self, detect, new_nc: int) -> None:
         detect.nc = new_nc
         detect.no = new_nc + detect.reg_max * 4
-
         for seq in detect.cv3:
             old_final = seq[-1]
             in_channels = old_final.weight.shape[1]
             seq[-1] = nn.Conv2d(in_channels, new_nc, 1)
-
         detect._init_bias()
         detect._loss_fn = None
         detect.to(next(self.model.parameters()).device)
+
+    def _rebuild_for_new_classes(self, new_nc: int):
+        """Replace only the final classification layers for a new class count."""
+        self.nb_classes = new_nc
+        self.model.nc = new_nc
+        self._rebuild_detect_class_layers(self.model.head, new_nc)
+        aux_head = getattr(self.model, "aux_head", None)
+        if aux_head is not None:
+            self._rebuild_detect_class_layers(aux_head, new_nc)
 
     def _rebuild_for_checkpoint_classes(self, new_nc: int, state_dict: dict):
         """Match YOLO9 checkpoints with either COCO-width or scratch class towers."""
@@ -264,6 +316,17 @@ class LibreYOLO9(BaseModel):
             return
 
         self._rebuild_for_new_classes(new_nc)
+
+    def _prepare_model_for_state_dict(self, state_dict: dict) -> None:
+        """Match the checkpoint's class-tower width when the class count matches.
+
+        A fine-tune keeps its source checkpoint's tower width, which a fresh
+        build at the same ``nc`` may not reproduce: 2-class YOLO9-t towers
+        fine-tuned from COCO are 80 wide, a 2-class build is 64 wide. DDP
+        workers build at the checkpoint's ``nc`` before loading it.
+        """
+        self._align_class_towers_for_transfer(state_dict)
+        super()._prepare_model_for_state_dict(state_dict)
 
     def _restore_after_training(self, results: dict) -> None:
         """Reload the saved checkpoint and leave the model ready for inference."""
@@ -333,6 +396,10 @@ class LibreYOLO9(BaseModel):
                         "Transfer checkpoint metadata is incomplete: "
                         + "; ".join(metadata_errors)
                     )
+            if "letterbox_pad" in loaded:
+                from ...preprocess.letterbox import normalize_letterbox_pad
+
+                self.letterbox_pad = normalize_letterbox_pad(loaded.get("letterbox_pad"))
 
             ckpt_family = loaded.get("model_family", "")
             allowed_families = {
@@ -391,15 +458,79 @@ class LibreYOLO9(BaseModel):
 
         return YOLO9Trainer
 
+    def _extract_checkpoint_state(self, source: str | Path | dict | None) -> dict:
+        """Return the weight dict from a path or already-loaded checkpoint."""
+        if source is None:
+            return {}
+        if isinstance(source, dict):
+            loaded = source
+        else:
+            path = Path(source)
+            if not path.exists():
+                return {}
+            loaded = load_untrusted_torch_file(
+                str(path),
+                map_location="cpu",
+                context="yolo9 aux probe",
+            )
+        if not isinstance(loaded, dict):
+            return {}
+        if "model" in loaded and isinstance(loaded["model"], dict):
+            state = loaded["model"]
+        elif "state_dict" in loaded and isinstance(loaded["state_dict"], dict):
+            state = loaded["state_dict"]
+        else:
+            state = loaded
+        return self._prepare_state_dict(self._strip_ddp_prefix(state))
+
+    def _maybe_enable_aux_from_path(
+        self, source: str | Path | dict | None, aux_weight: float | None = None
+    ) -> int:
+        """Attach PGI if *source* carries aux tensors. Returns loaded aux count."""
+        weight = resolve_aux_weight(aux_weight)
+        if weight <= 0 or type(self.model).__name__ != "LibreYOLO9Model":
+            return 0
+        state = self._extract_checkpoint_state(source)
+        if not any(_is_yolo9_aux_key(key) for key in state):
+            return 0
+        self.model.enable_aux(weight=weight)
+        return self._load_aux_tensors(state)
+
+    def _reload_aux_from_path(self, source: str | Path | dict | None) -> int:
+        """Load aux tensors into an already-attached PGI branch."""
+        if getattr(self.model, "aux", None) is None:
+            return 0
+        return self._load_aux_tensors(self._extract_checkpoint_state(source))
+
+    def _load_aux_tensors(self, state_dict: dict) -> int:
+        if not state_dict:
+            return 0
+        current = self.model.state_dict()
+        matched = {
+            key: value
+            for key, value in state_dict.items()
+            if _is_yolo9_aux_key(key)
+            and key in current
+            and current[key].shape == value.shape
+        }
+        if not matched:
+            return 0
+        current.update(matched)
+        self.model.load_state_dict(current, strict=True)
+        self.model.to(self.device)
+        return len(matched)
+
     # =========================================================================
     # Inference pipeline
     # =========================================================================
 
-    @staticmethod
-    def _get_preprocess_numpy():
+    def _get_preprocess_numpy(self):
+        from functools import partial
+
         from .utils import preprocess_numpy
 
-        return preprocess_numpy
+        # INT8 calibration must see the same pad placement as inference.
+        return partial(preprocess_numpy, letterbox_pad=self.letterbox_pad)
 
     def _preprocess(
         self,
@@ -411,7 +542,10 @@ class LibreYOLO9(BaseModel):
             input_size if input_size is not None else self._get_input_size()
         )
         tensor, img, size = preprocess_image(
-            image, input_size=effective_size, color_format=color_format
+            image,
+            input_size=effective_size,
+            color_format=color_format,
+            letterbox_pad=self.letterbox_pad,
         )
         return tensor, img, size, 1.0
 
@@ -437,6 +571,19 @@ class LibreYOLO9(BaseModel):
             original_size=original_size,
             max_det=max_det,
             letterbox=kwargs.get("letterbox", True),
+            letterbox_pad=self.letterbox_pad,
+        )
+
+    def _get_val_preprocessor(self, img_size: int | None = None):
+        if getattr(self, "input_profile", None) is not None:
+            return super()._get_val_preprocessor(img_size)
+        if img_size is None:
+            img_size = self._get_input_size()
+        from ...utils.image_size import imgsz_to_hw
+
+        return self.val_preprocessor_class(
+            img_size=imgsz_to_hw(img_size),
+            letterbox_pad=self.letterbox_pad,
         )
 
     # =========================================================================
@@ -492,7 +639,7 @@ class LibreYOLO9(BaseModel):
         project: str = _TRAIN_DEFAULTS.project,
         name: str = _TRAIN_DEFAULTS.name,
         exist_ok: bool = _TRAIN_DEFAULTS.exist_ok,
-        resume: bool = _TRAIN_DEFAULTS.resume,
+        resume: bool | str | Path = _TRAIN_DEFAULTS.resume,
         amp: bool = _TRAIN_DEFAULTS.amp,
         amp_dtype: str = _TRAIN_DEFAULTS.amp_dtype,
         patience: int = _TRAIN_DEFAULTS.patience,
@@ -517,14 +664,19 @@ class LibreYOLO9(BaseModel):
             project: Root directory for training runs.
             name: Experiment name.
             exist_ok: If True, overwrite existing experiment directory.
-            resume: If True, resume training from checkpoint.
+            resume: True resumes the loaded training checkpoint; a path resumes
+                that checkpoint. The run restores its saved training arguments
+                (data, epochs, imgsz, batch, lr0, ...) and continues in its own
+                directory; arguments passed explicitly override the saved ones.
             amp: Enable automatic mixed precision training.
             amp_dtype: CUDA AMP dtype, ``float16`` or ``bfloat16``.
             patience: Early stopping patience.
             pretrained: Optional training initialization weights. Use True to
                 load the matching LibreYOLO9 detect checkpoint for transfer
                 learning, or pass a checkpoint path/name.
-            callbacks: Optional training callback or iterable of callbacks.
+            callbacks: Optional callback or iterable. One object may define
+                fitness(metrics) to select best.pt and drive patience; custom
+                fitness requires a new run (resume=False).
             loggers: Optional built-in experiment loggers: a registered name,
                 a configured logger instance, or an iterable mixing both.
 
@@ -551,6 +703,7 @@ class LibreYOLO9(BaseModel):
                 data,
                 autodownload=True,
                 allow_scripts=allow_download_scripts,
+                single_cls=bool(kwargs.get("single_cls", False)),
             )
             data = data_config.get("yaml_file", data)
         except Exception as e:
@@ -576,6 +729,24 @@ class LibreYOLO9(BaseModel):
 
         if resume and pretrained:
             raise ValueError("pretrained transfer cannot be combined with resume=True.")
+        resume_path = self._resume_checkpoint(resume) if resume else None
+
+        # PGI aux is training-only. Attach before trainer.setup() so the
+        # optimizer / EMA / DDP see the extra parameters. Resume of a
+        # single-head 1.5 checkpoint stays single-head.
+        aux_weight = resolve_aux_weight(kwargs.get("aux_weight", _TRAIN_DEFAULTS.aux_weight))
+        if type(self.model).__name__ == "LibreYOLO9Model":
+            if resume_path:
+                self._maybe_enable_aux_from_path(resume_path, aux_weight)
+            elif aux_weight > 0:
+                self.model.enable_aux(weight=aux_weight)
+                # Inference load stripped aux.* from official converts; put
+                # those PGI tensors back now that the branch exists.
+                self._reload_aux_from_path(self.model_path)
+            else:
+                # A PGI branch left over from an earlier train() in this
+                # session must not keep training when aux_weight=0.
+                self.model.disable_aux()
 
         if pretrained:
             transfer_weights: str | Path
@@ -608,7 +779,7 @@ class LibreYOLO9(BaseModel):
             project=project,
             name=name,
             exist_ok=exist_ok,
-            resume=resume,
+            resume=bool(resume_path),
             amp=amp,
             amp_dtype=amp_dtype,
             patience=patience,
@@ -619,14 +790,9 @@ class LibreYOLO9(BaseModel):
         )
         trainer = self._trainer_class()(**trainer_kwargs)
 
-        if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLO9('path/to/last.pt', size='t'); model.train(data=..., resume=True)"
-                )
+        if resume_path:
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(resume_path)
 
         results = trainer.train()
 
