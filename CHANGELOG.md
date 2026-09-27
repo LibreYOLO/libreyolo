@@ -549,6 +549,7 @@ Three new tasks (`detect3d`, `albedo` and `act`, taking the canonical task list 
 - GTR ONNX models failed the GPU end-to-end test for all four sizes in release testing; CPU ONNX export and prediction match PyTorch.
 - `compile=True` needs a C compiler and Python headers on the training host; without them training continues uncompiled after a warning.
 - Some advertised weight names have no published file, so loading them fails with "No weights are published at ...": `LibreNAFNet{s,l}-restore.pt` (`LibreNAFNetl-restore-sidd.pt` is published), `LibreDINOv2n.pt`, `LibreBiRefNett-matte.pt` (`LibreBiRefNetl-matte.pt` is published) and `LibreYOLO9P2{t,s}.pt` (`LibreYOLO9P2s-visdrone.pt` is published). FOMO weights have no download route, as in 1.5.0, and the L2CS upstream download returns 404.
+- `from_fiftyone()` exports boxes only: instance masks on FiftyOne detections are not written, so an exported view trains detection, not segmentation.
 - `LibreVLM("moondream-3")` does not load: the `LibreYOLO/LibreMoondream3` mirror's index names weight shards that the repository does not hold. Moondream 2 is unaffected.
 
 ### Contributors
