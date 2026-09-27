@@ -58,9 +58,19 @@ def test_rtdetr_and_detr_names_download_their_own_weights(filename, expected):
 
 
 @pytest.mark.parametrize(
-    "filename", ["rtdetr-r50.pt", "LibreRTDETR-r50.pt", "librertdetr-r101.pt"]
+    "filename",
+    [
+        "rtdetr-r50.pt",
+        "LibreRTDETR-r50.pt",
+        "librertdetr-r101.pt",
+        "dinodetr-r50.pt",
+        "LibreDINODETR-r50.pt",
+        "dino-detr-r50.pt",
+        "deformable_detr-r50.pt",
+        "rt-detr-r50.pt",
+    ],
 )
-def test_detr_does_not_claim_rtdetr_names(filename):
+def test_detr_does_not_claim_other_detr_family_names(filename):
     from libreyolo.models.detr.model import LibreDETR
 
     assert LibreDETR.get_download_url(filename) is None

@@ -200,6 +200,25 @@ def test_resume_keeps_an_explicit_exist_ok_false(tmp_path, detect_yaml, captured
     assert run["config"].exist_ok is False
 
 
+def test_resume_with_val_true_turns_validation_back_on(tmp_path, detect_yaml, captured):
+    """A run saved with val=False stores eval_interval=0; an explicit val=True
+    on resume kept that 0, so validation stayed off."""
+    from libreyolo import LibreYOLO9
+    from libreyolo.training.config import YOLO9Config
+
+    LibreYOLO9(None, size="t", device="cpu").train(data=detect_yaml, epochs=3, device="cpu")
+    saved = captured[-1]["config"].to_dict()
+    saved.update(epochs=5, eval_interval=0)
+    last = _save_run_checkpoint(tmp_path / "exp" / "weights" / "last.pt", saved)
+
+    LibreYOLO9(None, size="t", device="cpu").train(resume=str(last), val=True, device="cpu")
+    assert captured[-1]["config"].eval_interval == YOLO9Config().eval_interval
+
+    # Without val=, the run keeps its saved setting.
+    LibreYOLO9(None, size="t", device="cpu").train(resume=str(last), device="cpu")
+    assert captured[-1]["config"].eval_interval == 0
+
+
 def test_resume_path_takes_optimizer_name_and_state_from_that_checkpoint(
     tmp_path, detect_yaml, captured
 ):

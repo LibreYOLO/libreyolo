@@ -12,6 +12,7 @@ from PIL import Image
 
 from ...training.callbacks import TrainCallbacks
 from ..base import BaseModel
+from ..base.model import _drop_disabled_eval_interval
 from ...data import load_data_config
 from ...data.pose_metadata import keypoints_per_class
 from ...tasks import normalize_task, task_to_suffix
@@ -1341,6 +1342,7 @@ class LibreRFDETR(BaseModel):
                 )
             # Continue with the run's saved settings; explicit arguments win.
             saved = self._resume_saved_settings(resume_path)
+            _drop_disabled_eval_interval(saved, train_kwargs.get("val"))
             if data is None:
                 data = self._checkpoint_train_config(resume_path).get("data")
             if epochs is None:

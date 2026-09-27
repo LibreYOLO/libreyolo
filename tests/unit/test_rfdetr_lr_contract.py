@@ -240,6 +240,17 @@ def test_rfdetr_resume_explicit_arguments_and_aliases_win(monkeypatch, tmp_path)
     assert kwargs["lr0"] == pytest.approx(0.002)
 
 
+def test_rfdetr_resume_with_val_true_turns_validation_back_on(monkeypatch, tmp_path):
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": "unused"})
+    last = _save_rfdetr_run(tmp_path / "rf" / "weights" / "last.pt", epochs=7, eval_interval=0)
+
+    _make_wrapper().train(data="data.yaml", resume=str(last), val=True)
+    assert "eval_interval" not in captured["kwargs"]
+
+    _make_wrapper().train(data="data.yaml", resume=str(last))
+    assert captured["kwargs"]["eval_interval"] == 0
+
+
 def test_rfdetr_resume_without_saved_settings_keeps_the_defaults(monkeypatch, tmp_path):
     import torch
 

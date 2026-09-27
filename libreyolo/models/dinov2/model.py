@@ -41,7 +41,7 @@ from ...training.callbacks import TrainCallbacks
 from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
-from ..base.model import BaseModel
+from ..base.model import BaseModel, _drop_disabled_eval_interval
 from .config import DINOv2Config
 from libreyolo.training.ddp_spawn import ddp_aware
 
@@ -868,6 +868,7 @@ class LibreDINOv2(BaseModel):
                 )
             # Continue with the run's saved settings; explicit arguments win.
             saved = self._resume_saved_settings(resume_path)
+            _drop_disabled_eval_interval(saved, train_kwargs.get("val"))
             if data is None:
                 data = saved.get("data")
             if epochs is None:

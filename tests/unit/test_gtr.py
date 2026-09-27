@@ -503,3 +503,18 @@ def test_validation_matches_prediction_pixels_and_boxes(tmp_path):
         actual, boxes, _, _ = dataset[0]
         np.testing.assert_array_equal(actual, expected)
         np.testing.assert_allclose(boxes[0], [40, 40, 120, 120, 0], atol=1e-5)
+
+
+def test_resume_with_val_true_turns_validation_back_on(tmp_path, monkeypatch):
+    """A run saved with val=False stores eval_interval=0; val=True on resume
+    (as the CLI forwards it) must turn validation back on."""
+    from libreyolo.models.gtr.config import GTRConfig
+
+    path = _saved_gtr_run_checkpoint(tmp_path, eval_interval=0)
+    captured = _capture_gtr_resume(monkeypatch)
+
+    LibreYOLO(str(path), device="cpu").train(resume=True, val=True, device="cpu")
+    assert captured["config"].eval_interval == GTRConfig().eval_interval
+
+    LibreYOLO(str(path), device="cpu").train(resume=True, device="cpu")
+    assert captured["config"].eval_interval == 0

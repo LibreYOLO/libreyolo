@@ -1009,6 +1009,10 @@ def train_cmd(
         train_kwargs.pop("pretrained", None)
     if not val:
         train_kwargs["eval_interval"] = 0
+    elif resume_val and "val" in user_provided:
+        # A resume restores the run's saved eval_interval; an explicit
+        # val=true must reach train() to turn validation back on.
+        train_kwargs["val"] = True
 
     # Run training
     if resume_val:
