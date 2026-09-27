@@ -1,8 +1,9 @@
 """Input-equivalence checks for the flagship YOLO9 and RF-DETR families (#849).
 
 The same picture must give the same detections no matter how it is handed to
-``model()``: file path (str or Path), PIL image, RGB NumPy array, or BGR NumPy
-array with ``color_format="bgr"``. A list of mixed-size images must give one
+``model()``: file path (str or Path), PIL image, BGR NumPy array (the default
+channel order for arrays, as from ``cv2.imread``), or RGB NumPy array with
+``color_format="rgb"``. A list of mixed-size images must give one
 result per image, in input order, with boxes in each image's own pixel space,
 and batching must not change what any single image returns.
 
@@ -167,8 +168,8 @@ def test_input_types_give_same_detections(model, image, sample_image):
         "str path": (sample_image, {}),
         "Path": (Path(sample_image), {}),
         "PIL": (image, {}),
-        "NumPy RGB": (rgb.copy(), {}),
-        "NumPy BGR": (rgb[..., ::-1].copy(), {"color_format": "bgr"}),
+        "NumPy BGR": (rgb[..., ::-1].copy(), {}),
+        "NumPy RGB": (rgb.copy(), {"color_format": "rgb"}),
     }
 
     reference = model(image, conf=CONF)
