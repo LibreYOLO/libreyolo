@@ -1201,3 +1201,41 @@ class TestCustomTracker:
         from libreyolo.tracking import Tracker
 
         assert get_type_hints(BaseModel.track)["tracker"] == str | Tracker
+
+
+class TestTrackDetectionConf:
+    """track(conf=...) is the ecosystem's detection threshold, shared with predict."""
+
+    class _Stub(_StubTrackModel):
+        def _postprocess(self, output, conf, iou, original_size, **kwargs):
+            self.seen_conf.append(conf)
+            keep = self._score >= conf
+            return {
+                "boxes": [self._box] if keep else [],
+                "scores": [self._score] if keep else [],
+                "classes": [0] if keep else [],
+                "num_detections": int(keep),
+            }
+
+    def _run(self, **kwargs):
+        model = self._Stub(score=0.3)
+        model.seen_conf = []
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # no "Unknown tracking config keys"
+            results = list(BaseModel.track(model, _make_frames(1), **kwargs))
+        return model.seen_conf, results
+
+    def test_conf_sets_the_detection_threshold(self):
+        """conf=0.5 was warned about and ignored; detection stayed at 0.1."""
+        seen, results = self._run(conf=0.5)
+        assert seen == [0.5]
+        assert len(results[0]) == 0  # the 0.3 detection is below conf
+
+    def test_default_keeps_the_tracker_low_threshold(self):
+        seen, results = self._run()
+        assert seen == [0.1]
+        assert results[0].track_id.tolist() == [1]
+
+    def test_conf_out_of_range_is_rejected(self):
+        with pytest.raises(ValueError, match="conf must be"):
+            self._run(conf=1.5)

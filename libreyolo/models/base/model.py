@@ -1853,6 +1853,7 @@ class BaseModel(ABC):
         ],
         *,
         track_conf: float = 0.25,
+        conf: Optional[float] = None,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
         classes: Optional[List[int]] = None,
@@ -1888,6 +1889,10 @@ class BaseModel(ABC):
                 unbounded tracking. In every case, items are treated as
                 consecutive frames of one logical video and tracked in
                 order.
+            conf: Detection confidence threshold, as in predict():
+                detections below it never reach the tracker. By default the
+                detector runs at the tracker's own low threshold so
+                low-confidence detections stay available for recovery.
             track_conf: Confidence threshold for the tracker's first
                 association stage — ``track_high_thresh`` for ByteTrack and
                 BoT-SORT, ``det_thresh`` for OC-SORT and Deep OC-SORT. For the
@@ -2244,6 +2249,11 @@ class BaseModel(ABC):
             if persist
             else None
         )
+
+        if conf is not None:
+            if not math.isfinite(conf) or not 0 <= conf <= 1:
+                raise ValueError("conf must be finite and between 0 and 1.")
+            effective_conf = conf
 
         model_names = self.names
 
