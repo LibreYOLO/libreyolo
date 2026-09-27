@@ -286,3 +286,17 @@ def test_resume_rejects_a_finished_run(tmp_path):
 
     with pytest.raises(ValueError, match="already trained 3/3 epochs"):
         _tiny_trainer(epochs=3).resume(str(path))
+
+
+def test_resume_with_a_mosaic_override_does_not_conflict(tmp_path, detect_yaml, captured):
+    """mosaic=0 on resume collided with the restored mosaic_prob."""
+    from libreyolo import LibreYOLO9
+
+    LibreYOLO9(None, size="t", device="cpu").train(data=detect_yaml, epochs=3, device="cpu")
+    saved = captured[-1]["config"].to_dict()
+    saved.update(mosaic_prob=1.0)
+    last = _save_run_checkpoint(tmp_path / "exp" / "weights" / "last.pt", saved)
+
+    LibreYOLO9(None, size="t", device="cpu").train(resume=str(last), mosaic=0, device="cpu")
+
+    assert captured[-1]["config"].mosaic_prob == 0

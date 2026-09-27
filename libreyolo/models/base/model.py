@@ -44,7 +44,7 @@ from ...tasks import (
     task_to_suffix,
 )
 from ...tracking.protocol import Tracker
-from ...training.config import TrainConfig, load_train_cfg
+from ...training.config import TrainConfig, apply_train_aliases, load_train_cfg
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.logging import ensure_default_logging
@@ -114,6 +114,9 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
             consumed = set(pos_names[: len(args)]) | _WRAPPER_OWNED_CFG_KEYS
             merged = {k: v for k, v in cfg_kwargs.items() if k not in consumed}
             merged.update(user_kwargs)
+        # CLI/ecosystem spellings (mosaic, fliplr, mixup on detection) name
+        # their fields before resume restores anything, so they count as given.
+        merged = apply_train_aliases(merged, task=getattr(self, "task", None))
 
         resume = merged.get("resume", False)
         resumes_optimizer = "optimizer" in sig.parameters and "optimizer" not in merged

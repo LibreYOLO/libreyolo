@@ -389,17 +389,11 @@ class TrainConfig:
 
         ``val=False``, the ecosystem's spelling, turns validation during
         training off (``eval_interval=0``), as the CLI ``val=false`` does.
-        ``mosaic`` is the ecosystem's and the CLI's name for ``mosaic_prob``.
+        ``mosaic`` and ``fliplr``, the ecosystem's and the CLI's names for
+        ``mosaic_prob`` and ``flip_prob``, are accepted too.
         """
         val = kwargs.pop("val", True)
-        if "mosaic" in kwargs:
-            mosaic = kwargs.pop("mosaic")
-            if "mosaic_prob" in kwargs and kwargs["mosaic_prob"] != mosaic:
-                raise ValueError(
-                    f"Conflicting mosaic values: mosaic={mosaic} and "
-                    f"mosaic_prob={kwargs['mosaic_prob']}"
-                )
-            kwargs["mosaic_prob"] = mosaic
+        kwargs = apply_train_aliases(kwargs)
         valid = {f.name for f in fields(cls)}
         unknown = set(kwargs) - valid
         if unknown:
@@ -427,6 +421,33 @@ class TrainConfig:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
+
+
+def apply_train_aliases(kwargs: dict, task: str | None = None) -> dict:
+    """Map the CLI's train spellings to their TrainConfig fields.
+
+    ``mosaic`` -> ``mosaic_prob`` and ``fliplr`` -> ``flip_prob`` for every
+    task. ``mixup`` -> ``mixup_prob`` only when ``task`` is given and is not
+    ``classify``, where ``mixup`` is the batch-MixUp field itself (the CLI's
+    task-aware table in ``cli/aliases.py``). An alias and its field with
+    different values conflict.
+    """
+    from ..cli.aliases import CLASSIFY_TRAIN_ALIASES, train_aliases
+
+    aliases = dict(CLASSIFY_TRAIN_ALIASES if task is None else train_aliases(task))
+    aliases["fliplr"] = "flip_prob"
+    resolved = dict(kwargs)
+    for alias, field_name in aliases.items():
+        if alias not in resolved:
+            continue
+        value = resolved.pop(alias)
+        if field_name in resolved and resolved[field_name] != value:
+            raise ValueError(
+                f"Conflicting {alias} values: {alias}={value} and "
+                f"{field_name}={resolved[field_name]}"
+            )
+        resolved[field_name] = value
+    return resolved
 
 
 @dataclass(kw_only=True)

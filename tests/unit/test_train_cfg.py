@@ -225,3 +225,74 @@ def test_python_mosaic_sets_mosaic_prob_like_the_cli():
     assert YOLO9Config.from_kwargs(mosaic=0.5, mosaic_prob=0.5).mosaic_prob == 0.5
     with pytest.raises(ValueError, match="Conflicting mosaic values"):
         YOLO9Config.from_kwargs(mosaic=0, mosaic_prob=1.0)
+
+
+@pytest.fixture
+def train_config_of(monkeypatch):
+    """Run a real train() up to the trainer config, then stop."""
+    from libreyolo.training.trainer import BaseTrainer
+
+    class _Built(Exception):
+        pass
+
+    real_init = BaseTrainer.__init__
+
+    def init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        raise _Built(self.config)
+
+    monkeypatch.setattr(BaseTrainer, "__init__", init)
+
+    def run(model, **kwargs):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # no "Unknown training config keys"
+            with pytest.raises(_Built) as built:
+                model.train(**kwargs)
+        return built.value.args[0]
+
+    return run
+
+
+@pytest.fixture
+def detect_yaml(tmp_path):
+    import yaml
+    from PIL import Image
+
+    root = tmp_path / "data"
+    for split in ("train", "val"):
+        (root / "images" / split).mkdir(parents=True)
+        (root / "labels" / split).mkdir(parents=True)
+        Image.new("RGB", (32, 32)).save(root / "images" / split / "a.jpg")
+        (root / "labels" / split / "a.txt").write_text("0 0.5 0.5 0.2 0.2\n")
+    path = root / "data.yaml"
+    path.write_text(yaml.safe_dump({"path": str(root), "train": "images/train",
+                                    "val": "images/val", "names": {0: "a"}}))
+    return str(path)
+
+
+def test_python_train_takes_the_cli_augmentation_spellings(train_config_of, detect_yaml):
+    """On detection, mixup set the classification MixUp field and fliplr was
+    ignored with a warning; the CLI maps them to mixup_prob and flip_prob."""
+    from libreyolo import LibreYOLO9
+
+    config = train_config_of(
+        LibreYOLO9(None, size="t", device="cpu"),
+        data=detect_yaml, device="cpu", mixup=0.3, fliplr=0.2, mosaic=0,
+    )
+
+    assert (config.mixup_prob, config.flip_prob, config.mosaic_prob) == (0.3, 0.2, 0)
+    assert config.mixup == 0.0
+
+
+def test_classification_mixup_stays_the_batch_mixup_field(train_config_of, tmp_path):
+    from libreyolo import LibreMobileNetV4
+
+    config = train_config_of(
+        LibreMobileNetV4(size="s", device="cpu"),
+        data=str(tmp_path), device="cpu", mixup=0.3,
+    )
+
+    assert config.mixup == 0.3
+    assert config.mixup_prob == LibreMobileNetV4.TRAIN_CONFIG().mixup_prob
