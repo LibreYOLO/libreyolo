@@ -41,6 +41,9 @@ def export_cmd(
     batch: int = typer.Option(1, help="Export batch size"),
     half: bool = typer.Option(False, help="FP16 precision"),
     int8: bool = typer.Option(False, help="INT8 quantization"),
+    quantize: Optional[str] = typer.Option(
+        None, help="Precision: 16 (FP16), 8 (INT8) or 32 (FP32); replaces half/int8"
+    ),
     dynamic: bool = typer.Option(False, help="Dynamic input shapes (ONNX)"),
     simplify: bool = typer.Option(True, help="ONNX graph simplification"),
     nms: bool = typer.Option(
@@ -87,6 +90,22 @@ def export_cmd(
 
     fmt = format.lower()
     fmt = BaseExporter._aliases.get(fmt, fmt)
+
+    if quantize is not None:
+        precision = {"16": "fp16", "8": "int8", "32": "fp32"}.get(quantize.strip())
+        if precision is None:
+            exit_with_error(
+                out,
+                "config_range_error",
+                f"quantize must be 16, 8 or 32, got {quantize!r}.",
+            )
+        if (half and precision != "fp16") or (int8 and precision != "int8"):
+            exit_with_error(
+                out,
+                "config_conflict",
+                f"quantize={quantize} conflicts with half={half}, int8={int8}.",
+            )
+        half, int8 = precision == "fp16", precision == "int8"
 
     if half and int8:
         out.warning("Both half and int8 were requested. Using INT8 precision.")
