@@ -650,11 +650,21 @@ def train_cmd(
                 f"task={selected_task!r}.",
             )
 
+    # A multi-GPU spec (device=0,1) is for train(), which launches the ranks;
+    # the model itself is built on the first of those devices.
+    from libreyolo.training.distributed import parse_device_arg
+
+    if isinstance(device, str) and device.strip().startswith("["):
+        # device=[0,1] means the same GPUs as device=0,1.
+        device = device.strip().strip("[]").replace(" ", "")
+    requested_gpus = parse_device_arg(device)
+    model_device = f"cuda:{requested_gpus[0]}" if len(requested_gpus) > 1 else device
+
     loaded_model = None
     train_pretrained = pretrained
     if family is None and not dry_run:
         loaded_model = load_model_or_exit(
-            out, model=model, model_path=model_path, device=device
+            out, model=model, model_path=model_path, device=model_device
         )
         family = get_loaded_model_family(loaded_model)
     if train_pretrained is False and resume_val:
@@ -672,7 +682,7 @@ def train_cmd(
             model_path=model_path,
             task=normalized_task,
             resume=resume_val,
-            device=device,
+            device=model_device,
             pretrained=train_pretrained,
             seed=seed,
         )
@@ -694,25 +704,25 @@ def train_cmd(
             replacement = _create_yolo9_task_from_loaded_model(
                 loaded_model,
                 normalized_task,
-                device=device,
+                device=model_device,
             )
             if replacement is None and normalized_task == "obb":
                 replacement = _create_rfdetr_obb_from_loaded_detect_model(
                     loaded_model,
                     model_path=model_path,
-                    device=device,
+                    device=model_device,
                 )
             if replacement is None and normalized_task == "pose":
                 replacement = _create_rfdetr_pose_from_loaded_detect_model(
                     loaded_model,
                     model_path=model_path,
-                    device=device,
+                    device=model_device,
                 )
             if replacement is None and normalized_task == "segment":
                 replacement = _create_dfine_segment_from_loaded_detect_model(
                     loaded_model,
                     model_path=model_path,
-                    device=device,
+                    device=model_device,
                 )
             if replacement is None:
                 exit_with_error(
@@ -974,7 +984,7 @@ def train_cmd(
             "out": out,
             "model": model,
             "model_path": model_path,
-            "device": device,
+            "device": model_device,
         }
         if normalized_task is not None:
             load_kwargs["task"] = normalized_task
