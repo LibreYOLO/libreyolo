@@ -252,6 +252,33 @@ class TestClassification:
         assert cm.class_accuracy() == {"5": 1.0, "7": 0.0}
         assert "total=2" in repr(cm)
 
+    def test_dense_accessors_refuse_heads_too_wide_to_build(self):
+        cm = ConfusionMatrix(nc=21_841, task="classify")
+        cm.process_cls_preds([5, 9, 9], [5, 7, 7])
+
+        for dense in (lambda: cm.matrix, cm.normalized, cm.summary, cm.to_csv, cm.to_json):
+            with pytest.raises(ValueError, match="nonzero"):
+                dense()
+        predicted, true, counts = cm.nonzero()
+        assert (predicted.tolist(), true.tolist(), counts.tolist()) == ([5, 9], [5, 7], [1, 2])
+
+    def test_nonzero_lists_the_counted_cells(self):
+        predicted, true, counts = _detect_fixture().nonzero()
+        assert list(zip(predicted.tolist(), true.tolist(), counts.tolist())) == [
+            (0, BACKGROUND, 1),
+            (1, 0, 1),
+            (1, 1, 1),
+            (BACKGROUND, 2, 1),
+        ]
+
+        cm = ConfusionMatrix(nc=3, task="classify")
+        cm.process_cls_preds([2, 0, 0], [1, 0, 0])
+        predicted, true, counts = cm.nonzero()
+        assert list(zip(predicted.tolist(), true.tolist(), counts.tolist())) == [
+            (0, 0, 2),
+            (2, 1, 1),
+        ]
+
     def test_misaligned_inputs_fail(self):
         cm = ConfusionMatrix(nc=2, task="classify")
         with pytest.raises(ValueError, match="same number"):

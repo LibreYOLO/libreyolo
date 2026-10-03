@@ -2695,7 +2695,7 @@ class BaseModel(ABC):
             (unmatched prediction) for detection, where predictions are
             paired with ground truth of any class at IoU 0.5 and the
             ``visualize`` confidence. It offers ``summary()``, ``to_df()``,
-            ``to_csv()``, ``to_json()``, ``tp_fp()``, ``plot()`` and
+            ``to_csv()``, ``to_json()``, ``tp_fp()``, ``nonzero()``, ``plot()`` and
             ``class_accuracy()`` (how often a found object of each class is
             given that class).
 

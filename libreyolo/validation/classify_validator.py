@@ -353,7 +353,7 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         if confusion_matrix.nc > self._MAX_PLOT_CLASSES:
             logger.info(
                 "Skipping the confusion matrix plots for %d classes; read "
-                "results.confusion_matrix instead.",
+                "results.confusion_matrix.nonzero() instead.",
                 confusion_matrix.nc,
             )
             return

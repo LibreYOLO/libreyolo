@@ -24,6 +24,10 @@ CONFUSION_MATRIX_TASKS = ("detect", "classify")
 DEFAULT_CONF_THRES = 0.25
 #: IoU at or above which a detection can be paired with a ground-truth box.
 DEFAULT_IOU_THRES = 0.5
+#: Widest classification head the dense matrix is built for (0.8 GB of int64
+#: at this width; ImageNet-21k would need 3.8 GB). Wider heads are read
+#: through ``nonzero()``, ``tp_fp()`` and ``class_accuracy()``.
+MAX_DENSE_CLASSES = 10_000
 
 
 def _box_iou(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
@@ -64,7 +68,9 @@ class ConfusionMatrix:
     Classification (``task="classify"``): one count per image at
     ``[top-1 class, label]``. The matrix is ``(nc, nc)``. Only the pairs that
     occur are stored, so accumulating stays cheap for very wide heads
-    (ImageNet-21k); ``matrix`` builds the dense array when it is read.
+    (ImageNet-21k); ``matrix`` builds the dense array when it is read, up to
+    ``MAX_DENSE_CLASSES`` classes. ``nonzero()``, ``tp_fp()`` and
+    ``class_accuracy()`` never build it.
 
     Attributes:
         matrix: Integer counts, indexed ``[predicted, true]``.
@@ -120,6 +126,13 @@ class ConfusionMatrix:
         """Integer counts indexed ``[predicted, true]``."""
         if self._counts is not None:
             return self._counts
+        if self.nc > MAX_DENSE_CLASSES:
+            raise ValueError(
+                f"The dense confusion matrix of a {self.nc}-class head is too "
+                f"large to build (limit {MAX_DENSE_CLASSES} classes). Use "
+                "nonzero(), tp_fp() or class_accuracy(), which read the "
+                "stored counts directly."
+            )
         dense = np.zeros((self.nc, self.nc), dtype=np.int64)
         if self._pairs:
             keys = np.fromiter(self._pairs.keys(), dtype=np.int64)
@@ -127,6 +140,19 @@ class ConfusionMatrix:
                 self._pairs.values(), dtype=np.int64
             )
         return dense
+
+    def nonzero(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """The cells that hold a count, as aligned ``(predicted, true, count)``.
+
+        Sorted by predicted then true index. For detection the background
+        index is ``nc``. Does not build the dense classification matrix.
+        """
+        if self._counts is not None:
+            predicted, true = np.nonzero(self._counts)
+            return predicted, true, self._counts[predicted, true]
+        keys = np.sort(np.fromiter(self._pairs.keys(), dtype=np.int64))
+        counts = np.asarray([self._pairs[int(k)] for k in keys], dtype=np.int64)
+        return keys // self.nc, keys % self.nc, counts
 
     def _marginals(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Diagonal, predicted-row totals and true-column totals.
