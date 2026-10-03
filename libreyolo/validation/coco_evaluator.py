@@ -81,6 +81,12 @@ class COCOEvaluator:
         self.results = []
         self._img_ids = set()
         self._last_coco_eval = None
+        # (coco_eval, iou_thr, arrays) of the last _per_class_match_arrays
+        # call: the best-confidence sweep and the confidence curves read the
+        # same arrays, and rebuilding them is the costly part.
+        self._match_arrays_cache = None
+        # Whether the last compute() call found no predictions to evaluate.
+        self._computed_without_predictions = False
         # Provenance: backend actually used by the last compute() call.
         self.last_backend: Optional[str] = None
 
@@ -177,8 +183,12 @@ class COCOEvaluator:
                 json.dump(self.results, f, indent=2)
             logger.info("Saved predictions to %s", Path(save_json).resolve())
 
+        self._computed_without_predictions = len(self.results) == 0
         if len(self.results) == 0:
             logger.warning("No predictions to evaluate")
+            # Nothing from an earlier compute() describes this run.
+            self._last_coco_eval = None
+            self._match_arrays_cache = None
             return self._empty_metrics()
 
         coco_eval = self._build_coco_eval()
@@ -316,6 +326,7 @@ class COCOEvaluator:
         """Clear all accumulated results."""
         self.results = []
         self._img_ids = set()
+        self._match_arrays_cache = None
 
     @staticmethod
     def _best_f1_threshold(
@@ -419,6 +430,115 @@ class COCOEvaluator:
             logger.debug("Best-conf sweep unavailable: %s", exc)
             return None
 
+    def confidence_curves(
+        self, iou_thr: float = 0.5, points: int = 1000
+    ) -> Optional[Dict[str, np.ndarray]]:
+        """Per-class precision, recall and F1 as functions of confidence.
+
+        Built from the same per-detection match results as
+        :meth:`best_conf_thresholds` (IoU ``iou_thr`` matching, "all" area
+        range, ignored detections and ground truths left out), so the curves
+        and the best-confidence thresholds describe one evaluation.
+
+        At confidence ``x`` a class keeps its detections scoring at least
+        ``x``: precision is the true-positive share of those, recall the
+        share of its ground truths they found, F1 their harmonic mean. Where
+        no detection survives, precision is 1.0 (nothing predicted, nothing
+        wrong) and recall and F1 are 0.0.
+
+        Returns:
+            None when no evaluation ran or the backend exposes no usable
+            match source. Otherwise ``{"px", "labels", "p", "r", "f1"}``:
+            ``px`` is ``points`` confidences evenly spaced over [0, 1],
+            ``labels`` the model class index of each row (classes with at
+            least one ground truth, ascending), and ``p``/``r``/``f1`` are
+            ``(len(labels), points)`` arrays.
+        """
+        coco_eval = self._last_coco_eval
+        try:
+            if coco_eval is not None:
+                source = self._per_class_match_arrays(coco_eval, iou_thr)
+            elif getattr(self, "_computed_without_predictions", False):
+                # compute() skips COCO evaluation when nothing was predicted;
+                # the classes with ground truth still get their (flat) rows.
+                source = self._ground_truth_only_arrays()
+            else:
+                return None
+        except Exception as exc:  # backend without a usable match source
+            logger.debug("Confidence curves unavailable: %s", exc)
+            return None
+        if source is None:
+            return None
+        category_to_label = (
+            {v: k for k, v in self.label_to_category_id.items()}
+            if self.label_to_category_id is not None
+            else {}
+        )
+        px = np.linspace(0.0, 1.0, int(points))
+        rows = []
+        for cat_id, (scores, tps, npig) in source.items():
+            if npig <= 0:
+                continue
+            label = category_to_label.get(int(cat_id), int(cat_id))
+            rows.append((int(label), *self._curves_for_class(scores, tps, npig, px)))
+        rows.sort(key=lambda row: row[0])
+        shape = (len(rows), px.size)
+        return {
+            "px": px,
+            "labels": np.asarray([row[0] for row in rows], dtype=np.int64),
+            "p": np.asarray([row[1] for row in rows], dtype=np.float64).reshape(shape),
+            "r": np.asarray([row[2] for row in rows], dtype=np.float64).reshape(shape),
+            "f1": np.asarray([row[3] for row in rows], dtype=np.float64).reshape(shape),
+        }
+
+    def _ground_truth_only_arrays(
+        self,
+    ) -> Dict[int, Tuple[np.ndarray, np.ndarray, int]]:
+        """Per-category sweep arrays for a run that produced no predictions.
+
+        Empty detection arrays and the count of non-ignored ground truths in
+        the validated images (the ones ``update`` was called for), so every
+        class with ground truth there still reports recall 0 at every
+        confidence. A run that validated no image has no rows.
+        """
+        counts: Dict[int, int] = {}
+        for ann in self.coco_gt.anns.values():
+            if ann["image_id"] not in self._img_ids:
+                continue
+            if ann.get("iscrowd") or ann.get("ignore"):
+                continue
+            category = int(ann["category_id"])
+            counts[category] = counts.get(category, 0) + 1
+        empty_scores = np.zeros(0, dtype=np.float64)
+        empty_tps = np.zeros(0, dtype=bool)
+        return {
+            category: (empty_scores, empty_tps, count)
+            for category, count in counts.items()
+        }
+
+    @staticmethod
+    def _curves_for_class(
+        scores: np.ndarray, tps: np.ndarray, npig: int, px: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Precision, recall and F1 of one class at each confidence in ``px``."""
+        scores = np.asarray(scores, dtype=np.float64)
+        order = np.argsort(scores, kind="stable")  # ascending
+        ascending = scores[order]
+        # tp_above[i]: true positives among the i highest-scoring detections.
+        tp_above = np.concatenate(
+            ([0.0], np.cumsum(np.asarray(tps, dtype=np.float64)[order][::-1]))
+        )
+        # Detections scoring at least each confidence.
+        kept = scores.size - np.searchsorted(ascending, px, side="left")
+        tp = tp_above[kept]
+        precision = np.divide(
+            tp, kept, out=np.ones(px.size, dtype=np.float64), where=kept > 0
+        )
+        recall = tp / float(npig)
+        # 2PR / (P + R) with P = tp / kept and R = tp / npig.
+        f1 = 2.0 * tp / (kept + float(npig))
+        return precision, recall, f1
+
     def _per_class_match_arrays(
         self, coco_eval, iou_thr: float
     ) -> Optional[Dict[int, Tuple[np.ndarray, np.ndarray, int]]]:
@@ -432,10 +552,16 @@ class COCOEvaluator:
         the expensive IoU computation is reused, only the trivial matching
         loop is repeated.
         """
+        cached = getattr(self, "_match_arrays_cache", None)
+        if cached is not None and cached[0] is coco_eval and cached[1] == iou_thr:
+            return cached[2]
         eval_imgs = getattr(coco_eval, "evalImgs", None)
         if isinstance(eval_imgs, list) and eval_imgs:
-            return self._match_arrays_from_eval_imgs(coco_eval, iou_thr)
-        return self._match_arrays_from_ious(coco_eval, iou_thr)
+            arrays = self._match_arrays_from_eval_imgs(coco_eval, iou_thr)
+        else:
+            arrays = self._match_arrays_from_ious(coco_eval, iou_thr)
+        self._match_arrays_cache = (coco_eval, iou_thr, arrays)
+        return arrays
 
     @staticmethod
     def _match_arrays_from_eval_imgs(

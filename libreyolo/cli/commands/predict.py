@@ -158,6 +158,11 @@ def predict_cmd(
         None, help="Filter by class IDs, e.g. [0,2,5]"
     ),
     max_det: int = typer.Option(300, help="Max detections per image"),
+    agnostic_nms: bool = typer.Option(
+        False,
+        help="Class-agnostic NMS: among boxes overlapping above iou, keep "
+        "only the highest-scoring one whatever their classes",
+    ),
     half: bool = typer.Option(
         False, help="FP16 inference (CUDA only, requires model support)"
     ),
@@ -388,6 +393,9 @@ def predict_cmd(
     )
     if half and is_exported_backend:
         predict_kwargs["half"] = half
+    if agnostic_nms:
+        # Only when set: predict paths without it reject the option.
+        predict_kwargs["agnostic_nms"] = True
     if gallery_obj is not None:
         predict_kwargs["gallery"] = gallery_obj
         predict_kwargs["threshold"] = gallery_threshold

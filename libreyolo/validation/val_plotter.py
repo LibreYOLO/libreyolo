@@ -7,6 +7,9 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+# Re-exported: ConfusionMatrix used to be defined in this module.
+from .confusion_matrix import ConfusionMatrix, _box_iou as _box_iou_numpy
+
 logger = logging.getLogger(__name__)
 
 _COLOR_GT = (50, 200, 50)    # BGR green  — ground-truth
@@ -38,23 +41,6 @@ _POSE_METRIC_GROUPS = [
      [("kp_ar50-95", "AR50-95"), ("kp_ar50", "AR50"), ("kp_ar75", "AR75"),
       ("kp_ar_m", "AR_M"), ("kp_ar_l", "AR_L")]),
 ]
-
-
-# ---------------------------------------------------------------------------
-# IoU helper (numpy-only, no torch dependency)
-# ---------------------------------------------------------------------------
-
-def _box_iou_numpy(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
-    """Vectorised xyxy IoU → (M, N)."""
-    a1 = (boxes1[:, 2] - boxes1[:, 0]).clip(0) * (boxes1[:, 3] - boxes1[:, 1]).clip(0)
-    a2 = (boxes2[:, 2] - boxes2[:, 0]).clip(0) * (boxes2[:, 3] - boxes2[:, 1]).clip(0)
-    ix1 = np.maximum(boxes1[:, None, 0], boxes2[None, :, 0])
-    iy1 = np.maximum(boxes1[:, None, 1], boxes2[None, :, 1])
-    ix2 = np.minimum(boxes1[:, None, 2], boxes2[None, :, 2])
-    iy2 = np.minimum(boxes1[:, None, 3], boxes2[None, :, 3])
-    inter = np.maximum(ix2 - ix1, 0) * np.maximum(iy2 - iy1, 0)
-    union = a1[:, None] + a2[None, :] - inter
-    return inter / np.maximum(union, 1e-7)
 
 
 # ---------------------------------------------------------------------------
@@ -177,73 +163,6 @@ def match_detections(
 # ---------------------------------------------------------------------------
 # Confusion-matrix accumulator
 # ---------------------------------------------------------------------------
-
-class ConfusionMatrix:
-    """Accumulates per-image prediction/GT assignments for a normalised confusion matrix.
-
-    The last row/column (index nc) represents the background class
-    (missed detections / false positives).
-    """
-
-    def __init__(self, nc: int, iou_thres: float = 0.5, conf_thres: float = 0.15) -> None:
-        self.nc = nc
-        self.iou_thres = iou_thres
-        self.conf_thres = conf_thres
-        # matrix[actual, predicted]; nc == background
-        self.matrix = np.zeros((nc + 1, nc + 1), dtype=np.int64)
-
-    def process_image(
-        self,
-        pred_boxes: np.ndarray,    # (N, 4) xyxy pixel coords
-        pred_classes: np.ndarray,  # (N,) int
-        pred_scores: np.ndarray,   # (N,) float
-        gt_boxes: np.ndarray,      # (M, 4) xyxy pixel coords
-        gt_classes: np.ndarray,    # (M,) int
-    ) -> None:
-        conf_mask = pred_scores >= self.conf_thres
-        pred_boxes = pred_boxes[conf_mask]
-        pred_classes = pred_classes[conf_mask]
-
-        n_pred, n_gt = len(pred_boxes), len(gt_boxes)
-
-        if n_pred == 0 and n_gt == 0:
-            return
-        if n_pred == 0:
-            for gc in gt_classes:
-                if int(gc) < self.nc:
-                    self.matrix[int(gc), self.nc] += 1
-            return
-        if n_gt == 0:
-            for pc in pred_classes:
-                if int(pc) < self.nc:
-                    self.matrix[self.nc, int(pc)] += 1
-            return
-
-        iou = _box_iou_numpy(gt_boxes, pred_boxes)  # (M, N)
-        gt_idxs, pred_idxs = np.where(iou >= self.iou_thres)
-
-        matched_gt: set = set()
-        matched_pred: set = set()
-
-        if len(gt_idxs):
-            order = np.argsort(-iou[gt_idxs, pred_idxs])
-            for gi, pi in zip(gt_idxs[order], pred_idxs[order]):
-                gi, pi = int(gi), int(pi)
-                if gi in matched_gt or pi in matched_pred:
-                    continue
-                gc_i, pc_i = int(gt_classes[gi]), int(pred_classes[pi])
-                if gc_i < self.nc and pc_i < self.nc:
-                    matched_gt.add(gi)
-                    matched_pred.add(pi)
-                    self.matrix[gc_i, pc_i] += 1
-
-        for i, gc in enumerate(gt_classes):
-            if i not in matched_gt and int(gc) < self.nc:
-                self.matrix[int(gc), self.nc] += 1
-        for j, pc in enumerate(pred_classes):
-            if j not in matched_pred and int(pc) < self.nc:
-                self.matrix[self.nc, int(pc)] += 1
-
 
 # ---------------------------------------------------------------------------
 # ValPlotter
@@ -509,12 +428,20 @@ class ValPlotter:
         class_names: List[str],
         save_path: Path,
         normalize: bool = True,
+        background: bool = True,
     ) -> None:
+        """Draw ``matrix[actual, predicted]`` as a heatmap.
+
+        ``background`` says whether the last row and column are the detection
+        background class; classification matrices have none.
+        """
         plt = ValPlotter._require_matplotlib()
 
-        nc = matrix.shape[0] - 1  # matrix is (nc+1, nc+1)
+        size = matrix.shape[0]  # (nc+1, nc+1) with background, else (nc, nc)
+        nc = size - 1 if background else size
         labels = [ValPlotter._class_name(class_names, k) for k in range(nc)]
-        labels.append("background")
+        if background:
+            labels.append("background")
 
         disp = matrix.astype(float)
         if normalize:
@@ -522,27 +449,33 @@ class ValPlotter:
             row_sums[row_sums == 0] = 1
             disp = disp / row_sums
 
-        side = max(6, (nc + 1) * 0.5 + 1.5)
+        # Grows with the class count up to ~100 classes; a wider matrix
+        # (ImageNet, LVIS) keeps that canvas instead of an unbounded one.
+        side = min(max(6, size * 0.5 + 1.5), 52)
         fig, ax = plt.subplots(figsize=(side, side * 0.85))
         im = ax.imshow(disp, interpolation="nearest", cmap="Blues",
                        vmin=0, vmax=1.0 if normalize else None)
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
-        ticks = np.arange(nc + 1)
-        fs = max(5, 9 - (nc + 1) // 8)
-        ax.set_xticks(ticks)
-        ax.set_yticks(ticks)
-        ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=fs)
-        ax.set_yticklabels(labels, fontsize=fs)
+        ticks = np.arange(size)
+        fs = max(5, 9 - size // 8)
+        if size <= 100:
+            ax.set_xticks(ticks)
+            ax.set_yticks(ticks)
+            ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=fs)
+            ax.set_yticklabels(labels, fontsize=fs)
+        else:  # too many classes for readable tick labels
+            ax.set_xticks([])
+            ax.set_yticks([])
 
         # Fixed threshold: 0.5 for normalised (values in [0,1]),
         # or 30% of max for raw counts.
         thresh = 0.5 if normalize else disp.max() * 0.3
-        show_cells = (nc + 1) <= 30  # skip text for very large matrices
-        fs_cell = max(4, 7 - (nc + 1) // 10)
+        show_cells = size <= 30  # skip text for very large matrices
+        fs_cell = max(4, 7 - size // 10)
         if show_cells:
-            for i in range(nc + 1):
-                for j in range(nc + 1):
+            for i in range(size):
+                for j in range(size):
                     v = disp[i, j]
                     txt = f"{v:.2f}" if normalize else str(int(matrix[i, j]))
                     ax.text(
@@ -729,6 +662,67 @@ class ValPlotter:
         fig.savefig(save_dir / f"recall_conf_{label}.png", dpi=150, bbox_inches="tight")
         plt.close(fig)
         logger.info("Saved R-conf curve → %s", save_dir / f"recall_conf_{label}.png")
+
+    # ------------------------------------------------------------------ #
+    # F1–Confidence curve
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def plot_f1_curve(
+        curves: Dict[str, np.ndarray],
+        class_names: List[str],
+        save_path: Path,
+        label: str = "box",
+    ) -> None:
+        """Save the F1 vs confidence plot from ``COCOEvaluator.confidence_curves``.
+
+        One thin line per class and the class mean as a thick black line,
+        annotated with the confidence where the mean peaks.
+        """
+        plt = ValPlotter._require_matplotlib()
+
+        px = np.asarray(curves["px"], dtype=float)
+        f1 = np.asarray(curves["f1"], dtype=float)
+        labels = [int(v) for v in curves["labels"]]
+        if not f1.size:
+            return
+        show_legend = len(labels) <= 5
+        cmap_cls = plt.get_cmap("tab20" if len(labels) > 10 else "tab10")
+
+        fig, ax = plt.subplots(figsize=(7, 5))
+        ax.set_xlabel("Confidence threshold", fontsize=10)
+        ax.set_ylabel("F1", fontsize=10)
+        ax.set_title(
+            f"F1 vs Confidence ({label.upper()}, IoU=0.5)",
+            fontsize=11, fontweight="bold",
+        )
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1.05)
+        ax.grid(alpha=0.2, linestyle="--")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        for row, class_index in enumerate(labels):
+            ax.plot(
+                px, f1[row],
+                color=cmap_cls(row % 20 / 20),
+                linewidth=0.8, alpha=0.45,
+                label=(
+                    ValPlotter._class_name(class_names, class_index)
+                    if show_legend else None
+                ),
+            )
+        mean = f1.mean(axis=0)
+        best = int(mean.argmax())
+        ax.plot(
+            px, mean,
+            color="black", linewidth=2.5, zorder=5,
+            label=f"mean  F1={mean[best]:.3f} at {px[best]:.3f}",
+        )
+        ax.legend(fontsize=8, loc="lower left")
+        fig.tight_layout()
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        logger.info("Saved F1-conf curve → %s", save_path)
 
     # ------------------------------------------------------------------ #
     # Single validation-sample image — GT left | Predictions right

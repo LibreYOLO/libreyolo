@@ -88,11 +88,17 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
 
     task = "detect"
     supports_visualize = True
+    supports_agnostic_nms = True
 
     # Class-level default so instances built without __init__ (a pattern the
     # test suite uses for narrow-scope validators) still resolve it.
     _gt_coco_api = None
     _single_cls_clip_warning_emitted = False
+    #: ``results.confusion_matrix`` (#928): every validated image, at the
+    #: ``visualize`` confidence and IoU.
+    confusion_matrix = None
+    #: ``results.box`` curve arrays (#928), set by ``_compute_metrics``.
+    confidence_curves = None
 
     def __init__(
         self,
@@ -472,6 +478,45 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
 
         return resolve_default_coco_image_dir(data_path, self.config.split, json_file)
 
+    def _postprocess_max_det(self) -> int:
+        """The detection budget handed to the family postprocess.
+
+        ``max_det``, widened under ``agnostic_nms`` so the boxes that step
+        suppresses can be replaced; ``_update_metrics`` cuts back to
+        ``max_det`` afterwards.
+        """
+        from ..utils.predict_args import postprocess_max_det  # noqa: PLC0415
+
+        return postprocess_max_det(
+            self.config.max_det,
+            None,
+            bool(getattr(self.config, "agnostic_nms", False)),
+        )
+
+    def _new_confusion_matrix(self):
+        """A fresh confusion matrix for this run, or None if it cannot be built.
+
+        It counts predictions at the ``visualize`` confidence (0.25, or the
+        run's ``conf`` if higher) paired with ground truth at IoU 0.5, the
+        thresholds ``box.image_metrics`` uses.
+        """
+        from .confusion_matrix import ConfusionMatrix  # noqa: PLC0415
+        from .val_plotter import (  # noqa: PLC0415
+            VISUALIZE_IOU_THRES,
+            visualize_conf_thres,
+        )
+
+        try:
+            return ConfusionMatrix(
+                nc=int(self.nc),
+                iou_thres=VISUALIZE_IOU_THRES,
+                conf_thres=visualize_conf_thres(self.config.conf_thres),
+                names=self.class_names,
+            )
+        except Exception as exc:
+            logger.warning("Confusion matrix unavailable: %s", exc)
+            return None
+
     def _coco_max_det(self) -> int:
         """Resolve the opt-in evaluator cap without coupling it to NMS."""
         value = getattr(self.config, "eval_max_det", None)
@@ -488,7 +533,8 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             logger.info("Initializing COCO evaluator...")
 
         # Always initialise plot-tracking state before any early returns
-        self._confusion_matrix = None
+        self.confusion_matrix = self._new_confusion_matrix()
+        self.confidence_curves = None
         self._val_samples: List[Dict] = []
         # Image filename -> precision/recall/f1/tp/fp/fn (#887); val() returns
         # it as ``results.box.image_metrics``.
@@ -500,9 +546,6 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             from .val_plotter import reset_visualize_dir  # noqa: PLC0415
 
             reset_visualize_dir(self.save_dir)
-        if self.config.save_plots:
-            from .val_plotter import ConfusionMatrix  # noqa: PLC0415
-            self._confusion_matrix = ConfusionMatrix(nc=self.nc)
 
         # A COCO-annotation dataset (resolvable from either data= or data_dir=)
         # is handled here first; the config.data requirement below only applies
@@ -766,7 +809,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                         conf=conf_thres,
                         iou=self.config.iou_thres,
                         imgsz=self._actual_imgsz,
-                        max_det=self.config.max_det,
+                        max_det=self._postprocess_max_det(),
                     )
                     detections.append(self._det_from_result(result))
 
@@ -816,7 +859,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 original_size=(orig_w, orig_h),
                 input_size=self._actual_imgsz,
                 letterbox=uses_letterbox,
-                max_det=self.config.max_det,
+                max_det=self._postprocess_max_det(),
             )
             if result["num_detections"] > 0:
                 raw = result["boxes"]
@@ -872,6 +915,25 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 filtered.append({key: value[keep] for key, value in pred.items()})
             # Subclass evaluators consume the same batch after this method.
             preds[:] = filtered
+        if getattr(cfg, "agnostic_nms", False):
+            # Class-agnostic NMS on the family's finished detections, after
+            # the classes= filter and before any scoring, so every metric of
+            # the run (mAP, confusion matrix, curves, image metrics) and the
+            # subclass evaluators see the same boxes.
+            from ..ops.agnostic_nms import (  # noqa: PLC0415
+                agnostic_nms_detections,
+                top_detections,
+            )
+
+            # The postprocess ran with a wider budget (_postprocess_max_det),
+            # so the slots suppression frees are refilled before the cut.
+            preds[:] = [
+                top_detections(
+                    agnostic_nms_detections(pred, self.config.iou_thres),
+                    self.config.max_det,
+                )
+                for pred in preds
+            ]
         for i in range(len(preds)):
             self.coco_evaluator.update(preds[i], img_ids[i])
 
@@ -898,7 +960,8 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         ``self.image_metrics`` under the image filename. ``visualize`` images
         are written as the images are validated, to ``visualize/errors/``
         when the image has a false positive or a miss and to
-        ``visualize/correct/`` otherwise. Neither feeds the mAP metrics.
+        ``visualize/correct/`` otherwise. The same arrays feed the run's
+        confusion matrix. None of this feeds the mAP metrics.
         """
         from .val_plotter import (  # noqa: PLC0415
             ValPlotter,
@@ -921,6 +984,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         if kept_classes and self._single_cls_enabled():
             kept_classes = None
         seen = getattr(self, "seen", 0)
+        confusion_matrix = getattr(self, "confusion_matrix", None)
         for i, pred in enumerate(preds):
             index = seen + i
             try:
@@ -936,6 +1000,10 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 pred_boxes = pred["boxes"].cpu().numpy().reshape(-1, 4)
                 pred_classes = pred["classes"].cpu().numpy().astype(int).reshape(-1)
                 pred_scores = pred["scores"].cpu().numpy().reshape(-1)
+                if confusion_matrix is not None:
+                    confusion_matrix.process_image(
+                        pred_boxes, pred_classes, pred_scores, gt_boxes, gt_classes
+                    )
                 entry = image_metrics_entry(
                     match_detections(
                         pred_boxes,
@@ -1105,7 +1173,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         img_info: List,
         img_ids: List,
     ) -> None:
-        """Accumulate confusion-matrix entries and collect sample images."""
+        """Collect sample images for the validation plots."""
         for i, pred in enumerate(preds):
             orig_h, orig_w = img_info[i]
 
@@ -1115,10 +1183,6 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             pb = pred["boxes"].cpu().numpy() if len(pred["boxes"]) else np.zeros((0, 4), np.float32)
             ps = pred["scores"].cpu().numpy() if len(pred["scores"]) else np.zeros(0, np.float32)
             pc = pred["classes"].cpu().numpy().astype(int) if len(pred["classes"]) else np.zeros(0, int)
-
-            # Confusion matrix
-            if self._confusion_matrix is not None:
-                self._confusion_matrix.process_image(pb, pc, ps, gt_boxes, gt_classes)
 
             # Sample images for the plot only; never affects scoring (#830).
             if self._wants_more_val_samples():
@@ -1216,11 +1280,17 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         if last_eval is not None:
             _safe(ValPlotter.plot_pr_curves, last_eval, names, plots_dir, "box")
 
-        # Confusion matrix
-        if self._confusion_matrix is not None:
-            _safe(ValPlotter.plot_confusion_matrix,
-                  self._confusion_matrix.matrix, names,
-                  plots_dir / "confusion_matrix.png")
+        # F1-conf curve, from the arrays exposed as ``results.box.f1_curve``
+        curves = getattr(self, "confidence_curves", None)
+        if curves is not None and len(curves["labels"]):
+            _safe(ValPlotter.plot_f1_curve, curves, names,
+                  plots_dir / "f1_conf_box.png", "box")
+
+        # Confusion matrix: raw counts and per-true-class shares
+        confusion_matrix = getattr(self, "confusion_matrix", None)
+        if confusion_matrix is not None:
+            _safe(confusion_matrix.plot, normalize=False, save_dir=plots_dir)
+            _safe(confusion_matrix.plot, normalize=True, save_dir=plots_dir)
 
         # Sample images → plots/samples/
         if self._val_samples:
@@ -1302,7 +1372,26 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         }
         metrics.update(self._validation_loss_metrics())
         metrics.update(self._best_conf_metrics())
+        self.confidence_curves = self._confidence_curves(self.coco_evaluator)
         return metrics
+
+    @staticmethod
+    def _confidence_curves(evaluator) -> Optional[Dict[str, np.ndarray]]:
+        """Per-class precision/recall/F1 over confidence from a box evaluator.
+
+        A free by-product of the finished COCO matching (see
+        ``COCOEvaluator.confidence_curves``); ``val()`` exposes it as
+        ``results.box.p_curve`` / ``r_curve`` / ``f1_curve`` / ``px``. None
+        when the evaluator has no usable match source.
+        """
+        curves_fn = getattr(evaluator, "confidence_curves", None)
+        if not callable(curves_fn):
+            return None
+        try:
+            return curves_fn()
+        except Exception as exc:
+            logger.debug("Confidence curves unavailable: %s", exc)
+            return None
 
     def _class_display_name(self, label: int) -> str:
         names = getattr(self, "class_names", None)
@@ -1528,6 +1617,7 @@ class SegmentationValidator(DetectionValidator):
         # Provenance for callers (surfaced as model.last_eval_backend).
         # getattr: tests substitute lightweight evaluator stubs.
         self.eval_backend = getattr(self.bbox_evaluator, "last_backend", None)
+        self.confidence_curves = self._confidence_curves(self.bbox_evaluator)
 
         return {
             "metrics/mAP50-95": mask["mAP"],

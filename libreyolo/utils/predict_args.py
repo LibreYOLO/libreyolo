@@ -7,7 +7,6 @@ from numbers import Integral
 
 
 NOOP_PREDICT_KWARGS = {
-    "agnostic_nms",
     "boxes",
     "dnn",
     "half",
@@ -18,6 +17,8 @@ NOOP_PREDICT_KWARGS = {
     "verbose",
 }
 REJECTED_PREDICT_KWARGS = {"visualize", "embed"}
+#: Tasks ``predict(agnostic_nms=True)`` covers: the ones that return boxes.
+AGNOSTIC_NMS_TASKS = ("detect", "segment", "pose", "obb")
 ACCEPTED_PREDICT_KWARGS = {
     "classes",
     "conf",
@@ -38,17 +39,36 @@ ACCEPTED_PREDICT_KWARGS = {
 DEFAULT_MAX_DET = 300
 
 
-def postprocess_max_det(max_det: int, classes) -> int:
+def postprocess_max_det(max_det: int, classes, agnostic_nms: bool = False) -> int:
     """Return the ``max_det`` to pass to a postprocess that runs before the
-    ``classes`` filter.
+    ``classes`` filter or class-agnostic NMS.
 
     Postprocess keeps the top ``max_det`` detections over every class, so with
-    a class filter a small ``max_det`` could keep only other classes. Keep at
-    least the default budget there and cut to ``max_det`` after filtering.
+    a class filter a small ``max_det`` could keep only other classes, and with
+    ``agnostic_nms`` the boxes it suppresses would leave slots that nothing
+    refills. Keep at least the default budget there and cut to ``max_det``
+    after filtering and suppression.
     """
-    if classes is None:
+    if classes is None and not agnostic_nms:
         return max_det
     return max(int(max_det), DEFAULT_MAX_DET)
+
+
+def check_agnostic_nms(agnostic_nms, task) -> bool:
+    """Validate ``agnostic_nms`` for a task and return it as a bool.
+
+    Class-agnostic NMS suppresses overlapping boxes, so it applies to the
+    tasks that return boxes; asking for it elsewhere is an error rather than
+    a silent no-op.
+    """
+    if not agnostic_nms:
+        return False
+    if task not in AGNOSTIC_NMS_TASKS:
+        raise ValueError(
+            f"agnostic_nms=True is not supported for task '{task}'; it covers "
+            f"{', '.join(AGNOSTIC_NMS_TASKS)}"
+        )
+    return True
 
 
 def normalize_classes(classes):
@@ -67,6 +87,14 @@ def normalize_predict_kwargs(kwargs: dict, passthrough: set[str] | None = None) 
     if rejected:
         raise NotImplementedError(
             f"LibreYOLO does not support these predict options: {', '.join(rejected)}."
+        )
+
+    # A predict path that implements agnostic_nms takes it as a named
+    # argument, so it only reaches here on a path that does not: fine when
+    # off, an error when asked for.
+    if remaining.pop("agnostic_nms", False):
+        raise NotImplementedError(
+            "agnostic_nms=True is not supported by this model's predict path."
         )
 
     noops = sorted(k for k in remaining if k in NOOP_PREDICT_KWARGS)
