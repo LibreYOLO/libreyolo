@@ -238,9 +238,12 @@ def test_an_empty_run_does_not_reuse_an_earlier_evaluation():
     assert evaluator.confidence_curves()["r"].max() > 0
 
     evaluator.reset()
+    evaluator.update({"boxes": [], "scores": [], "classes": []}, image_id=1)
     evaluator.compute()
 
-    assert evaluator.confidence_curves()["r"].max() == 0.0
+    curves = evaluator.confidence_curves()
+    assert curves["labels"].tolist() == [0, 1]
+    assert curves["r"].max() == 0.0
     assert evaluator.best_conf_thresholds() is None
 
 
