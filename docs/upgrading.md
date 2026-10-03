@@ -7,6 +7,43 @@ The full list of changes for any release is in
 [CHANGELOG.md](../CHANGELOG.md); this page carries only the parts that require
 you to edit code or re-check numbers.
 
+## v1.6.0 to the next release
+
+YOLOv9 checkpoints from 1.6.0 and earlier keep loading and keep the same
+float predict/val boxes. What changes is training behaviour and the names
+seen by code that reaches into the network.
+
+### What does not break
+
+- Float, quantized and training checkpoints written by earlier releases
+  load: legacy tensor names, and the module names stored in quantization
+  manifests (`keep_high_precision`, `fp8_tensorwise_weights`), are renamed
+  on load and on resume.
+- Model inputs, outputs and export output names are unchanged.
+
+### What does change
+
+- **PGI default.** A fine-tune from weights without `aux.*` tensors, which
+  includes the published `LibreYOLO9{t,s,m,c}.pt`, trains the main head
+  only, as in 1.5. 1.6.0 attached a randomly initialised PGI branch at
+  `aux_weight=0.25` to those runs. Weights that carry `aux.*` tensors and
+  from-scratch runs still train with PGI. Pass `aux_weight=0.25` to attach a
+  new branch anyway, or `aux_weight=0` to force it off.
+- **Gradient clipping.** YOLO9, YOLO9-E2E and YOLO9-P2 clip the gradient
+  L2 norm at 10. `clip_max_norm=0` restores the 1.6.0 behaviour.
+- **`perspective`.** A non-zero value now warps by corner displacement, so
+  the same number gives a different warp for YOLO9, YOLOX and YOLO-NAS,
+  including runs resumed from a 1.6.0 checkpoint that set it; values of
+  `0.002` and above saturate at the same maximum. There is no setting that
+  reproduces the 1.6.0 warp. `perspective=0`, the default, is unchanged.
+- **YOLO9 mixup.** When mixup is enabled, the blend ratio comes from
+  Beta(1, 1) instead of Beta(32, 32). There is no setting for the old value.
+- **Internal names.** `DDetect` is `YOLO9Head` (`anchor_convs` /
+  `class_convs`), `RepConvN` is `RepConv`, `RepNBottleneck` is `Bottleneck`,
+  and block sublayers are `conv1`/`conv2`/`bottleneck`.
+  `LibreYOLO9Model.fuse()` and `RepConvN.fuse_convs()` are removed. ONNX
+  node names follow the new module names; update Hailo end-node configs.
+
 ## v1.5.x to v1.6.0
 
 Existing YOLOv9 checkpoints keep the same predict/val boxes after the
@@ -26,14 +63,14 @@ letterbox flip: there is none.
 ### What does change (new training / new converts only)
 
 - Newly converted official MultimediaTechLab weights stamp
-  `letterbox_pad: center` and keep the auxiliary PGI tensors. Fine-tunes
-  that start from those files train with center-pad and PGI.
+  `letterbox_pad: center`; v9-t and v9-s conversions also keep the auxiliary
+  PGI tensors (the v9-m and v9-c auxiliary branch has a different topology
+  and is not converted). Fine-tunes that start from those files train with
+  center-pad, and with PGI for t and s.
 - New YOLOv9 training defaults: `max_labels=300`, SGD momentum warmup
   `0.8 → 0.937` over the existing 3-epoch LR warmup, and `aux_weight=0.25`
   on stock detect (not P2/E2E). Resume of a 1.5 checkpoint without `aux.*`
-  keys stays single-head. A fine-tune from weights without `aux.*` keys
-  (including the published `LibreYOLO9{t,s,m,c}.pt`) also stays single-head
-  unless `aux_weight` is passed explicitly.
+  keys stays single-head.
 - To force center-pad on an unmarked checkpoint: `model.train(...,
   letterbox_pad="center")`. To disable PGI: `aux_weight=0`.
 

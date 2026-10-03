@@ -164,3 +164,156 @@ def test_pgi_head_takes_the_checkpoint_class_tower_width(tmp_path):
     loaded = model._reload_aux_from_path(str(path))
     assert model.model.aux_head.class_neck == 128
     assert loaded == len(aux_keys)
+
+
+def test_scratch_ddp_worker_keeps_pgi(tmp_path, monkeypatch):
+    """A DDP worker rebuilt from the bootstrap file trains the same graph as
+    the from-scratch parent: the parent pins the PGI default before spawning."""
+    from libreyolo.models.yolo9.model import LibreYOLO9
+    from libreyolo.training.ddp_spawn import _bootstrap_checkpoint
+
+    parent = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    train_kw = parent._ddp_prepare_train_kwargs({"data": "dummy.yaml"})
+    assert train_kw["aux_weight"] == 0.25
+
+    path = tmp_path / "bootstrap.pt"
+    torch.save(_bootstrap_checkpoint(parent), path)
+    worker = LibreYOLO9(str(path), size="t", nb_classes=2, device="cpu")
+    assert _aux_attached_when_training(
+        worker, monkeypatch, aux_weight=train_kw["aux_weight"]
+    ) is True
+
+
+def test_ddp_prepare_leaves_fine_tunes_and_explicit_values_alone(tmp_path):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    scratch = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    assert scratch._ddp_prepare_train_kwargs({"aux_weight": 0})["aux_weight"] == 0
+    assert "aux_weight" not in scratch._ddp_prepare_train_kwargs({"pretrained": True})
+    assert "aux_weight" not in scratch._ddp_prepare_train_kwargs({"resume": True})
+
+    path = _save_yolo9t(tmp_path, with_aux=False)
+    fine_tune = LibreYOLO9(str(path), size="t", nb_classes=2, device="cpu")
+    assert "aux_weight" not in fine_tune._ddp_prepare_train_kwargs({})
+
+
+def test_ddp_aware_calls_the_family_hook_before_spawning(monkeypatch):
+    from libreyolo.training import ddp_spawn
+
+    seen = {}
+
+    class _Model:
+        def _ddp_prepare_train_kwargs(self, train_kw):
+            return dict(train_kw, pinned=True)
+
+        @ddp_spawn.ddp_aware()
+        def train(self, data, device="", **kwargs):  # pragma: no cover
+            raise AssertionError("the method body must not run on the parent")
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ddp_spawn,
+        "spawn_for_model",
+        lambda model, train_kw, nprocs, **kw: seen.update(train_kw) or {},
+    )
+    _Model().train("d.yaml", device="0,1")
+    assert seen["pinned"] is True and seen["data"] == "d.yaml"
+
+
+def test_pretrained_transfer_takes_the_pgi_class_tower_width(tmp_path):
+    """``pretrained=`` loads a wider PGI head completely, like direct loading."""
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    path = _save_yolo9t(tmp_path, with_aux=True, aux_class_neck=128)
+    saved = torch.load(path, map_location="cpu", weights_only=False)["model"]
+    aux_keys = [k for k in saved if k.startswith(("aux.", "aux_head."))]
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    model.model.enable_aux(0.25)
+    stats = model._load_transfer_weights(path)
+    assert model.model.aux_head.class_neck == 128
+    assert stats["aux_loaded"] == len(aux_keys)
+    assert stats["skipped"] == 0
+
+
+# -----------------------------------------------------------------------------
+# Name-bearing checkpoint metadata
+# -----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "legacy,current",
+    [
+        ("backbone.elan1.cv1.", "backbone.elan1.conv1."),
+        ("backbone.elan1.cv1", "backbone.elan1.conv1"),
+        ("neck.elan_up1.cv2.0.m.", "neck.elan_up1.conv2.0.bottleneck."),
+        ("backbone.down2.cv", "backbone.down2.conv"),
+        ("detect.cv3.", "head.class_convs."),
+        ("head.cv2.1.", "head.anchor_convs.1."),
+        ("aux_head.cv3", "aux_head.class_convs"),
+        ("head.one2one_cv2.", "head.one_to_one_anchor_convs."),
+        ("head.", "head."),
+        ("backbone.conv0.", "backbone.conv0."),
+        ("backbone.elan1.conv1.", "backbone.elan1.conv1."),
+    ],
+)
+def test_upgrade_legacy_module_name(legacy, current):
+    from libreyolo.models.yolo9.convert import upgrade_legacy_module_name
+
+    assert upgrade_legacy_module_name(legacy) == current
+    assert upgrade_legacy_module_name(current) == current
+
+
+def test_quant_manifest_module_names_are_upgraded():
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    manifest = {
+        "recipe": "int8",
+        "keep_high_precision": ["head.", "backbone.conv0.", "backbone.elan1.cv1."],
+        "fp8_tensorwise_weights": ("neck.elan_up1.cv1.conv",),
+        "module_count": 207,
+    }
+    upgraded = model._upgrade_quant_manifest(manifest)
+    assert upgraded["keep_high_precision"] == [
+        "head.", "backbone.conv0.", "backbone.elan1.conv1.",
+    ]
+    assert upgraded["fp8_tensorwise_weights"] == ("neck.elan_up1.conv1.conv",)
+    assert upgraded["module_count"] == 207
+    assert manifest["keep_high_precision"][2] == "backbone.elan1.cv1."
+
+
+def test_legacy_quantized_checkpoint_keeps_its_float_layers(tmp_path):
+    """A quantized checkpoint whose keys and exclusions use the legacy names
+    reloads with the same quantized-module count and the float layer intact."""
+    from libreyolo import LibreYOLO
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    model.quantize(
+        "int8",
+        calib=None,
+        keep_high_precision=("head.", "backbone.conv0.", "backbone.elan1.conv1."),
+        verbose=False,
+    )
+    count = model.quant_info()["module_count"]
+    float_weight = model.model.backbone.elan1.conv1.conv.weight.detach().clone()
+    path = tmp_path / "quant.pt"
+    model.save(path)
+
+    # Respell the file the way pre-rename releases wrote it.
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    ckpt["model"] = {
+        k.replace(".conv1.", ".cv1.", 1) if k.startswith("backbone.elan1.conv1.") else k: v
+        for k, v in ckpt["model"].items()
+    }
+    ckpt["quant"]["keep_high_precision"] = ["head.", "backbone.conv0.", "backbone.elan1.cv1."]
+    assert "backbone.elan1.cv1.conv.weight" in ckpt["model"]
+    torch.save(ckpt, path)
+
+    loaded = LibreYOLO(str(path), device="cpu")
+    info = loaded.quant_info()
+    assert sum(info["module_counts"].values()) == count
+    layer = loaded.model.backbone.elan1.conv1.conv
+    assert type(layer) is torch.nn.Conv2d
+    assert torch.equal(layer.weight.detach().cpu(), float_weight)

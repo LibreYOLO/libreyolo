@@ -15,7 +15,7 @@ before 1.4.0 are documented in the
 ### Changed
 
 - **YOLO9 internals use the MultimediaTechLab/YOLO module names.**
-  Code that reaches into the network sees `YOLO9Head` instead of `DDetect` (box and class towers in `anchor_convs` / `class_convs`, `num_classes`, `strides`), `RepConv` instead of `RepConvN`, `Bottleneck` instead of `RepNBottleneck`, and `conv1`/`conv2`/`bottleneck` instead of `cv1`/`cv2`/`m` inside blocks. ONNX node names follow, e.g. `/head/anchor_convs.0/...` (update Hailo end-node configs). Model inputs, outputs and output names are unchanged. Freshly built YOLO9 models with more than 100 classes get class towers up to 128 channels wide instead of 100.
+  Code that reaches into the network sees `YOLO9Head` instead of `DDetect` (box and class towers in `anchor_convs` / `class_convs`, `num_classes`, `strides`), `RepConv` instead of `RepConvN`, `Bottleneck` instead of `RepNBottleneck`, and `conv1`/`conv2`/`bottleneck` instead of `cv1`/`cv2`/`m` inside blocks. ONNX node names follow, e.g. `/head/anchor_convs.0/...` (update Hailo end-node configs). Model inputs, outputs and output names are unchanged. Freshly built YOLO9 models with more than 100 classes get class towers up to 128 channels wide instead of 100. `LibreYOLO9Model.fuse()` and `RepConvN.fuse_convs()` are removed; predict, val and export never called them.
 - **`perspective` augmentation uses corner displacement.**
   With `perspective > 0`, the four corners of the augmentation canvas are each pulled inward by a random amount and the image and boxes are warped by the resulting homography, on top of the usual rotation, scale, shear and translation. `distortion_scale = min(perspective * 100, 0.2)` in the sense of torchvision's `RandomPerspective`, so `perspective=0.001` moves each corner by at most 5% of the canvas side, at any resolution. The same value therefore gives a different warp than in 1.6.0, and negative values raise `ValueError`. The default `perspective=0` is unchanged. Applies to every family that uses the shared affine warp (YOLO9, YOLOX, YOLO-NAS).
 - **YOLO9 mixup samples the blend ratio from Beta(1, 1).**
@@ -32,8 +32,8 @@ before 1.4.0 are documented in the
 
 ### Security/Licensing
 
-- **YOLO9 family code re-derived from the MIT upstream.**
-  The YOLO9 building blocks, the YOLO9, YOLO9-E2E and YOLO9-P2 detection heads, the YOLO9-E2E NMS-free post-processing and two YOLO9 augmentation steps (mosaic tile placement, mixup blend) are rewritten from MultimediaTechLab/YOLO (MIT) and other permissively licensed sources, and `THIRD_PARTY_NOTICES.txt` now describes each source accurately. Predictions, metrics, exports and training runs are bit-identical for every published checkpoint, and every existing checkpoint, including training checkpoints being resumed, keeps loading: legacy tensor names are renamed on load.
+- **YOLO9 and YOLO9-P2 code follows the MIT upstream.**
+  The YOLO9 building blocks, the YOLO9 and YOLO9-P2 detection heads and the YOLO9 mixup blend are ported from MultimediaTechLab/YOLO (MIT, commit c4cb5f6f); mosaic tile placement reuses the YOLOX-derived helper, and `THIRD_PARTY_NOTICES.txt` describes each source. Float inference is unchanged: raw outputs of checkpoints written by 1.6.0 (t/s/m/c, 2 and 120 classes) and sample-image detections of the published t and m weights are bit-identical, and the main path matches the pinned upstream model on random weights (`tests/unit/test_yolo9_parity.py`). Checkpoints written by earlier releases load through a rename of legacy tensor names, and of the module names in quantization manifests; resumed training checkpoints go through the same rename. Training behaviour does change, as listed under Changed and Fixed. Exported-runtime parity beyond ONNX on YOLO9-t and CUDA mixed-precision training were not measured.
 
 ## [1.6.0] - 2026-09-27
 

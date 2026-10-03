@@ -362,6 +362,9 @@ _LEGACY_BLOCK_PREFIXES = ("backbone.", "neck.", "aux.")
 _LEGACY_HEAD_TOWER_RE = re.compile(
     r"^(head|aux_head)\.(one2one_cv2|one2one_cv3|cv2|cv3)\.(\d+)\."
 )
+_LEGACY_HEAD_TOWER_PREFIX_RE = re.compile(
+    r"^(head|aux_head)\.(one2one_cv2|one2one_cv3|cv2|cv3)\."
+)
 _LEGACY_HEAD_TOWERS = {
     "cv2": "anchor_convs",
     "cv3": "class_convs",
@@ -394,6 +397,28 @@ def upgrade_legacy_key(key: str) -> Optional[str]:
         prefix, tower, index = match.groups()
         key = f"{prefix}.{_LEGACY_HEAD_TOWERS[tower]}.{index}.{key[match.end():]}"
     return key
+
+
+def upgrade_legacy_module_name(name: str) -> str:
+    """Map a legacy module name or name prefix to the current layout.
+
+    Counterpart of :func:`upgrade_legacy_key` for name-bearing metadata such
+    as quantization exclusions (``"backbone.elan1.cv1."``), which name modules
+    rather than tensors and may or may not end with a dot. Names that are
+    already current, or that match nothing, come back unchanged.
+    """
+    trailing_dot = name.endswith(".")
+    probe = name if trailing_dot else name + "."
+    if probe.startswith("detect."):
+        probe = "head." + probe[len("detect."):]
+    if probe.startswith(_LEGACY_BLOCK_PREFIXES):
+        probe = upgrade_legacy_key(probe) or probe
+    else:
+        match = _LEGACY_HEAD_TOWER_PREFIX_RE.match(probe)
+        if match:
+            prefix, tower = match.groups()
+            probe = f"{prefix}.{_LEGACY_HEAD_TOWERS[tower]}.{probe[match.end():]}"
+    return probe if trailing_dot else probe[:-1]
 
 
 def upgrade_legacy_state_dict(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:

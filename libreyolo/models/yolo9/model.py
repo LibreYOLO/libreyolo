@@ -288,6 +288,42 @@ class LibreYOLO9(BaseModel):
         legacy DFL weight; see :func:`~.convert.upgrade_legacy_key`."""
         return upgrade_legacy_state_dict(state_dict)
 
+    def _upgrade_quant_manifest(self, manifest: dict) -> dict:
+        """Rename legacy module names in the manifest's name lists.
+
+        Exclusions such as ``backbone.elan1.cv1.`` would otherwise stop
+        matching the renamed layers, and the rebuilt model would quantize a
+        layer the checkpoint stored in float.
+        """
+        from .convert import upgrade_legacy_module_name
+
+        upgraded = dict(manifest)
+        for field in ("keep_high_precision", "fp8_tensorwise_weights"):
+            names = manifest.get(field)
+            if names is not None:
+                upgraded[field] = type(names)(
+                    upgrade_legacy_module_name(n) if isinstance(n, str) else n
+                    for n in names
+                )
+        return upgraded
+
+    def _ddp_prepare_train_kwargs(self, train_kw: dict) -> dict:
+        """Pin the PGI default for a from-scratch run before DDP spawns.
+
+        Workers rebuild the model from a temporary bootstrap file, which
+        would make a from-scratch run look like a fine-tune from weights
+        without PGI tensors.
+        """
+        if (
+            train_kw.get("aux_weight") is None
+            and not train_kw.get("resume")
+            and not train_kw.get("pretrained")
+            and not self.model_path
+            and type(self.model).__name__ == "LibreYOLO9Model"
+        ):
+            train_kw = dict(train_kw, aux_weight=_TRAIN_DEFAULTS.aux_weight)
+        return train_kw
+
     def _rebuild_detect_class_layers(self, detect, new_nc: int) -> None:
         detect.set_num_classes(new_nc)
         # LibreYOLO has always re-applied the head's bias init to both tower
@@ -442,6 +478,7 @@ class LibreYOLO9(BaseModel):
         state_dict = self._prepare_state_dict(self._strip_ddp_prefix(state_dict))
         total_tensors = len(state_dict)
         self._align_class_towers_for_transfer(state_dict)
+        self._align_aux_class_towers(state_dict)
 
         current = self.model.state_dict()
         matched = {
@@ -512,15 +549,21 @@ class LibreYOLO9(BaseModel):
             return 0
         return self._load_aux_tensors(self._extract_checkpoint_state(source))
 
-    def _load_aux_tensors(self, state_dict: dict) -> int:
-        if not state_dict:
-            return 0
-        # The checkpoint's class-tower width wins for the PGI head too;
-        # otherwise its class towers mismatch and silently stay random.
+    def _align_aux_class_towers(self, state_dict: dict) -> None:
+        """Give an attached PGI head the checkpoint's class-tower width.
+
+        The checkpoint's width wins for the PGI head as for the main head;
+        otherwise its class towers mismatch and silently stay random.
+        """
         aux_head = getattr(self.model, "aux_head", None)
         aux_hidden = state_dict.get(f"aux_{_CLASS_TOWER_HIDDEN_KEY}")
         if aux_head is not None and aux_hidden is not None:
             self._rebuild_class_towers(int(aux_hidden.shape[0]), head=aux_head)
+
+    def _load_aux_tensors(self, state_dict: dict) -> int:
+        if not state_dict:
+            return 0
+        self._align_aux_class_towers(state_dict)
         current = self.model.state_dict()
         matched = {
             key: value

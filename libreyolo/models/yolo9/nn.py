@@ -904,8 +904,11 @@ class Neck9(nn.Module):
 class AuxNeck(nn.Module):
     """PGI auxiliary FPN used only during training.
 
-    Mirrors MultimediaTechLab/YOLO ``auxiliary`` in ``v9-*.yaml``: SPPELAN
-    on pre-SPP B5, then top-down concat with B4/B3. Inference never calls
+    Mirrors MultimediaTechLab/YOLO ``auxiliary`` in ``v9-t.yaml`` and
+    ``v9-s.yaml``: SPPELAN on pre-SPP B5, then top-down concat with B4/B3.
+    LibreYOLO builds this same branch for yolo9-m and yolo9-c, whose
+    upstream auxiliary branch is a different CBLinear/CBFuse topology, so
+    upstream m/c auxiliary weights are not converted. Inference never calls
     this module, so old single-head checkpoints keep their exact graph.
     """
 
