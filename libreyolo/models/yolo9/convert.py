@@ -11,9 +11,9 @@ implementation. LibreYOLO's blocks keep the upstream sublayer names
 and the detection-head layout change.
 
 The conversion is structural only — it renames keys, keeps the PGI
-auxiliary-branch weights of yolo9-t/s (layers 23/26/29/30 → ``aux.*``) for
-training, and drops the ``anc2vec`` weights that LibreYOLO derives
-internally. Class count is taken from the upstream detection head, so
+auxiliary-branch weights for training (yolo9-t/s: layers 23/26/29/30,
+yolo9-m/c: layers 23-38, both → ``aux.*`` / ``aux_head.*``), and drops the
+``anc2vec`` weights that LibreYOLO derives internally. Class count is taken from the upstream detection head, so
 fine-tuned checkpoints with a non-COCO ``nc`` convert correctly.
 
 It also owns :func:`upgrade_legacy_key` / :func:`upgrade_legacy_state_dict`,
@@ -38,16 +38,43 @@ COMMON_LAYERS = {
     1: "backbone.conv1",  # Conv X->Y
 }
 
-# PGI auxiliary branch (MultimediaTechLab v9-t/v9-s ``auxiliary``).
+# PGI auxiliary branches (MultimediaTechLab ``auxiliary`` sections).
 # Training-only; inference never consumes these modules. Old LibreYOLO
-# conversions dropped them; keeping them is additive. Only yolo9-t/s use it:
-# the v9-m/v9-c auxiliary branch is a CBLinear/CBFuse topology that
-# LibreYOLO's ``AuxNeck`` does not implement, so those layers are skipped.
+# conversions dropped them; keeping them is additive. The two size groups
+# have different upstream topologies and therefore different maps.
+
+# v9-t/v9-s: top-down branch, LibreYOLO ``AuxNeck``. Layers 24/25 and 27/28
+# are parameter-free UpSample/Concat.
 YOLO9_AUX_LAYER_MAP = {
     23: "aux.spp",  # SPPELAN on B5 → A5
     26: "aux.elan_a4",  # RepNCSPELAN after upsample+concat B4
     29: "aux.elan_a3",  # RepNCSPELAN after upsample+concat B3
     30: "aux_head",  # MultiheadDetection on [A3, A4, A5]
+}
+
+# v9-m/v9-c: CBLinear taps plus a second backbone, LibreYOLO ``AuxBackbone``.
+# Layers 30/33/36 are the parameter-free CBFuse sums.
+YOLO9_MC_AUX_LAYER_MAP = {
+    23: "aux.cblinear3",  # CBLinear on B3 (R3)
+    24: "aux.cblinear4",  # CBLinear on B4 (R4)
+    25: "aux.cblinear5",  # CBLinear on B5 (R5)
+    26: "aux.conv0",  # Conv 3->X on the image
+    27: "aux.conv1",  # Conv X->Y
+    28: "aux.elan1",  # RepNCSPELAN
+    29: "aux.down2",  # AConv (m) / ADown (c)
+    31: "aux.elan2",  # RepNCSPELAN after CBFuse (A3)
+    32: "aux.down3",  # AConv / ADown
+    34: "aux.elan3",  # RepNCSPELAN after CBFuse (A4)
+    35: "aux.down4",  # AConv / ADown
+    37: "aux.elan4",  # RepNCSPELAN after CBFuse (A5)
+    38: "aux_head",  # MultiheadDetection on [A3, A4, A5]
+}
+
+AUX_LAYER_MAPS = {
+    "t": YOLO9_AUX_LAYER_MAP,
+    "s": YOLO9_AUX_LAYER_MAP,
+    "m": YOLO9_MC_AUX_LAYER_MAP,
+    "c": YOLO9_MC_AUX_LAYER_MAP,
 }
 
 # yolo9-t and yolo9-s: ELAN first block, AConv downsampling
@@ -73,7 +100,7 @@ YOLO9_TS_LAYER_MAP = {
     **YOLO9_AUX_LAYER_MAP,
 }
 
-# yolo9-m: RepNCSPELAN first block, AConv downsampling (no aux map, see above)
+# yolo9-m: RepNCSPELAN first block, AConv downsampling
 YOLO9_M_LAYER_MAP = {
     **COMMON_LAYERS,
     2: "backbone.elan1",  # RepNCSPELAN
@@ -93,9 +120,10 @@ YOLO9_M_LAYER_MAP = {
     21: "neck.elan_down2",  # RepNCSPELAN (P5)
     # Detection head
     22: "head",  # MultiheadDetection
+    **YOLO9_MC_AUX_LAYER_MAP,
 }
 
-# yolo9-c: RepNCSPELAN first block, ADown downsampling (no aux map, see above)
+# yolo9-c: RepNCSPELAN first block, ADown downsampling
 YOLO9_C_LAYER_MAP = {
     **COMMON_LAYERS,
     2: "backbone.elan1",  # RepNCSPELAN
@@ -115,6 +143,7 @@ YOLO9_C_LAYER_MAP = {
     21: "neck.elan_down2",  # RepNCSPELAN (P5)
     # Detection head
     22: "head",  # MultiheadDetection
+    **YOLO9_MC_AUX_LAYER_MAP,
 }
 
 LAYER_MAPS = {
@@ -168,6 +197,11 @@ def map_sppelan_keys(yolo_suffix: str) -> str:
     return yolo_suffix
 
 
+def map_cblinear_keys(yolo_suffix: str) -> str:
+    """Map CBLinear keys (identical naming: ``conv.{weight,bias}``)."""
+    return yolo_suffix
+
+
 def map_detection_keys(yolo_suffix: str) -> Optional[str]:
     """Map MultiheadDetection keys onto ``YOLO9Head``.
 
@@ -208,6 +242,18 @@ def get_layer_type(layer_idx: int, config: str) -> str:
             return "repncspelan"
         if layer_idx == 30:
             return "detection"
+        return "unknown"
+    # v9-m/v9-c auxiliary branch
+    if layer_idx in (23, 24, 25):
+        return "cblinear"
+    if layer_idx in (26, 27):
+        return "conv"
+    if layer_idx in (29, 32, 35):
+        return "adown" if config == "c" else "aconv"
+    if layer_idx in (28, 31, 34, 37):
+        return "repncspelan"
+    if layer_idx == 38:
+        return "detection"
     return "unknown"
 
 
@@ -218,6 +264,7 @@ _SUBLAYER_MAPPERS = {
     "elan": map_elan_keys,
     "repncspelan": map_repncspelan_keys,
     "sppelan": map_sppelan_keys,
+    "cblinear": map_cblinear_keys,
     "detection": map_detection_keys,
 }
 
@@ -271,8 +318,9 @@ def convert_state_dict(
 
     Returns:
         ``(converted_state_dict, stats)`` where ``stats`` has ``converted``,
-        ``skipped`` (unmapped aux leftovers such as ``anc2vec``, layers >= 23)
-        and ``failed`` counts.
+        ``skipped`` (unmapped auxiliary leftovers, layers >= 23: the
+        ``anc2vec`` weights of the auxiliary head) and ``failed`` counts
+        (unmapped main-path keys, which include the main head's ``anc2vec``).
     """
     if config not in LAYER_MAPS:
         raise ValueError(
@@ -290,7 +338,7 @@ def convert_state_dict(
             continue
         head = yolo_key.split(".", 1)[0]
         if head.isdigit() and int(head) >= 23:
-            skipped += 1  # auxiliary detection head — not used at inference
+            skipped += 1  # auxiliary leftover (anc2vec) — LibreYOLO derives it
         else:
             failed += 1
 

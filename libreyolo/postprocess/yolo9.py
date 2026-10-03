@@ -21,7 +21,7 @@ torch = lazy_module("torch")
 # ``test_cfg.nms_pre=30000`` of RTMDet in open-mmlab/mmdetection (Apache-2.0),
 # configs/rtmdet/rtmdet_l_8xb32-300e_coco.py; mmdetection applies it per
 # feature level, here it caps the whole image. MultimediaTechLab/YOLO's
-# ``bbox_nms`` has no such cap.
+# ``bbox_nms`` has no such cap. Applied by ``_filter_scores_and_topk`` below.
 _YOLO9_NMS_PRE = 30000
 _YOLO9_OBB_MAX_NMS_CANDIDATES = 1200
 _YOLO9_OBB_PREFILTER_CANDIDATES = _YOLO9_OBB_MAX_NMS_CANDIDATES
@@ -92,6 +92,49 @@ def _nms_keep_indices(
 _xywhr_to_corners = obb_ops.xywhr_to_corners
 _xywhr_to_xyxy = obb_ops.xywhr_to_xyxy
 _rotated_nms_keep_indices = obb_ops.rotated_nms_keep_indices
+
+
+def _filter_scores_and_topk(
+    scores: torch.Tensor,
+    score_thr: float,
+    topk: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Threshold a per-class score matrix and keep the ``topk`` best pairs.
+
+    Adapted from ``filter_scores_and_topk`` in open-mmlab/mmdetection
+    (Apache-2.0), mmdet/models/utils/misc.py, commit
+    cfd5d3a985b0249de009b67d04f37263e11cdf3d, which ``BaseDenseHead.
+    _predict_by_feat_single`` (mmdet/models/dense_heads/base_dense_head.py,
+    inherited by RTMDetHead) calls with ``test_cfg.score_thr`` and
+    ``test_cfg.nms_pre``. Same order of operations: threshold the
+    ``(num_anchors, num_classes)`` matrix, flatten the valid (anchor, class)
+    pairs, order them by descending score, keep the first ``topk``.
+
+    Differences from the mmdetection function:
+
+    * mmdetection calls it once per feature level, so ``nms_pre`` caps each
+      level; here it is called once on all levels concatenated, so the cap
+      applies to the whole image.
+    * The ``results`` argument is dropped; callers index with the returned
+      anchor indices.
+    * mmdetection always sorts. Here the pairs are reordered only when there
+      are more than ``topk`` of them (``torch.topk`` returns the same
+      descending-score prefix as sort-then-slice); otherwise they stay in
+      (anchor, class) order, which leaves the candidate set unchanged and
+      keeps this function's output identical to the code it replaced.
+
+    Returns:
+        ``(scores, labels, anchor_idxs)``, each of shape ``(num_kept,)``.
+    """
+    valid_mask = scores > score_thr
+    scores = scores[valid_mask]
+    valid_idxs = torch.nonzero(valid_mask)
+
+    if valid_idxs.size(0) > topk:
+        scores, idxs = torch.topk(scores, topk)
+        valid_idxs = valid_idxs[idxs]
+    anchor_idxs, labels = valid_idxs.unbind(dim=1)
+    return scores, labels, anchor_idxs
 
 
 def _obb_prefilter_keep_indices(
@@ -270,20 +313,16 @@ def postprocess(
             "num_detections": len(boxes),
         }
 
-    anchor_idx, class_ids = (scores > conf_thres).nonzero(as_tuple=True)
+    # Score threshold + pre-NMS cap, adapted from mmdetection's
+    # ``filter_scores_and_topk`` (see ``_filter_scores_and_topk``). The cap is
+    # applied to the whole image, not per feature level as in mmdetection.
+    max_scores, class_ids, anchor_idx = _filter_scores_and_topk(
+        scores, conf_thres, max(max_det, _YOLO9_NMS_PRE)
+    )
     if anchor_idx.numel() == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
     boxes_input = boxes_input[anchor_idx]
     keypoints = keypoints_all[anchor_idx].clone() if keypoints_all is not None else None
-    max_scores = scores[anchor_idx, class_ids]
-    nms_pre = max(max_det, _YOLO9_NMS_PRE)
-    if max_scores.numel() > nms_pre:
-        keep = torch.topk(max_scores, nms_pre).indices
-        boxes_input = boxes_input[keep]
-        if keypoints is not None:
-            keypoints = keypoints[keep]
-        max_scores = max_scores[keep]
-        class_ids = class_ids[keep]
     boxes = boxes_input.clone()
 
     if original_size is not None:

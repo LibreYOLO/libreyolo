@@ -67,10 +67,45 @@ class TestYolo9ConvertKey:
         out, ok = convert_key("30.heads.0.class_conv.2.weight", "t")
         assert ok and out == "aux_head.class_convs.0.2.weight"
 
+    @pytest.mark.parametrize(
+        "upstream,expected",
+        [
+            ("23.conv.weight", "aux.cblinear3.conv.weight"),
+            ("24.conv.bias", "aux.cblinear4.conv.bias"),
+            ("25.conv.weight", "aux.cblinear5.conv.weight"),
+            ("26.conv.weight", "aux.conv0.conv.weight"),
+            ("27.bn.bias", "aux.conv1.bn.bias"),
+            ("28.conv1.conv.weight", "aux.elan1.conv1.conv.weight"),
+            (
+                "31.conv2.0.bottleneck.0.conv1.conv2.bn.bias",
+                "aux.elan2.conv2.0.bottleneck.0.conv1.conv2.bn.bias",
+            ),
+            ("34.conv4.conv.weight", "aux.elan3.conv4.conv.weight"),
+            ("37.conv4.bn.weight", "aux.elan4.conv4.bn.weight"),
+            ("38.heads.0.class_conv.2.weight", "aux_head.class_convs.0.2.weight"),
+            ("38.heads.2.anchor_conv.2.bias", "aux_head.anchor_convs.2.2.bias"),
+        ],
+    )
     @pytest.mark.parametrize("config", ["m", "c"])
-    def test_mc_auxiliary_branch_is_not_mapped(self, config):
-        """v9-m/c auxiliary layers are CBLinear/CBFuse, not LibreYOLO's AuxNeck."""
-        for key in ("23.conv.weight", "26.conv1.conv.weight", "30.heads.0.class_conv.2.weight"):
+    def test_mc_auxiliary_branch_converts(self, config, upstream, expected):
+        """v9-m/c auxiliary layers map onto ``AuxBackbone`` and its head."""
+        out, ok = convert_key(upstream, config)
+        assert ok and out == expected
+
+    def test_mc_auxiliary_downsample_layers_convert(self):
+        for layer, name in ((29, "down2"), (32, "down3"), (35, "down4")):
+            out, ok = convert_key(f"{layer}.conv.conv.weight", "m")  # AConv
+            assert ok and out == f"aux.{name}.conv.conv.weight"
+            out, ok = convert_key(f"{layer}.conv1.conv.weight", "c")  # ADown
+            assert ok and out == f"aux.{name}.conv1.conv.weight"
+
+    @pytest.mark.parametrize("config", ["m", "c"])
+    def test_mc_auxiliary_leftovers_not_converted(self, config):
+        for key in (
+            "30.conv.weight",  # CBFuse has no parameters
+            "38.heads.0.anc2vec.anc2vec.weight",
+            "39.conv.weight",
+        ):
             out, ok = convert_key(key, config)
             assert ok is False and out == key
 
@@ -125,17 +160,50 @@ class TestYolo9Inference:
         assert stats["failed"] == 1  # layer-22 anc2vec
         assert stats["skipped"] == 1  # layer-30 anc2vec
 
-    def test_convert_state_dict_skips_mc_auxiliary_layers(self):
+    @pytest.mark.parametrize("config", ["m", "c"])
+    def test_convert_state_dict_keeps_mc_auxiliary_layers(self, config):
         sd = {
             "0.conv.weight": torch.zeros(32, 3, 3, 3),
             "22.heads.0.class_conv.2.weight": torch.zeros(5, 16, 1, 1),
             "23.conv.weight": torch.zeros(8, 8, 1, 1),
-            "30.heads.0.class_conv.2.weight": torch.zeros(5, 16, 1, 1),
+            "26.conv.weight": torch.zeros(32, 3, 3, 3),
+            "38.heads.0.class_conv.2.weight": torch.zeros(5, 16, 1, 1),
+            "38.heads.0.anc2vec.anc2vec.weight": torch.zeros(1, 16, 1, 1, 1),
         }
-        converted, stats = convert_state_dict(sd, "m")
-        assert not any(k.startswith(("aux.", "aux_head.")) for k in converted)
-        assert stats["skipped"] == 2
-        assert stats["failed"] == 0
+        converted, stats = convert_state_dict(sd, config)
+        assert "aux.cblinear3.conv.weight" in converted
+        assert "aux.conv0.conv.weight" in converted
+        assert "aux_head.class_convs.0.2.weight" in converted
+        assert stats == {"converted": 5, "skipped": 1, "failed": 0}
+
+    @pytest.mark.parametrize("config", ["m", "c"])
+    def test_converted_mc_auxiliary_keys_cover_the_model(self, config):
+        """Every ``aux.*`` / ``aux_head.*`` tensor of the model has an upstream key."""
+        from libreyolo.models.yolo9.convert import AUX_LAYER_MAPS
+        from libreyolo.models.yolo9.nn import LibreYOLO9Model
+
+        model = LibreYOLO9Model(config=config, nb_classes=3).enable_aux(0.25)
+        prefixes = {
+            prefix: layer for layer, prefix in AUX_LAYER_MAPS[config].items()
+        }
+        upstream = {}
+        for key, value in model.state_dict().items():
+            if not key.startswith(("aux.", "aux_head.")):
+                continue
+            module = ".".join(key.split(".")[: 1 if key.startswith("aux_head.") else 2])
+            suffix = key[len(module) + 1 :]
+            suffix = suffix.replace("anchor_convs.", "anchor_conv@").replace(
+                "class_convs.", "class_conv@"
+            )
+            if "@" in suffix:  # <tower>@<level>.<rest> -> heads.<level>.<tower>.<rest>
+                tower, rest = suffix.split("@")
+                level, rest = rest.split(".", 1)
+                suffix = f"heads.{level}.{tower}.{rest}"
+            upstream[f"{prefixes[module]}.{suffix}"] = value
+        converted, stats = convert_state_dict(upstream, config)
+        aux_keys = [k for k in model.state_dict() if k.startswith(("aux.", "aux_head."))]
+        assert sorted(converted) == sorted(aux_keys)
+        assert stats == {"converted": len(aux_keys), "skipped": 0, "failed": 0}
 
 
 def _synthetic_upstream_yolo9(nc: int) -> dict:

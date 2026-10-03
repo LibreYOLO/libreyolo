@@ -21,7 +21,7 @@ from ...utils.serialization import (
     validate_checkpoint_metadata,
 )
 from .convert import upgrade_legacy_state_dict
-from .nn import LibreYOLO9Model
+from .nn import LibreYOLO9Model, aux_branch_from_state_dict, supported_aux_branches
 from ...postprocess.yolo9 import postprocess
 from .utils import preprocess_image
 from ...validation.preprocessors import YOLO9ValPreprocessor
@@ -147,15 +147,6 @@ class LibreYOLO9(BaseModel):
         for key, tensor in _upgraded_keys(weights_dict).items():
             if re.match(r"head\.class_convs\.\d+\.2\.weight", key):
                 return tensor.shape[0]
-        return None
-
-    @classmethod
-    def detect_num_keypoints(cls, weights_dict: dict) -> Optional[int]:
-        for key, tensor in weights_dict.items():
-            if re.match(r"head\.cv4\.\d+\.2\.weight", key):
-                channels = int(tensor.shape[0])
-                if channels % 3 == 0:
-                    return channels // 3
         return None
 
     @classmethod
@@ -373,6 +364,7 @@ class LibreYOLO9(BaseModel):
         workers build at the checkpoint's ``nc`` before loading it.
         """
         self._align_class_towers_for_transfer(state_dict)
+        self._match_aux_branch(state_dict)
         super()._prepare_model_for_state_dict(state_dict)
 
     def _restore_after_training(self, results: dict) -> None:
@@ -478,6 +470,7 @@ class LibreYOLO9(BaseModel):
         state_dict = self._prepare_state_dict(self._strip_ddp_prefix(state_dict))
         total_tensors = len(state_dict)
         self._align_class_towers_for_transfer(state_dict)
+        self._match_aux_branch(state_dict)
         self._align_aux_class_towers(state_dict)
 
         current = self.model.state_dict()
@@ -540,7 +533,7 @@ class LibreYOLO9(BaseModel):
         state = self._extract_checkpoint_state(source)
         if not any(_is_yolo9_aux_key(key) for key in state):
             return 0
-        self.model.enable_aux(weight=weight)
+        self.model.enable_aux(weight=weight, branch=self._checkpoint_aux_branch(state))
         return self._load_aux_tensors(state)
 
     def _reload_aux_from_path(self, source: str | Path | dict | None) -> int:
@@ -548,6 +541,42 @@ class LibreYOLO9(BaseModel):
         if getattr(self.model, "aux", None) is None:
             return 0
         return self._load_aux_tensors(self._extract_checkpoint_state(source))
+
+    def _checkpoint_aux_branch(self, state_dict: dict) -> Optional[str]:
+        """PGI branch kind stored in ``state_dict``, if this size can build it.
+
+        yolo9-m/c checkpoints written by LibreYOLO 1.6.0 carry the top-down
+        branch (``aux.spp`` / ``aux.elan_a4`` / ``aux.elan_a3``); newer ones
+        and upstream conversions carry the ``aux.cblinear*`` second backbone.
+        """
+        branch = aux_branch_from_state_dict(state_dict)
+        size = getattr(self.model, "config", None)
+        try:
+            supported = supported_aux_branches(size)
+        except KeyError:
+            return None
+        return branch if branch in supported else None
+
+    def _match_aux_branch(self, state_dict: dict) -> None:
+        """Rebuild an attached PGI branch as the kind ``state_dict`` stores.
+
+        No-op without an attached branch, without ``aux.*`` tensors in the
+        dict, or when the kinds already agree. Otherwise the stored tensors
+        would match no parameter and be dropped.
+        """
+        model = self.model
+        if getattr(model, "aux", None) is None or not hasattr(model, "aux_branch"):
+            return
+        branch = self._checkpoint_aux_branch(state_dict)
+        if branch is None or branch == model.aux_branch:
+            return
+        logger.info(
+            "The weights carry the %r PGI auxiliary branch; building it instead "
+            "of the %r one.",
+            branch,
+            model.aux_branch,
+        )
+        model.enable_aux(weight=model.aux_weight, branch=branch)
 
     def _align_aux_class_towers(self, state_dict: dict) -> None:
         """Give an attached PGI head the checkpoint's class-tower width.
@@ -563,6 +592,7 @@ class LibreYOLO9(BaseModel):
     def _load_aux_tensors(self, state_dict: dict) -> int:
         if not state_dict:
             return 0
+        self._match_aux_branch(state_dict)
         self._align_aux_class_towers(state_dict)
         current = self.model.state_dict()
         matched = {

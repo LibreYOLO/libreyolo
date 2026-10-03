@@ -194,6 +194,21 @@ class _BackendEvalProxy:
         return self
 
 
+def _undo_letterbox_xyxy(
+    boxes: np.ndarray, ratio: float, pad_x: float, pad_y: float
+) -> np.ndarray:
+    """Map ``(N, 4)`` xyxy boxes from the letterboxed canvas to the source image.
+
+    Letterboxing resizes the image by ``ratio`` and places it ``pad_x`` pixels
+    from the left and ``pad_y`` pixels from the top of the model canvas (see
+    :func:`letterbox_geometry`). This is the inverse: remove the padding, then
+    divide by the scale. Returns a new array of the same dtype; the result is
+    not clipped to the image.
+    """
+    padding = np.array([pad_x, pad_y, pad_x, pad_y], dtype=boxes.dtype)
+    return (boxes - padding) / ratio
+
+
 def _imgsz_hw(imgsz: ImageSize) -> Tuple[int, int]:
     if isinstance(imgsz, tuple):
         if len(imgsz) != 2:
@@ -2033,9 +2048,7 @@ class BaseBackend(ABC):
         ratio, _, _, dx, dy = letterbox_geometry(
             orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
         )
-        boxes[:, [0, 2]] -= dx
-        boxes[:, [1, 3]] -= dy
-        boxes /= ratio
+        boxes = _undo_letterbox_xyxy(boxes, ratio, dx, dy)
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
         valid = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
@@ -2395,20 +2408,30 @@ class BaseBackend(ABC):
                 max_scores = np.zeros((0,), dtype=np.float32)
                 class_ids = np.zeros((0,), dtype=np.int64)
         else:
-            anchor_idx, class_ids = np.nonzero(scores > conf)
+            # NumPy counterpart of postprocess/yolo9.py::_filter_scores_and_topk,
+            # adapted from ``filter_scores_and_topk`` in open-mmlab/mmdetection
+            # (Apache-2.0), mmdet/models/utils/misc.py, commit
+            # cfd5d3a985b0249de009b67d04f37263e11cdf3d: threshold the
+            # (num_anchors, num_classes) score matrix, flatten the valid
+            # (anchor, class) pairs, order them by descending score, keep the
+            # first ``nms_pre``. As in the torch path the cap applies to the
+            # whole image (mmdetection: per feature level) and the pairs are
+            # reordered only when the cap bites.
+            valid_mask = scores > conf
+            max_scores = scores[valid_mask]
+            valid_idxs = np.argwhere(valid_mask)
+            nms_pre = max(max_det, _YOLO9_NMS_PRE)
+            if valid_idxs.shape[0] > nms_pre:
+                # argpartition + argsort of the survivors: same descending
+                # prefix as a full sort followed by ``[:nms_pre]``.
+                idxs = np.argpartition(-max_scores, nms_pre - 1)[:nms_pre]
+                idxs = idxs[np.argsort(-max_scores[idxs])]
+                max_scores = max_scores[idxs]
+                valid_idxs = valid_idxs[idxs]
+            anchor_idx, class_ids = valid_idxs[:, 0], valid_idxs[:, 1]
             boxes_input = boxes_input_all[anchor_idx]
-            max_scores = scores[anchor_idx, class_ids]
             if keypoints_all is not None:
                 keypoints = keypoints_all[anchor_idx].copy()
-            nms_pre = max(max_det, _YOLO9_NMS_PRE)
-            if max_scores.size > nms_pre:
-                keep = np.argpartition(-max_scores, nms_pre - 1)[:nms_pre]
-                keep = keep[np.argsort(-max_scores[keep])]
-                boxes_input = boxes_input[keep]
-                max_scores = max_scores[keep]
-                class_ids = class_ids[keep]
-                if keypoints is not None:
-                    keypoints = keypoints[keep]
 
         boxes = boxes_input.copy()
 
@@ -2425,9 +2448,7 @@ class BaseBackend(ABC):
             ratio, _, _, dx, dy = letterbox_geometry(
                 orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
             )
-            boxes[:, [0, 2]] -= dx
-            boxes[:, [1, 3]] -= dy
-            boxes[:, :4] /= ratio
+            boxes = _undo_letterbox_xyxy(boxes, ratio, dx, dy)
             if keypoints is not None:
                 keypoints[..., 0] -= dx
                 keypoints[..., 1] -= dy

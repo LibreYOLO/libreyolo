@@ -6,7 +6,9 @@ initialization are ported from MultimediaTechLab/YOLO
 Copyright (c) 2024 Kin-Yiu Wong and Hao-Tang Tsui): ``yolo/model/module.py``
 and ``yolo/utils/module_utils.py``. Anchor generation and box decoding follow
 ``yolo/utils/bounding_box_utils.py`` (``generate_anchors``, ``Vec2Box``)
-there. Model assembly, checkpoint loading and export glue are LibreYOLO code.
+there. The auxiliary (PGI) branches follow the ``auxiliary`` sections of
+``yolo/config/model/v9-{t,s,m,c}.yaml``. Model assembly, checkpoint loading
+and export glue are LibreYOLO code.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 from torch.nn.common_types import _size_2_t
 
@@ -315,6 +318,51 @@ class SPPELAN(nn.Module):
         for pool in self.pools:
             features.append(pool(features[-1]))
         return self.conv5(torch.cat(features, dim=1))
+
+
+class CBLinear(nn.Module):
+    """1x1 convolution (with bias, no norm) whose output is split into several maps.
+
+    ``out_channels`` lists the width of each returned map; the PGI auxiliary
+    branch of yolo9-m/c uses one map per pyramid level the feature is fused
+    into.
+    """
+
+    def __init__(
+        self, in_channels: int, out_channels: Sequence[int], kernel_size: int = 1, **kwargs
+    ):
+        super().__init__()
+        kwargs.setdefault("padding", auto_pad(kernel_size, **kwargs))
+        self.conv = nn.Conv2d(in_channels, sum(out_channels), kernel_size, **kwargs)
+        self.out_channels = list(out_channels)
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, ...]:
+        x = self.conv(x)
+        return x.split(self.out_channels, dim=1)
+
+
+class CBFuse(nn.Module):
+    """Sum of the last input and one resized map picked from each other input.
+
+    ``x_list`` holds :class:`CBLinear` outputs followed by the target map;
+    ``index[i]`` picks the map of ``x_list[i]``, which is interpolated to the
+    target's spatial size before the sum. The module has no parameters.
+    """
+
+    def __init__(self, index: Sequence[int], mode: str = "nearest"):
+        super().__init__()
+        self.idx = list(index)
+        self.mode = mode
+
+    def forward(self, x_list: Sequence[Any]) -> Tensor:
+        target = x_list[-1]
+        target_size = target.shape[2:]
+
+        res = [
+            F.interpolate(x[pick_id], size=target_size, mode=self.mode)
+            for pick_id, x in zip(self.idx, x_list)
+        ]
+        return torch.stack(res + [target]).sum(dim=0)
 
 
 # =============================================================================
@@ -816,7 +864,7 @@ class Backbone9(nn.Module):
         x = self.down3(p3)
         p4 = self.elan3(x)
 
-        # Stage 4 - B5 (pre-SPP) then SPP -> P5. The PGI aux neck needs the
+        # Stage 4 - B5 (pre-SPP) then SPP -> P5. The PGI aux branch needs the
         # pre-SPP B5; it is returned on request instead of being stored on the
         # module, which would keep a non-leaf tensor alive and break deepcopy.
         x = self.down4(p4)
@@ -901,15 +949,50 @@ class Neck9(nn.Module):
         return out_p3, out_p4, out_p5
 
 
+# PGI auxiliary branch kinds. ``neck`` is :class:`AuxNeck`, ``backbone`` is
+# :class:`AuxBackbone`.
+AUX_BRANCH_NECK = "neck"
+AUX_BRANCH_BACKBONE = "backbone"
+
+
+def supported_aux_branches(config: str) -> Tuple[str, ...]:
+    """Auxiliary branch kinds a size can build, the default first.
+
+    yolo9-t/s have the top-down branch only. yolo9-m/c default to the
+    second-backbone branch of their upstream configs and can still build the
+    top-down one, which LibreYOLO 1.6.0 trained them with.
+    """
+    if YOLO9_CONFIGS[config]["first_block"] == "elan":
+        return (AUX_BRANCH_NECK,)
+    return (AUX_BRANCH_BACKBONE, AUX_BRANCH_NECK)
+
+
+def aux_branch_from_state_dict(state_dict: Dict[str, Any]) -> Optional[str]:
+    """Auxiliary branch kind stored in a LibreYOLO state dict, from its ``aux.*`` keys.
+
+    ``None`` when the dict has no ``aux.*`` tensors (``aux_head.*`` alone does
+    not identify the branch).
+    """
+    for key in state_dict:
+        key = str(key)
+        if key.startswith("aux.cblinear"):
+            return AUX_BRANCH_BACKBONE
+        if key.startswith(("aux.spp.", "aux.elan_a")):
+            return AUX_BRANCH_NECK
+    return None
+
+
 class AuxNeck(nn.Module):
-    """PGI auxiliary FPN used only during training.
+    """PGI auxiliary top-down branch used only during training.
 
     Mirrors MultimediaTechLab/YOLO ``auxiliary`` in ``v9-t.yaml`` and
     ``v9-s.yaml``: SPPELAN on pre-SPP B5, then top-down concat with B4/B3.
-    LibreYOLO builds this same branch for yolo9-m and yolo9-c, whose
-    upstream auxiliary branch is a different CBLinear/CBFuse topology, so
-    upstream m/c auxiliary weights are not converted. Inference never calls
-    this module, so old single-head checkpoints keep their exact graph.
+    It is the auxiliary branch of yolo9-t and yolo9-s. yolo9-m and yolo9-c
+    use :class:`AuxBackbone`, the branch of their upstream configs; LibreYOLO
+    1.6.0 built this class for them too, so it is still built for m/c when a
+    checkpoint carries its ``aux.spp`` / ``aux.elan_a4`` / ``aux.elan_a3``
+    tensors. Inference never calls this module, so old single-head
+    checkpoints keep their exact graph.
     """
 
     def __init__(self, config="c"):
@@ -937,6 +1020,82 @@ class AuxNeck(nn.Module):
         x = self.up2(a4)
         x = torch.cat([x, p3], 1)
         a3 = self.elan_a3(x)
+        return a3, a4, a5
+
+
+class AuxBackbone(nn.Module):
+    """PGI auxiliary second backbone of yolo9-m/c, used only during training.
+
+    Provenance: reproduces the ``auxiliary`` section of
+    ``yolo/config/model/v9-m.yaml`` and ``v9-c.yaml`` in MultimediaTechLab/YOLO
+    (https://github.com/MultimediaTechLab/YOLO, commit c4cb5f6f, MIT License),
+    built from the ``CBLinear`` / ``CBFuse`` blocks of ``yolo/model/module.py``.
+    Module order matches the upstream layer order:
+
+    * ``cblinear3`` / ``cblinear4`` / ``cblinear5``: CBLinear on the main
+      backbone's B3 / B4 / B5 (upstream tags R3 / R4 / R5), giving one map for
+      every auxiliary level at or below the source level.
+    * ``conv0``, ``conv1``, ``elan1``: a second stem and first block, fed
+      with the input image.
+    * ``down2`` -> ``cbfuse3`` -> ``elan2`` (A3), ``down3`` -> ``cbfuse4`` ->
+      ``elan3`` (A4), ``down4`` -> ``cbfuse5`` -> ``elan4`` (A5): the main
+      backbone's stages, each downsampled map summed with the CBLinear maps
+      of its level before the RepNCSPELAN.
+
+    The auxiliary head reads ``(A3, A4, A5)``, whose widths are
+    :attr:`out_channels` (the backbone stage widths, not the main head's).
+    """
+
+    def __init__(self, config="c"):
+        super().__init__()
+        cfg = YOLO9_CONFIGS[config]
+        if cfg["first_block"] != "repncspelan":
+            raise ValueError(
+                f"AuxBackbone is the auxiliary branch of yolo9-m/c, got config {config!r}"
+            )
+        n = cfg["repeat_num"]
+        stages = cfg["stages"]
+        fuse_channels = [stage[0] for stage in stages]  # widths after each downsample
+        stage_out = [stage[1] for stage in stages]  # B3, B4, B5 widths
+        DownBlock = ADown if cfg["down_type"] == "adown" else AConv
+
+        self.cblinear3 = CBLinear(stage_out[0], fuse_channels[:1])
+        self.cblinear4 = CBLinear(stage_out[1], fuse_channels[:2])
+        self.cblinear5 = CBLinear(stage_out[2], fuse_channels[:3])
+
+        self.conv0 = Conv(3, cfg["conv0_out"], 3, stride=2)
+        self.conv1 = Conv(cfg["conv0_out"], cfg["conv1_out"], 3, stride=2)
+        self.elan1 = _elan_stage(
+            cfg["conv1_out"],
+            cfg["first_block_out"],
+            cfg.get("first_block_part", cfg["first_block_out"]),
+            n,
+        )
+
+        self.down2 = DownBlock(cfg["first_block_out"], stages[0][0])
+        self.cbfuse3 = CBFuse([0, 0, 0])
+        self.elan2 = _elan_stage(stages[0][0], stages[0][1], stages[0][2], n)
+
+        self.down3 = DownBlock(stages[0][1], stages[1][0])
+        self.cbfuse4 = CBFuse([1, 1])
+        self.elan3 = _elan_stage(stages[1][0], stages[1][1], stages[1][2], n)
+
+        self.down4 = DownBlock(stages[1][1], stages[2][0])
+        self.cbfuse5 = CBFuse([2])
+        self.elan4 = _elan_stage(stages[2][0], stages[2][1], stages[2][2], n)
+
+        self.out_channels = tuple(stage_out)
+
+    def forward(self, x, b3, b4, b5):
+        """``x`` is the input image; ``b3``/``b4``/``b5`` the main backbone stages (B5 pre-SPP)."""
+        r3 = self.cblinear3(b3)
+        r4 = self.cblinear4(b4)
+        r5 = self.cblinear5(b5)
+
+        x = self.elan1(self.conv1(self.conv0(x)))
+        a3 = self.elan2(self.cbfuse3([r3, r4, r5, self.down2(x)]))
+        a4 = self.elan3(self.cbfuse4([r4, r5, self.down3(a3)]))
+        a5 = self.elan4(self.cbfuse5([r5, self.down4(a4)]))
         return a3, a4, a5
 
 
@@ -997,14 +1156,40 @@ class LibreYOLO9Model(nn.Module):
             class_neck=default_class_neck(head_channels[0], nb_classes),
         )
 
-    def enable_aux(self, weight: float = 0.25):
-        """Attach the PGI auxiliary neck/head if they are not already present."""
+    @property
+    def aux_branch(self) -> Optional[str]:
+        """Kind of the attached PGI branch (``"neck"`` / ``"backbone"``), or ``None``."""
+        if self.aux is None:
+            return None
+        return AUX_BRANCH_BACKBONE if isinstance(self.aux, AuxBackbone) else AUX_BRANCH_NECK
+
+    def enable_aux(self, weight: float = 0.25, branch: Optional[str] = None):
+        """Attach the PGI auxiliary branch and head if they are not already present.
+
+        ``branch`` is ``None`` for the size's own branch (:class:`AuxNeck` for
+        yolo9-t/s, :class:`AuxBackbone` for yolo9-m/c) and keeps whatever is
+        already attached. Passing a kind (see :func:`supported_aux_branches`)
+        builds that one, replacing an attached branch of the other kind and
+        its head; checkpoint loaders use it to match the stored branch.
+        """
         self.aux_weight = float(weight)
-        if self.aux is not None:
+        if self.aux is not None and branch in (None, self.aux_branch):
             return self
+        supported = supported_aux_branches(self.config)
+        if branch is None:
+            branch = supported[0]
+        elif branch not in supported:
+            raise ValueError(
+                f"yolo9-{self.config} has no {branch!r} auxiliary branch; "
+                f"expected one of {supported}"
+            )
         cfg = YOLO9_CONFIGS[self.config]
-        self.aux = AuxNeck(self.config)
-        self.aux_head = self._build_head(cfg["head_channels"], self.nc)
+        if branch == AUX_BRANCH_BACKBONE:
+            self.aux = AuxBackbone(self.config)
+            self.aux_head = self._build_head(self.aux.out_channels, self.nc)
+        else:
+            self.aux = AuxNeck(self.config)
+            self.aux_head = self._build_head(cfg["head_channels"], self.nc)
         try:
             device = next(self.parameters()).device
         except StopIteration:
@@ -1019,6 +1204,16 @@ class LibreYOLO9Model(nn.Module):
         self.aux_head = None
         self.aux_weight = 0.0
         return self
+
+    def aux_features(self, x, b3, b4, b5):
+        """Auxiliary pyramid ``(A3, A4, A5)`` from the image and the backbone stages.
+
+        ``b5`` is the pre-SPP stage. :class:`AuxBackbone` also reads the
+        image; :class:`AuxNeck` only the backbone features.
+        """
+        if isinstance(self.aux, AuxBackbone):
+            return self.aux(x, b3, b4, b5)
+        return self.aux(b3, b4, b5)
 
     def combine_aux_losses(self, main: dict, aux: dict) -> dict:
         """Add the PGI auxiliary losses to the main ones at ``aux_weight``."""
@@ -1064,7 +1259,7 @@ class LibreYOLO9Model(nn.Module):
             main = self.head([n3, n4, n5], targets=targets, img_size=img_size)
             if not use_aux:
                 return main
-            a3, a4, a5 = self.aux(p3, p4, b5)
+            a3, a4, a5 = self.aux_features(x, p3, p4, b5)
             aux = self.aux_head([a3, a4, a5], targets=targets, img_size=img_size)
             return self.combine_aux_losses(main, aux)
 
@@ -1094,10 +1289,15 @@ class LibreYOLO9Model(nn.Module):
 __all__ = [
     "ADown",
     "AConv",
+    "AUX_BRANCH_BACKBONE",
+    "AUX_BRANCH_NECK",
     "Anchor2Vec",
+    "AuxBackbone",
     "AuxNeck",
     "Backbone9",
     "Bottleneck",
+    "CBFuse",
+    "CBLinear",
     "Conv",
     "ELAN",
     "LibreYOLO9Model",
@@ -1109,8 +1309,10 @@ __all__ = [
     "SPPELAN",
     "YOLO9_CONFIGS",
     "YOLO9Head",
+    "aux_branch_from_state_dict",
     "auto_pad",
     "create_activation_function",
     "default_class_neck",
     "round_up",
+    "supported_aux_branches",
 ]

@@ -2144,10 +2144,18 @@ class BaseTrainer(ABC):
             no_aug_start = self.config.epochs - self.config.no_aug_epochs
             if self.config.no_aug_epochs > 0 and self.start_epoch > no_aug_start:
                 if is_main_process():
-                    logger.info(
-                        f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
-                        f"disabling strong augmentation (mosaic/mixup, policies) immediately"
-                    )
+                    if self.start_epoch == 0:
+                        logger.info(
+                            f"Run of {self.config.epochs} epochs is shorter than "
+                            f"no_aug_epochs={self.config.no_aug_epochs}: strong augmentation "
+                            f"(mosaic/mixup, policies) is off for the whole run. Pass a "
+                            f"smaller no_aug_epochs to train with it."
+                        )
+                    else:
+                        logger.info(
+                            f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
+                            f"disabling strong augmentation (mosaic/mixup, policies) immediately"
+                        )
                 self.on_mosaic_disable()
 
             for epoch in range(self.start_epoch, self.config.epochs):

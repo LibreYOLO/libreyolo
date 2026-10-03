@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
@@ -28,33 +29,37 @@ logger = logging.getLogger(__name__)
 def increment_path(
     path: Union[str, Path], exist_ok: bool = False, sep: str = "", mkdir: bool = False
 ) -> Path:
-    """
-    Return an incremented path if it already exists.
+    """Return ``path``, or a numbered sibling of it when ``path`` is taken.
 
-    E.g. runs/detect/predict -> runs/detect/predict2 -> runs/detect/predict3, etc.
+    A free ``path`` (or any ``path`` when ``exist_ok`` is set) is returned
+    unchanged. Otherwise ``sep`` plus a counter is added to the name, counting
+    up from 2 until a name is found that is not on disk yet. An existing file
+    keeps its extension (``result.json`` -> ``result2.json``); a directory gets
+    the counter at the end of its name (``exp`` -> ``exp2``).
 
     Args:
-        path: Base path to increment.
-        exist_ok: If True, return the path as-is even if it exists.
-        sep: Separator between base name and number (default: "").
-        mkdir: Create the directory if True.
+        path: Desired file or directory path.
+        exist_ok: Accept ``path`` even if it already exists.
+        sep: Text placed between the name and the counter.
+        mkdir: Create the returned path as a directory (with parents).
 
     Returns:
-        Incremented Path.
+        The path to use.
     """
-    path = Path(path)
-    if path.exists() and not exist_ok:
-        path, suffix = (
-            (path.with_suffix(""), path.suffix) if path.is_file() else (path, "")
-        )
-        for n in range(2, 9999):
-            p = f"{path}{sep}{n}{suffix}"
-            if not Path(p).exists():
+    target = Path(path)
+    if target.exists() and not exist_ok:
+        if target.is_file():
+            base, extension = target.stem, target.suffix
+        else:
+            base, extension = target.name, ""
+        for counter in itertools.count(2):
+            candidate = target.with_name(f"{base}{sep}{counter}{extension}")
+            if not candidate.exists():
+                target = candidate
                 break
-        path = Path(p)
     if mkdir:
-        path.mkdir(parents=True, exist_ok=True)
-    return path
+        target.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 # COCO class names (80 classes)

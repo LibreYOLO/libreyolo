@@ -29,6 +29,17 @@ seen by code that reaches into the network.
   `aux_weight=0.25` to those runs. Weights that carry `aux.*` tensors and
   from-scratch runs still train with PGI. Pass `aux_weight=0.25` to attach a
   new branch anyway, or `aux_weight=0` to force it off.
+- **YOLO9-m/c PGI branch.** When PGI is attached, yolo9-m and yolo9-c build
+  the auxiliary branch of the MultimediaTechLab configs (`CBLinear` taps on
+  the backbone, a second backbone fed with the image, `CBFuse` sums) instead
+  of the yolo9-t/s top-down branch that 1.6.0 built for every size. Converted
+  v9-m / v9-c files keep their auxiliary tensors (`aux.cblinear*`,
+  `aux.conv*`, `aux.elan*`, `aux.down*`, `aux_head.*`), so fine-tunes from
+  them train with PGI. The branch adds 12.8M (m) and 25.7M (c) training-only
+  parameters at 80 classes, up from 7.5M and 10.2M, so PGI training of these
+  sizes needs more memory and time per step. A 1.6.0 m/c training checkpoint
+  (`aux.spp.*`, `aux.elan_a4.*`, `aux.elan_a3.*`) resumes and fine-tunes with
+  the branch it was trained with. yolo9-t/s and inference are unchanged.
 - **Gradient clipping.** YOLO9, YOLO9-E2E and YOLO9-P2 clip the gradient
   L2 norm at 10. `clip_max_norm=0` restores the 1.6.0 behaviour.
 - **`perspective`.** A non-zero value now warps by corner displacement, so
@@ -64,9 +75,10 @@ letterbox flip: there is none.
 
 - Newly converted official MultimediaTechLab weights stamp
   `letterbox_pad: center`; v9-t and v9-s conversions also keep the auxiliary
-  PGI tensors (the v9-m and v9-c auxiliary branch has a different topology
-  and is not converted). Fine-tunes that start from those files train with
-  center-pad, and with PGI for t and s.
+  PGI tensors (in 1.6.0 the v9-m and v9-c auxiliary branch, which has a
+  different topology, is not converted; later releases convert it, see
+  above). Fine-tunes that start from those files train with center-pad, and
+  with PGI for t and s.
 - New YOLOv9 training defaults: `max_labels=300`, SGD momentum warmup
   `0.8 → 0.937` over the existing 3-epoch LR warmup, and `aux_weight=0.25`
   on stock detect (not P2/E2E). Resume of a 1.5 checkpoint without `aux.*`

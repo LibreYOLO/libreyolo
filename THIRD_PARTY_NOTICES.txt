@@ -443,6 +443,22 @@ Used for: the design of the projective branch of get_affine_matrix in
           libreyolo/models/fcn/NOTICE.
 
 --------------------------------------------------------------------
+TorchVision batched NMS coordinate trick (PyTorch contributors)
+--------------------------------------------------------------------
+Source: https://github.com/pytorch/vision
+        (torchvision/ops/boxes.py _batched_nms_coordinate_trick)
+Version: torchvision 0.29.0
+License: BSD-3-Clause
+Copyright (c) Soumith Chintala 2016 and the torchvision contributors
+Used for: the class-aware suppression step of EmbeddedNMSDetector in
+          libreyolo/export/nms.py: each candidate box is shifted by its
+          class index times (maximum coordinate + 1) so one NMS pass
+          suppresses within each class only. Adapted for tracing: the
+          maximum is taken over all sanitized anchor boxes and the
+          empty-input early return is dropped. The full BSD-3-Clause text
+          is reproduced in libreyolo/models/fcn/NOTICE.
+
+--------------------------------------------------------------------
 YOLO (MultimediaTechLab/YOLO)
 --------------------------------------------------------------------
 Source: https://github.com/MultimediaTechLab/YOLO
@@ -457,7 +473,10 @@ Used for: YOLO9 model family (libreyolo/models/yolo9/, yolo9_e2e/ and
           yolo/utils/bounding_box_utils.py); the loss port in yolo9/loss.py
           (yolo/tools/loss_functions.py and the BoxMatcher, Vec2Box and
           calculate_iou code of bounding_box_utils.py, the latter also in
-          libreyolo/utils/box_ops.py compute_iou); the PGI auxiliary-loss
+          libreyolo/utils/box_ops.py compute_iou); the PGI auxiliary
+          branches in yolo9/nn.py (AuxNeck for yolo9-t/s; CBLinear, CBFuse
+          and AuxBackbone for yolo9-m/c, following the auxiliary sections
+          of yolo/config/model/v9-{t,s,m,c}.yaml) and the auxiliary-loss
           weighting; the gradient-clipping value (yolo/lazy.py); and the
           MixUp blend in libreyolo/data/augment/yolo9.py
           (yolo/tools/data_augmentation.py).
@@ -480,6 +499,14 @@ Used for: RTMDet model family (libreyolo/models/rtmdet/): architecture
           DynamicSoftLabelAssigner and MlvlPointGenerator in loss.py.
           Published RTMDet and RTMDet-Ins COCO weights were trained with
           mmdetection.
+          YOLO9 pre-NMS candidate filtering (score threshold, then keep
+          the top ``nms_pre`` (anchor, class) pairs by score): adapted
+          from ``filter_scores_and_topk`` in mmdet/models/utils/misc.py,
+          with the ``nms_pre=30000`` value of
+          configs/rtmdet/rtmdet_l_8xb32-300e_coco.py, in
+          libreyolo/postprocess/yolo9.py (``_filter_scores_and_topk``),
+          libreyolo/backends/base.py (NumPy counterpart) and
+          libreyolo/export/nms.py (traced counterpart for ONNX export).
 
 --------------------------------------------------------------------
 mmsegmentation (OpenMMLab)

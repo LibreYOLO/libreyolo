@@ -294,5 +294,5 @@ class _PGITrainForward(torch.nn.Module):
         model = self.model
         p3, p4, p5, b5 = model.backbone(x, return_b5=True)
         main = model.head(list(model.neck(p3, p4, p5)))
-        aux = model.aux_head(list(model.aux(p3, p4, b5)))
+        aux = model.aux_head(list(model.aux_features(x, p3, p4, b5)))
         return {"main": main, "aux": aux}
