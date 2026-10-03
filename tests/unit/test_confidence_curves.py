@@ -264,6 +264,24 @@ def test_empty_run_counts_only_the_validated_images():
     assert evaluator.confidence_curves()["labels"].tolist() == [0]
 
 
+def test_a_run_that_validated_no_image_has_no_rows():
+    from pycocotools.coco import COCO
+
+    coco = COCO()
+    coco.dataset = {
+        "images": [{"id": 1, "file_name": "a.jpg", "width": 200, "height": 200}],
+        "annotations": [_gt(1, 1, 0, 0)],
+        "categories": [dict(c) for c in CATEGORIES],
+    }
+    coco.createIndex()
+    evaluator = COCOEvaluator(coco, label_to_category_id=LABEL_MAP)
+    evaluator.compute()
+
+    curves = evaluator.confidence_curves()
+    assert curves["labels"].tolist() == []
+    assert curves["f1"].shape == (0, 1000)
+
+
 def test_no_evaluation_gives_none():
     from pycocotools.coco import COCO
 

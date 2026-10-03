@@ -497,12 +497,13 @@ class COCOEvaluator:
         """Per-category sweep arrays for a run that produced no predictions.
 
         Empty detection arrays and the count of non-ignored ground truths in
-        the validated images, so every class with ground truth still reports
-        recall 0 at every confidence.
+        the validated images (the ones ``update`` was called for), so every
+        class with ground truth there still reports recall 0 at every
+        confidence. A run that validated no image has no rows.
         """
         counts: Dict[int, int] = {}
         for ann in self.coco_gt.anns.values():
-            if self._img_ids and ann["image_id"] not in self._img_ids:
+            if ann["image_id"] not in self._img_ids:
                 continue
             if ann.get("iscrowd") or ann.get("ignore"):
                 continue
