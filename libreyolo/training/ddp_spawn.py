@@ -398,6 +398,11 @@ def ddp_aware(batch_key: str = "batch"):
                         f"Multi-GPU DDP requires CUDA. Got device={device!r} but "
                         "CUDA is not available on this machine."
                     )
+                # Family hook: settle defaults that depend on the parent's
+                # state, which workers cannot see through the bootstrap file.
+                prepare = getattr(self, "_ddp_prepare_train_kwargs", None)
+                if callable(prepare):
+                    train_kw = prepare(train_kw)
                 return spawn_for_model(self, train_kw, len(devices), devices=devices, batch_key=batch_key)
 
             return train_fn(self, *args, **kwargs)

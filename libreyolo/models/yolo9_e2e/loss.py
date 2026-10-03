@@ -1,4 +1,16 @@
-"""Loss functions for YOLOv9 end-to-end (NMS-free) training."""
+"""Loss functions for YOLOv9 end-to-end (NMS-free) training.
+
+Provenance: each branch is scored by one instance of the MIT-derived
+:class:`~libreyolo.models.yolo9.loss.YOLO9Loss` (MultimediaTechLab/YOLO,
+https://github.com/MultimediaTechLab/YOLO, commit c4cb5f6f, MIT License).
+The one-to-many branch uses matcher ``topk: 10`` from MultimediaTechLab's
+``yolo/config/task/train.yaml``; the one-to-one branch uses the same matcher
+with top-1. The two branch losses are summed, like the two heads in
+MultimediaTechLab's ``DualLoss`` (``yolo/tools/loss_functions.py``). Training
+a one-to-many and a one-to-one predictor together and summing their losses
+follows DATE (https://github.com/YiqunChen1999/date, commit 5daf092c,
+Apache-2.0).
+"""
 
 from typing import Dict, List, Optional
 
@@ -11,9 +23,12 @@ from ..yolo9.loss import YOLO9Loss
 class YOLO9E2ELoss:
     """Combined one-to-many + one-to-one loss for NMS-free training.
 
-    The dense branch uses TaskAlignedAssigner with topk=10. The exclusive
-    branch uses topk=1 so that each ground-truth box is claimed by exactly
-    one prediction, enabling NMS-free inference via top-K selection.
+    Two :class:`YOLO9Loss` instances with the same weights and matching
+    metric: the dense (one-to-many) branch lets the ``BoxMatcher`` keep the
+    top 10 anchors per ground-truth box, the exclusive (one-to-one) branch
+    keeps the top 1, so each box is claimed by exactly one prediction and
+    inference can use top-K selection instead of NMS. The totals and the
+    box / DFL / class components are summed across the two branches.
     """
 
     def __init__(

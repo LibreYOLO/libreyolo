@@ -162,9 +162,13 @@ class TrainConfig:
     mosaic_scale: Tuple[float, float] = (0.1, 2.0)
     mixup_scale: Tuple[float, float] = (0.5, 1.5)
     shear: float = 2.0
-    # Projective (perspective) warp magnitude, following the de-facto YOLO
-    # knob. The two projective terms are sampled in [-perspective, +perspective]
-    # (~0.0005 is a typical scale). Default 0.0 keeps the pure-affine warp.
+    # Projective (perspective) warp strength, >= 0, typically 0.0 to 0.001.
+    # Each corner of the canvas is pulled inward by a random amount of up to
+    # perspective * 100 * half the canvas side per axis (0.001 -> at most 5% of
+    # the side, 32 px at 640), as in torchvision's RandomPerspective with
+    # distortion_scale = perspective * 100 (capped at 0.2). Applied on top of
+    # the rotation/scale/shear/translation warp. Default 0.0 keeps the
+    # pure-affine warp.
     perspective: float = 0.0
     # Vertical-flip probability (top-to-bottom). Off by default; useful for
     # datasets without a fixed up/down orientation (e.g. aerial imagery).
@@ -565,15 +569,21 @@ class YOLO9Config(TrainConfig):
     sync_bn: bool = True
     # Per-image ground-truth cap in the train transforms. Dense datasets
     # (e.g. aerial imagery) exceed the historical 100-box default; boxes
-    # beyond the cap are silently dropped. 300 matches the MTL/YOLO-NAS
-    # recipe and is a training-only change (old checkpoints still load).
+    # beyond the cap are silently dropped. MultimediaTechLab/YOLO caps at
+    # 100; 300 is a training-only change (old checkpoints still load).
     max_labels: int = 300
     # PGI auxiliary-head loss weight. 0 disables the branch. Training-only;
     # inference stays single-head. Resume of a checkpoint without ``aux.*``
-    # weights keeps the single-head graph.
+    # weights keeps the single-head graph, and so does a fine-tune from
+    # weights without them unless ``aux_weight`` is passed explicitly.
     aux_weight: float = 0.25
     # SGD momentum at the start of warmup (MTL LinearL: 0.8 → 0.937).
     warmup_momentum: float = 0.8
+    # Gradient L2-norm clip before each optimizer step; 0 disables it.
+    # MultimediaTechLab/YOLO trains with ``gradient_clip_val=10`` and
+    # ``gradient_clip_algorithm="norm"`` (yolo/lazy.py); without it YOLO9
+    # fine-tuning at lr0=0.01 can diverge (issue #927).
+    clip_max_norm: float = 10.0
     # Letterbox pad for new training. ``None`` inherits the loaded
     # checkpoint stamp, or top-left when the checkpoint is unmarked.
     letterbox_pad: Optional[str] = None
@@ -587,31 +597,6 @@ class YOLO9Config(TrainConfig):
     # training. Off by default; only applied on the OBB path (samples carrying
     # angle targets) and ignored for axis-aligned detection.
     rot90: float = 0.0
-
-
-@dataclass(kw_only=True)
-class YOLO9PoseConfig(YOLO9Config):
-    """YOLO9 pose-estimation training defaults."""
-
-    num_classes: int = 1
-    num_keypoints: int = 17
-    keypoint_dim: int = 3
-    oks_sigmas: Optional[List[float]] = None
-    pose_weight: float = 12.0
-    pose_l1_weight: float = 2.0
-    pose_vis_weight: float = 1.0
-    mosaic_prob: float = 0.0
-    mixup_prob: float = 0.0
-    flip_prob: float = 0.5
-    hsv_prob: float = 1.0
-    affine_prob: float = 0.5
-    pose_scale: Tuple[float, float] = (0.75, 1.25)
-    pin_memory: bool = False
-    prefetch_factor: int = 1
-    persistent_workers: bool = True
-    decode_scale: int = 1
-    eval_interval: int = 1
-    name: str = "yolo9_pose_exp"
 
 
 # Upstream's custom fine-tune configs pin the multi-scale collate's

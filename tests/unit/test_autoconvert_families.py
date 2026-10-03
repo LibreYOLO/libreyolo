@@ -197,9 +197,18 @@ def _hrnet_w32_pose():
 
 
 def _yolo9_e2e_t():
+    """Legacy E2E head spelling (``one2one_cv3``)."""
     return {
         "backbone.conv0.conv.weight": torch.zeros(16, 3, 3, 3),
         "head.one2one_cv3.0.2.weight": torch.zeros(80, 16, 1, 1),
+    }
+
+
+def _yolo9_e2e_t_current_keys():
+    """Current E2E head spelling (``one_to_one_class_convs``)."""
+    return {
+        "backbone.conv0.conv.weight": torch.zeros(16, 3, 3, 3),
+        "head.one_to_one_class_convs.0.2.weight": torch.zeros(80, 16, 1, 1),
     }
 
 
@@ -270,6 +279,7 @@ CASES = [
     ("fcos", _fcos_r50, _identity, "fcos_resnet50_fpn_coco-99b0c9b7.pth", "fcos", "LibreFCOS", "r50", "detect", 80),
     ("hrnet-pose", _hrnet_w32_pose, _identity, "pose_hrnet_w32_256x192.pth", "hrnet", "LibreHRNet", "w32", "pose", 1),
     ("yolo9-e2e", _yolo9_e2e_t, _wrap_model, "gelan_e2e_t.pt", "yolo9_e2e", "LibreYOLO9E2E", "t", "detect", 80),
+    ("yolo9-e2e-current-keys", _yolo9_e2e_t_current_keys, _wrap_model, "gelan_e2e_t.pt", "yolo9_e2e", "LibreYOLO9E2E", "t", "detect", 80),
     ("deit", _deit_t, _wrap_model, "deit_tiny_patch16_224.pth", "deit", "LibreDeiT", "t", "classify", 1000),
 ]
 
@@ -462,7 +472,7 @@ class TestRemappedFamilies:
         ckpt = torch.load(out, map_location="cpu", weights_only=True)
         assert ckpt["model_family"] == "yolo9"
         # Head was remapped to semantic keys, not left in numbered form.
-        assert any(k.startswith("head.cv3") for k in ckpt["model"])
+        assert any(k.startswith("head.class_convs") for k in ckpt["model"])
         assert not any(k[0].isdigit() for k in ckpt["model"])
 
 

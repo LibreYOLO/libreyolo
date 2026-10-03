@@ -109,7 +109,8 @@ Nature of the conversion:
 - translate numbered YOLO layer indices into LibreYOLO semantic module names
 - remap sublayer names for ELAN, RepNCSPELAN, AConv, ADown, SPP, and detection
   heads
-- skip unsupported auxiliary-head weights
+- keep the training-only auxiliary (PGI) branch as `aux.*` / `aux_head.*`
+  and skip the `anc2vec` weights LibreYOLO derives itself
 - add LibreYOLO metadata required by schema v1.0
 
 This is the heaviest conversion in this folder because the upstream naming

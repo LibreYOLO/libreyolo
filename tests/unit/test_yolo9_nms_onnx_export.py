@@ -55,7 +55,7 @@ def _set_unmatched(rows_a, rows_b, *, box_tol=1e-3, score_tol=1e-4):
 def test_embedded_nms_caps_candidates_like_native_postprocess(monkeypatch):
     from libreyolo.export import nms as nms_mod
 
-    monkeypatch.setattr(nms_mod, "_YOLO9_MAX_NMS_CANDIDATES", 3)
+    monkeypatch.setattr(nms_mod, "_YOLO9_NMS_PRE", 3)
     raw = torch.zeros(1, 7, 2)
     raw[0, :4, 0] = torch.tensor([0.0, 0.0, 10.0, 10.0])
     raw[0, :4, 1] = torch.tensor([20.0, 20.0, 30.0, 30.0])
@@ -318,7 +318,7 @@ def test_yolo9_detect_onnx_nms_int8_runs(tmp_path):
 
     torch.manual_seed(0)
     model = LibreYOLO9(None, size="t", nb_classes=NC, device="cpu")
-    for block in model.model.head.cv3:
+    for block in model.model.head.class_convs:
         convs = [m for m in block.modules() if isinstance(m, torch.nn.Conv2d)]
         convs[-1].bias.data.fill_(4.0)
     fp32 = tmp_path / "m32.onnx"

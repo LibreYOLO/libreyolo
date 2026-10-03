@@ -22,8 +22,8 @@ from ..yolo9.model import LibreYOLO9
 from .config import YOLO9P2Config
 from .nn import LibreYOLO9P2Model
 
-_HEAD_TOWER_RE = re.compile(r"^(head\.cv[23])\.(\d+)\.(.*)$")
-_CLASS_TOWER_HIDDEN_RE = re.compile(r"^head\.cv3\.\d+\.0\.conv\.weight$")
+_HEAD_TOWER_RE = re.compile(r"^(head\.(?:anchor_convs|class_convs))\.(\d+)\.(.*)$")
+_CLASS_TOWER_HIDDEN_RE = re.compile(r"^head\.class_convs\.\d+\.0\.conv\.weight$")
 
 
 class LibreYOLO9P2(LibreYOLO9):
@@ -118,10 +118,12 @@ class LibreYOLO9P2(LibreYOLO9):
     def _prepare_state_dict(self, state_dict: dict) -> dict:
         """Remap 3-scale YOLOv9 checkpoints onto the 4-scale layout.
 
-        Base checkpoints (no P2 neck keys) get their head tower indices
-        shifted by +1 so the pretrained P3/P4/P5 towers land in slots 1/2/3
-        and the stride-4 tower at index 0 stays freshly initialized. P2
-        checkpoints pass through unchanged.
+        Keys are first upgraded to the current layout (legacy ``cv2``/``cv3``
+        towers become ``anchor_convs``/``class_convs``). Base checkpoints (no
+        P2 neck keys) then get their head tower indices shifted by +1 so the
+        pretrained P3/P4/P5 towers land in slots 1/2/3 and the stride-4 tower
+        at index 0 stays freshly initialized. P2 checkpoints pass through
+        unchanged.
         """
         state_dict = super()._prepare_state_dict(state_dict)
         if any(key.startswith("neck.elan_up3") for key in state_dict):
@@ -149,28 +151,7 @@ class LibreYOLO9P2(LibreYOLO9):
         if key is None:
             return
 
-        checkpoint_hidden = int(state_dict[key].shape[0])
-        head = self.model.head
-        current_state = self.model.state_dict()
-        current_key = "head.cv3.0.0.conv.weight"
-        if current_key not in current_state:
-            return
-        current_hidden = int(current_state[current_key].shape[0])
-        if current_hidden == checkpoint_hidden:
-            return
-
-        channels = [int(seq[0].conv.weight.shape[1]) for seq in head.cv3]
-        head.cv3 = head._build_class_towers(
-            channels,
-            checkpoint_hidden,
-            self.nb_classes,
-        )
-        head._class_hidden_channels = checkpoint_hidden
-        head.nc = self.nb_classes
-        head.no = self.nb_classes + head.reg_max * 4
-        head._init_bias()
-        head._loss_fn = None
-        head.to(next(self.model.parameters()).device)
+        self._rebuild_class_towers(int(state_dict[key].shape[0]))
 
     # =====================================================================
     # Training

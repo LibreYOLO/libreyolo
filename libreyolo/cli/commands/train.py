@@ -1,5 +1,6 @@
 """Train command: train a model on a dataset."""
 
+import math
 from pathlib import Path
 import time
 from typing import Optional
@@ -289,6 +290,21 @@ def _resolve_train_task(
     return from_name or getattr(model_cls, "DEFAULT_TASK", None)
 
 
+def _family_config_has_field(family: str | None, field_name: str) -> bool:
+    """Whether ``family``'s training config declares ``field_name``.
+
+    Unknown families (not resolved before the model loads) pass; the loaded
+    family is checked again before training.
+    """
+    if family is None:
+        return True
+    from dataclasses import fields
+
+    from ..config import get_train_config_class
+
+    return any(f.name == field_name for f in fields(get_train_config_class(family)))
+
+
 def _should_use_yolo9_path_as_transfer(model_path: str, task: str | None) -> bool:
     if task is None or not Path(model_path).exists():
         return False
@@ -429,6 +445,11 @@ def train_cmd(
     momentum: float = typer.Option(0.937, help="SGD momentum / Adam beta1"),
     weight_decay: float = typer.Option(5e-4, help="L2 regularization"),
     nesterov: bool = typer.Option(True, help="Nesterov momentum"),
+    clip_max_norm: Optional[float] = typer.Option(
+        None,
+        help="Clip the gradient L2 norm to this value before each optimizer "
+        "step; 0 disables clipping (default: the family's value, 10 for YOLO9)",
+    ),
     # Scheduler
     scheduler: str = typer.Option("yoloxwarmcos", help="LR schedule type"),
     warmup_epochs: int = typer.Option(5, help="Warmup duration"),
@@ -885,6 +906,20 @@ def train_cmd(
             ),
         )
 
+    if clip_max_norm is not None:
+        if not math.isfinite(clip_max_norm) or clip_max_norm < 0:
+            exit_with_error(
+                out,
+                "config_type_error",
+                f"clip_max_norm must be a finite number >= 0, got {clip_max_norm}.",
+            )
+        if not _family_config_has_field(family, "clip_max_norm"):
+            exit_with_error(
+                out,
+                "config_unsupported",
+                f"clip_max_norm is not supported for family={family!r}.",
+            )
+
     # Dry run: validate and show resolved config
     if dry_run:
         resolved_config = {
@@ -956,6 +991,8 @@ def train_cmd(
                 resolved_config["task"] = normalized_task
         if params["eval_max_det"] is not None:
             resolved_config["eval_max_det"] = params["eval_max_det"]
+        if clip_max_norm is not None:
+            resolved_config["clip_max_norm"] = clip_max_norm
 
         data_out = {
             "valid": True,
@@ -1007,6 +1044,14 @@ def train_cmd(
                 f"aux_weight applies to YOLO9 only; got family={loaded_family!r}.",
             )
         train_kwargs["aux_weight"] = aux_weight
+    if clip_max_norm is not None:
+        if not _family_config_has_field(loaded_family, "clip_max_norm"):
+            exit_with_error(
+                out,
+                "config_unsupported",
+                f"clip_max_norm is not supported for family={loaded_family!r}.",
+            )
+        train_kwargs["clip_max_norm"] = clip_max_norm
     if histogram_input:
         train_kwargs.update(histogram_recipe_defaults(family))
     # pretrained picks initial weights for a new run; a resume continues its

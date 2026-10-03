@@ -23,12 +23,12 @@ class YOLO9E2ETrainer(YOLO9Trainer):
         if not getattr(self.config, "val_loss", False):
             return
 
-        from .nn import LibreYOLO9E2EModel, YOLO9E2EDetect
+        from .nn import LibreYOLO9E2EModel, YOLO9E2EHead
 
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         standard_model = (
             type(self.model) is LibreYOLO9E2EModel
-            and type(self.model.head) is YOLO9E2EDetect
+            and type(self.model.head) is YOLO9E2EHead
         )
         if task != "detect" or not standard_model:
             raise ValueError(
@@ -45,27 +45,27 @@ class YOLO9E2ETrainer(YOLO9Trainer):
         )
 
     def cuda_graph_train_spec(self):
-        """Capture spec: graph both branches, keep the dual TAL loss eager.
+        """Capture spec: graph both branches, keep the two-branch loss eager.
 
-        The base YOLO9 spec is restricted to the plain ``DDetect`` head, so
-        E2E needs its own: a train-mode forward without targets returns
-        ``{"one2many": [...], "one2one": [...]}`` — both branches' raw maps,
-        including the detach that blocks one-to-one gradients from reaching
-        the backbone — and ``assemble`` replays the dual-assignment loss over
-        them exactly as ``YOLO9E2EDetect.forward`` does with targets.
+        The base YOLO9 spec is restricted to the plain ``YOLO9Head``, so E2E
+        needs its own: a train-mode forward without targets returns
+        ``{"one_to_many": [...], "one_to_one": [...]}`` (both branches' raw
+        maps, including the detach that keeps one-to-one gradients out of the
+        backbone) and ``assemble`` applies the two-branch loss to them
+        exactly as ``YOLO9E2EHead.forward`` does with targets.
         """
         from libreyolo.training.cuda_graph import (
             CudaGraphTrainSpec,
             GraphableNetwork,
         )
-        from .nn import LibreYOLO9E2EModel, YOLO9E2EDetect
+        from .nn import LibreYOLO9E2EModel, YOLO9E2EHead
 
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         if task != "detect":
             return None
         if type(self.model) is not LibreYOLO9E2EModel:
             return None
-        if type(self.model.head) is not YOLO9E2EDetect:
+        if type(self.model.head) is not YOLO9E2EHead:
             return None
 
         network = GraphableNetwork(self.model)
@@ -74,6 +74,6 @@ class YOLO9E2ETrainer(YOLO9Trainer):
             branches = network.rebuild(flat)
             loss_fn = self.model.head._get_loss_fn(imgs.device)
             loss_fn.update_anchors([imgs.shape[3], imgs.shape[2]])
-            return loss_fn(branches["one2many"], branches["one2one"], targets)
+            return loss_fn(branches["one_to_many"], branches["one_to_one"], targets)
 
         return CudaGraphTrainSpec(network=network, assemble=assemble)

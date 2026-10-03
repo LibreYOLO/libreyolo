@@ -3,16 +3,22 @@
 The upstream YOLO9 release (MultimediaTechLab/YOLO, MIT) ships plain
 ``state_dict`` checkpoints that use numbered layer indices (``0.``, ``1.``,
 ``2.`` …) while LibreYOLO uses semantic module names (``backbone.conv0``,
-``neck.elan_up1`` …). This module owns the index/sublayer remapping so both the
+``neck.elan_up1`` …). This module owns the index remapping so both the
 offline ``weights/convert_yolo9_weights.py`` script and the runtime
 auto-conversion path in :mod:`libreyolo.models.autoconvert` share one
-implementation.
+implementation. LibreYOLO's blocks keep the upstream sublayer names
+(``conv1``, ``bottleneck``, ``anchor_conv`` …), so only the layer prefixes
+and the detection-head layout change.
 
 The conversion is structural only — it renames keys, keeps the PGI
-auxiliary-branch weights (layers 23/26/29/30 → ``aux.*``) for training, and
-drops the ``anc2vec`` buffers that LibreYOLO derives internally. Class count
-is taken from the upstream detection head, so fine-tuned checkpoints with a
-non-COCO ``nc`` convert correctly.
+auxiliary-branch weights for training (yolo9-t/s: layers 23/26/29/30,
+yolo9-m/c: layers 23-38, both → ``aux.*`` / ``aux_head.*``), and drops the
+``anc2vec`` weights that LibreYOLO derives internally. Class count is taken from the upstream detection head, so
+fine-tuned checkpoints with a non-COCO ``nc`` convert correctly.
+
+It also owns :func:`upgrade_legacy_key` / :func:`upgrade_legacy_state_dict`,
+which rename the key layout of LibreYOLO checkpoints written before the
+yolo9 blocks switched to the upstream sublayer names.
 """
 
 from __future__ import annotations
@@ -32,14 +38,43 @@ COMMON_LAYERS = {
     1: "backbone.conv1",  # Conv X->Y
 }
 
-# PGI auxiliary branch (MultimediaTechLab v9-*.yaml ``auxiliary``).
+# PGI auxiliary branches (MultimediaTechLab ``auxiliary`` sections).
 # Training-only; inference never consumes these modules. Old LibreYOLO
-# conversions dropped them; keeping them is additive.
+# conversions dropped them; keeping them is additive. The two size groups
+# have different upstream topologies and therefore different maps.
+
+# v9-t/v9-s: top-down branch, LibreYOLO ``AuxNeck``. Layers 24/25 and 27/28
+# are parameter-free UpSample/Concat.
 YOLO9_AUX_LAYER_MAP = {
     23: "aux.spp",  # SPPELAN on B5 → A5
     26: "aux.elan_a4",  # RepNCSPELAN after upsample+concat B4
     29: "aux.elan_a3",  # RepNCSPELAN after upsample+concat B3
     30: "aux_head",  # MultiheadDetection on [A3, A4, A5]
+}
+
+# v9-m/v9-c: CBLinear taps plus a second backbone, LibreYOLO ``AuxBackbone``.
+# Layers 30/33/36 are the parameter-free CBFuse sums.
+YOLO9_MC_AUX_LAYER_MAP = {
+    23: "aux.cblinear3",  # CBLinear on B3 (R3)
+    24: "aux.cblinear4",  # CBLinear on B4 (R4)
+    25: "aux.cblinear5",  # CBLinear on B5 (R5)
+    26: "aux.conv0",  # Conv 3->X on the image
+    27: "aux.conv1",  # Conv X->Y
+    28: "aux.elan1",  # RepNCSPELAN
+    29: "aux.down2",  # AConv (m) / ADown (c)
+    31: "aux.elan2",  # RepNCSPELAN after CBFuse (A3)
+    32: "aux.down3",  # AConv / ADown
+    34: "aux.elan3",  # RepNCSPELAN after CBFuse (A4)
+    35: "aux.down4",  # AConv / ADown
+    37: "aux.elan4",  # RepNCSPELAN after CBFuse (A5)
+    38: "aux_head",  # MultiheadDetection on [A3, A4, A5]
+}
+
+AUX_LAYER_MAPS = {
+    "t": YOLO9_AUX_LAYER_MAP,
+    "s": YOLO9_AUX_LAYER_MAP,
+    "m": YOLO9_MC_AUX_LAYER_MAP,
+    "c": YOLO9_MC_AUX_LAYER_MAP,
 }
 
 # yolo9-t and yolo9-s: ELAN first block, AConv downsampling
@@ -85,7 +120,7 @@ YOLO9_M_LAYER_MAP = {
     21: "neck.elan_down2",  # RepNCSPELAN (P5)
     # Detection head
     22: "head",  # MultiheadDetection
-    **YOLO9_AUX_LAYER_MAP,
+    **YOLO9_MC_AUX_LAYER_MAP,
 }
 
 # yolo9-c: RepNCSPELAN first block, ADown downsampling
@@ -108,7 +143,7 @@ YOLO9_C_LAYER_MAP = {
     21: "neck.elan_down2",  # RepNCSPELAN (P5)
     # Detection head
     22: "head",  # MultiheadDetection
-    **YOLO9_AUX_LAYER_MAP,
+    **YOLO9_MC_AUX_LAYER_MAP,
 }
 
 LAYER_MAPS = {
@@ -124,59 +159,60 @@ SUPPORTED_CONFIGS = ("t", "s", "m", "c")
 # =============================================================================
 # Sublayer Name Mapping
 # =============================================================================
+#
+# LibreYOLO's blocks (``libreyolo.models.yolo9.nn``) are ported from
+# MultimediaTechLab/YOLO with the upstream attribute names, so block sublayer
+# keys map one-to-one. Only the detection head is regrouped: the upstream
+# per-level ``heads.<i>`` modules become the ``anchor_convs`` / ``class_convs``
+# lists of ``YOLO9Head``.
 
 
 def map_conv_keys(yolo_suffix: str) -> str:
-    """Map Conv layer keys. YOLO and LibreYOLO use same naming."""
+    """Map Conv layer keys (identical naming)."""
     return yolo_suffix
 
 
 def map_aconv_keys(yolo_suffix: str) -> str:
-    """Map AConv keys. YOLO ``conv.{conv,bn}`` -> LibreYOLO ``cv.{conv,bn}``."""
-    return re.sub(r"^conv\.", "cv.", yolo_suffix)
+    """Map AConv keys (identical naming: ``conv.{conv,bn}``)."""
+    return yolo_suffix
 
 
 def map_adown_keys(yolo_suffix: str) -> str:
-    """Map ADown keys. YOLO ``conv1/conv2`` -> LibreYOLO ``cv1/cv2``."""
-    return yolo_suffix.replace("conv1", "cv1").replace("conv2", "cv2")
+    """Map ADown keys (identical naming: ``conv1`` / ``conv2``)."""
+    return yolo_suffix
 
 
 def map_elan_keys(yolo_suffix: str) -> str:
-    """Map ELAN keys (yolo9-t/s first block). ``conv{1..4}`` -> ``cv{1..4}``."""
-    return re.sub(r"^conv([1234])\.", r"cv\1.", yolo_suffix)
+    """Map ELAN keys (identical naming: ``conv1..conv4``)."""
+    return yolo_suffix
 
 
 def map_repncspelan_keys(yolo_suffix: str) -> str:
-    """Map RepNCSPELAN keys (nested bottleneck structure)."""
-    result = yolo_suffix
-    # Map main conv names: conv1/2/3/4 -> cv1/2/3/4
-    result = re.sub(r"^conv([1234])\.", r"cv\1.", result)
-    # Map RepNCSP internal names (inside cv2.0 and cv3.0)
-    result = re.sub(r"\.conv([123])\.", r".cv\1.", result)
-    # Map bottleneck -> m
-    result = result.replace(".bottleneck.", ".m.")
-    # Inside RepNCSP Bottleneck, YOLO conv1/conv2 -> LibreYOLO cv1/cv2
-    result = re.sub(r"\.m\.(\d+)\.conv([12])\.", r".m.\1.cv\2.", result)
-    return result
+    """Map RepNCSPELAN keys (identical naming, nested RepNCSP/bottleneck)."""
+    return yolo_suffix
 
 
 def map_sppelan_keys(yolo_suffix: str) -> str:
-    """Map SPPELAN keys. ``conv1/conv5`` -> ``cv1/cv5``."""
-    result = yolo_suffix.replace("conv1.", "cv1.").replace("conv5.", "cv5.")
-    return result
+    """Map SPPELAN keys (identical naming: ``conv1`` / ``conv5``)."""
+    return yolo_suffix
+
+
+def map_cblinear_keys(yolo_suffix: str) -> str:
+    """Map CBLinear keys (identical naming: ``conv.{weight,bias}``)."""
+    return yolo_suffix
 
 
 def map_detection_keys(yolo_suffix: str) -> Optional[str]:
-    """Map MultiheadDetection keys.
+    """Map MultiheadDetection keys onto ``YOLO9Head``.
 
-    YOLO ``heads.N.anchor_conv`` -> ``cv2.N`` (box), ``heads.N.class_conv`` ->
-    ``cv3.N`` (class). ``anc2vec`` is skipped (LibreYOLO derives DFL internally).
+    ``heads.N.anchor_conv`` -> ``anchor_convs.N`` (box) and
+    ``heads.N.class_conv`` -> ``class_convs.N`` (class). ``anc2vec`` is
+    skipped (LibreYOLO keeps the DFL bins as a non-persistent buffer).
     """
-    result = yolo_suffix
-    result = re.sub(r"^heads\.(\d+)\.anchor_conv\.", r"cv2.\1.", result)
-    result = re.sub(r"^heads\.(\d+)\.class_conv\.", r"cv3.\1.", result)
-    if "anc2vec" in result:
+    if "anc2vec" in yolo_suffix:
         return None
+    result = re.sub(r"^heads\.(\d+)\.anchor_conv\.", r"anchor_convs.\1.", yolo_suffix)
+    result = re.sub(r"^heads\.(\d+)\.class_conv\.", r"class_convs.\1.", result)
     return result
 
 
@@ -199,11 +235,24 @@ def get_layer_type(layer_idx: int, config: str) -> str:
         return "sppelan"
     if layer_idx == 22:
         return "detection"
-    if layer_idx == 23:
-        return "sppelan"
-    if layer_idx in (26, 29):
+    if config in ("t", "s"):
+        if layer_idx == 23:
+            return "sppelan"
+        if layer_idx in (26, 29):
+            return "repncspelan"
+        if layer_idx == 30:
+            return "detection"
+        return "unknown"
+    # v9-m/v9-c auxiliary branch
+    if layer_idx in (23, 24, 25):
+        return "cblinear"
+    if layer_idx in (26, 27):
+        return "conv"
+    if layer_idx in (29, 32, 35):
+        return "adown" if config == "c" else "aconv"
+    if layer_idx in (28, 31, 34, 37):
         return "repncspelan"
-    if layer_idx == 30:
+    if layer_idx == 38:
         return "detection"
     return "unknown"
 
@@ -215,6 +264,7 @@ _SUBLAYER_MAPPERS = {
     "elan": map_elan_keys,
     "repncspelan": map_repncspelan_keys,
     "sppelan": map_sppelan_keys,
+    "cblinear": map_cblinear_keys,
     "detection": map_detection_keys,
 }
 
@@ -268,8 +318,9 @@ def convert_state_dict(
 
     Returns:
         ``(converted_state_dict, stats)`` where ``stats`` has ``converted``,
-        ``skipped`` (unmapped aux leftovers such as ``anc2vec``, layers >= 23)
-        and ``failed`` counts.
+        ``skipped`` (unmapped auxiliary leftovers, layers >= 23: the
+        ``anc2vec`` weights of the auxiliary head) and ``failed`` counts
+        (unmapped main-path keys, which include the main head's ``anc2vec``).
     """
     if config not in LAYER_MAPS:
         raise ValueError(
@@ -287,7 +338,7 @@ def convert_state_dict(
             continue
         head = yolo_key.split(".", 1)[0]
         if head.isdigit() and int(head) >= 23:
-            skipped += 1  # auxiliary detection head — not used at inference
+            skipped += 1  # auxiliary leftover (anc2vec) — LibreYOLO derives it
         else:
             failed += 1
 
@@ -342,3 +393,91 @@ def infer_nb_classes(state_dict: Dict[str, torch.Tensor]) -> Optional[int]:
             if m.group(1) == "0":  # prefer the first (P3) head
                 return best
     return best
+
+
+# =============================================================================
+# Legacy LibreYOLO key layout
+# =============================================================================
+#
+# LibreYOLO checkpoints written before the yolo9 blocks took the upstream
+# sublayer names use ``cv1``/``cv2``/... for block convolutions, ``m`` for the
+# RepNCSP bottleneck stack, ``cv`` for the AConv convolution and
+# ``cv2``/``cv3`` (``one2one_cv2``/``one2one_cv3`` for E2E) for the box/class
+# towers of the detection head. The rename is purely structural: tensors and
+# module order are unchanged, so every legacy file loads after the upgrade.
+
+_LEGACY_BLOCK_PREFIXES = ("backbone.", "neck.", "aux.")
+_LEGACY_HEAD_TOWER_RE = re.compile(
+    r"^(head|aux_head)\.(one2one_cv2|one2one_cv3|cv2|cv3)\.(\d+)\."
+)
+_LEGACY_HEAD_TOWER_PREFIX_RE = re.compile(
+    r"^(head|aux_head)\.(one2one_cv2|one2one_cv3|cv2|cv3)\."
+)
+_LEGACY_HEAD_TOWERS = {
+    "cv2": "anchor_convs",
+    "cv3": "class_convs",
+    "one2one_cv2": "one_to_one_anchor_convs",
+    "one2one_cv3": "one_to_one_class_convs",
+}
+# Legacy DFL conv weight (v1.1.x files) and derived head state that is never
+# loaded (anchor/stride caches).
+_LEGACY_DROPPED_RE = re.compile(r"^(head|aux_head)\.(dfl(\..*)?|stride|strides|anchors)$")
+
+
+def upgrade_legacy_key(key: str) -> Optional[str]:
+    """Map one legacy LibreYOLO yolo9-family key to the current layout.
+
+    Returns ``None`` for keys that are dropped. Current-layout keys and keys
+    outside the yolo9 modules pass through unchanged, so the function is
+    idempotent.
+    """
+    if key.startswith("detect."):
+        key = "head." + key[len("detect."):]
+    if _LEGACY_DROPPED_RE.match(key):
+        return None
+    if key.startswith(_LEGACY_BLOCK_PREFIXES):
+        key = re.sub(r"\.cv(\d)(?=\.)", r".conv\1", key)
+        key = re.sub(r"\.m(?=\.)", ".bottleneck", key)
+        key = re.sub(r"(\.down\d)\.cv(?=\.)", r"\1.conv", key)
+        return key
+    match = _LEGACY_HEAD_TOWER_RE.match(key)
+    if match:
+        prefix, tower, index = match.groups()
+        key = f"{prefix}.{_LEGACY_HEAD_TOWERS[tower]}.{index}.{key[match.end():]}"
+    return key
+
+
+def upgrade_legacy_module_name(name: str) -> str:
+    """Map a legacy module name or name prefix to the current layout.
+
+    Counterpart of :func:`upgrade_legacy_key` for name-bearing metadata such
+    as quantization exclusions (``"backbone.elan1.cv1."``), which name modules
+    rather than tensors and may or may not end with a dot. Names that are
+    already current, or that match nothing, come back unchanged.
+    """
+    trailing_dot = name.endswith(".")
+    probe = name if trailing_dot else name + "."
+    if probe.startswith("detect."):
+        probe = "head." + probe[len("detect."):]
+    if probe.startswith(_LEGACY_BLOCK_PREFIXES):
+        probe = upgrade_legacy_key(probe) or probe
+    else:
+        match = _LEGACY_HEAD_TOWER_PREFIX_RE.match(probe)
+        if match:
+            prefix, tower = match.groups()
+            probe = f"{prefix}.{_LEGACY_HEAD_TOWERS[tower]}.{probe[match.end():]}"
+    return probe if trailing_dot else probe[:-1]
+
+
+def upgrade_legacy_state_dict(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    """Return ``state_dict`` in the current key layout (order-preserving).
+
+    Applies :func:`upgrade_legacy_key` to every key and drops the keys it
+    maps to ``None``. Idempotent: current-layout dicts come back unchanged.
+    """
+    upgraded: Dict[str, torch.Tensor] = {}
+    for key, value in state_dict.items():
+        new_key = upgrade_legacy_key(key) if isinstance(key, str) else key
+        if new_key is not None:
+            upgraded[new_key] = value
+    return upgraded

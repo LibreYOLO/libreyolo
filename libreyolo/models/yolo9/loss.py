@@ -3,7 +3,6 @@
 Adapted from MultimediaTechLab/YOLO under the MIT License.
 """
 
-import math
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -11,7 +10,6 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.nn import BCEWithLogitsLoss
 
-from libreyolo.data import default_oks_sigmas
 from libreyolo.training.distributed import all_reduce_avg_scalar_tensor
 from libreyolo.utils.box_ops import compute_iou as calculate_iou
 
@@ -215,7 +213,7 @@ class Vec2Box:
 
         Returns:
             preds_cls: (B, total_anchors, num_classes) - class logits
-            preds_anc: (B, total_anchors, reg_max, 4) - raw anchor distributions
+            preds_anc: (B, total_anchors, 4, reg_max) - raw per-side bin logits
             preds_box: (B, total_anchors, 4) - decoded boxes in xyxy (pixel coords)
         """
         preds_cls_list = []
@@ -230,27 +228,33 @@ class Vec2Box:
             pred_box_raw = pred[:, :box_channels, :, :]  # (B, 4*reg_max, H, W)
             pred_cls = pred[:, box_channels:, :, :]  # (B, nc, H, W)
 
-            # Reshape class predictions: (B, nc, H, W) -> (B, H*W, nc)
+            # Follows MultimediaTechLab/YOLO (MIT). Anchor2Vec
+            # (yolo/model/module.py) lays the bin logits out as
+            # "B (P R) h w -> B R P h w" with P=4 sides, and Vec2Box.__call__
+            # (yolo/utils/bounding_box_utils.py) flattens each level to
+            # "B (h w) C" class logits and "B (h w) 4 reg_max" bin logits.
+            anchor_x = pred_box_raw.view(B, 4, self.reg_max, H, W).permute(
+                0, 2, 1, 3, 4
+            )  # (B, reg_max, 4, H, W)
             pred_cls = pred_cls.permute(0, 2, 3, 1).reshape(B, H * W, -1)
-            preds_cls_list.append(pred_cls)
-
-            # Reshape box predictions for DFL: (B, 4*reg_max, H, W) -> (B, H*W, 4, reg_max)
-            # Format: (B, anchors, 4, reg_max) matches YOLO repo for DFL loss
-            pred_anc = pred_box_raw.view(B, 4, self.reg_max, H, W)
-            pred_anc = pred_anc.permute(0, 3, 4, 1, 2).reshape(
+            pred_anc = anchor_x.permute(0, 3, 4, 2, 1).reshape(
                 B, H * W, 4, self.reg_max
             )
+            preds_cls_list.append(pred_cls)
             preds_anc_list.append(pred_anc)
 
-            # Decode boxes using DFL (softmax + weighted sum)
-            # (B, H*W, 4, reg_max) -> softmax over reg_max -> (B, H*W, 4)
-            pred_dist = F.softmax(pred_anc, dim=3)
-            # Weighted sum: multiply by [0, 1, 2, ..., reg_max-1]
-            proj = torch.arange(
-                self.reg_max, dtype=pred_dist.dtype, device=pred_dist.device
+            # Anchor2Vec's decode: softmax over the bins, then the expectation
+            # under the fixed weights [0, ..., reg_max-1] (upstream holds them
+            # in a 1x1x1 Conv3d). It is taken on the flattened tensor, with
+            # the bin axis last, so the result stays bit-identical to earlier
+            # LibreYOLO releases; on the "B R P h w" layout it differs in the
+            # last float bits.
+            vector_x = pred_anc.softmax(dim=-1)
+            reverse_reg = torch.arange(
+                self.reg_max, dtype=vector_x.dtype, device=vector_x.device
             )
-            pred_box = (pred_dist * proj.view(1, 1, 1, -1)).sum(dim=3)  # (B, H*W, 4)
-            preds_box_list.append(pred_box)
+            vector_x = (vector_x * reverse_reg).sum(dim=-1)  # (B, H*W, 4)
+            preds_box_list.append(vector_x)
 
         # Concatenate across scales
         preds_cls = torch.cat(preds_cls_list, dim=1)  # (B, total_anchors, nc)
@@ -594,8 +598,9 @@ class YOLO9Loss:
         Compute YOLOv9 loss.
 
         Args:
-            predictions: List of [P3, P4, P5] tensors from DDetect head
-                        Each tensor: (B, nc + 4*reg_max, H, W)
+            predictions: Per-level raw maps from ``YOLO9Head`` ([P3, P4, P5];
+                        yolo9_p2 adds P2), each (B, 4*reg_max + nc, H, W)
+                        with the box channels first
             targets: Ground truth [B, max_targets, 5] with [class_id, x1, y1, x2, y2]
                     Coordinates are normalized (0-1)
 
@@ -617,9 +622,12 @@ class YOLO9Loss:
         )
         targets_scaled = targets * scale
 
-        # Run Task Aligned Assignment
+        # Run Task Aligned Assignment in fp32. Under fp16 autocast the
+        # sigmoid of class logits below about -17 underflows to exactly 0, so
+        # the cls term of the alignment score vanishes and the matcher assigns
+        # no positives (issue #927).
         align_targets, valid_masks = self.matcher(
-            targets_scaled, (preds_cls.detach(), preds_box.detach())
+            targets_scaled, (preds_cls.detach().float(), preds_box.detach().float())
         )
 
         # Separate class and box targets

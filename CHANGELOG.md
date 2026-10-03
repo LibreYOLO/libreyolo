@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **`libreyolo train --clip_max_norm`.**
+  Sets the gradient-norm clip from the CLI for YOLO9-family training, and for other families whose registered training config declares `clip_max_norm`; `0` disables clipping.
+
 - **Class-agnostic NMS. (#928)**
   `predict(agnostic_nms=True)` and `val(agnostic_nms=True)` (CLI `--agnostic-nms`) keep only the highest-scoring box among boxes that overlap above `iou`, whatever their classes. It is one step applied to a family's finished detections, after the `classes` filter, so it works for every family that returns boxes (NMS-free families and exported backends included) and for masks, keypoints and oriented boxes (rotated IoU). Predict covers detect, segment, pose and OBB; validation covers detect and segment. Other tasks and predict paths raise instead of ignoring it.
 
@@ -21,18 +24,39 @@ before 1.4.0 are documented in the
 - **Classification validation results object. (#928)**
   Classification `val()` results gain `top1`, `top5` and `confusion_matrix`, and `plots=True` saves the confusion matrix. The returned object is still the same flat metrics dict.
 
-### Fixed
-
-- **TensorRT batched predict with `classes` and a small `max_det`. (#928)**
-  The batched path cut to `max_det` before the class filter, so it could return fewer boxes than `batch=1`. It now uses the same candidate budget as single-image predict.
-
 ### Changed
+
+- **YOLO9 internals use the MultimediaTechLab/YOLO module names.**
+  Code that reaches into the network sees `YOLO9Head` instead of `DDetect` (box and class towers in `anchor_convs` / `class_convs`, `num_classes`, `strides`), `RepConv` instead of `RepConvN`, `Bottleneck` instead of `RepNBottleneck`, and `conv1`/`conv2`/`bottleneck` instead of `cv1`/`cv2`/`m` inside blocks. ONNX node names follow, e.g. `/head/anchor_convs.0/...` (update Hailo end-node configs). Model inputs, outputs and output names are unchanged. Freshly built YOLO9 models with more than 100 classes get class towers up to 128 channels wide instead of 100. `LibreYOLO9Model.fuse()` and `RepConvN.fuse_convs()` are removed; predict, val and export never called them.
+- **YOLO9-m and YOLO9-c build the MultimediaTechLab/YOLO auxiliary branch when PGI is attached.**
+  The training-only PGI branch of these two sizes is now the one in the upstream `v9-m.yaml` / `v9-c.yaml`: `CBLinear` taps on the three backbone stages, a second backbone fed with the image whose stages are summed with those taps by `CBFuse`, and a detection head on its outputs. 1.6.0 built the YOLO9-t/s top-down branch for every size. Converting upstream `v9-m.pt` / `v9-c.pt` now keeps their auxiliary tensors (`aux.*`, `aux_head.*`) instead of skipping them, so fine-tunes from those conversions train with PGI. At 80 classes the branch and its head have 12.8M parameters for YOLO9-m (7.5M before) and 25.7M for YOLO9-c (10.2M before), so PGI training of these sizes uses more memory and time per step; inference, export and YOLO9-t/s are unchanged. Checkpoints that carry the previous m/c branch (`aux.spp.*`, `aux.elan_a4.*`, `aux.elan_a3.*`) still resume and fine-tune with that branch.
+- **`perspective` augmentation uses corner displacement.**
+  With `perspective > 0`, the four corners of the augmentation canvas are each pulled inward by a random amount and the image and boxes are warped by the resulting homography, on top of the usual rotation, scale, shear and translation. `distortion_scale = min(perspective * 100, 0.2)` in the sense of torchvision's `RandomPerspective`, so `perspective=0.001` moves each corner by at most 5% of the canvas side, at any resolution. The same value therefore gives a different warp than in 1.6.0, and negative values raise `ValueError`. The default `perspective=0` is unchanged. Applies to every family that uses the shared affine warp (YOLO9, YOLOX, YOLO-NAS).
+- **YOLO9 mixup samples the blend ratio from Beta(1, 1).**
+  This is the MultimediaTechLab/YOLO recipe; the ratio was drawn from Beta(32, 32) before, which kept it close to 0.5. It applies only when mixup is enabled (`mixup_prob` is 0 by default).
 
 - **Confusion matrix plots. (#928)**
   `plots=True` now writes raw counts to `confusion_matrix.png` and per-true-class shares to `confusion_matrix_normalized.png` (previously one normalized image named `confusion_matrix.png`). Detections are counted at confidence 0.25, or `conf` if higher, instead of a fixed 0.15, matching `visualize` and `box.image_metrics`; with `classes=`, ground truth of the dropped classes is no longer counted as missed. The exported `libreyolo.validation.ConfusionMatrix` now indexes `matrix[predicted, true]` (it was `[actual, predicted]`).
 
 - **`agnostic_nms` is no longer a silent no-op in `predict()`. (#928)**
   It used to warn and do nothing. `agnostic_nms=False` is still accepted everywhere.
+
+### Fixed
+
+- **YOLO9 training clips the gradient norm and assigns labels in fp32. (#927)**
+  YOLO9, YOLO9-E2E and YOLO9-P2 clip the gradient L2 norm at 10 before each optimizer step, as the MultimediaTechLab/YOLO recipe does (`clip_max_norm`, `0` to disable). The training assigner scores anchors in fp32, so fp16 autocast can no longer flush every class probability to zero and leave a batch without positives.
+- **YOLO9 fine-tuning no longer trains a randomly initialised PGI branch by default. (#927)**
+  Since 1.6.0, `train()` attached the PGI auxiliary branch at `aux_weight=0.25` to every YOLO9 run, but the published `LibreYOLO9{t,s,m,c}.pt` weights carry no PGI tensors, so the branch started from random weights on top of a converged model. The branch is now attached by default only when the loaded or `pretrained=` weights contain PGI tensors, or when training from scratch; otherwise the run trains the main head only, as in 1.5.0, and logs it. Passing `aux_weight` explicitly (Python or `libreyolo train aux_weight=0.25`) still attaches a new branch. Resumed runs are unchanged.
+- **PGI head weights load when their class towers are wider than a fresh build.**
+  The PGI head now takes the class-tower width stored in the checkpoint, as the main head already did. Before, a width mismatch left the PGI class towers randomly initialised without a message.
+
+- **TensorRT batched predict with `classes` and a small `max_det`. (#928)**
+  The batched path cut to `max_det` before the class filter, so it could return fewer boxes than `batch=1`. It now uses the same candidate budget as single-image predict.
+
+### Security/Licensing
+
+- **YOLO9 and YOLO9-P2 code follows the MIT upstream.**
+  The YOLO9 building blocks, the YOLO9 and YOLO9-P2 detection heads and the YOLO9 mixup blend are ported from MultimediaTechLab/YOLO (MIT, commit c4cb5f6f); mosaic tile placement reuses the YOLOX-derived helper, and `THIRD_PARTY_NOTICES.txt` describes each source. Float inference is unchanged: raw outputs of checkpoints written by 1.6.0 (t/s/m/c, 2 and 120 classes) and sample-image detections of the published t and m weights are bit-identical, and the main path matches the pinned upstream model on random weights (`tests/unit/test_yolo9_parity.py`). Checkpoints written by earlier releases load through a rename of legacy tensor names, and of the module names in quantization manifests; resumed training checkpoints go through the same rename. Training behaviour does change, as listed under Changed and Fixed. Exported-runtime parity beyond ONNX on YOLO9-t and CUDA mixed-precision training were not measured.
 
 ## [1.6.0] - 2026-09-27
 

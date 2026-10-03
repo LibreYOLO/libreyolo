@@ -159,8 +159,8 @@ def _strengthen_synthetic_head(model) -> None:
     """Make random detector heads image-sensitive without training data."""
     tokens_by_family = {
         "yolo7": ("head_conv",),
-        "yolo9_e2e": ("head.one2one_cv2", "head.one2one_cv3"),
-        "yolo9_p2": ("head.cv2", "head.cv3"),
+        "yolo9_e2e": ("head.one_to_one_anchor_convs", "head.one_to_one_class_convs"),
+        "yolo9_p2": ("head.anchor_convs", "head.class_convs"),
         "yolox": ("head.cls_preds", "head.reg_preds", "head.obj_preds"),
         "picodet": ("head.gfl_cls",),
         "rtmdet": ("head.rtm_cls", "head.rtm_reg"),

@@ -456,9 +456,10 @@ class _YOLO9SplitOutputWrapper(torch.nn.Module):
         feats = self.model.neck(*self.model.backbone(x))
         head = self.model.head
         boxes, scores = [], []
-        for i, (feat, stride) in enumerate(zip(feats, head._stride_values)):
+        for i, (feat, stride) in enumerate(zip(feats, head.strides)):
             h, w = feat.shape[-2:]
-            distances = head.dfl(head.cv2[i](feat).flatten(2))  # (B, 4, HW) ltrb
+            # (B, 4, HW) ltrb distances in grid units
+            distances = head.anchor2vec(head.anchor_convs[i](feat).flatten(2))
             shift_y, shift_x = torch.meshgrid(
                 torch.arange(h, device=x.device, dtype=distances.dtype) + 0.5,
                 torch.arange(w, device=x.device, dtype=distances.dtype) + 0.5,
@@ -479,7 +480,7 @@ class _YOLO9SplitOutputWrapper(torch.nn.Module):
                     dim=1,
                 )
             )
-            cls_tower = head.cv3[i]
+            cls_tower = head.class_convs[i]
             scores.append(
                 _bounded_sigmoid(cls_tower[-1], cls_tower[:-1](feat))
                 .flatten(2)

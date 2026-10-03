@@ -2144,10 +2144,18 @@ class BaseTrainer(ABC):
             no_aug_start = self.config.epochs - self.config.no_aug_epochs
             if self.config.no_aug_epochs > 0 and self.start_epoch > no_aug_start:
                 if is_main_process():
-                    logger.info(
-                        f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
-                        f"disabling strong augmentation (mosaic/mixup, policies) immediately"
-                    )
+                    if self.start_epoch == 0:
+                        logger.info(
+                            f"Run of {self.config.epochs} epochs is shorter than "
+                            f"no_aug_epochs={self.config.no_aug_epochs}: strong augmentation "
+                            f"(mosaic/mixup, policies) is off for the whole run. Pass a "
+                            f"smaller no_aug_epochs to train with it."
+                        )
+                    else:
+                        logger.info(
+                            f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
+                            f"disabling strong augmentation (mosaic/mixup, policies) immediately"
+                        )
                 self.on_mosaic_disable()
 
             for epoch in range(self.start_epoch, self.config.epochs):
@@ -3953,7 +3961,9 @@ class BaseTrainer(ABC):
         sidecar = checkpoint_path.parent / "average_pool.pt"
         if sidecar.is_file():
             try:
-                loaded = averager.load(sidecar)
+                loaded = averager.load(
+                    sidecar, state_transform=self._upgrade_resume_state_dict
+                )
             except Exception as exc:
                 logger.warning(
                     "Could not restore average_best pool from %s: %s", sidecar, exc
@@ -4018,6 +4028,7 @@ class BaseTrainer(ABC):
         except Exception as exc:
             logger.warning("Could not read %s to seed average_best: %s", path, exc)
             return None
+        blob = self.upgrade_resume_checkpoint(blob)
         state = blob.get("model") if isinstance(blob, Mapping) else None
         if not isinstance(state, Mapping):
             logger.warning(
@@ -4202,6 +4213,18 @@ class BaseTrainer(ABC):
         from ..utils.event_histogram import input_metadata
         return input_metadata(self.wrapper_model)
 
+    def upgrade_resume_checkpoint(self, checkpoint):
+        """Family hook: migrate a loaded resume checkpoint to the current layout.
+
+        Runs right after the checkpoint is read, before any of its state is
+        restored. The default returns it unchanged.
+        """
+        return checkpoint
+
+    def _upgrade_resume_state_dict(self, state_dict):
+        """Apply :meth:`upgrade_resume_checkpoint` to a bare model state dict."""
+        return self.upgrade_resume_checkpoint({"model": state_dict})["model"]
+
     def resume(self, checkpoint_path: str):
         if getattr(self, "_fitness_callback", None) is not None:
             raise ValueError(
@@ -4217,6 +4240,7 @@ class BaseTrainer(ABC):
             map_location=self.device,
             context="training resume checkpoint",
         )
+        checkpoint = self.upgrade_resume_checkpoint(checkpoint)
         if checkpoint.get("fitness_source") == "callback":
             raise ValueError(
                 "Cannot resume a custom-fitness checkpoint: its scores cannot be "

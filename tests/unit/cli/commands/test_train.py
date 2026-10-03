@@ -1597,6 +1597,102 @@ def test_train_aux_weight_rejected_outside_yolo9(monkeypatch, tmp_path):
     assert "aux_weight" in data["message"]
 
 
+@pytest.mark.parametrize(
+    "grammar",
+    [["clip_max_norm=0"], ["--clip-max-norm", "0"]],
+    ids=["key=value", "--flag"],
+)
+def test_train_clip_max_norm_reaches_yolo9_train(monkeypatch, tmp_path, grammar):
+    app = _make_app()
+    captured = {}
+
+    class _YOLO9Like:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"save_dir": str(tmp_path / "exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLO9Like(),
+    )
+    result = runner.invoke(
+        app,
+        ["data=dummy.yaml", "model=LibreYOLO9t.pt", f"project={tmp_path}", *grammar, "--json"],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert captured["kwargs"]["clip_max_norm"] == 0.0
+
+
+def test_train_without_clip_max_norm_keeps_the_family_default(monkeypatch, tmp_path):
+    app = _make_app()
+    captured = {}
+
+    class _YOLO9Like:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"save_dir": str(tmp_path / "exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLO9Like(),
+    )
+    result = runner.invoke(
+        app, ["data=dummy.yaml", "model=LibreYOLO9t.pt", f"project={tmp_path}", "--json"]
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "clip_max_norm" not in captured["kwargs"]
+
+
+def test_train_dry_run_reports_clip_max_norm():
+    result = runner.invoke(
+        _make_app(),
+        ["data=coco8.yaml", "model=LibreYOLO9t.pt", "clip_max_norm=5", "--dry-run", "--json"],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout)["resolved_config"]["clip_max_norm"] == 5.0
+
+
+def test_train_clip_max_norm_rejects_negative_values():
+    result = runner.invoke(
+        _make_app(),
+        ["data=coco8.yaml", "model=LibreYOLO9t.pt", "clip_max_norm=-1", "--dry-run", "--json"],
+    )
+    assert result.exit_code != 0
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_type_error"
+    assert "clip_max_norm" in data["message"]
+
+
+def test_train_clip_max_norm_rejected_for_family_without_clipping(monkeypatch, tmp_path):
+    app = _make_app()
+
+    class _YOLOXLike:
+        FAMILY = "yolox"
+        device = "cpu"
+
+        def train(self, data, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("train() must not be reached")
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLOXLike(),
+    )
+    result = runner.invoke(
+        app,
+        ["data=dummy.yaml", "model=LibreYOLOXs.pt", f"project={tmp_path}", "clip_max_norm=1", "--json"],
+    )
+    assert result.exit_code != 0
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_unsupported"
+    assert "clip_max_norm" in data["message"]
+
+
 def test_gtr_semantic_cli_train_accepts_the_pretrained_flag(monkeypatch, tmp_path):
     """The CLI always forwards ``pretrained``; GTR semantic must not reject it."""
     from libreyolo import LibreGTR

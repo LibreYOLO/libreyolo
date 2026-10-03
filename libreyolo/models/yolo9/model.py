@@ -20,7 +20,8 @@ from ...utils.serialization import (
     load_untrusted_torch_file,
     validate_checkpoint_metadata,
 )
-from .nn import LibreYOLO9Model
+from .convert import upgrade_legacy_state_dict
+from .nn import LibreYOLO9Model, aux_branch_from_state_dict, supported_aux_branches
 from ...postprocess.yolo9 import postprocess
 from .utils import preprocess_image
 from ...validation.preprocessors import YOLO9ValPreprocessor
@@ -33,6 +34,22 @@ logger = logging.getLogger(__name__)
 def _is_yolo9_aux_key(key: str) -> bool:
     """True for PGI tensors (``aux.*`` neck or ``aux_head.*``)."""
     return str(key).startswith("aux.") or str(key).startswith("aux_head.")
+
+
+def _upgraded_keys(weights_dict: dict) -> dict:
+    """``weights_dict`` in the current key layout (legacy keys renamed)."""
+    return upgrade_legacy_state_dict(
+        {k: v for k, v in weights_dict.items() if isinstance(k, str)}
+    )
+
+
+_E2E_KEY_MARKERS = (
+    "one2one_cv2",
+    "one2one_cv3",
+    "one_to_one_anchor_convs",
+    "one_to_one_class_convs",
+)
+_CLASS_TOWER_HIDDEN_KEY = "head.class_convs.0.0.conv.weight"
 
 
 def resolve_aux_weight(aux_weight) -> float:
@@ -86,8 +103,9 @@ class LibreYOLO9(BaseModel):
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
         keys_lower = [k.lower() for k in weights_dict]
-        # Explicitly exclude E2E checkpoints so LibreYOLO9E2E.can_load wins first.
-        if any("one2one_cv2" in k or "one2one_cv3" in k for k in keys_lower):
+        # Explicitly exclude E2E checkpoints (legacy ``one2one_cv*`` and
+        # current ``one_to_one_*`` spellings) so LibreYOLO9E2E.can_load wins.
+        if any(marker in k for k in keys_lower for marker in _E2E_KEY_MARKERS):
             return False
         # Explicitly exclude P2 checkpoints so LibreYOLO9P2.can_load wins first.
         if any(
@@ -101,6 +119,7 @@ class LibreYOLO9(BaseModel):
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
+        weights_dict = _upgraded_keys(weights_dict)
         key = "backbone.conv0.conv.weight"
         if key not in weights_dict:
             return None
@@ -110,7 +129,7 @@ class LibreYOLO9(BaseModel):
         if first_channel == 64:
             return "c"
         if first_channel == 32:
-            secondary_key = "backbone.elan1.cv1.conv.weight"
+            secondary_key = "backbone.elan1.conv1.conv.weight"
             if secondary_key in weights_dict:
                 mid_channel = weights_dict[secondary_key].shape[0]
                 if mid_channel == 64:
@@ -125,18 +144,9 @@ class LibreYOLO9(BaseModel):
             return int(weights_dict["head.linear.weight"].shape[0])
         if "head.predict.weight" in weights_dict:
             return int(weights_dict["head.predict.weight"].shape[0])
-        for key, tensor in weights_dict.items():
-            if re.match(r"head\.cv3\.\d+\.2\.weight", key):
+        for key, tensor in _upgraded_keys(weights_dict).items():
+            if re.match(r"head\.class_convs\.\d+\.2\.weight", key):
                 return tensor.shape[0]
-        return None
-
-    @classmethod
-    def detect_num_keypoints(cls, weights_dict: dict) -> Optional[int]:
-        for key, tensor in weights_dict.items():
-            if re.match(r"head\.cv4\.\d+\.2\.weight", key):
-                channels = int(tensor.shape[0])
-                if channels % 3 == 0:
-                    return channels // 3
         return None
 
     @classmethod
@@ -264,24 +274,52 @@ class LibreYOLO9(BaseModel):
         self,
         state_dict: dict,
     ) -> dict:
-        """Remap legacy 'detect.*' keys to 'head.*' for backward compatibility."""
-        remapped = {}
-        for key, value in state_dict.items():
-            new_key = (
-                key.replace("detect.", "head.", 1) if key.startswith("detect.") else key
-            )
-            remapped[new_key] = value
-        return remapped
+        """Rename legacy keys (``detect.*``, ``cv*``/``m`` block names, the
+        ``cv2``/``cv3`` head towers) to the current layout and drop the
+        legacy DFL weight; see :func:`~.convert.upgrade_legacy_key`."""
+        return upgrade_legacy_state_dict(state_dict)
+
+    def _upgrade_quant_manifest(self, manifest: dict) -> dict:
+        """Rename legacy module names in the manifest's name lists.
+
+        Exclusions such as ``backbone.elan1.cv1.`` would otherwise stop
+        matching the renamed layers, and the rebuilt model would quantize a
+        layer the checkpoint stored in float.
+        """
+        from .convert import upgrade_legacy_module_name
+
+        upgraded = dict(manifest)
+        for field in ("keep_high_precision", "fp8_tensorwise_weights"):
+            names = manifest.get(field)
+            if names is not None:
+                upgraded[field] = type(names)(
+                    upgrade_legacy_module_name(n) if isinstance(n, str) else n
+                    for n in names
+                )
+        return upgraded
+
+    def _ddp_prepare_train_kwargs(self, train_kw: dict) -> dict:
+        """Pin the PGI default for a from-scratch run before DDP spawns.
+
+        Workers rebuild the model from a temporary bootstrap file, which
+        would make a from-scratch run look like a fine-tune from weights
+        without PGI tensors.
+        """
+        if (
+            train_kw.get("aux_weight") is None
+            and not train_kw.get("resume")
+            and not train_kw.get("pretrained")
+            and not self.model_path
+            and type(self.model).__name__ == "LibreYOLO9Model"
+        ):
+            train_kw = dict(train_kw, aux_weight=_TRAIN_DEFAULTS.aux_weight)
+        return train_kw
 
     def _rebuild_detect_class_layers(self, detect, new_nc: int) -> None:
-        detect.nc = new_nc
-        detect.no = new_nc + detect.reg_max * 4
-        for seq in detect.cv3:
-            old_final = seq[-1]
-            in_channels = old_final.weight.shape[1]
-            seq[-1] = nn.Conv2d(in_channels, new_nc, 1)
-        detect._init_bias()
-        detect._loss_fn = None
+        detect.set_num_classes(new_nc)
+        # LibreYOLO has always re-applied the head's bias init to both tower
+        # types on a class-count change; kept so fine-tunes stay reproducible.
+        detect.init_bias()
         detect.to(next(self.model.parameters()).device)
 
     def _rebuild_for_new_classes(self, new_nc: int):
@@ -295,7 +333,7 @@ class LibreYOLO9(BaseModel):
 
     def _rebuild_for_checkpoint_classes(self, new_nc: int, state_dict: dict):
         """Match YOLO9 checkpoints with either COCO-width or scratch class towers."""
-        hidden_key = "head.cv3.0.0.conv.weight"
+        hidden_key = _CLASS_TOWER_HIDDEN_KEY
         checkpoint_hidden = (
             int(state_dict[hidden_key].shape[0]) if hidden_key in state_dict else None
         )
@@ -326,6 +364,7 @@ class LibreYOLO9(BaseModel):
         workers build at the checkpoint's ``nc`` before loading it.
         """
         self._align_class_towers_for_transfer(state_dict)
+        self._match_aux_branch(state_dict)
         super()._prepare_model_for_state_dict(state_dict)
 
     def _restore_after_training(self, results: dict) -> None:
@@ -345,29 +384,27 @@ class LibreYOLO9(BaseModel):
 
     def _align_class_towers_for_transfer(self, state_dict: dict) -> None:
         """Match COCO-width class towers before partial transfer loading."""
-        hidden_key = "head.cv3.0.0.conv.weight"
+        hidden_key = _CLASS_TOWER_HIDDEN_KEY
         if hidden_key not in state_dict:
             return
+        self._rebuild_class_towers(int(state_dict[hidden_key].shape[0]))
 
-        checkpoint_hidden = int(state_dict[hidden_key].shape[0])
-        head = self.model.head
-        current_state = self.model.state_dict()
-        if hidden_key not in current_state:
-            return
-        current_hidden = int(current_state[hidden_key].shape[0])
-        if current_hidden == checkpoint_hidden:
-            return
+    def _rebuild_class_towers(self, class_neck: int, head=None) -> None:
+        """Rebuild a head's class towers at ``class_neck`` hidden width.
 
-        channels = [int(seq[0].conv.weight.shape[1]) for seq in head.cv3]
-        head.cv3 = head._build_class_towers(
-            channels,
-            checkpoint_hidden,
-            self.nb_classes,
-        )
-        head._class_hidden_channels = checkpoint_hidden
-        head.nc = self.nb_classes
-        head.no = self.nb_classes + head.reg_max * 4
-        head._init_bias()
+        The checkpoint's width always wins: fine-tunes keep their source
+        checkpoint's tower width, which a fresh build may not reproduce.
+        No-op when the width already matches. ``head`` defaults to the main
+        head; the PGI loader passes ``aux_head``.
+        """
+        head = self.model.head if head is None else head
+        if int(head.class_convs[0][0].conv.weight.shape[0]) == class_neck:
+            return
+        channels = [int(tower[0].conv.weight.shape[1]) for tower in head.class_convs]
+        head.class_convs = head.build_class_convs(channels, class_neck, self.nb_classes)
+        head.class_neck = class_neck
+        head.num_classes = self.nb_classes
+        head.init_bias()
         head._loss_fn = None
         head.to(next(self.model.parameters()).device)
 
@@ -433,6 +470,8 @@ class LibreYOLO9(BaseModel):
         state_dict = self._prepare_state_dict(self._strip_ddp_prefix(state_dict))
         total_tensors = len(state_dict)
         self._align_class_towers_for_transfer(state_dict)
+        self._match_aux_branch(state_dict)
+        self._align_aux_class_towers(state_dict)
 
         current = self.model.state_dict()
         matched = {
@@ -446,6 +485,7 @@ class LibreYOLO9(BaseModel):
         return {
             "loaded": len(matched),
             "skipped": max(total_tensors - len(matched), 0),
+            "aux_loaded": sum(1 for key in matched if _is_yolo9_aux_key(key)),
         }
 
     def _default_transfer_weights_name(self) -> str:
@@ -493,7 +533,7 @@ class LibreYOLO9(BaseModel):
         state = self._extract_checkpoint_state(source)
         if not any(_is_yolo9_aux_key(key) for key in state):
             return 0
-        self.model.enable_aux(weight=weight)
+        self.model.enable_aux(weight=weight, branch=self._checkpoint_aux_branch(state))
         return self._load_aux_tensors(state)
 
     def _reload_aux_from_path(self, source: str | Path | dict | None) -> int:
@@ -502,9 +542,58 @@ class LibreYOLO9(BaseModel):
             return 0
         return self._load_aux_tensors(self._extract_checkpoint_state(source))
 
+    def _checkpoint_aux_branch(self, state_dict: dict) -> Optional[str]:
+        """PGI branch kind stored in ``state_dict``, if this size can build it.
+
+        yolo9-m/c checkpoints written by LibreYOLO 1.6.0 carry the top-down
+        branch (``aux.spp`` / ``aux.elan_a4`` / ``aux.elan_a3``); newer ones
+        and upstream conversions carry the ``aux.cblinear*`` second backbone.
+        """
+        branch = aux_branch_from_state_dict(state_dict)
+        size = getattr(self.model, "config", None)
+        try:
+            supported = supported_aux_branches(size)
+        except KeyError:
+            return None
+        return branch if branch in supported else None
+
+    def _match_aux_branch(self, state_dict: dict) -> None:
+        """Rebuild an attached PGI branch as the kind ``state_dict`` stores.
+
+        No-op without an attached branch, without ``aux.*`` tensors in the
+        dict, or when the kinds already agree. Otherwise the stored tensors
+        would match no parameter and be dropped.
+        """
+        model = self.model
+        if getattr(model, "aux", None) is None or not hasattr(model, "aux_branch"):
+            return
+        branch = self._checkpoint_aux_branch(state_dict)
+        if branch is None or branch == model.aux_branch:
+            return
+        logger.info(
+            "The weights carry the %r PGI auxiliary branch; building it instead "
+            "of the %r one.",
+            branch,
+            model.aux_branch,
+        )
+        model.enable_aux(weight=model.aux_weight, branch=branch)
+
+    def _align_aux_class_towers(self, state_dict: dict) -> None:
+        """Give an attached PGI head the checkpoint's class-tower width.
+
+        The checkpoint's width wins for the PGI head as for the main head;
+        otherwise its class towers mismatch and silently stay random.
+        """
+        aux_head = getattr(self.model, "aux_head", None)
+        aux_hidden = state_dict.get(f"aux_{_CLASS_TOWER_HIDDEN_KEY}")
+        if aux_head is not None and aux_hidden is not None:
+            self._rebuild_class_towers(int(aux_hidden.shape[0]), head=aux_head)
+
     def _load_aux_tensors(self, state_dict: dict) -> int:
         if not state_dict:
             return 0
+        self._match_aux_branch(state_dict)
+        self._align_aux_class_towers(state_dict)
         current = self.model.state_dict()
         matched = {
             key: value
@@ -735,6 +824,7 @@ class LibreYOLO9(BaseModel):
         # optimizer / EMA / DDP see the extra parameters. Resume of a
         # single-head 1.5 checkpoint stays single-head.
         aux_weight = resolve_aux_weight(kwargs.get("aux_weight", _TRAIN_DEFAULTS.aux_weight))
+        aux_loaded = 0
         if type(self.model).__name__ == "LibreYOLO9Model":
             if resume_path:
                 self._maybe_enable_aux_from_path(resume_path, aux_weight)
@@ -742,7 +832,7 @@ class LibreYOLO9(BaseModel):
                 self.model.enable_aux(weight=aux_weight)
                 # Inference load stripped aux.* from official converts; put
                 # those PGI tensors back now that the branch exists.
-                self._reload_aux_from_path(self.model_path)
+                aux_loaded = self._reload_aux_from_path(self.model_path)
             else:
                 # A PGI branch left over from an earlier train() in this
                 # session must not keep training when aux_weight=0.
@@ -755,11 +845,30 @@ class LibreYOLO9(BaseModel):
             else:
                 transfer_weights = pretrained
             stats = self._load_transfer_weights(transfer_weights)
+            aux_loaded += stats.get("aux_loaded", 0)
             logger.info(
                 "Loaded %d transfer tensors from %s; skipped %d incompatible tensors.",
                 stats["loaded"],
                 transfer_weights,
                 stats["skipped"],
+            )
+
+        # Pretrained weights without PGI tensors (every published LibreYOLO9
+        # checkpoint) would leave the branch randomly initialised on top of a
+        # converged model. Train the main head only unless aux_weight was
+        # passed explicitly; from-scratch runs keep the branch.
+        if (
+            not resume_path
+            and getattr(self.model, "aux", None) is not None
+            and kwargs.get("aux_weight") is None
+            and aux_loaded == 0
+            and (self.model_path or pretrained)
+        ):
+            self.model.disable_aux()
+            logger.info(
+                "The loaded weights carry no PGI auxiliary tensors; training the "
+                "main head only. Pass aux_weight=%s to train a new auxiliary branch.",
+                aux_weight,
             )
 
         trainer_kwargs = dict(
@@ -791,6 +900,7 @@ class LibreYOLO9(BaseModel):
         trainer = self._trainer_class()(**trainer_kwargs)
 
         if resume_path:
+            trainer.resume_source = resume_path
             trainer.setup()
             trainer.resume(resume_path)
 

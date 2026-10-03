@@ -44,14 +44,13 @@ pytestmark = pytest.mark.unit
 
 
 def test_yolo9_config_enables_sync_bn():
-    """YOLO9 (and its pose subclass) must enable SyncBatchNorm; the base config
+    """YOLO9 must enable SyncBatchNorm; the base config
     must keep it off. Guards against the config silently disagreeing with its
     documented intent again (issue #484)."""
-    from libreyolo.training.config import TrainConfig, YOLO9Config, YOLO9PoseConfig
+    from libreyolo.training.config import TrainConfig, YOLO9Config
 
     assert TrainConfig().sync_bn is False
     assert YOLO9Config().sync_bn is True
-    assert YOLO9PoseConfig().sync_bn is True
 
 
 def test_bn_heavy_cnn_configs_enable_sync_bn():

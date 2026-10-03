@@ -11,7 +11,7 @@ Opt-in. ``n=0`` is a no-op so default training is unchanged.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 import torch
 from torch import nn
@@ -76,17 +76,27 @@ class MetricGatedAverager:
             path,
         )
 
-    def load(self, path: str | Path) -> int:
+    def load(
+        self,
+        path: str | Path,
+        *,
+        state_transform: Optional[
+            Callable[[Dict[str, torch.Tensor]], Dict[str, torch.Tensor]]
+        ] = None,
+    ) -> int:
         """Replace the pool from a sidecar written by :meth:`save`.
 
         Keeps this instance's ``n`` (the live config). Extra snapshots from a
-        larger saved pool are dropped worst-first. Returns how many loaded.
+        larger saved pool are dropped worst-first. ``state_transform`` maps
+        each saved state (e.g. to rename legacy keys). Returns how many loaded.
         """
         blob = torch.load(path, map_location="cpu", weights_only=True)
         metrics = list(blob.get("metrics") or [])
         states = list(blob.get("states") or [])
         self._pool = []
         for metric, state in zip(metrics, states):
+            if state_transform is not None:
+                state = state_transform(state)
             self.consider_state(state, float(metric))
         return len(self._pool)
 

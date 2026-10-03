@@ -414,35 +414,77 @@ License: Apache License 2.0
 Copyright (c) 2021-2022 Megvii Inc. All rights reserved.
 Used for: YOLOX model family (libreyolo/models/yolox/), EMA helper
           (libreyolo/training/ema.py), augmentation pipeline
-          (libreyolo/training/augment.py), and the SimOTA training loss
+          (libreyolo/data/augment/, re-exported by
+          libreyolo/training/augment.py; the YOLO9 mosaic wrapper in
+          data/augment/yolo9.py places its tiles with
+          mosaic.get_mosaic_coordinate), and the SimOTA training loss
           adapted for the YOLOv7 family (libreyolo/models/yolo7/loss.py:
           imports bboxes_iou/IoULoss from the yolox modules and adapts the
           get_assignments/get_geometry_constraint/simota_matching/get_losses
           assignment logic to the v7 anchor head).
 
 --------------------------------------------------------------------
+TorchVision RandomPerspective (PyTorch contributors)
+--------------------------------------------------------------------
+Source: https://github.com/pytorch/vision
+        (torchvision/transforms/transforms.py RandomPerspective.get_params,
+        torchvision/transforms/functional.py _get_perspective_coeffs)
+Version: torchvision 0.29.0
+License: BSD-3-Clause
+Copyright (c) Soumith Chintala 2016 and the torchvision contributors
+Used for: the design of the projective branch of get_affine_matrix in
+          libreyolo/data/augment/geometry.py (the `perspective` training
+          argument): a homography defined by pulling each canvas corner
+          inward by a random amount bounded by a distortion scale. The
+          implementation was written for LibreYOLO (Python `random`
+          sampling, continuous offsets, cv2.getPerspectiveTransform solve,
+          composition with the YOLOX-derived affine); no torchvision code
+          is copied. The full BSD-3-Clause text is reproduced in
+          libreyolo/models/fcn/NOTICE.
+
+--------------------------------------------------------------------
+TorchVision batched NMS coordinate trick (PyTorch contributors)
+--------------------------------------------------------------------
+Source: https://github.com/pytorch/vision
+        (torchvision/ops/boxes.py _batched_nms_coordinate_trick)
+Version: torchvision 0.29.0
+License: BSD-3-Clause
+Copyright (c) Soumith Chintala 2016 and the torchvision contributors
+Used for: the class-aware suppression step of EmbeddedNMSDetector in
+          libreyolo/export/nms.py: each candidate box is shifted by its
+          class index times (maximum coordinate + 1) so one NMS pass
+          suppresses within each class only. Adapted for tracing: the
+          maximum is taken over all sanitized anchor boxes and the
+          empty-input early return is dropped. The full BSD-3-Clause text
+          is reproduced in libreyolo/models/fcn/NOTICE.
+
+--------------------------------------------------------------------
 YOLO (MultimediaTechLab/YOLO)
 --------------------------------------------------------------------
 Source: https://github.com/MultimediaTechLab/YOLO
+Commit: c4cb5f6f56102eceeaa7d75e23e1125cd0373eaf
 License: MIT
 Copyright (c) 2024 Kin-Yiu Wong and Hao-Tang Tsui
-Used for: YOLO9 model family (libreyolo/models/yolo9/ and
-          libreyolo/models/yolo9_e2e/): the architecture blocks and
-          detection head in nn.py and the loss port in loss.py.
+Used for: YOLO9 model family (libreyolo/models/yolo9/, yolo9_e2e/ and
+          yolo9_p2/): the architecture blocks, detection-head towers and
+          bias initialization in yolo9/nn.py (ported from
+          yolo/model/module.py and yolo/utils/module_utils.py); anchor
+          generation and box decoding (generate_anchors and Vec2Box in
+          yolo/utils/bounding_box_utils.py); the loss port in yolo9/loss.py
+          (yolo/tools/loss_functions.py and the BoxMatcher, Vec2Box and
+          calculate_iou code of bounding_box_utils.py, the latter also in
+          libreyolo/utils/box_ops.py compute_iou); the PGI auxiliary
+          branches in yolo9/nn.py (AuxNeck for yolo9-t/s; CBLinear, CBFuse
+          and AuxBackbone for yolo9-m/c, following the auxiliary sections
+          of yolo/config/model/v9-{t,s,m,c}.yaml) and the auxiliary-loss
+          weighting; the gradient-clipping value (yolo/lazy.py); and the
+          MixUp blend in libreyolo/data/augment/yolo9.py
+          (yolo/tools/data_augmentation.py).
           Also the YOLOv7 family (libreyolo/models/yolo7/): the architecture
           (net.py, blocks.py) and the Anc2Box anchor decode reproduced in
           postprocess/yolo7.py and mirrored by the training loss (loss.py:
           _decode). Upstream ships no v7 training loss, so training assignment
           is adapted from YOLOX (see the YOLOX entry above), not from here.
-
---------------------------------------------------------------------
-RepVGG (DingXiaoH)
---------------------------------------------------------------------
-Source: https://github.com/DingXiaoH/RepVGG
-License: MIT
-Copyright (c) 2020 DingXiaoH
-Used for: RepConv fuse / re-parameterization logic
-          (libreyolo/models/yolo9/nn.py RepConvN.fuse_convs).
 
 --------------------------------------------------------------------
 mmdetection (OpenMMLab)
@@ -457,6 +499,14 @@ Used for: RTMDet model family (libreyolo/models/rtmdet/): architecture
           DynamicSoftLabelAssigner and MlvlPointGenerator in loss.py.
           Published RTMDet and RTMDet-Ins COCO weights were trained with
           mmdetection.
+          YOLO9 pre-NMS candidate filtering (score threshold, then keep
+          the top ``nms_pre`` (anchor, class) pairs by score): adapted
+          from ``filter_scores_and_topk`` in mmdet/models/utils/misc.py,
+          with the ``nms_pre=30000`` value of
+          configs/rtmdet/rtmdet_l_8xb32-300e_coco.py, in
+          libreyolo/postprocess/yolo9.py (``_filter_scores_and_topk``),
+          libreyolo/backends/base.py (NumPy counterpart) and
+          libreyolo/export/nms.py (traced counterpart for ONNX export).
 
 --------------------------------------------------------------------
 mmsegmentation (OpenMMLab)
@@ -1863,11 +1913,12 @@ Source: https://github.com/MultimediaTechLab/YOLO
 License: MIT
 Copyright (c) 2024 Kin-Yiu, Wong and Hao-Tang, Tsui
 Used for: the LibreYOLO7 family (native port of YOLOv7,
-          libreyolo/models/yolo7) and the LibreYOLO9 detection head. This is
-          the original authors' MIT re-release, NOT the GPL-3.0
-          WongKinYiu/yolov7 or WongKinYiu/yolov9. Module names mirror upstream
-          so the MIT-licensed weights load unchanged; the v7.yaml model
-          definition is bundled under libreyolo/models/yolo7/.
+          libreyolo/models/yolo7) and the LibreYOLO9 family (blocks,
+          detection heads, anchor decoding and loss; see the YOLO entry
+          above). This is the original authors' MIT re-release, NOT the
+          GPL-3.0 WongKinYiu/yolov7 or WongKinYiu/yolov9. Module names mirror
+          upstream so the MIT-licensed weights load unchanged; the v7.yaml
+          model definition is bundled under libreyolo/models/yolo7/.
 
 MIT License
 

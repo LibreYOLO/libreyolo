@@ -1134,6 +1134,14 @@ class BaseModel(ABC):
             result[i] = sanitized.get(i, f"class_{i}")
         return result
 
+    def _upgrade_quant_manifest(self, manifest: dict) -> dict:
+        """Family hook: migrate module names in a saved quantization manifest.
+
+        Runs before the quantized structure is rebuilt. The default returns
+        the manifest unchanged.
+        """
+        return manifest
+
     def _load_weights(self, model_path: str):
         """Load model weights from file.
 
@@ -1253,6 +1261,7 @@ class BaseModel(ABC):
             if quant_manifest:
                 from ...quant import apply_quant_structure
 
+                quant_manifest = self._upgrade_quant_manifest(quant_manifest)
                 apply_quant_structure(self, quant_manifest)
 
             self._prepare_model_for_state_dict(state_dict)

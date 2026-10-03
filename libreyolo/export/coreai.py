@@ -152,82 +152,29 @@ def _freeze_anchor_grid(nn_model: nn.Module, dummy: torch.Tensor):
     """Bake a detection head's anchor grid as constants for the export canvas.
 
     The shared exporter sets ``head.export = True`` before handing the model
-    over. In that branch the head rebuilds its anchor grid from live feature
+    over. In that mode the head rebuilds its anchor grid from live feature
     shapes every forward, and ``torch.export`` turns the ``h * w`` products
     into unbacked symbols and refuses the graph. Core AI artifacts are
-    fixed-canvas, so the grid is a constant and can be frozen.
+    fixed-canvas, so the grid is a constant: heads that support it
+    (``YOLO9Head.freeze_anchor_grid``) pin the grid for ``dummy``'s H/W.
+    Wrapped models are searched through their ``.model`` attributes.
 
-    This deliberately does NOT reuse ``coreml._prepare_yolo9_static_eval``.
-    That helper runs its warm-up forward with ``export`` already ``True``, and
-    in that branch ``_grid`` returns early *without* populating
-    ``head.anchors`` / ``head.strides``. It therefore freezes whatever those
-    attributes held at construction, and transposing an unpopulated tensor
-    raises ``IndexError: Dimension out of range``. The fix is to warm up with
-    ``export`` temporarily disabled so the cache is genuinely filled.
-
-    Returns a callable restoring the original state.
+    Returns a callable that unfreezes the grid and restores ``head.export``.
     """
     target = nn_model
     head = getattr(target, "head", None)
     while head is None and isinstance(getattr(target, "model", None), nn.Module):
         target = target.model
         head = getattr(target, "head", None)
-    if head is None or not hasattr(head, "_anchor_grid"):
+    if head is None or not hasattr(head, "freeze_anchor_grid"):
         return lambda: None
 
     was_export = getattr(head, "export", False)
-    previous_anchors = getattr(head, "anchors", None)
-    previous_strides = getattr(head, "strides", None)
-    previous_shape = getattr(head, "shape", None)
-    had_instance_override = "_anchor_grid" in head.__dict__
-    previous_anchor_grid = head.__dict__.get("_anchor_grid")
-
-    def _restore_cache():
-        if hasattr(head, "anchors"):
-            head.anchors = previous_anchors
-        if hasattr(head, "strides"):
-            head.strides = previous_strides
-        if hasattr(head, "shape"):
-            head.shape = previous_shape
-
-    try:
-        # Warm up in NON-export mode so _grid populates the anchor cache.
-        # Input values are irrelevant; anchors depend only on feature geometry,
-        # which dummy's H/W fixes.
-        head.export = False
-        with torch.no_grad():
-            nn_model(dummy)
-        anchors = getattr(head, "anchors", None)
-        strides = getattr(head, "strides", None)
-        if anchors is None or strides is None or anchors.ndim < 2:
-            logger.warning(
-                "Could not freeze the anchor grid for this head; export may "
-                "fail on data-dependent shapes."
-            )
-            _restore_cache()
-            return lambda: None
-        frozen_anchors = anchors.detach().clone()
-        frozen_strides = strides.detach().clone()
-    except Exception:
-        _restore_cache()
-        raise
-    finally:
-        head.export = was_export
-
-    def _const_anchor_grid(feats):
-        del feats  # geometry is fixed by the export canvas
-        # The export branch of _grid transposes whatever this returns, so
-        # pre-transpose to survive the round trip unchanged.
-        return frozen_anchors.transpose(0, 1), frozen_strides.transpose(0, 1)
-
-    head._anchor_grid = _const_anchor_grid
+    head.freeze_anchor_grid((int(dummy.shape[-2]), int(dummy.shape[-1])))
 
     def _restore():
-        _restore_cache()
-        if had_instance_override:
-            head._anchor_grid = previous_anchor_grid
-        else:
-            head.__dict__.pop("_anchor_grid", None)
+        head.unfreeze_anchor_grid()
+        head.export = was_export
 
     return _restore
 

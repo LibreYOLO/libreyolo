@@ -88,6 +88,28 @@ def test_mixup_keeps_labels_from_both_images():
     )
 
 
+def test_mixup_keeps_float_images_float():
+    """``YOLO9TrainTransform`` hands mixup float32 images in [0, 1]. The blend
+    must stay float32: a uint8 cast would truncate nearly every pixel to 0
+    and silently wreck every mixup sample (yolo7 enables mixup by default)."""
+    ds = _make_dataset()
+
+    labels = np.zeros((50, 5), dtype=np.float32)
+    labels[:, 0] = -1
+    labels[0] = [3.0, 0.10, 0.10, 0.50, 0.50]
+    img = np.ones((3, 64, 64), dtype=np.float32)
+
+    mixed, _out = ds._mixup(img, labels)
+
+    assert mixed.dtype == np.float32
+    assert mixed.shape == img.shape
+    # Both inputs are uniform (1.0 and the stub partner's 120/255), so the
+    # blend is uniform and lies strictly between them.
+    value = float(mixed.flat[0])
+    assert np.allclose(mixed, value)
+    assert 120.0 / 255.0 < value < 1.0
+
+
 def test_mixup_output_is_padded_to_max_labels():
     """The result must still be a ``(max_labels, 5)`` block with class = -1
     padding, so the collate/loss path is unchanged."""

@@ -57,7 +57,7 @@ class YOLO9Trainer(BaseTrainer):
         if not getattr(self.config, "val_loss", False):
             return
 
-        from .nn import DDetect, LibreYOLO9Model
+        from .nn import LibreYOLO9Model, YOLO9Head
 
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         # ``isinstance`` covers yolo9_p2, which is the same dense head over a
@@ -66,7 +66,7 @@ class YOLO9Trainer(BaseTrainer):
         # trainer override.
         standard_model = (
             isinstance(self.model, LibreYOLO9Model)
-            and type(self.model.head) is DDetect
+            and type(self.model.head) is YOLO9Head
         )
         if task != "detect" or not standard_model:
             raise ValueError(
@@ -142,7 +142,12 @@ class YOLO9Trainer(BaseTrainer):
         # Attach PGI before optimizer / EMA / DDP when the resume file has it.
         # ``train(resume=True)`` already did this; this covers setup-first
         # callers that only pass the path to ``resume()`` later.
-        path = getattr(getattr(self, "wrapper_model", None), "model_path", None)
+        # The checkpoint being resumed decides the PGI branch, not the file
+        # the wrapper was first loaded from: swapping branches after the
+        # optimizer and EMA exist would leave them on stale parameters.
+        path = getattr(self, "resume_source", None) or getattr(
+            getattr(self, "wrapper_model", None), "model_path", None
+        )
         if path and self.wrapper_model is not None:
             self.wrapper_model._maybe_enable_aux_from_path(
                 path, getattr(self.config, "aux_weight", 0.25)
@@ -167,6 +172,22 @@ class YOLO9Trainer(BaseTrainer):
                     checkpoint.get("letterbox_pad")
                 )
         return super().resume(checkpoint_path)
+
+    def upgrade_resume_checkpoint(self, checkpoint):
+        """Rename legacy yolo9 keys in every saved model state.
+
+        Checkpoints written before the blocks took the upstream sublayer
+        names would otherwise fail the model load and silently drop the EMA
+        weights (the EMA restore only warns).
+        """
+        from .convert import upgrade_legacy_state_dict
+
+        if isinstance(checkpoint, dict):
+            for key in ("model", "train_model", "ema"):
+                state = checkpoint.get(key)
+                if isinstance(state, dict):
+                    checkpoint[key] = upgrade_legacy_state_dict(state)
+        return checkpoint
 
     def create_scheduler(self, iters_per_epoch: int):
         scheduler_name = self.config.scheduler
@@ -229,7 +250,7 @@ class YOLO9Trainer(BaseTrainer):
             CudaGraphTrainSpec,
             GraphableNetwork,
         )
-        from .nn import DDetect, LibreYOLO9Model
+        from .nn import LibreYOLO9Model, YOLO9Head
 
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         model = self.model
@@ -237,11 +258,11 @@ class YOLO9Trainer(BaseTrainer):
             return None
         if not isinstance(model, LibreYOLO9Model):
             return None
-        if type(model.head) is not DDetect:
+        if type(model.head) is not YOLO9Head:
             return None
 
         if getattr(model, "aux", None) is not None:
-            if type(getattr(model, "aux_head", None)) is not DDetect or model.aux_weight <= 0:
+            if type(getattr(model, "aux_head", None)) is not YOLO9Head or model.aux_weight <= 0:
                 return None
             network = GraphableNetwork(_PGITrainForward(model))
 
@@ -278,5 +299,5 @@ class _PGITrainForward(torch.nn.Module):
         model = self.model
         p3, p4, p5, b5 = model.backbone(x, return_b5=True)
         main = model.head(list(model.neck(p3, p4, p5)))
-        aux = model.aux_head(list(model.aux(p3, p4, b5)))
+        aux = model.aux_head(list(model.aux_features(x, p3, p4, b5)))
         return {"main": main, "aux": aux}

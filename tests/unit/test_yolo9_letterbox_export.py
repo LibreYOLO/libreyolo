@@ -56,7 +56,7 @@ def _tiny_yolo9(letterbox_pad: str):
     model.model.eval()
 
     head = model.model.head
-    finals = [seq[-1] for seq in [*head.cv2, *head.cv3]]
+    finals = [seq[-1] for seq in [*head.anchor_convs, *head.class_convs]]
     feature_std = {}
     hooks = [
         conv.register_forward_hook(
@@ -75,7 +75,7 @@ def _tiny_yolo9(letterbox_pad: str):
         scale = 2.0 / (conv.in_channels**0.5 * feature_std[conv])
         conv.weight.data = torch.randn(conv.weight.shape, generator=gen) * scale
         conv.bias.data.zero_()
-    for seq in head.cv2:
+    for seq in head.anchor_convs:
         # Favor short DFL distances so boxes do not all clip to the frame.
         seq[-1].bias.data = (-0.5 * torch.arange(16.0)).repeat(4)
     return model
