@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 
 BACKGROUND = "background"
+#: Key of the predicted-class name in every ``summary()`` row.
+PREDICTED = "Predicted"
 #: Tasks the matrix is defined for.
 CONFUSION_MATRIX_TASKS = ("detect", "classify")
 #: Confidence at or above which a detection is counted, unless the run's
@@ -24,10 +26,12 @@ CONFUSION_MATRIX_TASKS = ("detect", "classify")
 DEFAULT_CONF_THRES = 0.25
 #: IoU at or above which a detection can be paired with a ground-truth box.
 DEFAULT_IOU_THRES = 0.5
-#: Widest classification head the dense matrix is built for (0.8 GB of int64
-#: at this width; ImageNet-21k would need 3.8 GB). Wider heads are read
-#: through ``nonzero()``, ``tp_fp()`` and ``class_accuracy()``.
-MAX_DENSE_CLASSES = 10_000
+#: Widest classification head the dense matrix is built for. At this width
+#: the counts take 32 MB and a normalized ``summary()`` a few hundred; the
+#: cost grows with the square of the class count (ImageNet-21k would need
+#: 3.8 GB for the counts alone). Wider heads are read through ``nonzero()``,
+#: ``tp_fp()`` and ``class_accuracy()``.
+MAX_DENSE_CLASSES = 2_000
 
 
 def _box_iou(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
@@ -261,8 +265,9 @@ class ConfusionMatrix:
     def labels(self) -> List[str]:
         """Row/column labels: the class names, plus ``background`` for detect."""
         labels = [self.names[i] for i in range(self.nc)]
-        if len(set(labels)) != len(labels) or BACKGROUND in labels:
-            # Labels key the summary rows; keep them unique.
+        if len(set(labels)) != len(labels) or {BACKGROUND, PREDICTED} & set(labels):
+            # Labels key the summary rows; keep them unique, and distinct
+            # from the background label and the row-name key.
             labels = [f"{i}: {name}" for i, name in enumerate(labels)]
         if self.task == "detect":
             labels.append(BACKGROUND)
@@ -325,7 +330,7 @@ class ConfusionMatrix:
         values = self.normalized() if normalize else self.matrix
         rows = []
         for i, label in enumerate(labels):
-            row: Dict[str, Any] = {"Predicted": label}
+            row: Dict[str, Any] = {PREDICTED: label}
             for j, true_label in enumerate(labels):
                 value = values[i, j]
                 row[true_label] = (
@@ -343,7 +348,7 @@ class ConfusionMatrix:
         rows = self.summary(normalize=normalize, decimals=decimals)
         buffer = io.StringIO()
         writer = csv.DictWriter(
-            buffer, fieldnames=["Predicted", *self.labels], lineterminator="\n"
+            buffer, fieldnames=[PREDICTED, *self.labels], lineterminator="\n"
         )
         writer.writeheader()
         writer.writerows(rows)

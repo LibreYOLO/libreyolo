@@ -54,8 +54,6 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
     #: It stores only the pairs that occur, so it too stays small for wide
     #: heads. Sized lazily from the logits width, like the vectors above.
     confusion_matrix = None
-    #: Widest head the confusion-matrix plots are drawn for.
-    _MAX_PLOT_CLASSES = 2000
 
     def __init__(
         self,
@@ -347,10 +345,12 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
 
     def _save_plots(self, metrics: Dict[str, float]) -> None:
         """Save the confusion matrix as raw counts and as per-label shares."""
+        from .confusion_matrix import MAX_DENSE_CLASSES  # noqa: PLC0415
+
         confusion_matrix = self.confusion_matrix
         if confusion_matrix is None:
             return
-        if confusion_matrix.nc > self._MAX_PLOT_CLASSES:
+        if confusion_matrix.nc > MAX_DENSE_CLASSES:
             logger.info(
                 "Skipping the confusion matrix plots for %d classes; read "
                 "results.confusion_matrix.nonzero() instead.",

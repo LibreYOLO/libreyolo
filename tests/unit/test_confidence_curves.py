@@ -213,6 +213,57 @@ def test_category_ids_are_mapped_back_to_model_labels():
     assert curves["labels"].tolist() == [2]
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_run_without_predictions_keeps_the_ground_truth_classes(backend):
+    """No detections at all: flat curves, not missing ones (#931 review)."""
+    annotations, _ = _fixture()
+    annotations.append(_gt(9, 3, 100, 100, iscrowd=1))  # crowd-only: no row
+    evaluator = _evaluate(annotations, [], backend=backend)
+    curves = evaluator.confidence_curves()
+
+    assert curves["px"].shape == (1000,)
+    assert curves["labels"].tolist() == [0, 1]
+    assert (curves["p"] == 1.0).all()
+    assert (curves["r"] == 0.0).all()
+    assert (curves["f1"] == 0.0).all()
+    assert evaluator.best_conf_thresholds() is None
+
+    box = BoxImageMetrics({}, None, curves)
+    assert box.ap_class_index.tolist() == [0, 1]
+    assert box.f1.tolist() == [0.0, 0.0] and box.p.tolist() == [1.0, 1.0]
+
+
+def test_an_empty_run_does_not_reuse_an_earlier_evaluation():
+    evaluator = _evaluate(*_fixture())
+    assert evaluator.confidence_curves()["r"].max() > 0
+
+    evaluator.reset()
+    evaluator.compute()
+
+    assert evaluator.confidence_curves()["r"].max() == 0.0
+    assert evaluator.best_conf_thresholds() is None
+
+
+def test_empty_run_counts_only_the_validated_images():
+    from pycocotools.coco import COCO
+
+    coco = COCO()
+    coco.dataset = {
+        "images": [
+            {"id": 1, "file_name": "a.jpg", "width": 200, "height": 200},
+            {"id": 2, "file_name": "b.jpg", "width": 200, "height": 200},
+        ],
+        "annotations": [_gt(1, 1, 0, 0, image_id=1), _gt(2, 2, 0, 0, image_id=2)],
+        "categories": [dict(c) for c in CATEGORIES],
+    }
+    coco.createIndex()
+    evaluator = COCOEvaluator(coco, label_to_category_id=LABEL_MAP)
+    evaluator.update({"boxes": [], "scores": [], "classes": []}, image_id=1)
+    evaluator.compute()
+
+    assert evaluator.confidence_curves()["labels"].tolist() == [0]
+
+
 def test_no_evaluation_gives_none():
     from pycocotools.coco import COCO
 

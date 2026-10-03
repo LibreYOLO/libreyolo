@@ -85,6 +85,8 @@ class COCOEvaluator:
         # call: the best-confidence sweep and the confidence curves read the
         # same arrays, and rebuilding them is the costly part.
         self._match_arrays_cache = None
+        # Whether the last compute() call found no predictions to evaluate.
+        self._computed_without_predictions = False
         # Provenance: backend actually used by the last compute() call.
         self.last_backend: Optional[str] = None
 
@@ -181,8 +183,12 @@ class COCOEvaluator:
                 json.dump(self.results, f, indent=2)
             logger.info("Saved predictions to %s", Path(save_json).resolve())
 
+        self._computed_without_predictions = len(self.results) == 0
         if len(self.results) == 0:
             logger.warning("No predictions to evaluate")
+            # Nothing from an earlier compute() describes this run.
+            self._last_coco_eval = None
+            self._match_arrays_cache = None
             return self._empty_metrics()
 
         coco_eval = self._build_coco_eval()
@@ -449,10 +455,15 @@ class COCOEvaluator:
             ``(len(labels), points)`` arrays.
         """
         coco_eval = self._last_coco_eval
-        if coco_eval is None:
-            return None
         try:
-            source = self._per_class_match_arrays(coco_eval, iou_thr)
+            if coco_eval is not None:
+                source = self._per_class_match_arrays(coco_eval, iou_thr)
+            elif getattr(self, "_computed_without_predictions", False):
+                # compute() skips COCO evaluation when nothing was predicted;
+                # the classes with ground truth still get their (flat) rows.
+                source = self._ground_truth_only_arrays()
+            else:
+                return None
         except Exception as exc:  # backend without a usable match source
             logger.debug("Confidence curves unavailable: %s", exc)
             return None
@@ -478,6 +489,30 @@ class COCOEvaluator:
             "p": np.asarray([row[1] for row in rows], dtype=np.float64).reshape(shape),
             "r": np.asarray([row[2] for row in rows], dtype=np.float64).reshape(shape),
             "f1": np.asarray([row[3] for row in rows], dtype=np.float64).reshape(shape),
+        }
+
+    def _ground_truth_only_arrays(
+        self,
+    ) -> Dict[int, Tuple[np.ndarray, np.ndarray, int]]:
+        """Per-category sweep arrays for a run that produced no predictions.
+
+        Empty detection arrays and the count of non-ignored ground truths in
+        the validated images, so every class with ground truth still reports
+        recall 0 at every confidence.
+        """
+        counts: Dict[int, int] = {}
+        for ann in self.coco_gt.anns.values():
+            if self._img_ids and ann["image_id"] not in self._img_ids:
+                continue
+            if ann.get("iscrowd") or ann.get("ignore"):
+                continue
+            category = int(ann["category_id"])
+            counts[category] = counts.get(category, 0) + 1
+        empty_scores = np.zeros(0, dtype=np.float64)
+        empty_tps = np.zeros(0, dtype=bool)
+        return {
+            category: (empty_scores, empty_tps, count)
+            for category, count in counts.items()
         }
 
     @staticmethod

@@ -21,6 +21,11 @@ before 1.4.0 are documented in the
 - **Classification validation results object. (#928)**
   Classification `val()` results gain `top1`, `top5` and `confusion_matrix`, and `plots=True` saves the confusion matrix. The returned object is still the same flat metrics dict.
 
+### Fixed
+
+- **TensorRT batched predict with `classes` and a small `max_det`. (#928)**
+  The batched path cut to `max_det` before the class filter, so it could return fewer boxes than `batch=1`. It now uses the same candidate budget as single-image predict.
+
 ### Changed
 
 - **Confusion matrix plots. (#928)**

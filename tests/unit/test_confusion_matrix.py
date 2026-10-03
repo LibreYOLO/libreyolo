@@ -204,6 +204,24 @@ class TestExport:
         assert len(cm.summary()[0]) == 3
         assert cm.class_accuracy() == {"0: crane": 0.5, "1: crane": 1.0}
 
+    @pytest.mark.parametrize("reserved", ["Predicted", "background"])
+    def test_a_class_named_like_a_reserved_key_does_not_corrupt_rows(self, reserved):
+        """The row-name key and the background label stay unambiguous."""
+        cm = ConfusionMatrix(nc=2, names=["cat", reserved])
+        cm.process_image(
+            np.array([_box(0, 0)]), np.array([1]), np.array([0.9]),
+            np.array([_box(0, 0)]), np.array([0]),
+        )
+        rows = cm.summary()
+
+        assert cm.labels == ["0: cat", f"1: {reserved}", "background"]
+        assert [row["Predicted"] for row in rows] == cm.labels
+        assert all(len(row) == 4 for row in rows)
+        assert rows[1]["0: cat"] == 1
+        header = cm.to_csv().split("\n")[0].split(",")
+        assert len(header) == len(set(header)) == 4
+        assert json.loads(cm.to_json()) == rows
+
     def test_names_accept_a_dict_and_fill_gaps(self):
         cm = ConfusionMatrix(nc=3, names={0: "a", 2: "c"}, task="classify")
         assert cm.labels == ["a", "1", "c"]
@@ -252,8 +270,14 @@ class TestClassification:
         assert cm.class_accuracy() == {"5": 1.0, "7": 0.0}
         assert "total=2" in repr(cm)
 
-    def test_dense_accessors_refuse_heads_too_wide_to_build(self):
-        cm = ConfusionMatrix(nc=21_841, task="classify")
+    def test_imagenet_1k_is_within_the_dense_limit(self):
+        cm = ConfusionMatrix(nc=1000, task="classify")
+        cm.process_cls_preds([3], [3])
+        assert cm.matrix.shape == (1000, 1000)
+
+    @pytest.mark.parametrize("nc", [2_001, 21_841])
+    def test_dense_accessors_refuse_heads_too_wide_to_build(self, nc):
+        cm = ConfusionMatrix(nc=nc, task="classify")
         cm.process_cls_preds([5, 9, 9], [5, 7, 7])
 
         for dense in (lambda: cm.matrix, cm.normalized, cm.summary, cm.to_csv, cm.to_json):

@@ -11,10 +11,12 @@ import torch
 
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.serialization import warn_on_metadata_schema_version
+from ..utils.predict_args import postprocess_max_det
 from .base import (
     classify_eval_kwargs,
     BaseBackend,
     ImageSize,
+    _AGNOSTIC_NMS,
     _imgsz_hw,
     _read_metadata_imgsz,
     _read_pose_metadata,
@@ -508,7 +510,11 @@ class TensorRTBackend(BaseBackend):
                         conf,
                         ratio=ratio if ratio is not None else 1.0,
                         iou=iou,
-                        max_det=max_det,
+                        # The same candidate budget as _predict_single:
+                        # _build_result filters, suppresses, then cuts.
+                        max_det=postprocess_max_det(
+                            max_det, classes, _AGNOSTIC_NMS.get()
+                        ),
                     )
                     boxes, max_scores, class_ids, masks, obb, keypoints = (
                         self._unpack_parsed_outputs(parsed)
