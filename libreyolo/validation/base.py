@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -22,6 +23,12 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
 
+    from .confusion_matrix import ConfusionMatrix
+
+
+def _empty_curve() -> np.ndarray:
+    return np.zeros((0, 0), dtype=np.float64)
+
 
 class BoxImageMetrics:
     """``results.box``: per-image and per-class results for detect and segment.
@@ -30,22 +37,49 @@ class BoxImageMetrics:
     ``best_conf_per_class`` maps each class name to its F1-optimal confidence
     threshold (IoU 0.50 matching), 0.0 for classes where no threshold reaches
     F1 > 0; empty when the validator does not run the sweep (segmentation).
+
+    The curve attributes (#928) describe each class across confidence
+    thresholds, at IoU 0.50 matching. ``px`` holds the confidences (1000
+    values over [0, 1]); ``p_curve``, ``r_curve`` and ``f1_curve`` are
+    ``(classes, len(px))`` arrays of precision, recall and F1, one row per
+    entry of ``ap_class_index`` (the class indices with ground truth, in
+    ascending order). ``p``, ``r`` and ``f1`` are the per-class values at the
+    confidence that maximizes the mean F1 over those classes. All are empty
+    when the validator produced no curves.
     """
 
     def __init__(
         self,
         image_metrics: Dict[str, Dict[str, float]],
         best_conf_per_class: Optional[Dict[str, float]] = None,
+        curves: Optional[Dict[str, np.ndarray]] = None,
     ) -> None:
         self.image_metrics = image_metrics
         self.best_conf_per_class = dict(best_conf_per_class or {})
+        curves = curves or {}
+        self.px = np.asarray(curves.get("px", np.zeros(0)), dtype=np.float64)
+        self.ap_class_index = np.asarray(
+            curves.get("labels", np.zeros(0)), dtype=np.int64
+        )
+        self.p_curve = np.asarray(curves.get("p", _empty_curve()), dtype=np.float64)
+        self.r_curve = np.asarray(curves.get("r", _empty_curve()), dtype=np.float64)
+        self.f1_curve = np.asarray(curves.get("f1", _empty_curve()), dtype=np.float64)
+        if self.f1_curve.size:
+            best = int(self.f1_curve.mean(axis=0).argmax())
+            self.p = self.p_curve[:, best].copy()
+            self.r = self.r_curve[:, best].copy()
+            self.f1 = self.f1_curve[:, best].copy()
+        else:
+            self.p = np.zeros(0, dtype=np.float64)
+            self.r = np.zeros(0, dtype=np.float64)
+            self.f1 = np.zeros(0, dtype=np.float64)
 
     def __repr__(self) -> str:
         return f"BoxImageMetrics({len(self.image_metrics)} images)"
 
 
 class ValidationMetrics(dict):
-    """The metrics dict ``val()`` returns, plus per-image results.
+    """The metrics dict ``val()`` returns, plus per-image and per-class results.
 
     It is a plain, flat ``dict`` of metric keys to finite numbers. Per-image
     and per-class results live on ``box`` instead. ``box.image_metrics`` maps
@@ -53,28 +87,70 @@ class ValidationMetrics(dict):
     ``fp`` and ``fn``, as in the ecosystem's validation results, so the images
     a model gets wrong are ``[k for k, m in r.box.image_metrics.items() if
     m["fp"] or m["fn"]]``. ``box.best_conf_per_class`` maps class names to
-    F1-optimal confidence thresholds. Detect and segment only; segmentation
-    counts boxes.
+    F1-optimal confidence thresholds, and ``box.p_curve`` / ``box.r_curve`` /
+    ``box.f1_curve`` hold each class's precision, recall and F1 across the
+    confidences in ``box.px``. Detect and segment only; segmentation counts
+    boxes.
+
+    ``confusion_matrix`` is the run's :class:`ConfusionMatrix`
+    (``matrix[predicted, true]``, ``summary()``, ``to_df()``), or None for
+    tasks without one.
     """
 
     def __init__(
         self,
         metrics: Dict[str, Any],
-        image_metrics: Dict[str, Dict[str, float]],
+        image_metrics: Optional[Dict[str, Dict[str, float]]] = None,
         best_conf_per_class: Optional[Dict[str, float]] = None,
+        *,
+        curves: Optional[Dict[str, np.ndarray]] = None,
+        confusion_matrix: Optional["ConfusionMatrix"] = None,
     ) -> None:
         super().__init__(metrics)
-        self.box = BoxImageMetrics(image_metrics, best_conf_per_class)
+        if image_metrics is not None:
+            self.box = BoxImageMetrics(image_metrics, best_conf_per_class, curves)
+        self.confusion_matrix = confusion_matrix
+
+
+class ClassifyMetrics(ValidationMetrics):
+    """Classification ``val()`` results: the metrics dict plus ecosystem names.
+
+    ``top1`` and ``top5`` are the top-1 and top-5 accuracies (the
+    ``metrics/accuracy_top1`` and ``metrics/accuracy_top5`` entries), and
+    ``confusion_matrix`` counts top-1 predictions against labels.
+    """
+
+    @property
+    def top1(self) -> float:
+        return float(self.get("metrics/accuracy_top1", 0.0))
+
+    @property
+    def top5(self) -> float:
+        return float(self.get("metrics/accuracy_top5", 0.0))
 
 
 def with_image_metrics(metrics: Any, validator: Any) -> Any:
-    """Attach a validator's per-image and per-class results to ``val()``'s metrics."""
-    image_metrics = getattr(validator, "image_metrics", None)
-    if image_metrics is None or not isinstance(metrics, dict):
+    """Attach a validator's per-image, per-class and confusion results.
+
+    Detect and segment validators yield a :class:`ValidationMetrics` with
+    ``box`` and ``confusion_matrix``; the classify validator a
+    :class:`ClassifyMetrics`. Other validators' metrics pass through.
+    """
+    if not isinstance(metrics, dict):
         return metrics
-    return ValidationMetrics(
-        metrics, image_metrics, getattr(validator, "best_conf_per_class", None)
-    )
+    confusion_matrix = getattr(validator, "confusion_matrix", None)
+    image_metrics = getattr(validator, "image_metrics", None)
+    if image_metrics is not None:
+        return ValidationMetrics(
+            metrics,
+            image_metrics,
+            getattr(validator, "best_conf_per_class", None),
+            curves=getattr(validator, "confidence_curves", None),
+            confusion_matrix=confusion_matrix,
+        )
+    if getattr(validator, "task", None) == "classify":
+        return ClassifyMetrics(metrics, confusion_matrix=confusion_matrix)
+    return metrics
 
 
 class BaseValidator(ABC):
@@ -84,6 +160,9 @@ class BaseValidator(ABC):
     #: Whether this validator draws ``visualize=True`` images (#887). Others
     #: reject the flag instead of accepting and ignoring it.
     supports_visualize: bool = False
+    #: Whether this validator applies ``agnostic_nms=True`` (#928). Others
+    #: reject the flag instead of accepting and ignoring it.
+    supports_agnostic_nms: bool = False
 
     def __init__(
         self,
@@ -99,6 +178,15 @@ class BaseValidator(ABC):
             raise ValueError(
                 f"visualize=True is not supported by {type(self).__name__}; "
                 f"it covers {', '.join(VISUALIZE_TASKS)}"
+            )
+
+        if (
+            getattr(self.config, "agnostic_nms", False)
+            and not self.supports_agnostic_nms
+        ):
+            raise ValueError(
+                f"agnostic_nms=True is not supported by {type(self).__name__}; "
+                "it covers detect and segment validation"
             )
 
         self.device = self._setup_device()

@@ -7,6 +7,33 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+### Added
+
+- **Class-agnostic NMS. (#928)**
+  `predict(agnostic_nms=True)` and `val(agnostic_nms=True)` (CLI `--agnostic-nms`) keep only the highest-scoring box among boxes that overlap above `iou`, whatever their classes. It is one step applied to a family's finished detections, after the `classes` filter, so it works for every family that returns boxes (NMS-free families and exported backends included) and for masks, keypoints and oriented boxes (rotated IoU). Predict covers detect, segment, pose and OBB; validation covers detect and segment. Other tasks and predict paths raise instead of ignoring it.
+
+- **Confusion matrix on validation results. (#928)**
+  `val()` returns `results.confusion_matrix` for detect, segment and classify: `matrix[predicted, true]` (detection adds a `background` row and column), with `summary()`, `to_df()` (Polars, optional), `to_csv()`, `to_json()`, `tp_fp()`, `nonzero()`, `plot()` and `class_accuracy()`, the share of found objects of each class that got that class. It is computed on every validation, not only with `plots=True`.
+
+- **Per-class precision, recall and F1 across confidence thresholds. (#928)**
+  Detect and segment results expose `box.p_curve`, `box.r_curve` and `box.f1_curve` over `box.px` (1000 confidences, IoU 0.5 matching), one row per class in `box.ap_class_index`, plus `box.p`, `box.r` and `box.f1` at the confidence that maximizes mean F1. `plots=True` also writes `f1_conf_box.png`.
+
+- **Classification validation results object. (#928)**
+  Classification `val()` results gain `top1`, `top5` and `confusion_matrix`, and `plots=True` saves the confusion matrix. The returned object is still the same flat metrics dict.
+
+### Fixed
+
+- **TensorRT batched predict with `classes` and a small `max_det`. (#928)**
+  The batched path cut to `max_det` before the class filter, so it could return fewer boxes than `batch=1`. It now uses the same candidate budget as single-image predict.
+
+### Changed
+
+- **Confusion matrix plots. (#928)**
+  `plots=True` now writes raw counts to `confusion_matrix.png` and per-true-class shares to `confusion_matrix_normalized.png` (previously one normalized image named `confusion_matrix.png`). Detections are counted at confidence 0.25, or `conf` if higher, instead of a fixed 0.15, matching `visualize` and `box.image_metrics`; with `classes=`, ground truth of the dropped classes is no longer counted as missed. The exported `libreyolo.validation.ConfusionMatrix` now indexes `matrix[predicted, true]` (it was `[actual, predicted]`).
+
+- **`agnostic_nms` is no longer a silent no-op in `predict()`. (#928)**
+  It used to warn and do nothing. `agnostic_nms=False` is still accepted everywhere.
+
 ## [1.6.0] - 2026-09-27
 
 Three new tasks (`detect3d`, `albedo` and `act`, taking the canonical task list from 17 to 20), 34 new top-level `Libre*` exports (31 model classes, the `LibreLLM` client and the `LibreGround` and `LibreVLA` factories), validation error analysis, and a release QA pass over 1.5.0 behavior. 592 commits, 105 merged pull requests. Several changes move outputs or numbers you may be comparing against v1.5.0 (NumPy channel order, batched inputs, resume, RF-DETR preprocessing, EdgeCrafter pose, COCO evaluation ids): read **Changed** and **Breaking changes** before upgrading.

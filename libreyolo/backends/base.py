@@ -5,9 +5,11 @@
 # down.
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -59,6 +61,7 @@ from ..utils.general import (
 from ..utils.image_loader import ImageLoader
 from ..utils.model_info import build_model_info, format_model_info
 from ..utils.predict_args import (
+    check_agnostic_nms,
     normalize_classes,
     normalize_predict_kwargs,
     postprocess_max_det,
@@ -323,6 +326,28 @@ def _validate_letterbox_pad(value) -> str:
     return value
 
 
+# Whether the predict call in progress asked for agnostic_nms=True. The
+# request enters at ``BaseBackend.__call__`` and is consumed in
+# ``_build_result``; a context variable carries it past the runtime-specific
+# batching overrides in between, whose signatures are fixed.
+_AGNOSTIC_NMS: ContextVar[bool] = ContextVar(
+    "libreyolo_backend_agnostic_nms", default=False
+)
+
+
+def _agnostic_nms_scoped(results: Generator) -> Generator:
+    """Run each step of a lazy predict generator with agnostic NMS on."""
+    while True:
+        token = _AGNOSTIC_NMS.set(True)
+        try:
+            item = next(results)
+        except StopIteration:
+            return
+        finally:
+            _AGNOSTIC_NMS.reset(token)
+        yield item
+
+
 def _nms_numpy(
     boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.45
 ) -> list:
@@ -351,6 +376,41 @@ def _nms_numpy(
         order = order[np.where(iou <= iou_threshold)[0] + 1]
 
     return keep
+
+
+def _agnostic_nms_keep_numpy(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    iou_threshold: float,
+    obb: "np.ndarray | None" = None,
+) -> np.ndarray:
+    """Indices kept by class-agnostic NMS, in their input order.
+
+    The numpy counterpart of ``libreyolo.ops.agnostic_nms.agnostic_nms_keep``
+    (same rule: a box is dropped when a higher-scoring kept box overlaps it
+    above the threshold; non-finite rows pass through), so this module stays
+    importable without torch. Rotated boxes use the shared rotated-IoU NMS.
+    """
+    scores = np.asarray(scores, dtype=np.float64)
+    if obb is not None:
+        from ..ops.agnostic_nms import agnostic_rotated_nms_keep
+
+        keep = agnostic_rotated_nms_keep(
+            torch.from_numpy(np.asarray(obb, dtype=np.float32)[:, :5]),
+            torch.from_numpy(scores.astype(np.float32)),
+            iou_threshold,
+        )
+        return keep.numpy()
+    boxes = np.asarray(boxes, dtype=np.float64)
+    finite = np.isfinite(boxes).all(axis=1) & np.isfinite(scores)
+    candidates = np.flatnonzero(finite)
+    kept = candidates[
+        np.asarray(
+            _nms_numpy(boxes[candidates], scores[candidates], iou_threshold),
+            dtype=np.int64,
+        )
+    ]
+    return np.sort(np.concatenate([kept, np.flatnonzero(~finite)]))
 
 
 def _batched_nms_numpy(
@@ -4127,6 +4187,21 @@ class BaseBackend(ABC):
             if keypoints is not None:
                 keypoints = keypoints[cls_keep]
 
+        # Class-agnostic NMS (agnostic_nms=True), the same step native predict
+        # applies: after the classes filter, before the max_det cut.
+        if _AGNOSTIC_NMS.get() and len(boxes) > 1:
+            keep = _agnostic_nms_keep_numpy(boxes, max_scores, iou, obb=obb)
+            if len(keep) < len(boxes):
+                boxes = boxes[keep]
+                max_scores = max_scores[keep]
+                class_ids = class_ids[keep]
+                if masks is not None:
+                    masks = masks[keep]
+                if obb is not None:
+                    obb = obb[keep]
+                if keypoints is not None:
+                    keypoints = keypoints[keep]
+
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
             boxes = boxes[top_indices]
@@ -4548,6 +4623,13 @@ class BaseBackend(ABC):
                 f"visualize=True is not supported for task '{self.task}'; "
                 f"it covers {', '.join(VISUALIZE_TASKS)}"
             )
+        from libreyolo.validation.config import AGNOSTIC_NMS_VAL_TASKS
+
+        if kwargs.get("agnostic_nms") and self.task not in AGNOSTIC_NMS_VAL_TASKS:
+            raise ValueError(
+                f"agnostic_nms=True is not supported for task '{self.task}' "
+                f"validation; it covers {', '.join(AGNOSTIC_NMS_VAL_TASKS)}"
+            )
 
         validation_device = device or (
             self.device
@@ -4802,7 +4884,7 @@ class BaseBackend(ABC):
             conf,
             ratio=ratio,
             iou=iou,
-            max_det=postprocess_max_det(max_det, classes),
+            max_det=postprocess_max_det(max_det, classes, _AGNOSTIC_NMS.get()),
         )
         boxes, max_scores, class_ids, masks, obb, keypoints = (
             self._unpack_parsed_outputs(parsed)
@@ -5103,7 +5185,7 @@ class BaseBackend(ABC):
                     conf,
                     ratio=ratio,
                     iou=iou,
-                    max_det=postprocess_max_det(max_det, classes),
+                    max_det=postprocess_max_det(max_det, classes, _AGNOSTIC_NMS.get()),
                 )
                 boxes, max_scores, class_ids, masks, obb, keypoints = (
                     self._unpack_parsed_outputs(parsed)
@@ -5159,9 +5241,43 @@ class BaseBackend(ABC):
         show: bool = False,
         output_path: str | None = None,
         color_format: str = "auto",
+        agnostic_nms: bool = False,
         **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
-        """Run inference on images, directories, videos, or screen captures."""
+        """Run inference on images, directories, videos, or screen captures.
+
+        ``agnostic_nms`` keeps only the highest-scoring box among boxes that
+        overlap above ``iou``, whatever their classes, exactly as native
+        ``predict()`` does (detect, segment, pose and OBB).
+        """
+        if agnostic_nms and check_agnostic_nms(True, getattr(self, "task", None)):
+            # Re-enter with the request held in a context variable instead of
+            # an argument (see _AGNOSTIC_NMS).
+            token = _AGNOSTIC_NMS.set(True)
+            try:
+                results = self(
+                    source,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    device=device,
+                    classes=classes,
+                    max_det=max_det,
+                    save=save,
+                    batch=batch,
+                    stream=stream,
+                    stream_buffer=stream_buffer,
+                    vid_stride=vid_stride,
+                    show=show,
+                    output_path=output_path,
+                    color_format=color_format,
+                    **kwargs,
+                )
+            finally:
+                _AGNOSTIC_NMS.reset(token)
+            if inspect.isgenerator(results):
+                return _agnostic_nms_scoped(results)
+            return results
         normalize_predict_kwargs(kwargs)
         classes = normalize_classes(classes)
         if device not in (None, "", "auto", self.device):
@@ -5392,7 +5508,7 @@ class BaseBackend(ABC):
                 conf,
                 ratio=ratio,
                 iou=iou,
-                max_det=postprocess_max_det(max_det, classes),
+                max_det=postprocess_max_det(max_det, classes, _AGNOSTIC_NMS.get()),
             )
             boxes, max_scores, class_ids, masks, obb, keypoints = (
                 self._unpack_parsed_outputs(parsed)

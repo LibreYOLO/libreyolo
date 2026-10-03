@@ -18,6 +18,8 @@ from libreyolo.utils.plot_samples import (  # noqa: F401  (re-exported)
 
 #: Tasks whose validators draw ``visualize=True`` images (#887).
 VISUALIZE_TASKS = ("detect", "segment", "classify")
+#: Tasks ``val(agnostic_nms=True)`` covers (#928).
+AGNOSTIC_NMS_VAL_TASKS = ("detect", "segment")
 
 #: ``val(project=, name=)`` defaults, shared with the CLI.
 DEFAULT_VAL_PROJECT = "runs/val"
@@ -77,6 +79,11 @@ class ValidationConfig:
         imgsz: Image size for validation. Accepts an int (square) or (height, width) tuple.
         conf_thres: Confidence threshold. Use 0.0 or a low value for mAP calculation.
         iou_thres: IoU threshold for NMS.
+        agnostic_nms: Class-agnostic NMS: among boxes that overlap above
+            ``iou_thres`` only the highest-scoring one is kept, whatever their
+            classes. Applied to the family's finished detections, so it works
+            the same for every detection family. Detect and segment only.
+            Default False.
         max_det: Maximum predictions per image after postprocessing.
         eval_max_det: Optional maximum detections used by COCO evaluation.
             None preserves pycocotools' default AP@100 behavior.
@@ -129,6 +136,7 @@ class ValidationConfig:
     imgsz: Union[int, Tuple[int, int]] = 640
     conf_thres: float = 0.001
     iou_thres: float = 0.6
+    agnostic_nms: bool = field(default=False, kw_only=True)
     max_det: int = 300
     eval_max_det: Optional[int] = field(default=None, kw_only=True)
 
