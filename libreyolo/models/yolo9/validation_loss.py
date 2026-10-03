@@ -9,7 +9,7 @@ import torch
 from torch import nn
 
 from .loss import YOLO9Loss
-from .nn import DDetect, LibreYOLO9Model
+from .nn import LibreYOLO9Model, YOLO9Head
 
 
 class YOLO9ValidationLoss:
@@ -18,7 +18,7 @@ class YOLO9ValidationLoss:
     def __init__(self, model: nn.Module, *, max_labels: int) -> None:
         # yolo9_p2 is the same dense head with a fourth stride, so it shares
         # this adapter; the strides below come from the head either way.
-        if not isinstance(model, LibreYOLO9Model) or type(model.head) is not DDetect:
+        if not isinstance(model, LibreYOLO9Model) or type(model.head) is not YOLO9Head:
             raise TypeError(
                 "YOLO9 validation loss supports the standard detect model only"
             )
@@ -26,12 +26,12 @@ class YOLO9ValidationLoss:
         self.max_labels = int(max_labels)
         if self.max_labels < 1:
             raise ValueError("YOLO9 validation-loss max_labels must be at least 1")
-        self.num_classes = int(model.head.nc)
+        self.num_classes = int(model.head.num_classes)
         self.device = next(model.parameters()).device
         self.loss = YOLO9Loss(
             num_classes=self.num_classes,
             reg_max=int(model.head.reg_max),
-            strides=[int(value) for value in model.head.stride.detach().cpu().tolist()],
+            strides=list(model.head.strides),
             image_size=None,
             device=self.device,
             distributed_normalize=False,

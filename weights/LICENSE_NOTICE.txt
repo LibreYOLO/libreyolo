@@ -20,6 +20,11 @@ project the weights were derived from. Per-family summary:
     YOLO9    (LibreYOLO9{t,s,m,c})                     MIT
              upstream: MultimediaTechLab/YOLO
 
+    YOLO9-E2E (LibreYOLO9E2E{t,s,m,c})                 MIT
+             backbone, neck and one-to-many head from the LibreYOLO9
+             weights (upstream: MultimediaTechLab/YOLO); the NMS-free
+             one-to-one head was trained by LibreYOLO
+
     YOLOv1   (LibreYOLO1{t,b})                         public domain
     YOLOv2   (LibreYOLO2{t,b})                         public domain
     YOLOv3   (LibreYOLO3{t,b,spp})                     public domain

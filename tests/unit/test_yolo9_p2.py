@@ -138,16 +138,40 @@ def test_yolo9_p2_transfer_remap_from_base_yolo9():
     assert unmatched == []
 
     # Towers shifted by one: base tower 0 (P3) now sits at index 1.
-    assert "head.cv2.1.0.conv.weight" in prepared
-    assert not any(key.startswith("head.cv2.0.") for key in prepared)
-    assert any(key.startswith("head.cv2.3.") for key in prepared)
+    assert "head.anchor_convs.1.0.conv.weight" in prepared
+    assert not any(key.startswith("head.anchor_convs.0.") for key in prepared)
+    assert any(key.startswith("head.anchor_convs.3.") for key in prepared)
+    assert any(key.startswith("head.class_convs.3.") for key in prepared)
 
     # Fresh modules receive nothing from the checkpoint.
     leftover = set(current) - set(prepared)
     assert any(key.startswith("neck.elan_up3.") for key in leftover)
     assert any(key.startswith("neck.elan_down0.") for key in leftover)
-    assert any(key.startswith("head.cv2.0.") for key in leftover)
-    assert any(key.startswith("head.cv3.0.") for key in leftover)
+    assert any(key.startswith("head.anchor_convs.0.") for key in leftover)
+    assert any(key.startswith("head.class_convs.0.") for key in leftover)
+
+
+def test_yolo9_p2_transfer_remap_from_legacy_layout_base_yolo9():
+    """Base checkpoints written with the pre-rename keys (``cv*``/``m`` blocks,
+    ``cv2``/``cv3`` towers, ``detect.`` prefix, DFL weight) shift the same way."""
+    from libreyolo import LibreYOLO9, LibreYOLO9P2
+
+    base_sd = LibreYOLO9(None, size="t", device="cpu").model.state_dict()
+    legacy = {}
+    for key, value in base_sd.items():
+        key = key.replace("head.anchor_convs.", "detect.cv2.")
+        key = key.replace("head.class_convs.", "detect.cv3.")
+        key = key.replace("backbone.spp.conv1.", "backbone.spp.cv1.")
+        key = key.replace("backbone.down2.conv.", "backbone.down2.cv.")
+        legacy[key] = value
+    legacy["detect.dfl.conv.weight"] = torch.arange(16.0).view(1, 16, 1, 1)
+
+    p2 = LibreYOLO9P2(None, size="t", device="cpu")
+    from_legacy = p2._prepare_state_dict(legacy)
+    from_current = p2._prepare_state_dict(dict(base_sd))
+    assert list(from_legacy) == list(from_current)
+    assert all(from_legacy[key] is from_current[key] for key in from_current)
+    assert "head.anchor_convs.1.0.conv.weight" in from_legacy
 
 
 def test_yolo9_p2_prepare_state_dict_passes_p2_checkpoints_through():
@@ -206,19 +230,19 @@ def test_yolo9_p2_loads_transfer_trained_checkpoint(tmp_path):
     from libreyolo import LibreYOLO9P2
 
     donor = LibreYOLO9P2(None, size="t", device="cpu")
-    default_hidden = donor.model.state_dict()["head.cv3.0.0.conv.weight"].shape[0]
+    default_hidden = donor.model.state_dict()["head.class_convs.0.0.conv.weight"].shape[0]
     transfer_hidden = default_hidden + 16
 
     donor.nb_classes = 10
     donor._align_class_towers_for_transfer(
-        {"head.cv3.0.0.conv.weight": torch.zeros(transfer_hidden, 8, 3, 3)}
+        {"head.class_convs.0.0.conv.weight": torch.zeros(transfer_hidden, 8, 3, 3)}
     )
     ckpt = tmp_path / "LibreYOLO9P2t-visdrone.pt"
     torch.save({"model": donor.model.state_dict(), "nc": 10}, ckpt)
 
     loaded = LibreYOLO9P2(str(ckpt), size="t", device="cpu")
     assert loaded.nb_classes == 10
-    hidden = loaded.model.state_dict()["head.cv3.0.0.conv.weight"].shape[0]
+    hidden = loaded.model.state_dict()["head.class_convs.0.0.conv.weight"].shape[0]
     assert hidden == transfer_hidden
 
     loaded.model.eval()

@@ -257,12 +257,14 @@ def test_anchor_freeze_reaches_wrapped_model_and_restores_cache():
         def __init__(self):
             super().__init__()
             self.export = True
-            self.anchors = torch.tensor([])
-            self.strides = torch.tensor([])
-            self.shape = None
+            self.frozen = None
 
-        def _anchor_grid(self, features):
-            return self.anchors, self.strides
+        def freeze_anchor_grid(self, input_hw):
+            self.frozen = tuple(input_hw)
+            self.export = False  # restore must put the caller's flag back
+
+        def unfreeze_anchor_grid(self):
+            self.frozen = None
 
     class Detector(nn.Module):
         def __init__(self):
@@ -270,9 +272,6 @@ def test_anchor_freeze_reaches_wrapped_model_and_restores_cache():
             self.head = Head()
 
         def forward(self, tensor):
-            self.head.anchors = torch.ones(2, 4)
-            self.head.strides = torch.full((2, 4), 8.0)
-            self.head.shape = tuple(tensor.shape)
             return tensor
 
     class Wrapper(nn.Module):
@@ -285,17 +284,37 @@ def test_anchor_freeze_reaches_wrapped_model_and_restores_cache():
 
     detector = Detector()
     wrapped = Wrapper(detector)
-    old_anchors = detector.head.anchors
-    old_strides = detector.head.strides
-    restore = coreai._freeze_anchor_grid(wrapped, torch.zeros(1, 3, 8, 8))
-    assert "_anchor_grid" in detector.head.__dict__
+    restore = coreai._freeze_anchor_grid(wrapped, torch.zeros(1, 3, 8, 16))
+    assert detector.head.frozen == (8, 16)
     restore()
 
-    assert detector.head.anchors is old_anchors
-    assert detector.head.strides is old_strides
-    assert detector.head.shape is None
-    assert "_anchor_grid" not in detector.head.__dict__
+    assert detector.head.frozen is None
     assert detector.head.export is True
+
+
+def test_anchor_freeze_is_a_noop_without_a_freezable_head():
+    class Detector(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.head = nn.Identity()
+
+    restore = coreai._freeze_anchor_grid(Detector(), torch.zeros(1, 3, 8, 8))
+    restore()
+
+
+def test_anchor_freeze_pins_the_yolo9_grid_for_the_canvas():
+    from libreyolo.models.yolo9.nn import LibreYOLO9Model
+
+    model = LibreYOLO9Model(config="t", nb_classes=2).eval()
+    model.head.export = True
+    restore = coreai._freeze_anchor_grid(model, torch.zeros(1, 3, 64, 96))
+    try:
+        sizes, anchors, _ = model.head._frozen_grid
+        assert sizes == ((8, 12), (4, 6), (2, 3))
+        assert anchors.shape[1] == 96 + 24 + 6
+    finally:
+        restore()
+    assert model.head._frozen_grid is None and model.head.export is True
 
 
 def test_rtdetr_snapshot_removes_new_attributes_and_buffers():

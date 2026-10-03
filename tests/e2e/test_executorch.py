@@ -346,13 +346,13 @@ def _build_synthetic_yolonas_detect(imgsz: int):
 def _strengthen_yolo9_p2_fixture(model) -> None:
     with torch.no_grad():
         for name, parameter in model.model.named_parameters():
-            if "head.cv2" not in name:
+            if "head.anchor_convs" not in name:
                 continue
             if name.endswith(".weight"):
                 parameter.mul_(32.0)
             elif name.endswith(".bias"):
                 parameter.zero_()
-        for class_tower in model.model.head.cv3:
+        for class_tower in model.model.head.class_convs:
             class_tower[-1].weight[0].mul_(4000.0)
             class_tower[-1].weight[1].zero_()
             class_tower[-1].bias.copy_(torch.tensor([0.0, -20.0]))

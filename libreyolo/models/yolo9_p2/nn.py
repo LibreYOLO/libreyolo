@@ -18,12 +18,13 @@ import torch.nn as nn
 from ..yolo9.nn import (
     AConv,
     ADown,
-    DDetect,
     RepNCSPELAN,
     YOLO9_CONFIGS,
     Backbone9,
     LibreYOLO9Model,
     Neck9,
+    YOLO9Head,
+    default_class_neck,
 )
 
 # Extra keys per size on top of the base YOLO9 config. Channel choices
@@ -101,14 +102,17 @@ class Neck9P2(Neck9):
         up3_out, up3_part = cfg["neck_elan_up3"]
         self.up3 = nn.Upsample(scale_factor=2, mode="nearest")
         self.elan_up3 = RepNCSPELAN(
-            n3_ch + p2_ch, up3_part, up3_part // 2, up3_out, n
+            n3_ch + p2_ch, up3_out, up3_part, csp_args={"repeat_num": n}
         )
 
         # Bottom-up: P2 -> P3
         self.down0 = DownBlock(up3_out, cfg["neck_down0_out"])
         down0_out, down0_part = cfg["neck_elan_down0"]
         self.elan_down0 = RepNCSPELAN(
-            cfg["neck_down0_out"] + n3_ch, down0_part, down0_part // 2, down0_out, n
+            cfg["neck_down0_out"] + n3_ch,
+            down0_out,
+            down0_part,
+            csp_args={"repeat_num": n},
         )
 
     def forward(self, p2, p3, p4, p5):
@@ -159,11 +163,13 @@ class LibreYOLO9P2Model(LibreYOLO9Model):
         self.img_size = img_size
         self.backbone = Backbone9P2(config)
         self.neck = Neck9P2(config)
-        self.head = DDetect(
-            nc=nb_classes,
-            ch=YOLO9_P2_CONFIGS[config]["head_channels"],
+        head_channels = YOLO9_P2_CONFIGS[config]["head_channels"]
+        self.head = YOLO9Head(
+            head_channels,
+            nb_classes,
             reg_max=reg_max,
-            stride=(4, 8, 16, 32),
+            strides=(4, 8, 16, 32),
+            class_neck=default_class_neck(head_channels[0], nb_classes),
         )
 
     def forward(self, x, targets=None):

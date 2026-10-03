@@ -282,10 +282,10 @@ def test_aux_head_convert_prefix_loads_into_enabled_branch():
         "30.heads.0.class_conv.2.weight": torch.zeros(5, 16, 1, 1),
     }
     converted, _stats = convert_state_dict(sd, "t")
-    assert "aux_head.cv3.0.2.weight" in converted
+    assert "aux_head.class_convs.0.2.weight" in converted
     model = LibreYOLO9Model(config="t", nb_classes=5)
     model.enable_aux(0.25)
-    assert "aux_head.cv3.0.2.weight" in model.state_dict()
+    assert "aux_head.class_convs.0.2.weight" in model.state_dict()
 
 
 def test_fine_tune_reloads_aux_after_inference_strip(tmp_path):
@@ -295,9 +295,9 @@ def test_fine_tune_reloads_aux_after_inference_strip(tmp_path):
 
     raw = LibreYOLO9Model(config="t", nb_classes=2)
     raw.enable_aux(0.25)
-    marker = torch.arange(raw.aux_head.cv3[0][2].weight.numel(), dtype=torch.float32)
-    raw.aux_head.cv3[0][2].weight.data.copy_(
-        marker.reshape_as(raw.aux_head.cv3[0][2].weight)
+    marker = torch.arange(raw.aux_head.class_convs[0][2].weight.numel(), dtype=torch.float32)
+    raw.aux_head.class_convs[0][2].weight.data.copy_(
+        marker.reshape_as(raw.aux_head.class_convs[0][2].weight)
     )
     ckpt = wrap_libreyolo_checkpoint(
         raw.state_dict(),
@@ -318,7 +318,7 @@ def test_fine_tune_reloads_aux_after_inference_strip(tmp_path):
     n = loaded._reload_aux_from_path(str(path))
     assert n > 0
     torch.testing.assert_close(
-        loaded.model.aux_head.cv3[0][2].weight.detach().cpu().flatten(),
+        loaded.model.aux_head.class_convs[0][2].weight.detach().cpu().flatten(),
         marker,
     )
 
@@ -420,11 +420,11 @@ def test_rebuild_for_new_classes_updates_aux_head():
 
     wrapper = LibreYOLO9(None, size="t", nb_classes=80, device="cpu")
     wrapper.model.enable_aux(0.25)
-    assert wrapper.model.aux_head.nc == 80
+    assert wrapper.model.aux_head.num_classes == 80
     wrapper._rebuild_for_new_classes(5)
-    assert wrapper.model.head.nc == 5
-    assert wrapper.model.aux_head.nc == 5
-    assert wrapper.model.aux_head.cv3[0][-1].out_channels == 5
+    assert wrapper.model.head.num_classes == 5
+    assert wrapper.model.aux_head.num_classes == 5
+    assert wrapper.model.aux_head.class_convs[0][-1].out_channels == 5
 
 
 def test_ddp_bootstrap_merges_aux_and_keeps_flat_dict(tmp_path):
@@ -437,7 +437,7 @@ def test_ddp_bootstrap_merges_aux_and_keeps_flat_dict(tmp_path):
 
     raw = LibreYOLO9Model(config="t", nb_classes=2)
     raw.enable_aux(0.25)
-    marker = raw.aux.spp.cv1.conv.weight.detach().clone()
+    marker = raw.aux.spp.conv1.conv.weight.detach().clone()
     ckpt = wrap_libreyolo_checkpoint(
         raw.state_dict(),
         model_family="yolo9",
@@ -467,8 +467,8 @@ def test_ddp_bootstrap_merges_aux_and_keeps_flat_dict(tmp_path):
     state = _bootstrap_state_dict(parent)
     assert all(torch.is_tensor(v) for v in state.values())
     assert "model" not in state
-    assert "aux.spp.cv1.conv.weight" in state
-    torch.testing.assert_close(state["aux.spp.cv1.conv.weight"], marker.cpu())
+    assert "aux.spp.conv1.conv.weight" in state
+    torch.testing.assert_close(state["aux.spp.conv1.conv.weight"], marker.cpu())
 
     parent.__class__ = type("LibreYOLO9", (), {"__init__": lambda self, *a, **k: None})
     # _build_init_kw inspects the real class; use a tiny stand-in with **kwargs.

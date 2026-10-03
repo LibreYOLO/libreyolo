@@ -57,7 +57,7 @@ class YOLO9Trainer(BaseTrainer):
         if not getattr(self.config, "val_loss", False):
             return
 
-        from .nn import DDetect, LibreYOLO9Model
+        from .nn import LibreYOLO9Model, YOLO9Head
 
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         # ``isinstance`` covers yolo9_p2, which is the same dense head over a
@@ -66,7 +66,7 @@ class YOLO9Trainer(BaseTrainer):
         # trainer override.
         standard_model = (
             isinstance(self.model, LibreYOLO9Model)
-            and type(self.model.head) is DDetect
+            and type(self.model.head) is YOLO9Head
         )
         if task != "detect" or not standard_model:
             raise ValueError(
@@ -168,6 +168,22 @@ class YOLO9Trainer(BaseTrainer):
                 )
         return super().resume(checkpoint_path)
 
+    def upgrade_resume_checkpoint(self, checkpoint):
+        """Rename legacy yolo9 keys in every saved model state.
+
+        Checkpoints written before the blocks took the upstream sublayer
+        names would otherwise fail the model load and silently drop the EMA
+        weights (the EMA restore only warns).
+        """
+        from .convert import upgrade_legacy_state_dict
+
+        if isinstance(checkpoint, dict):
+            for key in ("model", "train_model", "ema"):
+                state = checkpoint.get(key)
+                if isinstance(state, dict):
+                    checkpoint[key] = upgrade_legacy_state_dict(state)
+        return checkpoint
+
     def create_scheduler(self, iters_per_epoch: int):
         scheduler_name = self.config.scheduler
         if scheduler_name == "linear":
@@ -229,7 +245,7 @@ class YOLO9Trainer(BaseTrainer):
             CudaGraphTrainSpec,
             GraphableNetwork,
         )
-        from .nn import DDetect, LibreYOLO9Model
+        from .nn import LibreYOLO9Model, YOLO9Head
 
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         model = self.model
@@ -237,11 +253,11 @@ class YOLO9Trainer(BaseTrainer):
             return None
         if not isinstance(model, LibreYOLO9Model):
             return None
-        if type(model.head) is not DDetect:
+        if type(model.head) is not YOLO9Head:
             return None
 
         if getattr(model, "aux", None) is not None:
-            if type(getattr(model, "aux_head", None)) is not DDetect or model.aux_weight <= 0:
+            if type(getattr(model, "aux_head", None)) is not YOLO9Head or model.aux_weight <= 0:
                 return None
             network = GraphableNetwork(_PGITrainForward(model))
 

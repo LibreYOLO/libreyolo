@@ -132,6 +132,14 @@ def verify_conversion(converted_path: str, config: str) -> bool:
     nc = raw.get("nc", 80) if isinstance(raw, dict) else 80
 
     model = LibreYOLO9Model(config=config, reg_max=16, nb_classes=nc)
+    # The checkpoint's class-tower width wins over the fresh-build default
+    # (upstream sizes it from the class count; e.g. 128 for COCO yolo9-t).
+    hidden = converted.get("head.class_convs.0.0.conv.weight")
+    if hidden is not None and int(hidden.shape[0]) != model.head.class_neck:
+        head = model.head
+        channels = [int(tower[0].conv.in_channels) for tower in head.class_convs]
+        head.class_convs = head.build_class_convs(channels, int(hidden.shape[0]), nc)
+        head.class_neck = int(hidden.shape[0])
     model_keys = set(model.state_dict().keys())
     converted_keys = set(converted.keys())
 

@@ -3,7 +3,6 @@
 Adapted from MultimediaTechLab/YOLO under the MIT License.
 """
 
-import math
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -11,7 +10,6 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.nn import BCEWithLogitsLoss
 
-from libreyolo.data import default_oks_sigmas
 from libreyolo.training.distributed import all_reduce_avg_scalar_tensor
 from libreyolo.utils.box_ops import compute_iou as calculate_iou
 
@@ -215,7 +213,7 @@ class Vec2Box:
 
         Returns:
             preds_cls: (B, total_anchors, num_classes) - class logits
-            preds_anc: (B, total_anchors, reg_max, 4) - raw anchor distributions
+            preds_anc: (B, total_anchors, 4, reg_max) - raw per-side bin logits
             preds_box: (B, total_anchors, 4) - decoded boxes in xyxy (pixel coords)
         """
         preds_cls_list = []
@@ -594,8 +592,9 @@ class YOLO9Loss:
         Compute YOLOv9 loss.
 
         Args:
-            predictions: List of [P3, P4, P5] tensors from DDetect head
-                        Each tensor: (B, nc + 4*reg_max, H, W)
+            predictions: Per-level raw maps from ``YOLO9Head`` ([P3, P4, P5];
+                        yolo9_p2 adds P2), each (B, 4*reg_max + nc, H, W)
+                        with the box channels first
             targets: Ground truth [B, max_targets, 5] with [class_id, x1, y1, x2, y2]
                     Coordinates are normalized (0-1)
 
@@ -617,9 +616,12 @@ class YOLO9Loss:
         )
         targets_scaled = targets * scale
 
-        # Run Task Aligned Assignment
+        # Run Task Aligned Assignment in fp32. Under fp16 autocast the
+        # sigmoid of class logits below about -17 underflows to exactly 0, so
+        # the cls term of the alignment score vanishes and the matcher assigns
+        # no positives (issue #927).
         align_targets, valid_masks = self.matcher(
-            targets_scaled, (preds_cls.detach(), preds_box.detach())
+            targets_scaled, (preds_cls.detach().float(), preds_box.detach().float())
         )
 
         # Separate class and box targets

@@ -318,7 +318,7 @@ def test_yolo9_detect_onnx_nms_int8_runs(tmp_path):
 
     torch.manual_seed(0)
     model = LibreYOLO9(None, size="t", nb_classes=NC, device="cpu")
-    for block in model.model.head.cv3:
+    for block in model.model.head.class_convs:
         convs = [m for m in block.modules() if isinstance(m, torch.nn.Conv2d)]
         convs[-1].bias.data.fill_(4.0)
     fp32 = tmp_path / "m32.onnx"

@@ -7,6 +7,30 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+### Added
+
+- **`libreyolo train --clip_max_norm`.**
+  Sets the gradient-norm clip from the CLI for YOLO9-family training, and for other families whose registered training config declares `clip_max_norm`; `0` disables clipping.
+
+### Changed
+
+- **YOLO9 internals use the MultimediaTechLab/YOLO module names.**
+  Code that reaches into the network sees `YOLO9Head` instead of `DDetect` (box and class towers in `anchor_convs` / `class_convs`, `num_classes`, `strides`), `RepConv` instead of `RepConvN`, `Bottleneck` instead of `RepNBottleneck`, and `conv1`/`conv2`/`bottleneck` instead of `cv1`/`cv2`/`m` inside blocks. ONNX node names follow, e.g. `/head/anchor_convs.0/...` (update Hailo end-node configs). Model inputs, outputs and output names are unchanged. Freshly built YOLO9 models with more than 100 classes get class towers up to 128 channels wide instead of 100.
+
+### Fixed
+
+- **YOLO9 training clips the gradient norm and assigns labels in fp32. (#927)**
+  YOLO9, YOLO9-E2E and YOLO9-P2 clip the gradient L2 norm at 10 before each optimizer step, as the MultimediaTechLab/YOLO recipe does (`clip_max_norm`, `0` to disable). The training assigner scores anchors in fp32, so fp16 autocast can no longer flush every class probability to zero and leave a batch without positives.
+- **YOLO9 fine-tuning no longer trains a randomly initialised PGI branch by default. (#927)**
+  Since 1.6.0, `train()` attached the PGI auxiliary branch at `aux_weight=0.25` to every YOLO9 run, but the published `LibreYOLO9{t,s,m,c}.pt` weights carry no PGI tensors, so the branch started from random weights on top of a converged model. The branch is now attached by default only when the loaded or `pretrained=` weights contain PGI tensors, or when training from scratch; otherwise the run trains the main head only, as in 1.5.0, and logs it. Passing `aux_weight` explicitly (Python or `libreyolo train aux_weight=0.25`) still attaches a new branch. Resumed runs are unchanged.
+- **PGI head weights load when their class towers are wider than a fresh build.**
+  The PGI head now takes the class-tower width stored in the checkpoint, as the main head already did. Before, a width mismatch left the PGI class towers randomly initialised without a message.
+
+### Security/Licensing
+
+- **YOLO9 family code re-derived from the MIT upstream.**
+  The YOLO9 building blocks, the YOLO9, YOLO9-E2E and YOLO9-P2 detection heads, the YOLO9-E2E NMS-free post-processing and two YOLO9 augmentation steps (mosaic tile placement, mixup blend) are rewritten from MultimediaTechLab/YOLO (MIT) and other permissively licensed sources, and `THIRD_PARTY_NOTICES.txt` now describes each source accurately. Predictions, metrics, exports and training runs are bit-identical for every published checkpoint, and every existing checkpoint, including training checkpoints being resumed, keeps loading: legacy tensor names are renamed on load.
+
 ## [1.6.0] - 2026-09-27
 
 Three new tasks (`detect3d`, `albedo` and `act`, taking the canonical task list from 17 to 20), 34 new top-level `Libre*` exports (31 model classes, the `LibreLLM` client and the `LibreGround` and `LibreVLA` factories), validation error analysis, and a release QA pass over 1.5.0 behavior. 592 commits, 105 merged pull requests. Several changes move outputs or numbers you may be comparing against v1.5.0 (NumPy channel order, batched inputs, resume, RF-DETR preprocessing, EdgeCrafter pose, COCO evaluation ids): read **Changed** and **Breaking changes** before upgrading.

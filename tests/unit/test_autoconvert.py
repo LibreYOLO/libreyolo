@@ -41,11 +41,16 @@ class TestYolo9ConvertKey:
         [
             ("0.conv.weight", "t", "backbone.conv0.conv.weight"),
             ("1.bn.bias", "t", "backbone.conv1.bn.bias"),
-            ("22.heads.0.class_conv.2.weight", "t", "head.cv3.0.2.weight"),
-            ("22.heads.1.anchor_conv.2.bias", "t", "head.cv2.1.2.bias"),
-            ("3.conv.conv.weight", "t", "backbone.down2.cv.conv.weight"),  # AConv
-            ("3.conv1.conv.weight", "c", "backbone.down2.cv1.conv.weight"),  # ADown
-            ("9.conv1.conv.weight", "t", "backbone.spp.cv1.conv.weight"),
+            ("22.heads.0.class_conv.2.weight", "t", "head.class_convs.0.2.weight"),
+            ("22.heads.1.anchor_conv.2.bias", "t", "head.anchor_convs.1.2.bias"),
+            ("3.conv.conv.weight", "t", "backbone.down2.conv.conv.weight"),  # AConv
+            ("3.conv1.conv.weight", "c", "backbone.down2.conv1.conv.weight"),  # ADown
+            ("9.conv1.conv.weight", "t", "backbone.spp.conv1.conv.weight"),
+            (
+                "4.conv2.0.bottleneck.1.conv1.conv2.bn.bias",
+                "s",
+                "backbone.elan2.conv2.0.bottleneck.1.conv1.conv2.bn.bias",
+            ),
         ],
     )
     def test_maps_known_keys(self, upstream, config, expected):
@@ -58,9 +63,16 @@ class TestYolo9ConvertKey:
 
     def test_auxiliary_spp_and_head_convert(self):
         out, ok = convert_key("23.conv1.weight", "t")
-        assert ok and out == "aux.spp.cv1.weight"
+        assert ok and out == "aux.spp.conv1.weight"
         out, ok = convert_key("30.heads.0.class_conv.2.weight", "t")
-        assert ok and out == "aux_head.cv3.0.2.weight"
+        assert ok and out == "aux_head.class_convs.0.2.weight"
+
+    @pytest.mark.parametrize("config", ["m", "c"])
+    def test_mc_auxiliary_branch_is_not_mapped(self, config):
+        """v9-m/c auxiliary layers are CBLinear/CBFuse, not LibreYOLO's AuxNeck."""
+        for key in ("23.conv.weight", "26.conv1.conv.weight", "30.heads.0.class_conv.2.weight"):
+            out, ok = convert_key(key, config)
+            assert ok is False and out == key
 
     def test_unknown_aux_leftover_not_converted(self):
         out, ok = convert_key("24.heads.0.class_conv.2.weight", "t")
@@ -107,11 +119,23 @@ class TestYolo9Inference:
         }
         converted, stats = convert_state_dict(sd, "t")
         assert "backbone.conv0.conv.weight" in converted
-        assert "head.cv3.0.2.weight" in converted
-        assert "aux.spp.cv1.weight" in converted
-        assert "aux_head.cv3.0.2.weight" in converted
+        assert "head.class_convs.0.2.weight" in converted
+        assert "aux.spp.conv1.weight" in converted
+        assert "aux_head.class_convs.0.2.weight" in converted
         assert stats["failed"] == 1  # layer-22 anc2vec
         assert stats["skipped"] == 1  # layer-30 anc2vec
+
+    def test_convert_state_dict_skips_mc_auxiliary_layers(self):
+        sd = {
+            "0.conv.weight": torch.zeros(32, 3, 3, 3),
+            "22.heads.0.class_conv.2.weight": torch.zeros(5, 16, 1, 1),
+            "23.conv.weight": torch.zeros(8, 8, 1, 1),
+            "30.heads.0.class_conv.2.weight": torch.zeros(5, 16, 1, 1),
+        }
+        converted, stats = convert_state_dict(sd, "m")
+        assert not any(k.startswith(("aux.", "aux_head.")) for k in converted)
+        assert stats["skipped"] == 2
+        assert stats["failed"] == 0
 
 
 def _synthetic_upstream_yolo9(nc: int) -> dict:
@@ -246,7 +270,7 @@ class TestAutoconvertOrchestration:
         assert ckpt["size"] == "t"
         assert ckpt["nc"] == 3
         assert ckpt["names"] == {0: "bolt", 1: "nut", 2: "washer"}
-        assert "head.cv3.0.2.weight" in ckpt["model"]
+        assert "head.class_convs.0.2.weight" in ckpt["model"]
 
     def test_autoconvert_does_not_overwrite_canonical_checkpoint(self, tmp_path):
         src = tmp_path / "v9-t.pt"

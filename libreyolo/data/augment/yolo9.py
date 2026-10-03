@@ -10,8 +10,10 @@ Key difference from YOLOX: outputs normalized xyxy format for loss computation.
 The mosaic wrapper stays separate from :class:`~.yolox.MosaicMixupDataset`
 on purpose: the two differ in tile scaling (yolo9 caps at 1.0), canvas
 allocation, mixup style and RNG draw order, and post-affine box filtering.
-Only the quadrant placement math (:func:`~.mosaic.get_mosaic_coordinate`)
-is provably identical and shared.
+Only the quadrant placement math is shared: both wrappers place their tiles
+with :func:`~.mosaic.get_mosaic_coordinate`. The mixup blend follows the
+MixUp formula of MultimediaTechLab/YOLO (MIT): ``lam ~ Beta(alpha, alpha)``,
+``lam * image1 + (1 - lam) * image2``.
 """
 
 import logging
@@ -29,6 +31,7 @@ from .geometry import (  # noqa: F401
     random_affine,
     rot90_image_boxes,
 )
+from .mosaic import get_mosaic_coordinate
 from .segments import (
     copy_segments as _copy_segments,
     filter_segments as _filter_segments,
@@ -39,6 +42,11 @@ from .segments import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Concentration of the symmetric Beta(alpha, alpha) that draws the mixup ratio
+# (MixUp formula of MultimediaTechLab/YOLO, MIT). A high value keeps the ratio
+# close to 0.5, so both images stay clearly visible in the blend.
+_MIXUP_BETA_ALPHA = 32.0
 
 
 def preproc(img, input_size, swap=(2, 0, 1), letterbox_pad=None):
@@ -552,28 +560,14 @@ class YOLO9MosaicMixupDataset:
             img = cv2.resize(img, (int(w0 * scale), int(h0 * scale)))
             h, w = img.shape[:2]
 
-            # Get placement coordinates
-            if i == 0:  # top left
-                x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc
-                x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h
-            elif i == 1:  # top right
-                x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, input_w * 2), yc
-                x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
-            elif i == 2:  # bottom left
-                x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(yc + h, input_h * 2)
-                x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
-            else:  # bottom right
-                x1a, y1a, x2a, y2a = (
-                    xc,
-                    yc,
-                    min(xc + w, input_w * 2),
-                    min(yc + h, input_h * 2),
-                )
-                x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
-
-            mosaic_img[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]
-            padw = x1a - x1b
-            padh = y1a - y1b
+            # Paste the tile into its quadrant of the 2x canvas (shared placement
+            # math, see get_mosaic_coordinate); padw/padh is the tile's pixel
+            # offset on the canvas, applied to its labels and segments below.
+            (l_x1, l_y1, l_x2, l_y2), (s_x1, s_y1, s_x2, s_y2) = get_mosaic_coordinate(
+                mosaic_img, i, xc, yc, w, h, input_h, input_w
+            )
+            mosaic_img[l_y1:l_y2, l_x1:l_x2] = img[s_y1:s_y2, s_x1:s_x2]
+            padw, padh = l_x1 - s_x1, l_y1 - s_y1
 
             # Adjust labels
             labels = _labels.copy()
@@ -692,10 +686,13 @@ class YOLO9MosaicMixupDataset:
         idx2 = self._rand_partner_index()
         img2, labels2, *_ = self._get_normal_item(idx2)
 
-        # Mix images (beta(32, 32) ≈ 0.5, so both images are ~equally visible
-        # and both label sets must be kept).
-        r = np.random.beta(32.0, 32.0)
-        img = (img * r + img2 * (1 - r)).astype(img.dtype)
+        # MixUp blend, formula from MultimediaTechLab/YOLO's MixUp (MIT): one
+        # Beta(alpha, alpha) draw for the ratio, weighted sum of the two images,
+        # cast back to the mosaic image's dtype (the float32 0-1 images from
+        # YOLO9TrainTransform stay float32; uint8 inputs are truncated).
+        alpha = _MIXUP_BETA_ALPHA
+        lam = np.random.beta(alpha, alpha) if alpha > 0 else 0.5
+        img = (lam * img + (1 - lam) * img2).astype(img.dtype)
 
         max_labels = getattr(self.preproc, "max_labels", 300)
         label_dim = labels.shape[1]

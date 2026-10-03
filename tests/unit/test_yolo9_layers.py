@@ -1,774 +1,600 @@
-"""Unit tests for YOLOv9 layers."""
+"""YOLO9 building blocks, detection head contract and legacy checkpoint keys."""
 
-import json
+from __future__ import annotations
+
+import re
 
 import pytest
-import numpy as np
 import torch
-from PIL import Image
+from torch import nn
 
+from libreyolo.models.yolo9.convert import upgrade_legacy_key, upgrade_legacy_state_dict
 from libreyolo.models.yolo9.nn import (
-    Conv,
-    RepConvN,
-    Bottleneck,
-    RepNBottleneck,
-    RepNCSP,
-    ELAN,
-    RepNCSPELAN,
-    AConv,
     ADown,
-    SPPELAN,
-    Concat,
-    DFL,
-    DDetect,
-    Backbone9,
-    Neck9,
+    AConv,
+    Anchor2Vec,
+    Bottleneck,
+    Conv,
+    ELAN,
     LibreYOLO9Model,
+    Pool,
+    RepConv,
+    RepNCSP,
+    RepNCSPELAN,
+    SPPELAN,
+    YOLO9Head,
+    auto_pad,
+    create_activation_function,
+    default_class_neck,
+    round_up,
 )
-from libreyolo.models.yolo9 import utils as yolo9_utils
-from libreyolo.postprocess import yolo9 as yolo9_postprocess_mod
-from libreyolo.models.yolo9.trainer import YOLO9Trainer
-from libreyolo.models.yolo9.transforms import YOLO9TrainTransform
-from libreyolo.validation.preprocessors import YOLO9ValPreprocessor
 
 pytestmark = pytest.mark.unit
 
 
-class TestYOLO9ConvLayers:
-    """Test basic convolution layers."""
-
-    def test_conv_forward(self):
-        """Test Conv layer forward pass."""
-        layer = Conv(3, 64, k=3, s=1)
-        x = torch.randn(1, 3, 64, 64)
-        out = layer(x)
-        assert out.shape == (1, 64, 64, 64)
-
-    def test_conv_stride(self):
-        """Test Conv with stride 2 downsamples correctly."""
-        layer = Conv(64, 128, k=3, s=2)
-        x = torch.randn(1, 64, 64, 64)
-        out = layer(x)
-        assert out.shape == (1, 128, 32, 32)
-
-    def test_repconvn_forward(self):
-        """Test RepConvN layer forward pass."""
-        layer = RepConvN(64, 64, k=3, s=1)
-        x = torch.randn(1, 64, 32, 32)
-        out = layer(x)
-        assert out.shape == (1, 64, 32, 32)
+# =============================================================================
+# Helpers and blocks
+# =============================================================================
 
 
-class TestYOLO9Bottlenecks:
-    """Test bottleneck modules."""
-
-    def test_bottleneck_forward(self):
-        """Test Bottleneck forward pass."""
-        layer = Bottleneck(64, 64)
-        x = torch.randn(1, 64, 32, 32)
-        out = layer(x)
-        assert out.shape == (1, 64, 32, 32)
-
-    def test_repn_bottleneck_forward(self):
-        """Test RepNBottleneck forward pass."""
-        layer = RepNBottleneck(64, 64)
-        x = torch.randn(1, 64, 32, 32)
-        out = layer(x)
-        assert out.shape == (1, 64, 32, 32)
-
-    def test_repn_csp_forward(self):
-        """Test RepNCSP forward pass."""
-        layer = RepNCSP(64, 64, n=1)
-        x = torch.randn(1, 64, 32, 32)
-        out = layer(x)
-        assert out.shape == (1, 64, 32, 32)
+def test_auto_pad_keeps_spatial_size():
+    assert auto_pad(3) == (1, 1)
+    assert auto_pad(1) == (0, 0)
+    assert auto_pad((3, 5)) == (1, 2)
+    assert auto_pad(3, dilation=2) == (2, 2)
+    assert auto_pad(2) == (0, 0)
 
 
-class TestYOLO9ELANBlocks:
-    """Test ELAN-based blocks."""
-
-    def test_elan_forward(self):
-        """Test ELAN forward pass.
-
-        ELAN(c1, c2, c3, c4, n) where:
-        - c1: input channels
-        - c2: cv1 output channels (gets split in half)
-        - c3: cv2/cv3 output channels
-        - c4: output channels
-        """
-        # Input: 64, cv1: 64 (split to 32+32), cv2/cv3: 32, output: 128
-        layer = ELAN(64, 64, 32, 128, n=1)
-        x = torch.randn(1, 64, 32, 32)
-        out = layer(x)
-        assert out.shape == (1, 128, 32, 32)
-
-    def test_repncspelan_forward(self):
-        """Test RepNCSPELAN forward pass.
-
-        RepNCSPELAN(c1, c2, c3, c4, n) where:
-        - c1: input channels
-        - c2: intermediate channels 1
-        - c3: intermediate channels 2
-        - c4: output channels
-        """
-        layer = RepNCSPELAN(64, 64, 32, 128, n=1)
-        x = torch.randn(1, 64, 32, 32)
-        out = layer(x)
-        assert out.shape == (1, 128, 32, 32)
+def test_create_activation_function():
+    act = create_activation_function("SiLU")
+    assert isinstance(act, nn.SiLU) and act.inplace
+    assert isinstance(create_activation_function("silu"), nn.SiLU)
+    for off in (None, False, "false", "None"):
+        assert isinstance(create_activation_function(off), nn.Identity)
+    with pytest.raises(ValueError, match="not found"):
+        create_activation_function("NoSuchActivation")
 
 
-class TestYOLO9Downsampling:
-    """Test downsampling layers."""
-
-    def test_aconv_forward(self):
-        """Test AConv (Average Convolution) forward pass."""
-        layer = AConv(64, 128)
-        x = torch.randn(1, 64, 32, 32)
-        out = layer(x)
-        assert out.shape == (1, 128, 16, 16)
-
-    def test_adown_forward(self):
-        """Test ADown forward pass."""
-        layer = ADown(64, 128)
-        x = torch.randn(1, 64, 32, 32)
-        out = layer(x)
-        assert out.shape == (1, 128, 16, 16)
+def test_round_up():
+    assert round_up(15, 4) == 16
+    assert round_up(16, 4) == 16
+    assert round_up(7) == 7
 
 
-class TestYOLO9SPPELAN:
-    """Test SPP-ELAN module."""
-
-    def test_sppelan_forward(self):
-        """Test SPPELAN forward pass.
-
-        SPPELAN(c1, c2, c3, k) where:
-        - c1: input channels
-        - c2: neck channels (intermediate)
-        - c3: output channels
-        - k: pool kernel size
-        """
-        layer = SPPELAN(256, 128, 256, k=5)
-        x = torch.randn(1, 256, 16, 16)
-        out = layer(x)
-        assert out.shape == (1, 256, 16, 16)
+def test_conv_is_bias_free_with_mtl_batchnorm():
+    conv = Conv(3, 8, 3, stride=2)
+    assert conv.conv.bias is None
+    assert conv.conv.padding == (1, 1)
+    assert conv.bn.eps == pytest.approx(1e-3)
+    assert conv.bn.momentum == pytest.approx(3e-2)
+    assert isinstance(conv.act, nn.SiLU)
+    assert conv(torch.zeros(1, 3, 32, 32)).shape == (1, 8, 16, 16)
+    assert isinstance(Conv(3, 8, 1, activation=False).act, nn.Identity)
 
 
-class TestYOLO9Concat:
-    """Test Concat layer."""
-
-    def test_concat_forward(self):
-        """Test Concat layer forward pass."""
-        layer = Concat(dimension=1)
-        x1 = torch.randn(1, 64, 32, 32)
-        x2 = torch.randn(1, 128, 32, 32)
-        out = layer([x1, x2])
-        assert out.shape == (1, 192, 32, 32)
+def test_pool_pads_automatically():
+    assert Pool("max", 5, stride=1)(torch.zeros(1, 2, 9, 9)).shape == (1, 2, 9, 9)
+    assert Pool("avg", kernel_size=2, stride=1)(torch.zeros(1, 2, 9, 9)).shape == (1, 2, 8, 8)
 
 
-class TestYOLO9DetectionHead:
-    """Test detection head components."""
+def test_repconv_sums_both_branches_before_activation():
+    torch.manual_seed(0)
+    block = RepConv(4, 6).eval()
+    x = torch.randn(1, 4, 8, 8)
+    expected = nn.functional.silu(block.conv1(x) + block.conv2(x))
+    assert torch.equal(block(x), expected)
+    assert block.conv1.conv.kernel_size == (3, 3)
+    assert block.conv2.conv.kernel_size == (1, 1)
+    assert isinstance(block.conv1.act, nn.Identity)
 
-    def test_dfl_forward(self):
-        """Test DFL (Distribution Focal Loss) forward pass.
 
-        DFL expects input shape (batch, 4*reg_max, anchors).
-        """
-        reg_max = 16
-        layer = DFL(num_bins=reg_max)
-        # Input: (batch, 4*reg_max, anchors)
-        x = torch.randn(1, 4 * reg_max, 100)
-        out = layer(x)
-        # Output: (batch, 4, anchors)
-        assert out.shape == (1, 4, 100)
+def test_bottleneck_residual_only_when_widths_match():
+    torch.manual_seed(0)
+    block = Bottleneck(4, 4).eval()
+    x = torch.randn(1, 4, 8, 8)
+    assert block.residual
+    assert torch.equal(block(x), x + block.conv2(block.conv1(x)))
+    assert not Bottleneck(4, 6).residual
 
-    def test_ddetect_forward(self):
-        """Test DDetect head forward pass."""
-        layer = DDetect(nc=80, ch=(64, 128, 256), reg_max=16, stride=(8, 16, 32))
-        layer.eval()  # Set to eval mode to get tensor output
-        x = [
-            torch.randn(1, 64, 80, 80),
-            torch.randn(1, 128, 40, 40),
-            torch.randn(1, 256, 20, 20),
-        ]
-        out = layer(x)
-        # Eval mode returns (decoded_output, raw_outputs) tuple
-        decoded, raw = out
-        # decoded: (batch, 4+nc, total_anchors)
-        assert decoded.shape[0] == 1
-        assert decoded.shape[1] == 4 + 80  # 84 (decoded boxes + class scores)
 
-class TestYOLO9FullModel:
-    """Test full model architecture."""
+def test_repncsp_shapes_and_repeats():
+    block = RepNCSP(16, 32, repeat_num=3)
+    assert len(block.bottleneck) == 3
+    assert block.conv1.conv.out_channels == 16  # csp_expand 0.5
+    assert block(torch.zeros(1, 16, 8, 8)).shape == (1, 32, 8, 8)
 
-    def test_backbone_forward(self):
-        """Test Backbone9 forward pass."""
-        backbone = Backbone9(config="t")
-        x = torch.randn(1, 3, 640, 640)
-        p3, p4, p5 = backbone(x)
-        assert p3.shape[2] == 80  # 640 / 8
-        assert p4.shape[2] == 40  # 640 / 16
-        assert p5.shape[2] == 20  # 640 / 32
 
-    def test_neck_forward(self):
-        """Test Neck9 forward pass."""
-        # Get backbone to determine correct channel sizes
-        backbone = Backbone9(config="t")
-        x = torch.randn(1, 3, 640, 640)
-        p3, p4, p5 = backbone(x)
+def test_elan_shapes():
+    block = ELAN(32, 48, 32)
+    assert block.conv2.conv.in_channels == 16
+    assert block.conv2.conv.out_channels == 16  # process = part // 2
+    assert block.conv4.conv.in_channels == 32 + 2 * 16
+    assert block(torch.zeros(1, 32, 16, 16)).shape == (1, 48, 16, 16)
 
-        neck = Neck9(config="t")
-        n3, n4, n5 = neck(p3, p4, p5)
-        assert n3.shape[2] == 80
-        assert n4.shape[2] == 40
-        assert n5.shape[2] == 20
 
-    def test_full_model_forward(self):
-        """Test full LibreYOLO9Model forward pass."""
-        model = LibreYOLO9Model(config="t", nb_classes=80)
-        model.eval()  # Set to eval mode to get dict output
-        x = torch.randn(1, 3, 640, 640)
+def test_repncspelan_shapes_and_repeats():
+    block = RepNCSPELAN(64, 96, 64, csp_args={"repeat_num": 3})
+    assert isinstance(block.conv2[0], RepNCSP) and isinstance(block.conv2[1], Conv)
+    assert len(block.conv2[0].bottleneck) == 3
+    assert len(block.conv3[0].bottleneck) == 3
+    assert block.conv4.conv.in_channels == 64 + 2 * 32
+    assert block(torch.zeros(1, 64, 8, 8)).shape == (1, 96, 8, 8)
+    assert len(RepNCSPELAN(64, 96, 64).conv2[0].bottleneck) == 1
+
+
+def test_downsampling_blocks_halve_resolution():
+    assert AConv(16, 32)(torch.zeros(1, 16, 16, 16)).shape == (1, 32, 8, 8)
+    down = ADown(16, 32)
+    assert down.conv1.conv.in_channels == 8 and down.conv2.conv.out_channels == 16
+    assert down(torch.zeros(1, 16, 16, 16)).shape == (1, 32, 8, 8)
+
+
+def test_sppelan_shapes():
+    block = SPPELAN(32, 64)
+    assert block.conv1.conv.out_channels == 32  # neck = out // 2
+    assert len(block.pools) == 3
+    assert block(torch.zeros(1, 32, 8, 8)).shape == (1, 64, 8, 8)
+    assert SPPELAN(32, 64, 16).conv5.conv.in_channels == 64
+
+
+# =============================================================================
+# Detection head
+# =============================================================================
+
+_CH = (16, 24, 32)
+_HW = ((8, 8), (4, 4), (2, 2))  # a 64x64 input at strides 8/16/32
+
+
+def _features(batch=2, sizes=_HW, channels=_CH):
+    torch.manual_seed(0)
+    return [torch.randn(batch, c, h, w) for c, (h, w) in zip(channels, sizes)]
+
+
+def test_head_widths_follow_mtl_formulas():
+    head = YOLO9Head(_CH, 3)
+    assert head.anchor_neck == max(round_up(16 // 4, 4), 64, 16) == 64
+    assert head.class_neck == max(16, min(3 * 2, 128)) == 16
+    assert YOLO9Head((64, 96, 128), 80).class_neck == 128
+    assert YOLO9Head((64, 96, 128), 80, class_neck=80).class_neck == 80
+    assert YOLO9Head(_CH, 3, use_group=False).groups == 1
+
+
+def test_default_class_neck_matches_libreyolo_widths():
+    assert default_class_neck(64, 80) == 80
+    assert default_class_neck(64, 40) == 64
+    assert default_class_neck(64, 1) == 64
+    assert default_class_neck(32, 40) == 40
+    assert default_class_neck(256, 2) == 256
+    assert default_class_neck(64, 1000) == 128
+
+
+def test_head_towers_and_bias_init():
+    head = YOLO9Head(_CH, 3)
+    assert len(head.anchor_convs) == len(head.class_convs) == 3
+    for tower, c in zip(head.anchor_convs, _CH):
+        assert tower[0].conv.in_channels == c
+        assert tower[1].conv.groups == 4
+        assert tower[2].out_channels == 64 and tower[2].groups == 4
+        assert torch.all(tower[2].bias == 1.0)
+    for tower in head.class_convs:
+        assert tower[2].out_channels == 3
+        assert torch.all(tower[2].bias == -10.0)
+
+
+def test_head_registers_all_box_towers_before_class_towers():
+    names = [name for name, _ in YOLO9Head(_CH, 3).named_parameters()]
+    last_anchor = max(i for i, n in enumerate(names) if n.startswith("anchor_convs."))
+    first_class = min(i for i, n in enumerate(names) if n.startswith("class_convs."))
+    assert last_anchor < first_class
+    assert all(n.startswith(("anchor_convs.", "class_convs.")) for n in names)
+
+
+def test_anchor2vec_is_stateless_softmax_expectation():
+    a2v = Anchor2Vec(reg_max=16)
+    assert a2v.state_dict() == {}
+    logits = torch.randn(2, 64, 5, 7)
+    expected = (
+        logits.view(2, 4, 16, 5, 7).softmax(2)
+        * torch.arange(16.0).view(1, 1, 16, 1, 1)
+    ).sum(2)
+    assert torch.allclose(a2v(logits), expected, atol=1e-6)
+    assert a2v(logits.flatten(2)).shape == (2, 4, 35)
+
+
+def test_head_train_mode_returns_raw_maps():
+    head = YOLO9Head(_CH, 3).train()
+    raw = head(_features())
+    assert [tuple(t.shape) for t in raw] == [(2, 67, 8, 8), (2, 67, 4, 4), (2, 67, 2, 2)]
+
+
+def test_head_eval_mode_returns_decoded_and_raw():
+    head = YOLO9Head(_CH, 3).eval()
+    with torch.no_grad():
+        decoded, raw = head(_features())
+    assert decoded.shape == (2, 4 + 3, 64 + 16 + 4)
+    assert len(raw) == 3
+    assert torch.equal(decoded, head.decode(raw))
+
+
+def test_decode_places_boxes_around_cell_centres():
+    head = YOLO9Head(_CH, 2).eval()
+    raw = [torch.zeros(1, 64 + 2, h, w) for h, w in _HW]
+    # Peaked bins: left/top = 1, right/bottom = 2 (grid units) everywhere.
+    for level in raw:
+        level[:, 0 * 16 + 1] = 60.0
+        level[:, 1 * 16 + 1] = 60.0
+        level[:, 2 * 16 + 2] = 60.0
+        level[:, 3 * 16 + 2] = 60.0
+        level[:, 64] = 0.0
+        level[:, 65] = 3.0
+    out = head.decode(raw)
+    # First P3 cell: centre (4, 4), stride 8.
+    assert torch.allclose(out[0, :4, 0], torch.tensor([4.0 - 8, 4.0 - 8, 4.0 + 16, 4.0 + 16]))
+    # Last P5 cell of the 64x64 grid: centre (48, 48), stride 32.
+    assert torch.allclose(out[0, :4, -1], torch.tensor([48.0 - 32, 48.0 - 32, 48.0 + 64, 48.0 + 64]))
+    assert torch.allclose(out[0, 4], torch.full((84,), 0.5))
+    assert torch.allclose(out[0, 5], torch.sigmoid(torch.tensor(3.0)).expand(84))
+
+
+def test_decode_follows_rectangular_level_sizes():
+    head = YOLO9Head(_CH, 1).eval()
+    sizes = ((6, 10), (3, 5), (2, 3))  # 48x80 input (P5 rounded up)
+    with torch.no_grad():
+        decoded, _ = head(_features(batch=1, sizes=sizes))
+    assert decoded.shape == (1, 5, 60 + 15 + 6)
+
+
+def test_anchor_grid_cache_and_export_mode():
+    head = YOLO9Head(_CH, 1).eval()
+    feats = _features(batch=1)
+    with torch.no_grad():
+        first = head(feats)[0]
+        cache = head._grid_cache
+        head(feats)
+        assert head._grid_cache is cache  # eager reuse
+        head.export = True
+        exported = head(feats)[0]
+        assert head._grid_cache is cache  # export mode does not touch the cache
+    assert torch.equal(first, exported)
+
+
+def test_freeze_anchor_grid_pins_the_export_canvas():
+    head = YOLO9Head(_CH, 1).eval()
+    head.export = True
+    feats = _features(batch=1)
+    with torch.no_grad():
+        live = head(feats)[0]
+        head.freeze_anchor_grid((64, 64))
+        frozen = head(feats)[0]
+        assert torch.equal(live, frozen)
+        with pytest.raises(ValueError, match="frozen"):
+            head(_features(batch=1, sizes=((4, 4), (2, 2), (1, 1))))
+        head.unfreeze_anchor_grid()
+        head(_features(batch=1, sizes=((4, 4), (2, 2), (1, 1))))
+
+
+def test_frozen_grid_traces_as_constants():
+    head = YOLO9Head(_CH, 1).eval()
+    head.export = True
+    head.freeze_anchor_grid((64, 64))
+    feats = _features(batch=1)
+
+    class _Decode(nn.Module):
+        def __init__(self, head):
+            super().__init__()
+            self.head = head
+
+        def forward(self, a, b, c):
+            return self.head([a, b, c])[0]
+
+    traced = torch.jit.trace(_Decode(head), tuple(feats))
+    graph = str(traced.inlined_graph)
+    assert "aten::arange" not in graph
+    assert torch.equal(traced(*feats), head(feats)[0])
+
+
+def test_set_num_classes_swaps_only_final_class_convs():
+    head = YOLO9Head(_CH, 3, class_neck=40)
+    hidden = [tower[0].conv.weight for tower in head.class_convs]
+    anchors = [p.clone() for p in head.anchor_convs.parameters()]
+    head._loss_fn = object()
+    head.set_num_classes(7)
+    assert head.num_classes == 7 and head._loss_fn is None
+    for tower, weight in zip(head.class_convs, hidden):
+        assert tower[0].conv.weight is weight
+        assert tower[2].in_channels == 40 and tower[2].out_channels == 7
+        assert torch.all(tower[2].bias == -10.0)
+    assert all(torch.equal(a, b) for a, b in zip(anchors, head.anchor_convs.parameters()))
+
+
+def test_build_helpers_and_init_bias():
+    head = YOLO9Head(_CH, 3)
+    towers = head.build_class_convs(_CH, 24, 5)
+    assert [t[0].conv.out_channels for t in towers] == [24, 24, 24]
+    assert [t[2].out_channels for t in towers] == [5, 5, 5]
+    assert len(head.build_anchor_convs(_CH)) == 3
+    with torch.no_grad():
+        for tower in (*head.anchor_convs, *head.class_convs):
+            tower[2].bias.zero_()
+    head.init_bias()
+    assert all(torch.all(t[2].bias == 1.0) for t in head.anchor_convs)
+    assert all(torch.all(t[2].bias == -10.0) for t in head.class_convs)
+
+
+def test_head_targets_path_returns_losses_and_caches_loss_fn():
+    head = YOLO9Head(_CH, 3).train()
+    targets = torch.tensor([[[1.0, 0.2, 0.2, 0.6, 0.7]], [[0.0, 0.1, 0.5, 0.4, 0.9]]])
+    losses = head(_features(), targets=targets, img_size=(64, 64))
+    assert {"total_loss", "box_loss", "dfl_loss", "cls_loss"} <= set(losses)
+    assert torch.isfinite(losses["total_loss"])
+    loss_fn = head._get_loss_fn("cpu")
+    assert head._get_loss_fn(torch.device("cpu")) is loss_fn
+    assert loss_fn.strides == [8, 16, 32] and loss_fn.num_classes == 3
+    with pytest.raises(ValueError, match="img_size"):
+        head(_features(), targets=targets)
+
+
+def test_head_rejects_level_count_mismatch():
+    with pytest.raises(ValueError):
+        YOLO9Head(_CH, 3, strides=(8, 16))
+    with pytest.raises(ValueError):
+        YOLO9Head(_CH, 3).train()(_features()[:2])
+
+
+def test_model_export_mode_returns_predictions_only():
+    model = LibreYOLO9Model(config="t", nb_classes=3).eval()
+    x = torch.zeros(1, 3, 64, 64)
+    with torch.no_grad():
         out = model(x)
-        # In eval mode, returns dict with 'predictions' key
-        assert isinstance(out, dict)
-        assert "predictions" in out
-
-class TestYOLO9Utils:
-    """Test utility functions."""
-
-    def test_preprocess_image(self):
-        """Test image preprocessing."""
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        tensor, original_img, original_size = yolo9_utils.preprocess_image(
-            img, input_size=640
-        )
-        assert tensor.shape == (1, 3, 640, 640)
-        assert original_size == (100, 100)
-
-    def test_preprocess_image_letterboxes_non_square_like_validation(self):
-        """Predict preprocessing must match YOLO9 validation geometry."""
-        img = np.zeros((4, 8, 3), dtype=np.uint8)
-
-        tensor, _, original_size = yolo9_utils.preprocess_image(
-            img, input_size=8, color_format="rgb"
-        )
-        val_tensor, _ = YOLO9ValPreprocessor((8, 8), max_labels=1)(
-            img[:, :, ::-1].copy(),
-            np.zeros((0, 5), dtype=np.float32),
-            (8, 8),
-        )
-
-        assert original_size == (8, 4)
-        torch.testing.assert_close(tensor[0], torch.from_numpy(val_tensor))
-        torch.testing.assert_close(
-            tensor[0, :, 4:, :],
-            torch.full((3, 4, 8), 114 / 255.0, dtype=tensor.dtype),
-        )
-
-    def test_preprocess_image_accepts_rectangular_input_size(self):
-        img = np.zeros((4, 8, 3), dtype=np.uint8)
-
-        tensor, _, original_size = yolo9_utils.preprocess_image(
-            img, input_size=(8, 16), color_format="rgb"
-        )
-
-        assert original_size == (8, 4)
-        assert tensor.shape == (1, 3, 8, 16)
-        torch.testing.assert_close(
-            tensor[0, :, :, :16],
-            torch.zeros((3, 8, 16), dtype=tensor.dtype),
-        )
-
-    def test_postprocess_defaults_to_letterbox_inverse(self):
-        """YOLO9 postprocess default matches letterboxed predict inputs."""
-        pred = torch.zeros(1, 6, 1)
-        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 320.0, 320.0])
-        pred[0, 4, 0] = 0.9
-
-        out = yolo9_utils.postprocess(
-            {"predictions": pred},
-            input_size=640,
-            original_size=(1280, 960),
-        )
-
-        assert out["num_detections"] == 1
-        torch.testing.assert_close(
-            torch.as_tensor(out["boxes"]),
-            torch.tensor([[0.0, 0.0, 640.0, 640.0]]),
-        )
-
-    def test_postprocess_accepts_rectangular_input_size(self):
-        pred = torch.zeros(1, 6, 1)
-        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 320.0, 320.0])
-        pred[0, 4, 0] = 0.9
-
-        out = yolo9_utils.postprocess(
-            {"predictions": pred},
-            input_size=(320, 640),
-            original_size=(1280, 960),
-        )
-
-        assert out["num_detections"] == 1
-        torch.testing.assert_close(
-            torch.as_tensor(out["boxes"]),
-            torch.tensor([[0.0, 0.0, 960.0, 960.0]]),
-        )
-
-    def test_postprocess_detection_is_multilabel(self):
-        """Detection postprocess emits one detection per class above conf on an
-        anchor (multi-label), matching MultimediaTechLab/YOLO ``bbox_nms``."""
-        pred = torch.zeros(1, 6, 1)
-        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 100.0, 100.0])
-        pred[0, 4:, 0] = torch.tensor([0.9, 0.8])  # two classes over conf
-
-        out = yolo9_utils.postprocess(
-            {"predictions": pred}, conf_thres=0.25, iou_thres=0.5
-        )
-
-        assert out["num_detections"] == 2
-        assert sorted(out["classes"]) == [0, 1]
-
-    def test_postprocess_detection_caps_multilabel_candidates(self, monkeypatch):
-        """Detection limits low-threshold multi-label expansion before NMS."""
-        # Patch the postprocess module — that's where postprocess() resolves it.
-        monkeypatch.setattr(yolo9_postprocess_mod, "_YOLO9_MAX_NMS_CANDIDATES", 3)
-        pred = torch.zeros(1, 6, 4)
-        pred[0, :4] = torch.tensor(
-            [
-                [0.0, 20.0, 40.0, 60.0],
-                [0.0, 0.0, 0.0, 0.0],
-                [10.0, 30.0, 50.0, 70.0],
-                [10.0, 10.0, 10.0, 10.0],
-            ]
-        )
-        pred[0, 4:] = torch.tensor(
-            [[0.1, 0.9, 0.7, 0.5], [0.8, 0.2, 0.6, 0.4]]
-        )
-
-        out = yolo9_utils.postprocess(
-            {"predictions": pred}, conf_thres=0.01, iou_thres=0.5, max_det=3
-        )
-
-        assert out["num_detections"] == 3
-        assert sorted(round(float(s), 1) for s in out["scores"]) == [
-            0.7,
-            0.8,
-            0.9,
-        ]
-
-    def test_postprocess_obb_outputs_obb_payload(self):
-        pred = torch.zeros(1, 7, 1)
-        pred[0, :4, 0] = torch.tensor([10.0, 20.0, 50.0, 40.0])
-        pred[0, 4, 0] = 0.25
-        pred[0, 5:, 0] = torch.tensor([0.9, 0.1])
-
-        out = yolo9_utils.postprocess(
-            {"predictions": pred, "obb": True},
-            conf_thres=0.25,
-            iou_thres=0.5,
-            input_size=64,
-            original_size=(64, 64),
-        )
-
-        assert out["num_detections"] == 1
-        assert len(out["obb"]) == 1
-        torch.testing.assert_close(
-            torch.as_tensor(out["obb"])[0, :5],
-            torch.tensor([30.0, 30.0, 40.0, 20.0, 0.25]),
-        )
-
-    def test_postprocess_obb_uses_letterbox_inverse_for_non_square_images(self):
-        pred = torch.zeros(1, 7, 1)
-        pred[0, :4, 0] = torch.tensor([100.0, 50.0, 200.0, 150.0])
-        pred[0, 4, 0] = 0.25
-        pred[0, 5:, 0] = torch.tensor([0.9, 0.1])
-
-        out = yolo9_utils.postprocess(
-            {"predictions": pred, "obb": True},
-            conf_thres=0.25,
-            iou_thres=0.5,
-            input_size=640,
-            original_size=(1280, 960),
-        )
-
-        assert out["num_detections"] == 1
-        torch.testing.assert_close(
-            torch.as_tensor(out["obb"])[0, :5],
-            torch.tensor([300.0, 200.0, 200.0, 200.0, 0.25]),
-        )
-
-    def test_postprocess_obb_uses_classwise_rotated_nms(self):
-        pred = torch.zeros(1, 7, 3)
-        pred[0, :4] = torch.tensor(
-            [
-                [10.0, 10.0, 10.0],
-                [20.0, 20.0, 20.0],
-                [50.0, 50.0, 50.0],
-                [40.0, 40.0, 40.0],
-            ]
-        )
-        pred[0, 4] = 0.25
-        pred[0, 5:] = torch.tensor(
-            [
-                [0.9, 0.8, 0.1],
-                [0.1, 0.2, 0.7],
-            ]
-        )
-
-        out = yolo9_utils.postprocess(
-            {"predictions": pred, "obb": True},
-            conf_thres=0.25,
-            iou_thres=0.5,
-            input_size=64,
-            original_size=(64, 64),
-        )
-
-        assert out["num_detections"] == 2
-        assert out["classes"] == [0, 1]
-        assert [round(score, 2) for score in out["scores"]] == [0.9, 0.7]
-
-    def test_postprocess_obb_prefilters_candidates_before_rotated_nms(self, monkeypatch):
-        num_candidates = 2000
-        pred = torch.zeros(1, 7, num_candidates)
-        pred[0, :4] = torch.tensor([[10.0], [20.0], [50.0], [40.0]]).expand(
-            4, num_candidates
-        )
-        pred[0, 4] = 0.25
-        pred[0, 5] = torch.linspace(0.9, 0.1, num_candidates)
-        pred[0, 6] = 0.01
-
-        exact_candidate_counts = []
-        original_rotated_nms = yolo9_postprocess_mod._rotated_nms_keep_indices
-
-        def wrapped_rotated_nms(xywhr, scores, class_ids, iou_thres, max_det):
-            exact_candidate_counts.append(int(scores.numel()))
-            return original_rotated_nms(xywhr, scores, class_ids, iou_thres, max_det)
-
-        # Patch the postprocess module — that's where postprocess() resolves it.
-        monkeypatch.setattr(
-            yolo9_postprocess_mod,
-            "_rotated_nms_keep_indices",
-            wrapped_rotated_nms,
-        )
-
-        out = yolo9_utils.postprocess(
-            {"predictions": pred, "obb": True},
-            conf_thres=0.001,
-            iou_thres=0.5,
-            input_size=64,
-            original_size=(64, 64),
-            max_det=50,
-        )
-
-        assert out["num_detections"] == 1
-        assert exact_candidate_counts
-        assert exact_candidate_counts[0] <= yolo9_utils._YOLO9_OBB_MAX_NMS_CANDIDATES
-
-    def test_obb_prefilter_does_not_apply_horizontal_nms(self):
-        num_candidates = 400
-        boxes = torch.tensor([[10.0, 10.0, 50.0, 50.0]]).expand(
-            num_candidates, 4
-        )
-        scores = torch.linspace(1.0, 0.1, num_candidates)
-        classes = torch.zeros(num_candidates, dtype=torch.long)
-
-        keep = yolo9_utils._obb_prefilter_keep_indices(
-            boxes,
-            scores,
-            classes,
-            max_det=50,
-        )
-
-        assert keep.numel() == num_candidates
-        torch.testing.assert_close(scores[keep], scores)
-
-    def test_anchor_grid(self):
-        """Test anchor generation.
-
-        _anchor_grid returns (anchor_points, stride_scale) with shapes:
-        - anchor_points: (total_anchors, 2) grid-unit cell centers
-        - stride_scale: (total_anchors, 1)
-        """
-        feature_maps = [
-            torch.randn(1, 64, 80, 80),
-            torch.randn(1, 128, 40, 40),
-            torch.randn(1, 256, 20, 20),
-        ]
-        head = DDetect(nc=80, ch=(64, 128, 256), reg_max=16, stride=(8, 16, 32))
-
-        anchors, strides = head._anchor_grid(feature_maps)
-        # Total anchors = 80*80 + 40*40 + 20*20 = 8400
-        assert anchors.shape == (8400, 2)
-        assert strides.shape == (8400, 1)
-        assert anchors[0].tolist() == [0.5, 0.5]
-        assert strides[0].item() == 8.0
-        assert strides[-1].item() == 32.0
+        assert set(out) == {"predictions", "raw_outputs", "x8", "x16", "x32"}
+        model.head.export = True
+        exported = model(x)
+    assert torch.equal(exported, out["predictions"])
+    assert exported.shape == (1, 4 + 3, 84)
 
 
-def test_yolo9_trainer_uses_explicit_coco_json_paths(tmp_path):
-    pytest.importorskip("pycocotools")
-    from libreyolo.data.dataset import COCODataset
+def test_model_uses_libreyolo_class_width_and_aux_head():
+    model = LibreYOLO9Model(config="t", nb_classes=80)
+    assert model.head.class_neck == 80
+    model.enable_aux(0.25)
+    assert isinstance(model.aux_head, YOLO9Head)
+    assert model.aux_head.class_neck == 80
+    assert model.aux_head.strides == (8, 16, 32)
 
-    image_dir = tmp_path / "images" / "custom_train"
-    ann_dir = tmp_path / "custom_annotations"
-    image_dir.mkdir(parents=True)
-    ann_dir.mkdir()
-    Image.new("RGB", (64, 64), color="white").save(image_dir / "sample.jpg")
-    (ann_dir / "train.json").write_text(
-        json.dumps(
-            {
-                "images": [
-                    {"id": 10, "file_name": "sample.jpg", "width": 64, "height": 64}
-                ],
-                "annotations": [
-                    {
-                        "id": 1,
-                        "image_id": 10,
-                        "category_id": 42,
-                        "bbox": [8, 8, 16, 16],
-                        "area": 256,
-                        "iscrowd": 0,
-                    }
-                ],
-                "categories": [{"id": 42, "name": "vehicle"}],
-            }
+
+# =============================================================================
+# Legacy checkpoint keys
+# =============================================================================
+
+_LEGACY_TO_CURRENT = [
+    ("detect.cv2.0.0.conv.weight", "head.anchor_convs.0.0.conv.weight"),
+    ("head.cv2.2.2.bias", "head.anchor_convs.2.2.bias"),
+    ("head.cv3.1.1.bn.running_var", "head.class_convs.1.1.bn.running_var"),
+    ("aux_head.cv2.0.1.bn.weight", "aux_head.anchor_convs.0.1.bn.weight"),
+    ("aux_head.cv3.2.2.weight", "aux_head.class_convs.2.2.weight"),
+    ("head.one2one_cv2.1.2.weight", "head.one_to_one_anchor_convs.1.2.weight"),
+    ("head.one2one_cv3.0.0.conv.weight", "head.one_to_one_class_convs.0.0.conv.weight"),
+    ("backbone.elan1.cv1.conv.weight", "backbone.elan1.conv1.conv.weight"),
+    ("backbone.elan1.cv4.bn.bias", "backbone.elan1.conv4.bn.bias"),
+    (
+        "backbone.elan2.cv2.0.m.1.cv1.conv1.bn.running_mean",
+        "backbone.elan2.conv2.0.bottleneck.1.conv1.conv1.bn.running_mean",
+    ),
+    ("backbone.elan2.cv3.0.cv3.conv.weight", "backbone.elan2.conv3.0.conv3.conv.weight"),
+    ("backbone.down2.cv.conv.weight", "backbone.down2.conv.conv.weight"),
+    ("neck.down1.cv1.bn.num_batches_tracked", "neck.down1.conv1.bn.num_batches_tracked"),
+    ("backbone.spp.cv5.conv.weight", "backbone.spp.conv5.conv.weight"),
+    ("neck.elan_up1.cv2.0.m.0.cv2.conv.weight", "neck.elan_up1.conv2.0.bottleneck.0.conv2.conv.weight"),
+    ("aux.spp.cv1.conv.weight", "aux.spp.conv1.conv.weight"),
+    ("aux.elan_a3.cv2.1.bn.weight", "aux.elan_a3.conv2.1.bn.weight"),
+]
+
+_LEGACY_DROPPED = [
+    "head.dfl.conv.weight",
+    "aux_head.dfl.conv.weight",
+    "detect.dfl.conv.weight",
+    "head.stride",
+    "head.anchors",
+    "head.strides",
+]
+
+
+@pytest.mark.parametrize("legacy,current", _LEGACY_TO_CURRENT)
+def test_upgrade_legacy_key_rules(legacy, current):
+    assert upgrade_legacy_key(legacy) == current
+    assert upgrade_legacy_key(current) == current  # idempotent
+
+
+@pytest.mark.parametrize("legacy", _LEGACY_DROPPED)
+def test_upgrade_legacy_key_drops_derived_head_state(legacy):
+    assert upgrade_legacy_key(legacy) is None
+
+
+def test_current_and_foreign_keys_pass_through():
+    model = LibreYOLO9Model(config="c", nb_classes=2).enable_aux(0.25)
+    for key in model.state_dict():
+        assert upgrade_legacy_key(key) == key
+    # Rules only apply to yolo9 module prefixes.
+    assert upgrade_legacy_key("model.cv1.m.0.weight") == "model.cv1.m.0.weight"
+    assert upgrade_legacy_key("head.cv4.0.2.weight") == "head.cv4.0.2.weight"
+
+
+def test_upgrade_legacy_state_dict_is_order_preserving_and_idempotent():
+    legacy = {"head.dfl.conv.weight": torch.zeros(1)}
+    legacy.update({old: torch.full((1,), float(i)) for i, (old, _) in enumerate(_LEGACY_TO_CURRENT)})
+    upgraded = upgrade_legacy_state_dict(legacy)
+    assert list(upgraded) == [new for _, new in _LEGACY_TO_CURRENT]
+    assert all(upgraded[new] is legacy[old] for old, new in _LEGACY_TO_CURRENT)
+    assert upgrade_legacy_state_dict(upgraded) == upgraded
+
+
+# Pre-rename attribute names per module type (the legacy layout).
+_LEGACY_CHILD_NAMES = {
+    Bottleneck: {"conv1": "cv1", "conv2": "cv2"},
+    RepNCSP: {"conv1": "cv1", "conv2": "cv2", "conv3": "cv3", "bottleneck": "m"},
+    ELAN: {"conv1": "cv1", "conv2": "cv2", "conv3": "cv3", "conv4": "cv4"},
+    RepNCSPELAN: {"conv1": "cv1", "conv2": "cv2", "conv3": "cv3", "conv4": "cv4"},
+    AConv: {"conv": "cv"},
+    ADown: {"conv1": "cv1", "conv2": "cv2"},
+    SPPELAN: {"conv1": "cv1", "conv5": "cv5"},
+    YOLO9Head: {"anchor_convs": "cv2", "class_convs": "cv3"},
+}
+
+
+def _legacy_state_dict(model: nn.Module) -> dict:
+    """The model's state dict spelled with the pre-rename key layout."""
+    legacy = {}
+    for key, value in model.state_dict().items():
+        module, parts = model, []
+        for part in key.split("."):
+            parts.append(_LEGACY_CHILD_NAMES.get(type(module), {}).get(part, part))
+            module = module._modules.get(part) if isinstance(module, nn.Module) else None
+        legacy[".".join(parts)] = value
+    return legacy
+
+
+@pytest.mark.parametrize("size", ["t", "c"])
+def test_legacy_state_dict_loads_strictly_after_upgrade(size):
+    torch.manual_seed(0)
+    source = LibreYOLO9Model(config=size, nb_classes=3).enable_aux(0.25)
+    legacy = _legacy_state_dict(source)
+    assert any(re.search(r"\.cv\d\.", k) for k in legacy)
+    assert any(".m." in k for k in legacy) and any(k.startswith("head.cv3.") for k in legacy)
+    legacy["head.dfl.conv.weight"] = torch.arange(16.0).view(1, 16, 1, 1)
+    legacy = {("detect." + k[5:] if k.startswith("head.") else k): v for k, v in legacy.items()}
+
+    upgraded = upgrade_legacy_state_dict(legacy)
+    assert list(upgraded) == list(source.state_dict())
+
+    torch.manual_seed(1)
+    target = LibreYOLO9Model(config=size, nb_classes=3).enable_aux(0.25)
+    target.load_state_dict(upgraded, strict=True)
+    for key, value in source.state_dict().items():
+        assert torch.equal(target.state_dict()[key], value)
+
+
+def test_yolo9_trainer_upgrades_every_saved_model_state():
+    from libreyolo.models.yolo9.trainer import YOLO9Trainer
+    from libreyolo.training.trainer import BaseTrainer
+
+    legacy = {"backbone.elan1.cv1.conv.weight": torch.zeros(1), "head.dfl.conv.weight": torch.zeros(1)}
+    checkpoint = {"model": dict(legacy), "train_model": dict(legacy), "ema": dict(legacy), "epoch": 3}
+    trainer = object.__new__(YOLO9Trainer)
+    upgraded = trainer.upgrade_resume_checkpoint(checkpoint)
+    for key in ("model", "train_model", "ema"):
+        assert list(upgraded[key]) == ["backbone.elan1.conv1.conv.weight"]
+    assert upgraded["epoch"] == 3
+    assert BaseTrainer.upgrade_resume_checkpoint(trainer, {"model": dict(legacy)}) == {
+        "model": legacy
+    }
+
+
+# =============================================================================
+# Loading through the wrappers
+# =============================================================================
+
+
+@pytest.mark.parametrize("size", ["t", "s", "m", "c"])
+def test_registry_classmethods_accept_both_key_spellings(size):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+    from libreyolo.models.yolo9_p2.model import LibreYOLO9P2
+
+    model = LibreYOLO9Model(config=size, nb_classes=3)
+    for state in (model.state_dict(), _legacy_state_dict(model)):
+        assert LibreYOLO9.can_load(state) is True
+        assert LibreYOLO9P2.can_load(state) is False
+        assert LibreYOLO9.detect_size(state) == size
+        assert LibreYOLO9.detect_nb_classes(state) == 3
+
+
+@pytest.mark.parametrize(
+    "extra_key",
+    [
+        "head.one2one_cv2.0.0.conv.weight",
+        "head.one2one_cv3.0.2.weight",
+        "head.one_to_one_anchor_convs.0.0.conv.weight",
+        "head.one_to_one_class_convs.0.2.weight",
+        "neck.elan_up3.cv1.conv.weight",
+        "neck.elan_up3.conv1.conv.weight",
+        "neck.elan_down0.conv1.conv.weight",
+    ],
+)
+def test_base_can_load_leaves_e2e_and_p2_keys_to_their_families(extra_key):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    state = dict(LibreYOLO9Model(config="t", nb_classes=3).state_dict())
+    state[extra_key] = torch.zeros(1)
+    assert LibreYOLO9.can_load(state) is False
+
+
+def _save_legacy_checkpoint(path, model, nc):
+    from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
+    legacy = _legacy_state_dict(model)
+    legacy["head.dfl.conv.weight"] = torch.arange(16.0).view(1, 16, 1, 1)
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            legacy,
+            model_family="yolo9",
+            size="t",
+            task="detect",
+            nc=nc,
+            names={i: f"c{i}" for i in range(nc)},
+            imgsz=640,
         ),
-        encoding="utf-8",
-    )
-    data_yaml = tmp_path / "data.yaml"
-    data_yaml.write_text(
-        "path: " + str(tmp_path).replace("\\", "/") + "\n"
-        "train: images/custom_train\n"
-        "val: images/custom_train\n"
-        "annotations:\n"
-        "  train: custom_annotations/train.json\n"
-        "nc: 1\n"
-        "names:\n"
-        "  0: vehicle\n",
-        encoding="utf-8",
-    )
-    wrapper = type(
-        "Wrapper",
-        (),
-        {"task": "detect", "nb_classes": 1, "names": {0: "vehicle"}},
-    )()
-    trainer = YOLO9Trainer(
-        model=torch.nn.Conv2d(3, 3, 1),
-        wrapper_model=wrapper,
-        data=str(data_yaml),
-        epochs=1,
-        batch=1,
-        imgsz=64,
-        workers=0,
-        device="cpu",
+        path,
     )
 
-    train_dataset = trainer._setup_data()
 
-    assert isinstance(train_dataset.dataset, COCODataset)
-    assert train_dataset.dataset.json_file == str(ann_dir / "train.json")
-    assert train_dataset.dataset.name == str(image_dir)
-    assert train_dataset.dataset._image_path(0) == image_dir / "sample.jpg"
+def test_wrapper_loads_a_legacy_layout_checkpoint_file(tmp_path):
+    from libreyolo.models.yolo9.model import LibreYOLO9
 
+    torch.manual_seed(0)
+    source = LibreYOLO9Model(config="t", nb_classes=3).eval()
+    path = tmp_path / "legacy_t.pt"
+    _save_legacy_checkpoint(path, source, nc=3)
 
-def test_yolo9_trainer_uses_explicit_coco_json_paths_for_obb(tmp_path):
-    pytest.importorskip("pycocotools")
-    from libreyolo.data.dataset import COCODataset
-
-    image_dir = tmp_path / "images" / "custom_train"
-    ann_dir = tmp_path / "custom_annotations"
-    image_dir.mkdir(parents=True)
-    ann_dir.mkdir()
-    Image.new("RGB", (100, 100), color="white").save(image_dir / "sample.jpg")
-    (ann_dir / "train.json").write_text(
-        json.dumps(
-            {
-                "images": [
-                    {"id": 10, "file_name": "sample.jpg", "width": 100, "height": 100}
-                ],
-                "annotations": [
-                    {
-                        "id": 1,
-                        "image_id": 10,
-                        "category_id": 42,
-                        "bbox": [10, 20, 40, 20],
-                        "obb": [10, 20, 50, 20, 50, 40, 10, 40],
-                        "area": 800,
-                        "iscrowd": 0,
-                    }
-                ],
-                "categories": [{"id": 42, "name": "vehicle"}],
-            }
-        ),
-        encoding="utf-8",
-    )
-    data_yaml = tmp_path / "data.yaml"
-    data_yaml.write_text(
-        "path: " + str(tmp_path).replace("\\", "/") + "\n"
-        "train: images/custom_train\n"
-        "val: images/custom_train\n"
-        "annotations:\n"
-        "  train: custom_annotations/train.json\n"
-        "nc: 1\n"
-        "names:\n"
-        "  0: vehicle\n",
-        encoding="utf-8",
-    )
-    wrapper = type(
-        "Wrapper",
-        (),
-        {"task": "obb", "nb_classes": 1, "names": {0: "vehicle"}},
-    )()
-    trainer = YOLO9Trainer(
-        model=torch.nn.Conv2d(3, 3, 1),
-        wrapper_model=wrapper,
-        data=str(data_yaml),
-        epochs=1,
-        batch=1,
-        imgsz=100,
-        workers=0,
-        device="cpu",
-    )
-
-    train_dataset = trainer._setup_data()
-
-    assert isinstance(train_dataset.dataset, COCODataset)
-    assert train_dataset.dataset.load_obb is True
-    assert train_dataset.dataset.json_file == str(ann_dir / "train.json")
-    assert train_dataset.dataset.name == str(image_dir)
-    labels = train_dataset.dataset.annotations[0][0]
-    assert labels.shape == (1, 6)
-    assert labels[0, 4] == 0
+    loaded = LibreYOLO9(str(path), size="t", device="cpu")
+    assert loaded.nb_classes == 3
+    state = loaded.model.state_dict()
+    assert list(state) == list(source.state_dict())
+    assert all(torch.equal(state[k], v) for k, v in source.state_dict().items())
+    x = torch.rand(1, 3, 64, 64)
+    with torch.no_grad():
+        assert torch.equal(loaded.model(x)["predictions"], source(x)["predictions"])
 
 
-def test_yolo9_trainer_uses_default_coco_images_layout_for_obb_data_dir(tmp_path):
-    pytest.importorskip("pycocotools")
-    from libreyolo.data.dataset import COCODataset
+def test_wrapper_keeps_legacy_checkpoint_class_width(tmp_path):
+    """A fine-tune keeps its source's COCO-width towers (t: 80 wide); the
+    checkpoint width wins over a fresh build for the new class count."""
+    from libreyolo.models.yolo9.model import LibreYOLO9
 
-    image_dir = tmp_path / "images" / "train2017"
-    ann_dir = tmp_path / "annotations"
-    image_dir.mkdir(parents=True)
-    ann_dir.mkdir()
-    Image.new("RGB", (100, 100), color="white").save(image_dir / "sample.jpg")
-    (ann_dir / "instances_train2017.json").write_text(
-        json.dumps(
-            {
-                "images": [
-                    {"id": 10, "file_name": "sample.jpg", "width": 100, "height": 100}
-                ],
-                "annotations": [
-                    {
-                        "id": 1,
-                        "image_id": 10,
-                        "category_id": 1,
-                        "bbox": [10, 20, 40, 20],
-                        "obb": [10, 20, 50, 20, 50, 40, 10, 40],
-                        "area": 800,
-                        "iscrowd": 0,
-                    }
-                ],
-                "categories": [{"id": 1, "name": "vehicle"}],
-            }
-        ),
-        encoding="utf-8",
-    )
-    wrapper = type(
-        "Wrapper",
-        (),
-        {"task": "obb", "nb_classes": 1, "names": {0: "vehicle"}},
-    )()
-    trainer = YOLO9Trainer(
-        model=torch.nn.Conv2d(3, 3, 1),
-        wrapper_model=wrapper,
-        data_dir=str(tmp_path),
-        num_classes=1,
-        epochs=1,
-        batch=1,
-        imgsz=100,
-        workers=0,
-        device="cpu",
-    )
+    source = LibreYOLO9Model(config="t", nb_classes=80)
+    source.head.set_num_classes(2)
+    path = tmp_path / "legacy_t_2cls.pt"
+    _save_legacy_checkpoint(path, source, nc=2)
 
-    train_dataset = trainer._setup_data()
-
-    assert isinstance(train_dataset.dataset, COCODataset)
-    assert train_dataset.dataset.load_obb is True
-    assert train_dataset.dataset.json_file == "instances_train2017.json"
-    assert train_dataset.dataset.name == "images/train2017"
-    assert train_dataset.dataset._image_path(0) == image_dir / "sample.jpg"
+    loaded = LibreYOLO9(str(path), size="t", device="cpu")
+    head = loaded.model.head
+    assert loaded.nb_classes == 2 and head.num_classes == 2
+    assert head.class_neck == 80
+    assert head.class_convs[0][0].conv.out_channels == 80
+    assert head.class_convs[0][2].out_channels == 2
 
 
-def test_yolo9_trainer_checkpoint_uses_resolved_data_classes_for_obb(tmp_path):
-    from libreyolo.utils.serialization import load_trusted_torch_file
+def test_rebuild_for_new_classes_keeps_widths_and_rebuilds_aux():
+    """A class-count change swaps the final class convs, keeps hidden widths,
+    and (as LibreYOLO always has) re-applies the bias init to both towers."""
+    from libreyolo.models.yolo9.model import LibreYOLO9
 
-    image_dir = tmp_path / "train" / "images"
-    label_dir = tmp_path / "train" / "labels"
-    image_dir.mkdir(parents=True)
-    label_dir.mkdir(parents=True)
-    Image.new("RGB", (64, 64), color="white").save(image_dir / "sample.jpg")
-    (label_dir / "sample.txt").write_text(
-        "0 0.25 0.25 0.75 0.25 0.75 0.75 0.25 0.75\n",
-        encoding="utf-8",
-    )
-    data_yaml = tmp_path / "data.yaml"
-    data_yaml.write_text(
-        "path: " + str(tmp_path).replace("\\", "/") + "\n"
-        "train: train/images\n"
-        "val: train/images\n"
-        "nc: '1'\n"
-        "names:\n"
-        "  0: vehicle\n",
-        encoding="utf-8",
-    )
-    wrapper = type(
-        "Wrapper",
-        (),
-        {"task": "obb", "nb_classes": 1, "names": {0: "vehicle"}},
-    )()
-    trainer = YOLO9Trainer(
-        model=torch.nn.Conv2d(3, 3, 1),
-        wrapper_model=wrapper,
-        data=str(data_yaml),
-        epochs=1,
-        batch=1,
-        imgsz=64,
-        workers=0,
-        device="cpu",
-    )
-
-    trainer._setup_data()
-    trainer.save_dir = tmp_path / "run"
-    trainer.save_dir.mkdir()
-    trainer.optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.01)
-    trainer._save_checkpoint(epoch=0, loss=1.0, is_best=True)
-
-    checkpoint = load_trusted_torch_file(
-        trainer.save_dir / "weights" / "last.pt",
-        map_location="cpu",
-        context="unit test checkpoint",
-    )
-    assert trainer.config.num_classes == 1
-    assert checkpoint["nc"] == 1
-    assert checkpoint["config"]["num_classes"] == 1
-
-
-def test_anchor_cache_rebuilds_on_device_or_dtype_change():
-    """A per-call device switch must not reuse anchors cached on the old device."""
-    feats = [
-        torch.randn(1, 64, 8, 8),
-        torch.randn(1, 128, 4, 4),
-        torch.randn(1, 256, 2, 2),
-    ]
-    head = DDetect(nc=2, ch=(64, 128, 256), reg_max=16, stride=(8, 16, 32))
-    anchors, _ = head._grid(feats)
-    assert anchors.device.type == "cpu"
-
-    # Simulate a cache left on another device by an earlier forward.
-    head.anchors = head.anchors.to("meta")
-    head.strides = head.strides.to("meta")
-    anchors, strides = head._grid(feats)
-    assert anchors.device.type == "cpu"
-    assert strides.device.type == "cpu"
-
-    anchors, strides = head._grid([f.double() for f in feats])
-    assert anchors.dtype == torch.float64
-    assert strides.dtype == torch.float64
+    wrapper = LibreYOLO9(None, size="t", nb_classes=80, device="cpu")
+    wrapper.model.enable_aux(0.25)
+    with torch.no_grad():
+        wrapper.model.head.anchor_convs[0][2].bias.fill_(0.5)
+    wrapper._rebuild_for_new_classes(4)
+    for head in (wrapper.model.head, wrapper.model.aux_head):
+        assert head.num_classes == 4 and head._loss_fn is None
+        assert all(t[2].out_channels == 4 for t in head.class_convs)
+        assert all(t[0].conv.out_channels == 80 for t in head.class_convs)
+        assert all(torch.all(t[2].bias == -10.0) for t in head.class_convs)
+        assert all(torch.all(t[2].bias == 1.0) for t in head.anchor_convs)

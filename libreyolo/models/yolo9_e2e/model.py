@@ -1,7 +1,7 @@
 """LibreYOLO9E2E inference and training wrapper.
 
 YOLOv9 end-to-end (NMS-free) variant.  Shares the backbone and neck with
-standard YOLOv9 but replaces the detection head with YOLO9E2EDetect, which
+standard YOLOv9 but replaces the detection head with YOLO9E2EHead, which
 adds a one-to-one matching branch alongside the standard one-to-many branch.
 
 Inference uses only the one-to-one branch and applies top-K selection instead
@@ -20,7 +20,7 @@ import torch.nn as nn
 from libreyolo.training.ddp_spawn import ddp_aware
 
 from ...training.callbacks import TrainCallbacks
-from ..yolo9.model import LibreYOLO9
+from ..yolo9.model import LibreYOLO9, _E2E_KEY_MARKERS, _upgraded_keys
 from .config import YOLO9E2EConfig
 from .nn import LibreYOLO9E2EModel
 from ...postprocess.yolo9_e2e import postprocess
@@ -29,6 +29,11 @@ from ...validation.preprocessors import YOLO9E2EValPreprocessor
 
 # Use parent's training defaults as the baseline; only the name differs.
 _TRAIN_DEFAULTS = YOLO9Config()
+
+_CLASS_OUTPUT_KEY_RE = re.compile(
+    r"head\.(one_to_one_class_convs|class_convs)\.\d+\.2\.weight"
+)
+_ONE_TO_ONE_CLASS_TOWER_HIDDEN_KEY = "head.one_to_one_class_convs.0.0.conv.weight"
 
 
 class LibreYOLO9E2E(LibreYOLO9):
@@ -60,28 +65,28 @@ class LibreYOLO9E2E(LibreYOLO9):
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        """Match checkpoints that contain the one-to-one head keys.
+        """Match checkpoints that contain the one-to-one head towers.
 
-        The discriminating tokens are ``one2one_cv2`` and ``one2one_cv3``
-        which are unique to the E2E head and absent from standard YOLOv9
-        checkpoints.  This must be checked *before* LibreYOLO9.can_load in
-        the registry because E2E checkpoints also contain repncspelan / adown /
-        sppelan keys that would otherwise cause a false LibreYOLO9 match.
+        The discriminating tokens are the one-to-one tower names, legacy
+        (``one2one_cv2`` / ``one2one_cv3``) or current
+        (``one_to_one_anchor_convs`` / ``one_to_one_class_convs``), which
+        standard YOLOv9 checkpoints never contain.  This must be checked
+        *before* LibreYOLO9.can_load in the registry because E2E checkpoints
+        also contain repncspelan / adown / sppelan keys that would otherwise
+        cause a false LibreYOLO9 match.
         """
         return any(
-            "one2one_cv2" in key or "one2one_cv3" in key for key in weights_dict
+            marker in key.lower()
+            for key in weights_dict
+            if isinstance(key, str)
+            for marker in _E2E_KEY_MARKERS
         )
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
-        patterns = (
-            r"head\.one2one_cv3\.\d+\.2\.weight",
-            r"detect\.one2one_cv3\.\d+\.2\.weight",
-            r"head\.cv3\.\d+\.2\.weight",
-        )
-        for key, tensor in weights_dict.items():
-            if any(re.match(pattern, key) for pattern in patterns):
-                return tensor.shape[0]
+        for key, tensor in _upgraded_keys(weights_dict).items():
+            if _CLASS_OUTPUT_KEY_RE.match(key):
+                return int(tensor.shape[0])
         return None
 
     @classmethod
@@ -89,9 +94,10 @@ class LibreYOLO9E2E(LibreYOLO9):
         """Claim native-keyed E2E dicts only.
 
         The numbered upstream layout belongs to LibreYOLO9 (its remap converts
-        the detection head); a numbered dict that happens to carry a one2one
-        key must not be passed through raw here, or the subclass-wins rule
-        would hand LibreYOLO9's correct claim to a garbage E2E wrap.
+        the detection head); a numbered dict that happens to carry a
+        one-to-one key must not be passed through raw here, or the
+        subclass-wins rule would hand LibreYOLO9's correct claim to a garbage
+        E2E wrap.
         """
         from ..yolo9.convert import is_upstream_state_dict
 
@@ -108,52 +114,34 @@ class LibreYOLO9E2E(LibreYOLO9):
             config=self.size, reg_max=self.reg_max, nb_classes=self.nb_classes
         )
 
-    def _prepare_state_dict(self, state_dict: dict) -> dict:
-        """Remap legacy ``detect.*`` head keys to ``head.*``."""
-        remapped = {}
-        for key, value in state_dict.items():
-            new_key = (
-                key.replace("detect.", "head.", 1)
-                if key.startswith("detect.")
-                else key
+    # Legacy key renaming (``_prepare_state_dict``) and the class-count
+    # rebuild (``_rebuild_for_new_classes``) are inherited from LibreYOLO9:
+    # ``upgrade_legacy_key`` also renames the legacy one-to-one towers, and
+    # ``YOLO9E2EHead.set_num_classes`` / ``init_bias`` cover both branches.
+
+    def _align_class_towers_for_transfer(self, state_dict: dict) -> None:
+        """Match both class-tower sets' hidden width to the checkpoint's."""
+        super()._align_class_towers_for_transfer(state_dict)
+        if _ONE_TO_ONE_CLASS_TOWER_HIDDEN_KEY in state_dict:
+            self._rebuild_one_to_one_class_towers(
+                int(state_dict[_ONE_TO_ONE_CLASS_TOWER_HIDDEN_KEY].shape[0])
             )
-            remapped[new_key] = value
-        return remapped
 
-    def _rebuild_for_new_classes(self, new_nc: int):
-        """Replace both class-output branches for a new class count."""
-        self.nb_classes = new_nc
-        self.model.nc = new_nc
+    def _rebuild_one_to_one_class_towers(self, class_neck: int) -> None:
+        """Rebuild the one-to-one class towers at ``class_neck`` hidden width.
+
+        Counterpart of :meth:`LibreYOLO9._rebuild_class_towers` for the second
+        branch; no-op when the width already matches.
+        """
         head = self.model.head
-        head.nc = new_nc
-        head.no = new_nc + head.reg_max * 4
-
-        for branches in (head.cv3, head.one2one_cv3):
-            for seq in branches:
-                old_final = seq[-1]
-                in_channels = old_final.weight.shape[1]
-                seq[-1] = nn.Conv2d(in_channels, new_nc, 1)
-
-        head._init_bias()
-        head._init_one2one_bias()
-        head._loss_fn = None
-        head.to(next(self.model.parameters()).device)
-
-    def _prepare_model_for_state_dict(self, state_dict: dict) -> None:
-        """Also match the one-to-one class towers' width to the checkpoint."""
-        super()._prepare_model_for_state_dict(state_dict)
-        hidden_key = "head.one2one_cv3.0.0.conv.weight"
-        if hidden_key not in state_dict:
+        towers = head.one_to_one_class_convs
+        if int(towers[0][0].conv.weight.shape[0]) == class_neck:
             return
-        head = self.model.head
-        checkpoint_hidden = int(state_dict[hidden_key].shape[0])
-        if int(head.one2one_cv3[0][0].conv.weight.shape[0]) == checkpoint_hidden:
-            return
-        channels = [int(seq[0].conv.weight.shape[1]) for seq in head.one2one_cv3]
-        head.one2one_cv3 = head._build_class_towers(
-            channels, checkpoint_hidden, self.nb_classes
+        channels = [int(tower[0].conv.weight.shape[1]) for tower in towers]
+        head.one_to_one_class_convs = head.build_class_convs(
+            channels, class_neck, self.nb_classes
         )
-        head._init_one2one_bias()
+        head.init_bias()
         head._loss_fn = None
         head.to(next(self.model.parameters()).device)
 

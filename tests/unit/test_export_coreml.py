@@ -471,20 +471,30 @@ class TestCoreMLBackendModule:
 
 
 def test_yolo9_export_warm_up_freezes_the_anchor_grid():
-    """The exporter enables head.export, whose branch skips the anchor cache;
-    the frozen grid stayed empty and every YOLO9 CoreML export failed with
-    IndexError (also on dev and 1.5)."""
+    """CoreML export pins the head's anchor grid for the export canvas, so
+    the traced graph carries constants instead of shape arithmetic that
+    coremltools rejects; restore unfreezes it and keeps ``head.export``."""
     from libreyolo.export.coreml import _prepare_yolo9_static_eval
     from libreyolo.models.yolo9.model import LibreYOLO9
 
     model = LibreYOLO9(None, size="t", device="cpu").model.eval()
     model.head.export = True
+    dummy = torch.zeros(1, 3, 64, 64)
+    with torch.no_grad():
+        live = model(dummy)
 
-    restore = _prepare_yolo9_static_eval(model, torch.zeros(1, 3, 64, 64))
+    restore = _prepare_yolo9_static_eval(model, dummy)
     try:
-        anchors, strides = model.head._anchor_grid(None)
-        assert tuple(anchors.shape) == (64 + 16 + 4, 2)
-        assert tuple(strides.shape) == (64 + 16 + 4, 1)
+        sizes, anchors, strides = model.head._frozen_grid
+        assert sizes == ((8, 8), (4, 4), (2, 2))
+        assert tuple(anchors.shape) == (2, 64 + 16 + 4)
+        assert tuple(strides.shape) == (1, 64 + 16 + 4)
         assert model.head.export is True
+        with torch.no_grad():
+            assert torch.equal(model(dummy), live)
+        traced = torch.jit.trace(model, dummy)
+        assert "aten::arange" not in str(traced.inlined_graph)
     finally:
         restore()
+    assert model.head._frozen_grid is None
+    assert model.head.export is True

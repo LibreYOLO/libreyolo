@@ -31,7 +31,9 @@ letterbox flip: there is none.
 - New YOLOv9 training defaults: `max_labels=300`, SGD momentum warmup
   `0.8 → 0.937` over the existing 3-epoch LR warmup, and `aux_weight=0.25`
   on stock detect (not P2/E2E). Resume of a 1.5 checkpoint without `aux.*`
-  keys stays single-head.
+  keys stays single-head. A fine-tune from weights without `aux.*` keys
+  (including the published `LibreYOLO9{t,s,m,c}.pt`) also stays single-head
+  unless `aux_weight` is passed explicitly.
 - To force center-pad on an unmarked checkpoint: `model.train(...,
   letterbox_pad="center")`. To disable PGI: `aux_weight=0`.
 

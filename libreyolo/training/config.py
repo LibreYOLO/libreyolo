@@ -565,15 +565,21 @@ class YOLO9Config(TrainConfig):
     sync_bn: bool = True
     # Per-image ground-truth cap in the train transforms. Dense datasets
     # (e.g. aerial imagery) exceed the historical 100-box default; boxes
-    # beyond the cap are silently dropped. 300 matches the MTL/YOLO-NAS
-    # recipe and is a training-only change (old checkpoints still load).
+    # beyond the cap are silently dropped. MultimediaTechLab/YOLO caps at
+    # 100; 300 is a training-only change (old checkpoints still load).
     max_labels: int = 300
     # PGI auxiliary-head loss weight. 0 disables the branch. Training-only;
     # inference stays single-head. Resume of a checkpoint without ``aux.*``
-    # weights keeps the single-head graph.
+    # weights keeps the single-head graph, and so does a fine-tune from
+    # weights without them unless ``aux_weight`` is passed explicitly.
     aux_weight: float = 0.25
     # SGD momentum at the start of warmup (MTL LinearL: 0.8 → 0.937).
     warmup_momentum: float = 0.8
+    # Gradient L2-norm clip before each optimizer step; 0 disables it.
+    # MultimediaTechLab/YOLO trains with ``gradient_clip_val=10`` and
+    # ``gradient_clip_algorithm="norm"`` (yolo/lazy.py); without it YOLO9
+    # fine-tuning at lr0=0.01 can diverge (issue #927).
+    clip_max_norm: float = 10.0
     # Letterbox pad for new training. ``None`` inherits the loaded
     # checkpoint stamp, or top-left when the checkpoint is unmarked.
     letterbox_pad: Optional[str] = None

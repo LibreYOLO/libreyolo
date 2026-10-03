@@ -43,7 +43,9 @@ _METADATA_CONVERSION_HELP = (
 # prefix (skill landmine §9.3).
 # NOTE: LibreYOLO9E2E *must* be imported before LibreYOLO9.  E2E checkpoints
 # contain all the same backbone/neck key patterns that LibreYOLO9.can_load
-# matches, so the E2E discriminator (one2one_cv2 / one2one_cv3) must win first.
+# matches, so the E2E discriminator (the one-to-one head towers: legacy
+# one2one_cv2 / one2one_cv3, current one_to_one_anchor_convs /
+# one_to_one_class_convs) must win first.
 from .ec.model import LibreEC  # noqa: E402
 from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402

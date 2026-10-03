@@ -2374,34 +2374,26 @@ class BaseBackend(ABC):
             keypoints_all = np.asarray(all_outputs[1][0], dtype=np.float32)
 
         if self.model_family == "yolo9_e2e" and self.task == "detect":
-            topk_anchors = min(max_det, scores.shape[0])
-            if topk_anchors == 0 or scores.shape[-1] == 0:
-                return (
-                    np.empty((0, 4), dtype=np.float32),
-                    np.empty((0,), dtype=np.float32),
-                    np.empty((0,), dtype=np.int64),
-                )
-
-            anchor_scores = np.max(scores, axis=1)
-            anchor_idx = np.argpartition(-anchor_scores, topk_anchors - 1)[
-                :topk_anchors
-            ]
-            anchor_idx = anchor_idx[np.argsort(-anchor_scores[anchor_idx])]
-            boxes_subset = boxes_input_all[anchor_idx]
-            scores_subset = scores[anchor_idx]
-
-            flat_scores = scores_subset.reshape(-1)
-            topk_scores = min(max_det, flat_scores.size)
-            flat_idx = np.argpartition(-flat_scores, topk_scores - 1)[:topk_scores]
-            flat_idx = flat_idx[np.argsort(-flat_scores[flat_idx])]
-            class_ids = flat_idx % scores_subset.shape[-1]
-            box_indices = flat_idx // scores_subset.shape[-1]
-            boxes_input = boxes_subset[box_indices]
-            max_scores = flat_scores[flat_idx]
-            keep = max_scores > conf
-            boxes_input = boxes_input[keep]
-            max_scores = max_scores[keep]
-            class_ids = class_ids[keep]
+            # NMS-free one-to-one head: keep the max_det best (anchor, class)
+            # pairs of the flattened (N, nc) score matrix, highest first,
+            # then apply the confidence threshold. No NMS runs afterwards.
+            num_anchors, num_classes = scores.shape
+            k = min(int(max_det), num_anchors * num_classes)
+            if k > 0:
+                flat_scores = scores.reshape(-1)
+                top = np.argpartition(-flat_scores, k - 1)[:k]
+                top = top[np.lexsort((top, -flat_scores[top]))]
+                max_scores = flat_scores[top]
+                class_ids = (top % num_classes).astype(np.int64)
+                boxes_input = boxes_input_all[top // num_classes]
+                keep = max_scores > conf
+                boxes_input = boxes_input[keep]
+                max_scores = max_scores[keep]
+                class_ids = class_ids[keep]
+            else:
+                boxes_input = np.zeros((0, 4), dtype=np.float32)
+                max_scores = np.zeros((0,), dtype=np.float32)
+                class_ids = np.zeros((0,), dtype=np.int64)
         else:
             anchor_idx, class_ids = np.nonzero(scores > conf)
             boxes_input = boxes_input_all[anchor_idx]

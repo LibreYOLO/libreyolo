@@ -1,731 +1,633 @@
+"""YOLOv9 network: building blocks, detection head and model assembly.
+
+Provenance: architecture blocks, detection-head towers and bias
+initialization are ported from MultimediaTechLab/YOLO
+(https://github.com/MultimediaTechLab/YOLO, commit c4cb5f6f, MIT License,
+Copyright (c) 2024 Kin-Yiu Wong and Hao-Tang Tsui): ``yolo/model/module.py``
+and ``yolo/utils/module_utils.py``. Anchor generation and box decoding follow
+``yolo/utils/bounding_box_utils.py`` (``generate_anchors``, ``Vec2Box``)
+there. Model assembly, checkpoint loading and export glue are LibreYOLO code.
 """
-Neural network architecture for LibreYOLO yolo9.
 
-Supports yolo9-t (tiny), yolo9-s (small), yolo9-m (medium), and yolo9-c (compact/largest).
+from __future__ import annotations
 
-The architecture blocks (Conv, ELAN/RepNCSPELAN, AConv/ADown, SPPELAN) and the
-detection head are ported and adapted from MultimediaTechLab/YOLO
-(https://github.com/MultimediaTechLab/YOLO, MIT License, Copyright (c) 2024
-Kin-Yiu, Wong and Hao-Tang, Tsui), the official MIT release of YOLOv9 — see
-``yolo/model/module.py`` and ``yolo/utils/bounding_box_utils.py`` there. The
-RepConv fuse/re-parameterization logic follows DingXiaoH/RepVGG (MIT License).
-
-LibreYOLO keeps its own module layout and state-dict key names
-(``backbone.*`` / ``neck.*`` / ``head.cv2|cv3|dfl``): they are the published
-LibreYOLO9 checkpoint format, and :mod:`libreyolo.models.yolo9.convert` maps
-upstream checkpoints onto it.
-"""
+import logging
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from torch import Tensor
+from torch.nn.common_types import _size_2_t
+
+logger = logging.getLogger(__name__)
 
 
-def auto_pad(kernel_size, padding=None, dilation=1):
-    """Return symmetric padding for stride-preserving convolutions."""
-    if padding is not None:
-        return padding
+# =============================================================================
+# Helpers (MultimediaTechLab/YOLO yolo/utils/module_utils.py)
+# =============================================================================
+
+
+def auto_pad(kernel_size: _size_2_t, dilation: _size_2_t = 1, **kwargs) -> Tuple[int, int]:
+    """Padding that keeps the spatial size for a stride-1 (dilated) kernel."""
     if isinstance(kernel_size, int):
-        return ((kernel_size - 1) * dilation) // 2
+        kernel_size = (kernel_size, kernel_size)
     if isinstance(dilation, int):
-        dilation = [dilation] * len(kernel_size)
-    return [((size - 1) * dil) // 2 for size, dil in zip(kernel_size, dilation)]
+        dilation = (dilation, dilation)
+
+    pad_h = ((kernel_size[0] - 1) * dilation[0]) // 2
+    pad_w = ((kernel_size[1] - 1) * dilation[1]) // 2
+    return (pad_h, pad_w)
 
 
-def create_activation(activation=True):
-    """Build an activation module from the YOLOv9 config convention."""
-    if isinstance(activation, nn.Module):
-        return activation
-    if activation is True:
-        return nn.SiLU()
-    if activation in (False, None):
+def create_activation_function(activation: Optional[Union[str, bool]]) -> nn.Module:
+    """Return a ``torch.nn`` activation by case-insensitive name.
+
+    ``None``, ``False``, ``"false"`` and ``"none"`` give ``nn.Identity``.
+    """
+    if not activation or str(activation).lower() in ("false", "none"):
         return nn.Identity()
-    if isinstance(activation, str):
-        if activation.lower() in {"false", "none", "identity"}:
-            return nn.Identity()
-        activation_cls = getattr(nn, activation, None)
-        if activation_cls is None:
-            raise ValueError(f"Unsupported activation: {activation}")
-        try:
-            return activation_cls(inplace=True)
-        except TypeError:
-            return activation_cls()
-    raise TypeError(f"Unsupported activation specifier: {activation!r}")
+
+    activation_map = {
+        name.lower(): obj
+        for name, obj in nn.modules.activation.__dict__.items()
+        if isinstance(obj, type) and issubclass(obj, nn.Module)
+    }
+    name = str(activation).lower()
+    if name in activation_map:
+        return activation_map[name](inplace=True)
+    raise ValueError(f"Activation function '{activation}' is not found in torch.nn")
+
+
+def round_up(x: Union[int, Tensor], div: int = 1) -> Union[int, Tensor]:
+    """Round ``x`` up to the nearest multiple of ``div``."""
+    return x + (-x % div)
+
+
+# =============================================================================
+# Building blocks (MultimediaTechLab/YOLO yolo/model/module.py)
+# =============================================================================
 
 
 class Conv(nn.Module):
-    """Standard convolution: Conv2d + BatchNorm + activation."""
+    """Convolution, batch normalization and activation."""
 
     def __init__(
         self,
-        in_channels,
-        out_channels,
-        kernel_size=1,
-        stride=1,
-        padding=None,
-        groups=1,
-        dilation=1,
-        activation=True,
-        **legacy_kwargs,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: _size_2_t,
+        *,
+        activation: Optional[Union[str, bool]] = "SiLU",
+        **kwargs,
     ):
-        """
-        Initialize Conv layer.
-
-        Args:
-            in_channels: Input channels
-            out_channels: Output channels
-            kernel_size: Kernel size
-            stride: Stride
-            padding: Padding override
-            groups: Convolution groups
-            dilation: Dilation
-            activation: Activation specifier
-        """
         super().__init__()
-        if "k" in legacy_kwargs:
-            kernel_size = legacy_kwargs.pop("k")
-        if "s" in legacy_kwargs:
-            stride = legacy_kwargs.pop("s")
-        if "p" in legacy_kwargs:
-            padding = legacy_kwargs.pop("p")
-        if "g" in legacy_kwargs:
-            groups = legacy_kwargs.pop("g")
-        if "d" in legacy_kwargs:
-            dilation = legacy_kwargs.pop("d")
-        if "act" in legacy_kwargs:
-            activation = legacy_kwargs.pop("act")
-        if legacy_kwargs:
-            unknown = ", ".join(sorted(legacy_kwargs))
-            raise TypeError(f"Unexpected Conv arguments: {unknown}")
+        kwargs.setdefault("padding", auto_pad(kernel_size, **kwargs))
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, bias=False, **kwargs)
+        self.bn = nn.BatchNorm2d(out_channels, eps=1e-3, momentum=3e-2)
+        self.act = create_activation_function(activation)
 
-        self.conv = nn.Conv2d(
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride,
-            auto_pad(kernel_size, padding, dilation),
-            groups=groups,
-            dilation=dilation,
-            bias=False,
-        )
-        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.03)
-        self.act = create_activation(activation)
-
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         return self.act(self.bn(self.conv(x)))
 
-    def forward_without_bn(self, x):
-        """Forward pass for fused Conv (inference only)."""
-        return self.act(self.conv(x))
+
+class Pool(nn.Module):
+    """Max or average pooling with automatic padding."""
+
+    def __init__(self, method: str = "max", kernel_size: _size_2_t = 2, **kwargs):
+        super().__init__()
+        kwargs.setdefault("padding", auto_pad(kernel_size, **kwargs))
+        pool_classes = {"max": nn.MaxPool2d, "avg": nn.AvgPool2d}
+        self.pool = pool_classes[method.lower()](kernel_size=kernel_size, **kwargs)
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.pool(x)
 
 
-class RepConvN(nn.Module):
-    """
-    RepConv block for neural network re-parameterization.
-
-    During training: 3x3 conv + 1x1 conv (+ identity if c1==c2)
-    During inference: Single fused 3x3 conv
-    """
+class RepConv(nn.Module):
+    """Parallel kxk and 1x1 convolutions (no activation) summed, then activated."""
 
     def __init__(
-        self, c1, c2, k=3, s=1, p=1, g=1, d=1, act=True, bn=False, deploy=False
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: _size_2_t = 3,
+        *,
+        activation: Optional[Union[str, bool]] = "SiLU",
+        **kwargs,
     ):
         super().__init__()
-        assert k == 3 and p == 1
-        self.g = g
-        self.c1 = c1
-        self.c2 = c2
-        self.act = create_activation(act)
+        self.act = create_activation_function(activation)
+        self.conv1 = Conv(in_channels, out_channels, kernel_size, activation=False, **kwargs)
+        self.conv2 = Conv(in_channels, out_channels, 1, activation=False, **kwargs)
 
-        self.bn = nn.BatchNorm2d(c2) if bn and c2 == c1 and s == 1 else None
-        self.conv1 = Conv(c1, c2, k, s, p=p, g=g, act=False)
-        self.conv2 = Conv(c1, c2, 1, s, p=(p - k // 2), g=g, act=False)
-
-    def forward(self, x):
-        """Forward pass with parallel paths."""
-        id_out = 0 if self.bn is None else self.bn(x)
-        return self.act(self.conv1(x) + self.conv2(x) + id_out)
-
-    def forward_deployed(self, x):
-        """Forward pass for fused RepConv."""
-        return self.act(self.conv(x))
-
-    def fuse_convs(self):
-        """Fuse parallel convolutions into single conv for inference."""
-        if hasattr(self, "conv"):
-            return
-
-        kernel3x3, bias3x3 = self._fuse_bn_tensor(self.conv1)
-        kernel1x1, bias1x1 = self._fuse_bn_tensor(self.conv2)
-        kernelid, biasid = self._fuse_bn_tensor(self.bn)
-
-        kernel1x1 = F.pad(kernel1x1, [1, 1, 1, 1])
-
-        self.conv = nn.Conv2d(self.c1, self.c2, 3, 1, 1, groups=self.g, bias=True)
-        self.conv.weight.data = kernel3x3 + kernel1x1 + kernelid
-        self.conv.bias.data = bias3x3 + bias1x1 + biasid
-
-        for para in self.parameters():
-            para.detach_()
-
-        self.__delattr__("conv1")
-        self.__delattr__("conv2")
-        if hasattr(self, "bn"):
-            self.__delattr__("bn")
-        if hasattr(self, "id_tensor"):
-            self.__delattr__("id_tensor")
-        self.forward = self.forward_deployed
-
-    def _fuse_bn_tensor(self, branch):
-        """Fuse batch norm into conv weights."""
-        if branch is None:
-            return 0, 0
-        if isinstance(branch, Conv):
-            kernel = branch.conv.weight
-            running_mean = branch.bn.running_mean
-            running_var = branch.bn.running_var
-            gamma = branch.bn.weight
-            beta = branch.bn.bias
-            eps = branch.bn.eps
-        elif isinstance(branch, nn.BatchNorm2d):
-            if not hasattr(self, "id_tensor"):
-                input_dim = self.c1 // self.g
-                kernel_value = torch.zeros(
-                    (self.c1, input_dim, 3, 3),
-                    dtype=branch.weight.dtype,
-                    device=branch.weight.device,
-                )
-                for i in range(self.c1):
-                    kernel_value[i, i % input_dim, 1, 1] = 1
-                self.id_tensor = kernel_value
-            kernel = self.id_tensor
-            running_mean = branch.running_mean
-            running_var = branch.running_var
-            gamma = branch.weight
-            beta = branch.bias
-            eps = branch.eps
-        else:
-            raise NotImplementedError
-
-        std = (running_var + eps).sqrt()
-        t = (gamma / std).reshape(-1, 1, 1, 1)
-        return kernel * t, beta - running_mean * gamma / std
+    def forward(self, x: Tensor) -> Tensor:
+        return self.act(self.conv1(x) + self.conv2(x))
 
 
 class Bottleneck(nn.Module):
-    """Standard bottleneck block with optional shortcut."""
+    """RepConv followed by a Conv, with an optional residual connection."""
 
-    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
-        """
-        Args:
-            c1: Input channels
-            c2: Output channels
-            shortcut: Add shortcut connection
-            g: Groups for 3x3 conv
-            k: Kernel sizes for the two convs
-            e: Expansion ratio for hidden channels
-        """
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        *,
+        kernel_size: Tuple[int, int] = (3, 3),
+        residual: bool = True,
+        expand: float = 1.0,
+        **kwargs,
+    ):
         super().__init__()
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, k[0], 1)
-        self.cv2 = Conv(c_, c2, k[1], 1, g=g)
-        self.add = shortcut and c1 == c2
+        neck_channels = int(out_channels * expand)
+        self.conv1 = RepConv(in_channels, neck_channels, kernel_size[0], **kwargs)
+        self.conv2 = Conv(neck_channels, out_channels, kernel_size[1], **kwargs)
+        self.residual = residual
 
-    def forward(self, x):
-        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+        if residual and (in_channels != out_channels):
+            self.residual = False
+            logger.warning(
+                "Residual connection disabled: in_channels (%d) != out_channels (%d)",
+                in_channels,
+                out_channels,
+            )
 
-
-class RepNBottleneck(nn.Module):
-    """Bottleneck with RepConvN."""
-
-    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
-        super().__init__()
-        c_ = int(c2 * e)
-        self.cv1 = RepConvN(c1, c_, k[0], 1)
-        self.cv2 = Conv(c_, c2, k[1], 1, g=g)
-        self.add = shortcut and c1 == c2
-
-    def forward(self, x):
-        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+    def forward(self, x: Tensor) -> Tensor:
+        y = self.conv2(self.conv1(x))
+        return x + y if self.residual else y
 
 
 class RepNCSP(nn.Module):
-    """CSP Bottleneck with RepConvN (3 convolutions)."""
+    """CSP block: one half through bottlenecks, the other a plain Conv."""
 
-    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
-        """
-        Args:
-            c1: Input channels
-            c2: Output channels
-            n: Number of bottleneck blocks
-            shortcut: Use shortcut connections in bottlenecks
-            g: Groups
-            e: Expansion ratio
-        """
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int = 1,
+        *,
+        csp_expand: float = 0.5,
+        repeat_num: int = 1,
+        neck_args: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ):
         super().__init__()
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c1, c_, 1, 1)
-        self.cv3 = Conv(2 * c_, c2, 1)
-        self.m = nn.Sequential(
-            *(RepNBottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n))
+
+        neck_channels = int(out_channels * csp_expand)
+        self.conv1 = Conv(in_channels, neck_channels, kernel_size, **kwargs)
+        self.conv2 = Conv(in_channels, neck_channels, kernel_size, **kwargs)
+        self.conv3 = Conv(2 * neck_channels, out_channels, kernel_size, **kwargs)
+
+        neck_args = dict(neck_args or {})
+        self.bottleneck = nn.Sequential(
+            *[Bottleneck(neck_channels, neck_channels, **neck_args) for _ in range(repeat_num)]
         )
 
-    def forward(self, x):
-        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
+    def forward(self, x: Tensor) -> Tensor:
+        x1 = self.bottleneck(self.conv1(x))
+        x2 = self.conv2(x)
+        return self.conv3(torch.cat((x1, x2), dim=1))
 
 
 class ELAN(nn.Module):
-    """
-    Efficient Layer Aggregation Network block.
-    Used in yolo9-t and yolo9-s variants.
+    """ELAN block (first stage of yolo9-t/s)."""
 
-    Architecture:
-    - cv1: input -> part_channels (c2), then split in half
-    - cv2: takes half of cv1 output, outputs c3
-    - cv3: takes cv2 output, outputs c3
-    - cv4: concatenates [half1, half2, cv2_out, cv3_out] -> output
-    """
-
-    def __init__(self, c1, c2, c3, c4, n=1):
-        """
-        Args:
-            c1: Input channels
-            c2: cv1 output channels (part_channels, gets split in half)
-            c3: cv2/cv3 output channels (part_channels // 2)
-            c4: Output channels
-            n: Number of additional conv blocks after cv3
-        """
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        part_channels: int,
+        *,
+        process_channels: Optional[int] = None,
+        **kwargs,
+    ):
         super().__init__()
-        self.cv1 = Conv(c1, c2, 1, 1)
-        self.cv2 = Conv(c2 // 2, c3, 3, 1)
-        self.cv3 = Conv(c3, c3, 3, 1)
-        # cv4 input = c2/2 + c2/2 + c3 + c3*(n) = c2 + c3*(1+n)
-        # For n=1 (default): c2 + 2*c3
-        self.cv4 = Conv(c2 + c3 * (1 + n), c4, 1, 1)
-        self.m = nn.ModuleList(Conv(c3, c3, 3, 1) for _ in range(n - 1))
 
-    def forward(self, x):
-        y = list(self.cv1(x).chunk(2, 1))
-        y.append(self.cv2(y[-1]))
-        y.append(self.cv3(y[-1]))
-        y.extend(m(y[-1]) for m in self.m)
-        return self.cv4(torch.cat(y, 1))
+        if process_channels is None:
+            process_channels = part_channels // 2
+
+        self.conv1 = Conv(in_channels, part_channels, 1, **kwargs)
+        self.conv2 = Conv(part_channels // 2, process_channels, 3, padding=1, **kwargs)
+        self.conv3 = Conv(process_channels, process_channels, 3, padding=1, **kwargs)
+        self.conv4 = Conv(part_channels + 2 * process_channels, out_channels, 1, **kwargs)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x1, x2 = self.conv1(x).chunk(2, 1)
+        x3 = self.conv2(x2)
+        x4 = self.conv3(x3)
+        return self.conv4(torch.cat([x1, x2, x3, x4], dim=1))
 
 
 class RepNCSPELAN(nn.Module):
-    """
-    CSP-ELAN block with RepConvN.
-    Used in yolo9-m and yolo9-c variants.
-    """
+    """ELAN block whose processing branches are RepNCSP + Conv."""
 
-    def __init__(self, c1, c2, c3, c4, n=1):
-        """
-        Args:
-            c1: Input channels
-            c2: Intermediate channels 1
-            c3: Intermediate channels 2
-            c4: Output channels
-            n: Number of RepNCSP blocks
-        """
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        part_channels: int,
+        *,
+        process_channels: Optional[int] = None,
+        csp_args: Optional[Dict[str, Any]] = None,
+        csp_neck_args: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ):
         super().__init__()
-        self.c = c3 // 2
-        self.cv1 = Conv(c1, c2, 1, 1)
-        self.cv2 = nn.Sequential(RepNCSP(c2 // 2, c3, n), Conv(c3, c3, 3, 1))
-        self.cv3 = nn.Sequential(RepNCSP(c3, c3, n), Conv(c3, c3, 3, 1))
-        self.cv4 = Conv(c2 + 2 * c3, c4, 1, 1)
 
-    def forward(self, x):
-        y = list(self.cv1(x).chunk(2, 1))
-        y.append(self.cv2(y[-1]))
-        y.append(self.cv3(y[-1]))
-        return self.cv4(torch.cat(y, 1))
+        if process_channels is None:
+            process_channels = part_channels // 2
+        csp_args = dict(csp_args or {})
+        csp_neck_args = dict(csp_neck_args or {})
+
+        self.conv1 = Conv(in_channels, part_channels, 1, **kwargs)
+        self.conv2 = nn.Sequential(
+            RepNCSP(part_channels // 2, process_channels, neck_args=csp_neck_args, **csp_args),
+            Conv(process_channels, process_channels, 3, padding=1, **kwargs),
+        )
+        self.conv3 = nn.Sequential(
+            RepNCSP(process_channels, process_channels, neck_args=csp_neck_args, **csp_args),
+            Conv(process_channels, process_channels, 3, padding=1, **kwargs),
+        )
+        self.conv4 = Conv(part_channels + 2 * process_channels, out_channels, 1, **kwargs)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x1, x2 = self.conv1(x).chunk(2, 1)
+        x3 = self.conv2(x2)
+        x4 = self.conv3(x3)
+        return self.conv4(torch.cat([x1, x2, x3, x4], dim=1))
 
 
 class AConv(nn.Module):
-    """Asymmetric convolution for downsampling."""
+    """Downsampling: 2x2 average pool (stride 1) then a stride-2 3x3 Conv."""
 
-    def __init__(self, c1, c2):
+    def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
-        self.cv = Conv(c1, c2, 3, 2, 1)
+        mid_layer = {"kernel_size": 3, "stride": 2}
+        self.avg_pool = Pool("avg", kernel_size=2, stride=1)
+        self.conv = Conv(in_channels, out_channels, **mid_layer)
 
-    def forward(self, x):
-        x = F.avg_pool2d(x, 2, 1, 0, False, True)
-        return self.cv(x)
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.avg_pool(x)
+        x = self.conv(x)
+        return x
 
 
 class ADown(nn.Module):
-    """
-    Advanced dual-path downsampling block.
-    Used in yolo9-c variant.
-    """
+    """Downsampling: average pool, then half strided Conv, half max pool + 1x1."""
 
-    def __init__(self, c1, c2):
+    def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
-        self.c = c2 // 2
-        self.cv1 = Conv(c1 // 2, self.c, 3, 2, 1)
-        self.cv2 = Conv(c1 // 2, self.c, 1, 1, 0)
+        half_in_channels = in_channels // 2
+        half_out_channels = out_channels // 2
+        mid_layer = {"kernel_size": 3, "stride": 2}
+        self.avg_pool = Pool("avg", kernel_size=2, stride=1)
+        self.conv1 = Conv(half_in_channels, half_out_channels, **mid_layer)
+        self.max_pool = Pool("max", **mid_layer)
+        self.conv2 = Conv(half_in_channels, half_out_channels, kernel_size=1)
 
-    def forward(self, x):
-        x = F.avg_pool2d(x, 2, 1, 0, False, True)
-        x1, x2 = x.chunk(2, 1)
-        x1 = self.cv1(x1)
-        x2 = F.max_pool2d(x2, 3, 2, 1)
-        x2 = self.cv2(x2)
-        return torch.cat((x1, x2), 1)
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.avg_pool(x)
+        x1, x2 = x.chunk(2, dim=1)
+        x1 = self.conv1(x1)
+        x2 = self.max_pool(x2)
+        x2 = self.conv2(x2)
+        return torch.cat((x1, x2), dim=1)
 
 
 class SPPELAN(nn.Module):
-    """SPP + ELAN block for global context.
+    """Spatial pyramid pooling: 1x1 Conv, three chained 5x5 max pools, 1x1 Conv."""
 
-    Architecture follows the YOLOv9 SPPELAN layout:
-    - conv1: in_channels -> neck_channels
-    - pools: 3x MaxPool2d (no weights)
-    - conv5: 4*neck_channels -> out_channels
-    """
-
-    def __init__(self, c1, c2, c3, k=5):
-        """
-        Args:
-            c1: Input channels
-            c2: Neck channels (intermediate)
-            c3: Output channels
-            k: Max pool kernel size
-        """
+    def __init__(self, in_channels: int, out_channels: int, neck_channels: Optional[int] = None):
         super().__init__()
-        # Match YOLO naming: conv1, pools, conv5
-        self.cv1 = Conv(c1, c2, 1, 1)
-        self.pools = nn.ModuleList(
-            [nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2) for _ in range(3)]
-        )
-        self.cv5 = Conv(4 * c2, c3, 1, 1)  # Concat 4 features -> output
+        neck_channels = neck_channels or out_channels // 2
 
-    def forward(self, x):
-        features = [self.cv1(x)]
+        self.conv1 = Conv(in_channels, neck_channels, kernel_size=1)
+        self.pools = nn.ModuleList([Pool("max", 5, stride=1) for _ in range(3)])
+        self.conv5 = Conv(4 * neck_channels, out_channels, kernel_size=1)
+
+    def forward(self, x: Tensor) -> Tensor:
+        features = [self.conv1(x)]
         for pool in self.pools:
             features.append(pool(features[-1]))
-        return self.cv5(torch.cat(features, 1))
+        return self.conv5(torch.cat(features, dim=1))
 
 
-class Concat(nn.Module):
-    """Concatenate a list of tensors along dimension."""
-
-    def __init__(self, dimension=1):
-        super().__init__()
-        self.d = dimension
-
-    def forward(self, x):
-        return torch.cat(x, self.d)
+# =============================================================================
+# Detection head
+# =============================================================================
 
 
-class DFL(nn.Module):
-    """Integral over a discrete per-side distance distribution.
+class Anchor2Vec(nn.Module):
+    """Expected box-side distance from per-side bin logits (MIT ``Anchor2Vec``).
 
-    Follows the softmax-projection integral of the in-tree yolonas heads
-    (``proj_conv`` in :mod:`libreyolo.models.yolonas.nn`, ported from
-    Deci-AI/super-gradients, Apache-2.0), which realizes the Distribution
-    Focal Loss expectation from the Generalized Focal Loss paper.
+    Input ``(B, 4 * reg_max, *spatial)`` with side-major, bin-minor channels;
+    output ``(B, 4, *spatial)`` distances in grid units: a softmax over the
+    ``reg_max`` bins of each side, then the expectation over bin indices.
+    MIT keeps the bin indices in a frozen ``Conv3d`` weight; here they are a
+    non-persistent buffer, so the module adds nothing to state dicts.
     """
 
-    def __init__(self, num_bins=16):
+    def __init__(self, reg_max: int = 16) -> None:
         super().__init__()
-        self.num_bins = num_bins
+        self.reg_max = int(reg_max)
         self.register_buffer(
-            "project",
-            torch.arange(num_bins, dtype=torch.float32).view(1, 1, num_bins, 1),
+            "bins",
+            torch.arange(self.reg_max, dtype=torch.float32).view(1, 1, self.reg_max, 1),
             persistent=False,
         )
 
-    def _load_from_state_dict(
+    def forward(self, anchor_x: Tensor) -> Tensor:
+        batch = anchor_x.shape[0]
+        spatial = anchor_x.shape[2:]
+        logits = anchor_x.reshape(batch, 4, self.reg_max, -1)
+        dist = (logits.softmax(dim=2) * self.bins).sum(dim=2)
+        return dist.reshape(batch, 4, *spatial)
+
+
+def default_class_neck(first_channels: int, num_classes: int) -> int:
+    """Class-tower width LibreYOLO uses for freshly built YOLO9-family heads.
+
+    ``max(P-first channels, min(num_classes, 128))``: every width LibreYOLO has
+    produced for fresh builds and published checkpoints so far (e.g. 80 for
+    yolo9-t on COCO, 64 for yolo9-t with 40 classes), with the 128 cap of
+    MultimediaTechLab/YOLO. :class:`YOLO9Head` on its own defaults to the
+    MultimediaTechLab formula (``min(2 * num_classes, 128)``); the LibreYOLO
+    assemblies pass this width explicitly so existing training runs and
+    checkpoints keep their architecture. A loaded checkpoint's width always
+    wins over either rule.
+    """
+    return max(int(first_channels), min(int(num_classes), 128))
+
+
+class YOLO9Head(nn.Module):
+    """Anchor-free YOLOv9 detection head over several pyramid levels.
+
+    Each level has a box tower (``anchor_convs``) predicting ``4 * reg_max``
+    distance-bin logits and a class tower (``class_convs``) predicting
+    ``num_classes`` logits, as in MultimediaTechLab/YOLO ``Detection``; the
+    towers of all levels are held in two module lists.
+
+    Forward contract:
+        * ``targets`` given: the training loss dict (needs ``img_size=(W, H)``).
+        * training, no targets: list of raw maps ``(B, 4 * reg_max + nc, H, W)``
+          per level, box channels first.
+        * eval: ``(decoded, raw)`` where ``decoded`` is ``(B, 4 + nc, N)``:
+          xyxy boxes in input pixels, then sigmoid class scores.
+    """
+
+    def __init__(
         self,
-        state_dict,
-        prefix,
-        local_metadata,
-        strict,
-        missing_keys,
-        unexpected_keys,
-        error_msgs,
+        in_channels: Sequence[int],
+        num_classes: int,
+        *,
+        reg_max: int = 16,
+        strides: Sequence[int] = (8, 16, 32),
+        use_group: bool = True,
+        class_neck: Optional[int] = None,
     ):
-        state_dict.pop(prefix + "conv.weight", None)
-        super()._load_from_state_dict(
-            state_dict,
-            prefix,
-            local_metadata,
-            strict,
-            missing_keys,
-            unexpected_keys,
-            error_msgs,
-        )
-
-    def forward(self, x):
-        batch, _, num_anchors = x.shape
-        dist = x.view(batch, 4, self.num_bins, num_anchors)
-        return F.softmax(dist, dim=2).mul(self.project.to(dtype=x.dtype)).sum(2)
-
-
-class DDetect(nn.Module):
-    """
-    Anchor-free, decoupled detection head for yolo9.
-
-    Ported and adapted from MultimediaTechLab/YOLO (MIT): each feature-map
-    scale gets a box-regression tower and a class-score tower — the
-    ``anchor_conv`` / ``class_conv`` pair of ``yolo.model.module.Detection``,
-    replicated per scale as in ``MultiheadDetection`` — and inference decodes
-    LTRB distances against the anchor grid the way
-    ``yolo.utils.bounding_box_utils.Vec2Box`` does. The DFL integral over
-    ``reg_max`` bins (:class:`DFL`) turns per-side distributions into
-    distances first.
-
-    Checkpoint-format contract: the towers live in the ``cv2`` / ``cv3``
-    ``ModuleList``s and the integral module at ``dfl``. These attribute names
-    and the tower widths define the published LibreYOLO9 state-dict layout —
-    renaming them breaks every released and user-trained checkpoint, so treat
-    them as frozen API.
-
-    Supports training mode with loss computation when targets are provided.
-    """
-
-    @staticmethod
-    def _round_up(value, divisor):
-        """Smallest multiple of ``divisor`` that is >= ``value``."""
-        return ((value + divisor - 1) // divisor) * divisor
-
-    @classmethod
-    def _box_branch_width(cls, input_channels, groups, output_channels, reg_max):
-        """Box-tower hidden width, as in MMT ``Detection``: a quarter of the
-        first scale's channels rounded up to the group count, floored at the
-        distribution width."""
-        return max(
-            cls._round_up(input_channels // 4, groups),
-            output_channels,
-            reg_max,
-        )
-
-    @staticmethod
-    def _build_box_towers(input_channels, hidden_channels, output_channels, groups):
-        """Per-scale box-regression towers (MMT ``Detection.anchor_conv``)."""
-        return nn.ModuleList(
-            nn.Sequential(
-                Conv(channels, hidden_channels, 3),
-                Conv(hidden_channels, hidden_channels, 3, groups=groups),
-                nn.Conv2d(hidden_channels, output_channels, 1, groups=groups),
-            )
-            for channels in input_channels
-        )
-
-    @staticmethod
-    def _build_class_towers(input_channels, hidden_channels, num_classes):
-        """Per-scale class-score towers (MMT ``Detection.class_conv``)."""
-        return nn.ModuleList(
-            nn.Sequential(
-                Conv(channels, hidden_channels, 3),
-                Conv(hidden_channels, hidden_channels, 3),
-                nn.Conv2d(hidden_channels, num_classes, 1),
-            )
-            for channels in input_channels
-        )
-
-    def __init__(self, nc=80, ch=(), reg_max=16, stride=(), use_group=True):
-        """
-        Args:
-            nc: Number of classes
-            ch: Input channels for each scale
-            reg_max: Maximum value for DFL regression
-            stride: Stride for each scale
-            use_group: Use grouped convolutions in the box branch.
-        """
         super().__init__()
-        self.nc = nc
-        self.nl = len(ch)  # number of detection layers
-        self.reg_max = reg_max
-        self.no = nc + reg_max * 4  # number of outputs per anchor
+        in_channels = [int(c) for c in in_channels]
+        if len(in_channels) != len(strides):
+            raise ValueError(
+                f"YOLO9Head needs one stride per input level, got "
+                f"{len(in_channels)} levels and strides {tuple(strides)}"
+            )
 
-        # Inference anchor-grid cache. ``dynamic`` forces a rebuild every
-        # forward; ``export`` bypasses the cache entirely so traced graphs
-        # stay shape-consistent. ``anchors``/``strides`` are read externally
-        # after a warm-up forward (see export/coreml.py).
-        self.dynamic = False
+        self.in_channels = tuple(in_channels)
+        self.num_classes = int(num_classes)
+        self.reg_max = int(reg_max)
+        self.strides = tuple(int(s) for s in strides)
         self.export = False
-        self.shape = None
-        self.anchors = torch.empty(0)
-        self.strides = torch.empty(0)
-        # Register stride as a buffer so .to(device) moves it. Plain
-        # attribute assignment leaves it on CPU even after model.to("cuda")
-        # which silently breaks device-mismatch checks under DDP. dtype
-        # matches the original (int64 when ``stride`` is an int tuple, else
-        # float zeros) — downstream code in loss.py interprets it as
-        # both int and float depending on path.
-        stride_tensor = (
-            torch.tensor(stride) if stride else torch.zeros(self.nl)
+        self.groups = 4 if use_group else 1
+
+        first_neck = in_channels[0]
+        self.anchor_neck = max(
+            round_up(first_neck // 4, self.groups), 4 * self.reg_max, self.reg_max
         )
-        self.register_buffer("stride", stride_tensor, persistent=False)
-        # Preserve the architecture's fixed stride values as Python scalars for
-        # graph export. Iterating over the tensor buffer and calling float()
-        # introduces aten.item/sym_float nodes that edge runtimes cannot lower.
-        self._stride_values = tuple(float(value) for value in stride_tensor.tolist())
+        if class_neck is None:
+            class_neck = max(first_neck, min(self.num_classes * 2, 128))
+        self.class_neck = int(class_neck)
+
+        self.anchor_convs = self.build_anchor_convs(in_channels)
+        self.class_convs = self.build_class_convs(
+            in_channels, self.class_neck, self.num_classes
+        )
+        self.anchor2vec = Anchor2Vec(reg_max=self.reg_max)
+        self.init_bias()
 
         self._loss_fn = None
+        # Eager-mode anchor grid cache: ((level sizes, device, dtype), anchors, strides).
+        self._grid_cache = None
+        # Export canvas pinned by freeze_anchor_grid: (level sizes, anchors, strides).
+        self._frozen_grid = None
 
-        self._box_groups = 4 if use_group else 1
-        self._box_output_channels = 4 * reg_max
-        self._box_hidden_channels = self._box_branch_width(
-            ch[0], self._box_groups, self._box_output_channels, reg_max
+    # ------------------------------------------------------------------
+    # Construction helpers
+    # ------------------------------------------------------------------
+
+    def build_anchor_convs(self, in_channels: Sequence[int]) -> nn.ModuleList:
+        """Box towers: Conv 3x3, grouped Conv 3x3, grouped 1x1 to ``4 * reg_max``."""
+        neck = self.anchor_neck
+        return nn.ModuleList(
+            nn.Sequential(
+                Conv(int(c), neck, 3),
+                Conv(neck, neck, 3, groups=self.groups),
+                nn.Conv2d(neck, 4 * self.reg_max, 1, groups=self.groups),
+            )
+            for c in in_channels
         )
-        # The class-tower hidden width is part of the published LibreYOLO9
-        # checkpoint geometry: the first scale's channel count, floored at
-        # ``min(nc, 100)`` (width 80 for the released COCO models). Keep it —
-        # it must reproduce the tensor shapes of released and user-trained
-        # checkpoints. Checkpoints whose width differs (e.g. COCO-width
-        # towers reused under a new ``nc``) are handled by the rebuild
-        # helpers in ``model.py``, which read the width straight from the
-        # checkpoint tensors.
-        self._class_hidden_channels = max(ch[0], min(nc, 100))
 
-        self.cv2 = self._build_box_towers(
-            ch,
-            self._box_hidden_channels,
-            self._box_output_channels,
-            self._box_groups,
+    def build_class_convs(
+        self, in_channels: Sequence[int], class_neck: int, num_classes: int
+    ) -> nn.ModuleList:
+        """Class towers: Conv 3x3, Conv 3x3, 1x1 to ``num_classes``."""
+        return nn.ModuleList(
+            nn.Sequential(
+                Conv(int(c), int(class_neck), 3),
+                Conv(int(class_neck), int(class_neck), 3),
+                nn.Conv2d(int(class_neck), int(num_classes), 1),
+            )
+            for c in in_channels
         )
-        self.cv3 = self._build_class_towers(ch, self._class_hidden_channels, nc)
-        self.dfl = DFL(reg_max) if reg_max > 1 else nn.Identity()
 
-        self._init_bias()
+    @torch.no_grad()
+    def init_bias(self) -> None:
+        """MultimediaTechLab bias init: box logits 1.0, class logits -10."""
+        for tower in self.anchor_convs:
+            tower[-1].bias.fill_(1.0)
+        for tower in self.class_convs:
+            tower[-1].bias.fill_(-10.0)
 
-    def _init_bias(self):
-        """Detection-prior bias init, as in MMT ``Detection.__init__``: box
-        towers start at 1.0, class towers at -10 (a ~4.5e-5 foreground prior
-        after sigmoid). Only affects training from scratch — any loaded
-        checkpoint overwrites these."""
-        for box_tower, class_tower in zip(self.cv2, self.cv3):
-            box_tower[-1].bias.data.fill_(1.0)
-            class_tower[-1].bias.data.fill_(-10.0)
+    def set_num_classes(self, num_classes: int) -> None:
+        """Swap only the final 1x1 class convs for a new class count.
 
-    def _get_loss_fn(self, device):
-        """Lazily initialize loss function for training."""
-        if self._loss_fn is None:
+        Hidden tower widths are kept (transfer learning); the new class
+        biases are re-initialized and the cached loss is dropped.
+        """
+        num_classes = int(num_classes)
+        for tower in self.class_convs:
+            old = tower[-1]
+            new = nn.Conv2d(old.in_channels, num_classes, 1)
+            tower[-1] = new.to(device=old.weight.device, dtype=old.weight.dtype)
+        with torch.no_grad():
+            for tower in self.class_convs:
+                tower[-1].bias.fill_(-10.0)
+        self.num_classes = num_classes
+        self._loss_fn = None
+
+    # ------------------------------------------------------------------
+    # Forward pieces
+    # ------------------------------------------------------------------
+
+    def branch_outputs(
+        self,
+        features: Sequence[Tensor],
+        anchor_convs: Optional[nn.ModuleList] = None,
+        class_convs: Optional[nn.ModuleList] = None,
+    ) -> List[Tensor]:
+        """Per level ``cat((box logits, class logits), 1)``: ``(B, 4 * reg_max + nc, H, W)``."""
+        anchor_convs = self.anchor_convs if anchor_convs is None else anchor_convs
+        class_convs = self.class_convs if class_convs is None else class_convs
+        if not (len(features) == len(anchor_convs) == len(class_convs)):
+            raise ValueError(
+                f"YOLO9Head got {len(features)} feature levels for "
+                f"{len(anchor_convs)} box / {len(class_convs)} class towers"
+            )
+        return [
+            torch.cat((anchor_conv(feat), class_conv(feat)), 1)
+            for feat, anchor_conv, class_conv in zip(features, anchor_convs, class_convs)
+        ]
+
+    def decode(self, raw: Sequence[Tensor]) -> Tensor:
+        """Raw level maps -> ``(B, 4 + nc, N)`` xyxy pixel boxes then sigmoid scores.
+
+        Anchors are the level cell centres ``k * stride + stride // 2`` and the
+        expected distances are scaled by each anchor's stride, as in the
+        MultimediaTechLab ``generate_anchors`` / ``Vec2Box`` pair.
+        """
+        box_channels = 4 * self.reg_max
+        flat = torch.cat([level.flatten(2) for level in raw], dim=2)
+        box_logits = flat[:, :box_channels]
+        class_logits = flat[:, box_channels:]
+
+        distances = self.anchor2vec(box_logits)  # (B, 4, N) in grid units
+        anchors, strides = self._anchor_grid_for(raw, distances)
+        lt, rb = (distances * strides).chunk(2, dim=1)
+        boxes = torch.cat((anchors - lt, anchors + rb), dim=1)
+        return torch.cat((boxes, class_logits.sigmoid()), dim=1)
+
+    # ------------------------------------------------------------------
+    # Anchor grid
+    # ------------------------------------------------------------------
+
+    def _grid_tensors(
+        self, level_sizes: Sequence[Tuple[Any, Any]], device: torch.device
+    ) -> Tuple[Tensor, Tensor]:
+        """Integer ``(2, N)`` anchor centres in pixels and ``(1, N)`` strides."""
+        anchors, strides = [], []
+        for (height, width), stride in zip(level_sizes, self.strides):
+            xs = torch.arange(width, device=device) * stride + stride // 2
+            ys = torch.arange(height, device=device) * stride + stride // 2
+            grid_y, grid_x = torch.meshgrid(ys, xs, indexing="ij")
+            anchors.append(torch.stack((grid_x, grid_y)).flatten(1))
+            strides.append(torch.full_like(grid_x, stride).flatten())
+        return torch.cat(anchors, dim=1), torch.cat(strides).unsqueeze(0)
+
+    def _anchor_grid_for(self, raw: Sequence[Tensor], like: Tensor) -> Tuple[Tensor, Tensor]:
+        """Anchor centres and strides for ``raw``, cast to ``like``'s dtype."""
+        level_sizes = tuple((level.shape[2], level.shape[3]) for level in raw)
+        if self._frozen_grid is not None:
+            frozen_sizes, anchors, strides = self._frozen_grid
+            live_sizes = tuple((int(h), int(w)) for h, w in level_sizes)
+            if live_sizes != frozen_sizes:
+                raise ValueError(
+                    f"YOLO9Head anchor grid is frozen for level sizes {frozen_sizes}, "
+                    f"got {live_sizes}; call unfreeze_anchor_grid() first"
+                )
+            if anchors.dtype != like.dtype or anchors.device != like.device:
+                anchors = anchors.to(device=like.device, dtype=like.dtype)
+                strides = strides.to(device=like.device, dtype=like.dtype)
+            return anchors, strides
+
+        if self.export or torch.jit.is_tracing() or _is_compiling():
+            # Rebuild from live shapes every call so traced graphs follow the
+            # input size instead of baking a cached constant.
+            anchors, strides = self._grid_tensors(level_sizes, like.device)
+            return anchors.to(like.dtype), strides.to(like.dtype)
+
+        key = (tuple((int(h), int(w)) for h, w in level_sizes), like.device, like.dtype)
+        cache = self._grid_cache
+        if cache is None or cache[0] != key:
+            anchors, strides = self._grid_tensors(key[0], like.device)
+            cache = (key, anchors.to(like.dtype), strides.to(like.dtype))
+            self._grid_cache = cache
+        return cache[1], cache[2]
+
+    def freeze_anchor_grid(self, input_hw: Tuple[int, int]) -> None:
+        """Pin the anchor grid as constants for a fixed ``(H, W)`` export canvas.
+
+        Level sizes are ``input // stride``. Used by fixed-canvas exporters
+        (CoreML, Core AI) whose tracers reject shape-derived grids.
+        """
+        height, width = (int(v) for v in input_hw)
+        level_sizes = tuple((height // s, width // s) for s in self.strides)
+        anchors, strides = self._grid_tensors(level_sizes, self._device())
+        self._frozen_grid = (level_sizes, anchors.float(), strides.float())
+
+    def unfreeze_anchor_grid(self) -> None:
+        """Return to shape-derived anchor grids."""
+        self._frozen_grid = None
+
+    def _device(self) -> torch.device:
+        try:
+            return next(self.parameters()).device
+        except StopIteration:
+            return torch.device("cpu")
+
+    # ------------------------------------------------------------------
+    # Loss
+    # ------------------------------------------------------------------
+
+    def _get_loss_fn(self, device: Union[str, torch.device]):
+        """Lazily build (or rebuild on a device change) this head's loss."""
+        device = torch.device(device)
+        if self._loss_fn is None or self._loss_fn.device != device:
             from .loss import YOLO9Loss
 
             self._loss_fn = YOLO9Loss(
-                num_classes=self.nc,
+                num_classes=self.num_classes,
                 reg_max=self.reg_max,
-                strides=self.stride.tolist(),
-                image_size=None,  # Will be set dynamically
+                strides=list(self.strides),
+                image_size=None,
                 device=device,
             )
         return self._loss_fn
 
-    def forward(self, x, targets=None, img_size=None):
-        """
-        Forward pass returning box and class predictions.
-
-        Args:
-            x: List of feature maps [P3, P4, P5]
-            targets: Optional ground truth [B, max_targets, 5] with [class, x1, y1, x2, y2] normalized
-            img_size: Optional image size (W, H) for anchor generation
-
-        Returns:
-            Training with targets: Dict with loss values
-            Training without targets: Raw predictions (list of tensors)
-            Inference: Decoded predictions
-        """
-        preds = [
-            torch.cat((self.cv2[i](feat), self.cv3[i](feat)), 1)
-            for i, feat in enumerate(x)
-        ]
-
+    def forward(
+        self,
+        features: Sequence[Tensor],
+        targets: Optional[Tensor] = None,
+        img_size: Optional[Tuple[int, int]] = None,
+    ):
+        raw = self.branch_outputs(features)
+        if targets is not None:
+            if img_size is None:
+                raise ValueError("YOLO9Head needs img_size=(W, H) when targets are given")
+            loss_fn = self._get_loss_fn(raw[0].device)
+            loss_fn.update_anchors(list(img_size))
+            return loss_fn(raw, targets)
         if self.training:
-            if targets is not None:
-                # Compute loss
-                loss_fn = self._get_loss_fn(preds[0].device)
-                if img_size is not None:
-                    loss_fn.update_anchors(list(img_size))
-                return loss_fn(preds, targets)
-            return preds
+            return raw
+        return self.decode(raw), raw
 
-        return self._decode_inference(preds), preds
 
-    def _anchor_grid(self, feats):
-        """Grid-cell centers and per-cell stride for the live feature maps.
-
-        Adapted from ``generate_anchors_for_grid_cell`` in
-        :mod:`libreyolo.models.yolonas.nn` (ported there from
-        Deci-AI/super-gradients, Apache-2.0), kept in grid units so the
-        matching stride scales boxes back to pixels at decode time.
-        """
-        anchor_points = []
-        stride_scale = []
-        dtype, device = feats[0].dtype, feats[0].device
-        for feat, stride in zip(feats, self._stride_values):
-            _, _, h, w = feat.shape
-            # Integer Range then cast: ONNX Range has no float16 kernel, so a
-            # half-precision export must not emit it with a float16 dtype.
-            shift_x = torch.arange(end=w, device=device).to(dtype) + 0.5
-            shift_y = torch.arange(end=h, device=device).to(dtype) + 0.5
-            shift_y, shift_x = torch.meshgrid(shift_y, shift_x, indexing="ij")
-            anchor_points.append(
-                torch.stack([shift_x, shift_y], dim=-1).reshape(-1, 2)
-            )
-            stride_scale.append(
-                torch.full((h * w, 1), stride, dtype=dtype, device=device)
-            )
-        return torch.cat(anchor_points), torch.cat(stride_scale)
-
-    def _grid(self, feats):
-        if self.export:
-            anchor_points, stride_scale = self._anchor_grid(feats)
-            return anchor_points.transpose(0, 1), stride_scale.transpose(0, 1)
-        shape = feats[0].shape
-        # The cache is a plain attribute, so ``.to()`` does not move it: key it
-        # on device and dtype too, or a per-call device switch reuses stale
-        # anchors from the previous device.
-        cached = (
-            not self.dynamic
-            and self.shape == shape
-            and self.anchors.device == feats[0].device
-            and self.anchors.dtype == feats[0].dtype
-        )
-        if not cached:
-            anchor_points, stride_scale = self._anchor_grid(feats)
-            self.anchors = anchor_points.transpose(0, 1)
-            self.strides = stride_scale.transpose(0, 1)
-            self.shape = shape
-        return self.anchors, self.strides
-
-    def _decode_inference(self, preds):
-        anchor_points, stride_scale = self._grid(preds)
-        box_levels = []
-        score_levels = []
-        for pred in preds:
-            box_level, score_level = pred.flatten(2).split(
-                (4 * self.reg_max, self.nc), 1
-            )
-            box_levels.append(box_level)
-            score_levels.append(score_level)
-        distances = self.dfl(torch.cat(box_levels, 2))
-        boxes = (
-            self._decode_bboxes(distances, anchor_points.unsqueeze(0)) * stride_scale
-        )
-        scores = torch.cat(score_levels, 2).sigmoid()
-        return torch.cat((boxes, scores), 1)
-
-    def _decode_bboxes(self, distances, anchor_points):
-        """Decode LTRB distances into xyxy boxes, as in MMT ``Vec2Box``: the
-        box corners are the anchor center minus the left-top pair and plus
-        the right-bottom pair.
-
-        Args:
-            distances: (batch, 4, anchors) - l, t, r, b distances from anchor
-            anchor_points: (1, 2, anchors) - anchor center coordinates
-        """
-        left_top, right_bottom = distances.chunk(2, 1)
-        return torch.cat(
-            (anchor_points - left_top, anchor_points + right_bottom), 1
-        )
+def _is_compiling() -> bool:
+    compiler = getattr(torch, "compiler", None)
+    is_compiling = getattr(compiler, "is_compiling", None)
+    return bool(is_compiling()) if callable(is_compiling) else False
 
 
 # =============================================================================
-# Model Architecture Definitions
+# Model assembly (LibreYOLO)
 # =============================================================================
 
 # YOLOv9 configurations - exact channel dimensions from official YOLO configs
@@ -832,6 +734,16 @@ YOLO9_CONFIGS = {
 }
 
 
+def _elan_stage(in_channels: int, out_channels: int, part_channels: int, repeat_num: int):
+    """RepNCSPELAN stage with ``repeat_num`` bottlenecks per CSP branch."""
+    return RepNCSPELAN(
+        in_channels,
+        out_channels,
+        part_channels,
+        csp_args={"repeat_num": repeat_num},
+    )
+
+
 class Backbone9(nn.Module):
     """YOLOv9 Backbone.
 
@@ -847,61 +759,40 @@ class Backbone9(nn.Module):
         self.config = config
 
         # Stem
-        self.conv0 = Conv(3, cfg["conv0_out"], 3, 2)
-        self.conv1 = Conv(cfg["conv0_out"], cfg["conv1_out"], 3, 2)
+        self.conv0 = Conv(3, cfg["conv0_out"], 3, stride=2)
+        self.conv1 = Conv(cfg["conv0_out"], cfg["conv1_out"], 3, stride=2)
 
         # First block (ELAN for t/s, RepNCSPELAN for m/c)
+        c_in = cfg["conv1_out"]
+        c_out = cfg["first_block_out"]
         if cfg["first_block"] == "elan":
-            # ELAN(c1, c2, c3, c4, n) where:
-            #   c1 = input channels
-            #   c2 = cv1 output (part_channels)
-            #   c3 = cv2/cv3 output (part_channels // 2)
-            #   c4 = output channels
-            # For yolo9-t/s: ELAN {out_channels: X, part_channels: X}
-            c1 = cfg["conv1_out"]
-            c4 = cfg["first_block_out"]
-            part = c4  # part_channels = out_channels for t/s ELAN
-            self.elan1 = ELAN(c1, part, part // 2, c4, n=1)
+            # t/s: part_channels = out_channels
+            self.elan1 = ELAN(c_in, c_out, c_out)
         else:
-            # RepNCSPELAN for m/c
-            # RepNCSPELAN(c1, c2, c3, c4, n) where:
-            #   c1 = input channels
-            #   c2 = cv1 output = part_channels (gets split in half)
-            #   c3 = cv2/cv3 internal = part_channels // 2
-            #   c4 = output channels
-            c1 = cfg["conv1_out"]
-            c4 = cfg["first_block_out"]
-            part = cfg.get("first_block_part", c4)
-            self.elan1 = RepNCSPELAN(c1, part, part // 2, c4, cfg["repeat_num"])
+            part = cfg.get("first_block_part", c_out)
+            self.elan1 = _elan_stage(c_in, c_out, part, cfg["repeat_num"])
 
         # Determine downsampling block type
         DownBlock = ADown if cfg["down_type"] == "adown" else AConv
         n = cfg["repeat_num"]
 
-        # Stage 2 (B3) - first stage after initial block
-        # stage = (down_out, elan_out, part_channels)
+        # Stage 2 (B3) - stage = (down_out, elan_out, part_channels)
         stage = cfg["stages"][0]
-        prev_ch = cfg["first_block_out"]
-        self.down2 = DownBlock(prev_ch, stage[0])
-        # RepNCSPELAN: c1=down_out, c2=part, c3=part//2, c4=out
-        self.elan2 = RepNCSPELAN(stage[0], stage[2], stage[2] // 2, stage[1], n)
+        self.down2 = DownBlock(cfg["first_block_out"], stage[0])
+        self.elan2 = _elan_stage(stage[0], stage[1], stage[2], n)
 
         # Stage 3 (B4)
         stage = cfg["stages"][1]
-        prev_ch = cfg["stages"][0][1]  # Previous elan output
-        self.down3 = DownBlock(prev_ch, stage[0])
-        self.elan3 = RepNCSPELAN(stage[0], stage[2], stage[2] // 2, stage[1], n)
+        self.down3 = DownBlock(cfg["stages"][0][1], stage[0])
+        self.elan3 = _elan_stage(stage[0], stage[1], stage[2], n)
 
         # Stage 4 (B5)
         stage = cfg["stages"][2]
-        prev_ch = cfg["stages"][1][1]
-        self.down4 = DownBlock(prev_ch, stage[0])
-        self.elan4 = RepNCSPELAN(stage[0], stage[2], stage[2] // 2, stage[1], n)
+        self.down4 = DownBlock(cfg["stages"][1][1], stage[0])
+        self.elan4 = _elan_stage(stage[0], stage[1], stage[2], n)
 
         # SPP
-        spp_in = cfg["stages"][2][1]
-        spp_out = cfg["spp_out"]
-        self.spp = SPPELAN(spp_in, spp_out // 2, spp_out)
+        self.spp = SPPELAN(cfg["stages"][2][1], cfg["spp_out"])
 
     def forward(self, x, return_b5=False):
         # Stem
@@ -919,7 +810,7 @@ class Backbone9(nn.Module):
         x = self.down3(p3)
         p4 = self.elan3(x)
 
-        # Stage 4 - B5 (pre-SPP) then SPP → P5. The PGI aux neck needs the
+        # Stage 4 - B5 (pre-SPP) then SPP -> P5. The PGI aux neck needs the
         # pre-SPP B5; it is returned on request instead of being stored on the
         # module, which would keep a non-leaf tensor alive and break deepcopy.
         x = self.down4(p4)
@@ -932,7 +823,7 @@ class Backbone9(nn.Module):
 
 
 class Neck9(nn.Module):
-    """YOLOv9 PANet Neck + Head.
+    """YOLOv9 PANet Neck.
 
     Architecture (varies by config):
     Top-down path:
@@ -950,44 +841,36 @@ class Neck9(nn.Module):
         self.config = config
         n = cfg["repeat_num"]
 
-        # Get backbone output channels for concatenation
+        # Backbone output channels used by the concatenations
         b3_ch = cfg["stages"][0][1]  # B3 output channels
         b4_ch = cfg["stages"][1][1]  # B4 output channels
         spp_ch = cfg["spp_out"]  # SPP/P5 output channels
 
-        # Top-down path
+        # Top-down path: Concat(SPP_up, B4) -> N4
         self.up1 = nn.Upsample(scale_factor=2, mode="nearest")
-        # Concat(SPP_up, B4) -> N4
-        up1_in = spp_ch + b4_ch
         up1_out, up1_part = cfg["neck_elan_up1"]
-        # RepNCSPELAN: c1=concat_in, c2=part, c3=part//2, c4=out
-        self.elan_up1 = RepNCSPELAN(up1_in, up1_part, up1_part // 2, up1_out, n)
+        self.elan_up1 = _elan_stage(spp_ch + b4_ch, up1_out, up1_part, n)
 
-        self.up2 = nn.Upsample(scale_factor=2, mode="nearest")
         # Concat(N4_up, B3) -> P3
-        up2_in = up1_out + b3_ch
+        self.up2 = nn.Upsample(scale_factor=2, mode="nearest")
         up2_out, up2_part = cfg["neck_elan_up2"]
-        self.elan_up2 = RepNCSPELAN(up2_in, up2_part, up2_part // 2, up2_out, n)
+        self.elan_up2 = _elan_stage(up1_out + b3_ch, up2_out, up2_part, n)
 
         # Bottom-up path
         DownBlock = ADown if cfg["down_type"] == "adown" else AConv
 
         # P3 -> down -> Concat(N4) -> P4
-        p3_out = up2_out
-        self.down1 = DownBlock(p3_out, cfg["neck_down1_out"])
-        down1_concat_in = cfg["neck_down1_out"] + up1_out
+        self.down1 = DownBlock(up2_out, cfg["neck_down1_out"])
         down1_out, down1_part = cfg["neck_elan_down1"]
-        self.elan_down1 = RepNCSPELAN(
-            down1_concat_in, down1_part, down1_part // 2, down1_out, n
+        self.elan_down1 = _elan_stage(
+            cfg["neck_down1_out"] + up1_out, down1_out, down1_part, n
         )
 
         # P4 -> down -> Concat(SPP) -> P5
-        p4_out = down1_out
-        self.down2 = DownBlock(p4_out, cfg["neck_down2_out"])
-        down2_concat_in = cfg["neck_down2_out"] + spp_ch
+        self.down2 = DownBlock(down1_out, cfg["neck_down2_out"])
         down2_out, down2_part = cfg["neck_elan_down2"]
-        self.elan_down2 = RepNCSPELAN(
-            down2_concat_in, down2_part, down2_part // 2, down2_out, n
+        self.elan_down2 = _elan_stage(
+            cfg["neck_down2_out"] + spp_ch, down2_out, down2_part, n
         )
 
     def forward(self, p3, p4, p5):
@@ -1029,17 +912,13 @@ class AuxNeck(nn.Module):
         b5_ch = cfg["stages"][2][1]
         spp_out = cfg["spp_out"]
 
-        self.spp = SPPELAN(b5_ch, spp_out // 2, spp_out)
+        self.spp = SPPELAN(b5_ch, spp_out)
         self.up1 = nn.Upsample(scale_factor=2, mode="nearest")
         a4_out, a4_part = cfg["neck_elan_up1"]
-        self.elan_a4 = RepNCSPELAN(
-            spp_out + b4_ch, a4_part, a4_part // 2, a4_out, n
-        )
+        self.elan_a4 = _elan_stage(spp_out + b4_ch, a4_out, a4_part, n)
         self.up2 = nn.Upsample(scale_factor=2, mode="nearest")
         a3_out, a3_part = cfg["neck_elan_up2"]
-        self.elan_a3 = RepNCSPELAN(
-            a4_out + b3_ch, a3_part, a3_part // 2, a3_out, n
-        )
+        self.elan_a3 = _elan_stage(a4_out + b3_ch, a3_out, a3_part, n)
 
     def forward(self, p3, p4, b5):
         a5 = self.spp(b5)
@@ -1093,18 +972,21 @@ class LibreYOLO9Model(nn.Module):
         self.neck = Neck9(config)
 
         # Detection head - use exact channels from config
-        head_channels = cfg["head_channels"]
-        self.head = DDetect(
-            nc=nb_classes,
-            ch=head_channels,
-            reg_max=reg_max,
-            stride=(8, 16, 32),
-        )
+        self.head = self._build_head(cfg["head_channels"], nb_classes)
         # Built only when training with PGI. Inference checkpoints stay
         # single-head so a 1.6 upgrade does not change the exported graph.
         self.aux = None
         self.aux_head = None
         self.aux_weight = 0.0
+
+    def _build_head(self, head_channels: Sequence[int], nb_classes: int) -> YOLO9Head:
+        return YOLO9Head(
+            head_channels,
+            nb_classes,
+            reg_max=self.reg_max,
+            strides=(8, 16, 32),
+            class_neck=default_class_neck(head_channels[0], nb_classes),
+        )
 
     def enable_aux(self, weight: float = 0.25):
         """Attach the PGI auxiliary neck/head if they are not already present."""
@@ -1113,12 +995,7 @@ class LibreYOLO9Model(nn.Module):
             return self
         cfg = YOLO9_CONFIGS[self.config]
         self.aux = AuxNeck(self.config)
-        self.aux_head = DDetect(
-            nc=self.nc,
-            ch=cfg["head_channels"],
-            reg_max=self.reg_max,
-            stride=(8, 16, 32),
-        )
+        self.aux_head = self._build_head(cfg["head_channels"], self.nc)
         try:
             device = next(self.parameters()).device
         except StopIteration:
@@ -1204,47 +1081,27 @@ class LibreYOLO9Model(nn.Module):
             "x32": {"features": n5},
         }
 
-    def fuse(self):
-        """Fuse Conv+BN and RepConvN for faster inference."""
-        for m in self.modules():
-            if isinstance(m, RepConvN):
-                m.fuse_convs()
-            elif isinstance(m, Conv) and hasattr(m, "bn"):
-                # Fuse Conv+BN
-                m.conv = self._fuse_conv_bn(m.conv, m.bn)
-                delattr(m, "bn")
-                m.forward = m.forward_without_bn
-        return self
 
-    def _fuse_conv_bn(self, conv, bn):
-        """Fuse Conv2d and BatchNorm2d."""
-        fusedconv = (
-            nn.Conv2d(
-                conv.in_channels,
-                conv.out_channels,
-                kernel_size=conv.kernel_size,
-                stride=conv.stride,
-                padding=conv.padding,
-                dilation=conv.dilation,
-                groups=conv.groups,
-                bias=True,
-            )
-            .requires_grad_(False)
-            .to(conv.weight.device)
-        )
-
-        w_conv = conv.weight.clone().view(conv.out_channels, -1)
-        w_bn = torch.diag(bn.weight.div(torch.sqrt(bn.eps + bn.running_var)))
-        fusedconv.weight.copy_(torch.mm(w_bn, w_conv).view(fusedconv.weight.shape))
-
-        b_conv = (
-            torch.zeros(conv.weight.size(0), device=conv.weight.device)
-            if conv.bias is None
-            else conv.bias
-        )
-        b_bn = bn.bias - bn.weight.mul(bn.running_mean).div(
-            torch.sqrt(bn.running_var + bn.eps)
-        )
-        fusedconv.bias.copy_(torch.mm(w_bn, b_conv.reshape(-1, 1)).reshape(-1) + b_bn)
-
-        return fusedconv
+__all__ = [
+    "ADown",
+    "AConv",
+    "Anchor2Vec",
+    "AuxNeck",
+    "Backbone9",
+    "Bottleneck",
+    "Conv",
+    "ELAN",
+    "LibreYOLO9Model",
+    "Neck9",
+    "Pool",
+    "RepConv",
+    "RepNCSP",
+    "RepNCSPELAN",
+    "SPPELAN",
+    "YOLO9_CONFIGS",
+    "YOLO9Head",
+    "auto_pad",
+    "create_activation_function",
+    "default_class_neck",
+    "round_up",
+]
