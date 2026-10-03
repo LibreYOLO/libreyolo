@@ -142,7 +142,12 @@ class YOLO9Trainer(BaseTrainer):
         # Attach PGI before optimizer / EMA / DDP when the resume file has it.
         # ``train(resume=True)`` already did this; this covers setup-first
         # callers that only pass the path to ``resume()`` later.
-        path = getattr(getattr(self, "wrapper_model", None), "model_path", None)
+        # The checkpoint being resumed decides the PGI branch, not the file
+        # the wrapper was first loaded from: swapping branches after the
+        # optimizer and EMA exist would leave them on stale parameters.
+        path = getattr(self, "resume_source", None) or getattr(
+            getattr(self, "wrapper_model", None), "model_path", None
+        )
         if path and self.wrapper_model is not None:
             self.wrapper_model._maybe_enable_aux_from_path(
                 path, getattr(self.config, "aux_weight", 0.25)

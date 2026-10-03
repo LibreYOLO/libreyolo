@@ -900,6 +900,7 @@ class LibreYOLO9(BaseModel):
         trainer = self._trainer_class()(**trainer_kwargs)
 
         if resume_path:
+            trainer.resume_source = resume_path
             trainer.setup()
             trainer.resume(resume_path)
 

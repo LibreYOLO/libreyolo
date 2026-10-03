@@ -662,3 +662,40 @@ def test_legacy_quantized_checkpoint_keeps_its_float_layers(tmp_path):
     layer = loaded.model.backbone.elan1.conv1.conv
     assert type(layer) is torch.nn.Conv2d
     assert torch.equal(layer.weight.detach().cpu(), float_weight)
+
+
+def test_resumed_checkpoint_picks_the_pgi_branch_before_setup(tmp_path, monkeypatch):
+    """The checkpoint being resumed, not the file the wrapper was loaded from,
+    decides the PGI branch, and ``resume()`` then keeps those modules."""
+    from libreyolo.models.yolo9.model import LibreYOLO9
+    from libreyolo.models.yolo9.nn import LibreYOLO9Model
+    from libreyolo.models.yolo9.trainer import YOLO9Trainer
+    from libreyolo.training.trainer import BaseTrainer
+    from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
+    paths = {}
+    for kind in ("neck", "backbone"):
+        raw = LibreYOLO9Model(config="m", nb_classes=2).enable_aux(0.25, branch=kind)
+        paths[kind] = tmp_path / f"{kind}.pt"
+        torch.save(
+            wrap_libreyolo_checkpoint(
+                raw.state_dict(), model_family="yolo9", size="m", task="detect",
+                nc=2, names={0: "a", 1: "b"}, imgsz=640,
+            ),
+            paths[kind],
+        )
+
+    wrapper = LibreYOLO9(str(paths["neck"]), size="m", nb_classes=2, device="cpu")
+    monkeypatch.setattr(BaseTrainer, "setup", lambda self: None)
+    monkeypatch.setattr(BaseTrainer, "resume", lambda self, path: None)
+
+    trainer = object.__new__(YOLO9Trainer)
+    trainer.wrapper_model = wrapper
+    trainer.config = type("Config", (), {"aux_weight": 0.25})()
+    trainer.resume_source = str(paths["backbone"])
+    trainer.setup()
+    assert wrapper.model.aux_branch == "backbone"
+    branch, head = wrapper.model.aux, wrapper.model.aux_head
+
+    trainer.resume(str(paths["backbone"]))
+    assert wrapper.model.aux is branch and wrapper.model.aux_head is head
