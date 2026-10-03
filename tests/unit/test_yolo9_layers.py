@@ -51,6 +51,8 @@ def test_create_activation_function():
     assert isinstance(create_activation_function("silu"), nn.SiLU)
     for off in (None, False, "false", "None"):
         assert isinstance(create_activation_function(off), nn.Identity)
+    assert isinstance(create_activation_function(True), nn.SiLU)
+    assert isinstance(create_activation_function("GELU"), nn.GELU)
     with pytest.raises(ValueError, match="not found"):
         create_activation_function("NoSuchActivation")
 

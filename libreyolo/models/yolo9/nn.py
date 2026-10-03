@@ -42,10 +42,13 @@ def auto_pad(kernel_size: _size_2_t, dilation: _size_2_t = 1, **kwargs) -> Tuple
 def create_activation_function(activation: Optional[Union[str, bool]]) -> nn.Module:
     """Return a ``torch.nn`` activation by case-insensitive name.
 
-    ``None``, ``False``, ``"false"`` and ``"none"`` give ``nn.Identity``.
+    ``None``, ``False``, ``"false"`` and ``"none"`` give ``nn.Identity``;
+    ``True`` gives the default ``SiLU``.
     """
     if not activation or str(activation).lower() in ("false", "none"):
         return nn.Identity()
+    if activation is True:
+        activation = "SiLU"
 
     activation_map = {
         name.lower(): obj
@@ -54,7 +57,10 @@ def create_activation_function(activation: Optional[Union[str, bool]]) -> nn.Mod
     }
     name = str(activation).lower()
     if name in activation_map:
-        return activation_map[name](inplace=True)
+        try:
+            return activation_map[name](inplace=True)
+        except TypeError:  # activations without an in-place variant (GELU, ...)
+            return activation_map[name]()
     raise ValueError(f"Activation function '{activation}' is not found in torch.nn")
 
 
