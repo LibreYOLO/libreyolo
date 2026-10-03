@@ -424,6 +424,25 @@ Used for: YOLOX model family (libreyolo/models/yolox/), EMA helper
           assignment logic to the v7 anchor head).
 
 --------------------------------------------------------------------
+TorchVision RandomPerspective (PyTorch contributors)
+--------------------------------------------------------------------
+Source: https://github.com/pytorch/vision
+        (torchvision/transforms/transforms.py RandomPerspective.get_params,
+        torchvision/transforms/functional.py _get_perspective_coeffs)
+Version: torchvision 0.29.0
+License: BSD-3-Clause
+Copyright (c) Soumith Chintala 2016 and the torchvision contributors
+Used for: the design of the projective branch of get_affine_matrix in
+          libreyolo/data/augment/geometry.py (the `perspective` training
+          argument): a homography defined by pulling each canvas corner
+          inward by a random amount bounded by a distortion scale. The
+          implementation was written for LibreYOLO (Python `random`
+          sampling, continuous offsets, cv2.getPerspectiveTransform solve,
+          composition with the YOLOX-derived affine); no torchvision code
+          is copied. The full BSD-3-Clause text is reproduced in
+          libreyolo/models/fcn/NOTICE.
+
+--------------------------------------------------------------------
 YOLO (MultimediaTechLab/YOLO)
 --------------------------------------------------------------------
 Source: https://github.com/MultimediaTechLab/YOLO

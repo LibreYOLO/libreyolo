@@ -114,7 +114,7 @@ class TestYOLO9Utils:
     def test_postprocess_detection_caps_multilabel_candidates(self, monkeypatch):
         """Detection limits low-threshold multi-label expansion before NMS."""
         # Patch the postprocess module — that's where postprocess() resolves it.
-        monkeypatch.setattr(yolo9_postprocess_mod, "_YOLO9_MAX_NMS_CANDIDATES", 3)
+        monkeypatch.setattr(yolo9_postprocess_mod, "_YOLO9_NMS_PRE", 3)
         pred = torch.zeros(1, 6, 4)
         pred[0, :4] = torch.tensor(
             [

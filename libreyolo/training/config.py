@@ -162,9 +162,13 @@ class TrainConfig:
     mosaic_scale: Tuple[float, float] = (0.1, 2.0)
     mixup_scale: Tuple[float, float] = (0.5, 1.5)
     shear: float = 2.0
-    # Projective (perspective) warp magnitude, following the de-facto YOLO
-    # knob. The two projective terms are sampled in [-perspective, +perspective]
-    # (~0.0005 is a typical scale). Default 0.0 keeps the pure-affine warp.
+    # Projective (perspective) warp strength, >= 0, typically 0.0 to 0.001.
+    # Each corner of the canvas is pulled inward by a random amount of up to
+    # perspective * 100 * half the canvas side per axis (0.001 -> at most 5% of
+    # the side, 32 px at 640), as in torchvision's RandomPerspective with
+    # distortion_scale = perspective * 100 (capped at 0.2). Applied on top of
+    # the rotation/scale/shear/translation warp. Default 0.0 keeps the
+    # pure-affine warp.
     perspective: float = 0.0
     # Vertical-flip probability (top-to-bottom). Off by default; useful for
     # datasets without a fixed up/down orientation (e.g. aerial imagery).

@@ -59,7 +59,10 @@ AUG_KNOBS: Dict[str, str] = {
     "mosaic_scale": "Random-scale range for the affine warp.",
     "mixup_scale": "Jitter-scale range applied to the MixUp partner image.",
     "shear": "Random-shear range for the affine warp, in degrees.",
-    "perspective": "Projective (perspective) warp magnitude for the affine warp.",
+    "perspective": (
+        "Projective warp strength added to the affine warp: canvas corners move "
+        "inward by up to perspective * 100 * half the canvas side (0 disables)."
+    ),
     "flipud": "Vertical-flip probability.",
     "no_aug_epochs": "Final epochs trained with strong augmentation disabled.",
     # Classification-only pack (ImageFolder pipeline; detection families

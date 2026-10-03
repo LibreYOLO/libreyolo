@@ -44,9 +44,10 @@ from .segments import (
 logger = logging.getLogger(__name__)
 
 # Concentration of the symmetric Beta(alpha, alpha) that draws the mixup ratio
-# (MixUp formula of MultimediaTechLab/YOLO, MIT). A high value keeps the ratio
-# close to 0.5, so both images stay clearly visible in the blend.
-_MIXUP_BETA_ALPHA = 32.0
+# Value and formula follow ``MixUp(prob=0.5, alpha=1.0)`` in
+# yolo/tools/data_augmentation.py of MultimediaTechLab/YOLO (MIT): with
+# alpha = 1 the ratio is uniform on [0, 1].
+_MIXUP_BETA_ALPHA = 1.0
 
 
 def preproc(img, input_size, swap=(2, 0, 1), letterbox_pad=None):

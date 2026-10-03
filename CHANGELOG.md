@@ -16,6 +16,10 @@ before 1.4.0 are documented in the
 
 - **YOLO9 internals use the MultimediaTechLab/YOLO module names.**
   Code that reaches into the network sees `YOLO9Head` instead of `DDetect` (box and class towers in `anchor_convs` / `class_convs`, `num_classes`, `strides`), `RepConv` instead of `RepConvN`, `Bottleneck` instead of `RepNBottleneck`, and `conv1`/`conv2`/`bottleneck` instead of `cv1`/`cv2`/`m` inside blocks. ONNX node names follow, e.g. `/head/anchor_convs.0/...` (update Hailo end-node configs). Model inputs, outputs and output names are unchanged. Freshly built YOLO9 models with more than 100 classes get class towers up to 128 channels wide instead of 100.
+- **`perspective` augmentation uses corner displacement.**
+  With `perspective > 0`, the four corners of the augmentation canvas are each pulled inward by a random amount and the image and boxes are warped by the resulting homography, on top of the usual rotation, scale, shear and translation. `distortion_scale = min(perspective * 100, 0.2)` in the sense of torchvision's `RandomPerspective`, so `perspective=0.001` moves each corner by at most 5% of the canvas side, at any resolution. The same value therefore gives a different warp than in 1.6.0, and negative values raise `ValueError`. The default `perspective=0` is unchanged. Applies to every family that uses the shared affine warp (YOLO9, YOLOX, YOLO-NAS).
+- **YOLO9 mixup samples the blend ratio from Beta(1, 1).**
+  This is the MultimediaTechLab/YOLO recipe; the ratio was drawn from Beta(32, 32) before, which kept it close to 0.5. It applies only when mixup is enabled (`mixup_prob` is 0 by default).
 
 ### Fixed
 

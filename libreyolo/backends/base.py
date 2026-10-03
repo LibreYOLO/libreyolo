@@ -24,7 +24,7 @@ from PIL import Image
 # ``models/__init__.py`` (which eagerly builds every nn.Module to populate
 # the can_load registry) and keeps this module importable without torch.
 from ..postprocess.yolo9 import (
-    _YOLO9_MAX_NMS_CANDIDATES,
+    _YOLO9_NMS_PRE,
     postprocess as yolo9_postprocess,
 )
 from ..postprocess.ppyoloe import PPYOLOE_PRE_NMS_TOP_K
@@ -2400,9 +2400,9 @@ class BaseBackend(ABC):
             max_scores = scores[anchor_idx, class_ids]
             if keypoints_all is not None:
                 keypoints = keypoints_all[anchor_idx].copy()
-            max_nms = max(max_det, _YOLO9_MAX_NMS_CANDIDATES)
-            if max_scores.size > max_nms:
-                keep = np.argpartition(-max_scores, max_nms - 1)[:max_nms]
+            nms_pre = max(max_det, _YOLO9_NMS_PRE)
+            if max_scores.size > nms_pre:
+                keep = np.argpartition(-max_scores, nms_pre - 1)[:nms_pre]
                 keep = keep[np.argsort(-max_scores[keep])]
                 boxes_input = boxes_input[keep]
                 max_scores = max_scores[keep]

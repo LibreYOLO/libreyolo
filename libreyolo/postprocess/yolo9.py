@@ -17,7 +17,12 @@ from typing import Dict, Tuple, Union
 torch = lazy_module("torch")
 
 
-_YOLO9_MAX_NMS_CANDIDATES = 30000
+# Most candidates, by score, handed to NMS. Name and value follow
+# ``test_cfg.nms_pre=30000`` of RTMDet in open-mmlab/mmdetection (Apache-2.0),
+# configs/rtmdet/rtmdet_l_8xb32-300e_coco.py; mmdetection applies it per
+# feature level, here it caps the whole image. MultimediaTechLab/YOLO's
+# ``bbox_nms`` has no such cap.
+_YOLO9_NMS_PRE = 30000
 _YOLO9_OBB_MAX_NMS_CANDIDATES = 1200
 _YOLO9_OBB_PREFILTER_CANDIDATES = _YOLO9_OBB_MAX_NMS_CANDIDATES
 
@@ -271,9 +276,9 @@ def postprocess(
     boxes_input = boxes_input[anchor_idx]
     keypoints = keypoints_all[anchor_idx].clone() if keypoints_all is not None else None
     max_scores = scores[anchor_idx, class_ids]
-    max_nms = max(max_det, _YOLO9_MAX_NMS_CANDIDATES)
-    if max_scores.numel() > max_nms:
-        keep = torch.topk(max_scores, max_nms).indices
+    nms_pre = max(max_det, _YOLO9_NMS_PRE)
+    if max_scores.numel() > nms_pre:
+        keep = torch.topk(max_scores, nms_pre).indices
         boxes_input = boxes_input[keep]
         if keypoints is not None:
             keypoints = keypoints[keep]

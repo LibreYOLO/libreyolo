@@ -228,27 +228,33 @@ class Vec2Box:
             pred_box_raw = pred[:, :box_channels, :, :]  # (B, 4*reg_max, H, W)
             pred_cls = pred[:, box_channels:, :, :]  # (B, nc, H, W)
 
-            # Reshape class predictions: (B, nc, H, W) -> (B, H*W, nc)
+            # Follows MultimediaTechLab/YOLO (MIT). Anchor2Vec
+            # (yolo/model/module.py) lays the bin logits out as
+            # "B (P R) h w -> B R P h w" with P=4 sides, and Vec2Box.__call__
+            # (yolo/utils/bounding_box_utils.py) flattens each level to
+            # "B (h w) C" class logits and "B (h w) 4 reg_max" bin logits.
+            anchor_x = pred_box_raw.view(B, 4, self.reg_max, H, W).permute(
+                0, 2, 1, 3, 4
+            )  # (B, reg_max, 4, H, W)
             pred_cls = pred_cls.permute(0, 2, 3, 1).reshape(B, H * W, -1)
-            preds_cls_list.append(pred_cls)
-
-            # Reshape box predictions for DFL: (B, 4*reg_max, H, W) -> (B, H*W, 4, reg_max)
-            # Format: (B, anchors, 4, reg_max) matches YOLO repo for DFL loss
-            pred_anc = pred_box_raw.view(B, 4, self.reg_max, H, W)
-            pred_anc = pred_anc.permute(0, 3, 4, 1, 2).reshape(
+            pred_anc = anchor_x.permute(0, 3, 4, 2, 1).reshape(
                 B, H * W, 4, self.reg_max
             )
+            preds_cls_list.append(pred_cls)
             preds_anc_list.append(pred_anc)
 
-            # Decode boxes using DFL (softmax + weighted sum)
-            # (B, H*W, 4, reg_max) -> softmax over reg_max -> (B, H*W, 4)
-            pred_dist = F.softmax(pred_anc, dim=3)
-            # Weighted sum: multiply by [0, 1, 2, ..., reg_max-1]
-            proj = torch.arange(
-                self.reg_max, dtype=pred_dist.dtype, device=pred_dist.device
+            # Anchor2Vec's decode: softmax over the bins, then the expectation
+            # under the fixed weights [0, ..., reg_max-1] (upstream holds them
+            # in a 1x1x1 Conv3d). It is taken on the flattened tensor, with
+            # the bin axis last, so the result stays bit-identical to earlier
+            # LibreYOLO releases; on the "B R P h w" layout it differs in the
+            # last float bits.
+            vector_x = pred_anc.softmax(dim=-1)
+            reverse_reg = torch.arange(
+                self.reg_max, dtype=vector_x.dtype, device=vector_x.device
             )
-            pred_box = (pred_dist * proj.view(1, 1, 1, -1)).sum(dim=3)  # (B, H*W, 4)
-            preds_box_list.append(pred_box)
+            vector_x = (vector_x * reverse_reg).sum(dim=-1)  # (B, H*W, 4)
+            preds_box_list.append(vector_x)
 
         # Concatenate across scales
         preds_cls = torch.cat(preds_cls_list, dim=1)  # (B, total_anchors, nc)

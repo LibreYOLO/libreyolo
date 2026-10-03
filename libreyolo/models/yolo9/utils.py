@@ -14,7 +14,7 @@ from ...preprocess.yolo9 import (  # noqa: F401  (moved; re-exported for backwar
 )
 from ...postprocess.yolo9 import (  # noqa: F401  (backward-compatible re-exports)
     ImageSize,
-    _YOLO9_MAX_NMS_CANDIDATES,
+    _YOLO9_NMS_PRE,
     _YOLO9_OBB_MAX_NMS_CANDIDATES,
     _YOLO9_OBB_PREFILTER_CANDIDATES,
     _input_size_hw,

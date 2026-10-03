@@ -29,7 +29,7 @@ import torch
 import torch.nn as nn
 from torchvision.ops import nms as _nms
 
-from ..models.yolo9.utils import _YOLO9_MAX_NMS_CANDIDATES
+from ..models.yolo9.utils import _YOLO9_NMS_PRE
 
 
 class EmbeddedNMSDetector(nn.Module):
@@ -79,11 +79,11 @@ class EmbeddedNMSDetector(nn.Module):
         # NonMaxSuppression input for low-conf exports.
         flat_scores = safe_scores_all.reshape(-1)
         num_classes = safe_scores_all.shape[1]
-        max_nms = min(
+        nms_pre = min(
             flat_scores.shape[0],
-            max(self.max_det, _YOLO9_MAX_NMS_CANDIDATES),
+            max(self.max_det, _YOLO9_NMS_PRE),
         )
-        top_scores, top_flat_idx = torch.topk(flat_scores, max_nms)
+        top_scores, top_flat_idx = torch.topk(flat_scores, nms_pre)
         score_mask = top_scores > self.conf
         top_scores = top_scores[score_mask]
         top_flat_idx = top_flat_idx[score_mask]
