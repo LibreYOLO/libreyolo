@@ -1582,7 +1582,7 @@ class BaseModel(ABC):
                     conf,
                     iou,
                     orig_size,
-                    max_det=postprocess_max_det(max_det, classes),
+                    max_det=postprocess_max_det(max_det, classes, agnostic_nms),
                     ratio=ratio,
                     **kwargs,
                 )

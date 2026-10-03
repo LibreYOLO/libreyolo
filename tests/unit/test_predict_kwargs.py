@@ -65,6 +65,13 @@ def test_check_agnostic_nms_rejects_tasks_without_boxes(task):
         check_agnostic_nms(True, task)
 
 
+def test_postprocess_max_det_widens_for_agnostic_nms():
+    assert postprocess_max_det(5, None) == 5
+    assert postprocess_max_det(5, None, agnostic_nms=True) == 300
+    assert postprocess_max_det(500, None, agnostic_nms=True) == 500
+    assert postprocess_max_det(5, [0]) == 300
+
+
 def test_rejected_predict_kwargs_fail_clearly():
     with pytest.raises(NotImplementedError, match="visualize"):
         normalize_predict_kwargs({"visualize": True})

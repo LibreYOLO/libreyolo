@@ -478,6 +478,21 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
 
         return resolve_default_coco_image_dir(data_path, self.config.split, json_file)
 
+    def _postprocess_max_det(self) -> int:
+        """The detection budget handed to the family postprocess.
+
+        ``max_det``, widened under ``agnostic_nms`` so the boxes that step
+        suppresses can be replaced; ``_update_metrics`` cuts back to
+        ``max_det`` afterwards.
+        """
+        from ..utils.predict_args import postprocess_max_det  # noqa: PLC0415
+
+        return postprocess_max_det(
+            self.config.max_det,
+            None,
+            bool(getattr(self.config, "agnostic_nms", False)),
+        )
+
     def _new_confusion_matrix(self):
         """A fresh confusion matrix for this run, or None if it cannot be built.
 
@@ -794,7 +809,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                         conf=conf_thres,
                         iou=self.config.iou_thres,
                         imgsz=self._actual_imgsz,
-                        max_det=self.config.max_det,
+                        max_det=self._postprocess_max_det(),
                     )
                     detections.append(self._det_from_result(result))
 
@@ -844,7 +859,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 original_size=(orig_w, orig_h),
                 input_size=self._actual_imgsz,
                 letterbox=uses_letterbox,
-                max_det=self.config.max_det,
+                max_det=self._postprocess_max_det(),
             )
             if result["num_detections"] > 0:
                 raw = result["boxes"]
@@ -905,10 +920,18 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             # the classes= filter and before any scoring, so every metric of
             # the run (mAP, confusion matrix, curves, image metrics) and the
             # subclass evaluators see the same boxes.
-            from ..ops.agnostic_nms import agnostic_nms_detections  # noqa: PLC0415
+            from ..ops.agnostic_nms import (  # noqa: PLC0415
+                agnostic_nms_detections,
+                top_detections,
+            )
 
+            # The postprocess ran with a wider budget (_postprocess_max_det),
+            # so the slots suppression frees are refilled before the cut.
             preds[:] = [
-                agnostic_nms_detections(pred, self.config.iou_thres)
+                top_detections(
+                    agnostic_nms_detections(pred, self.config.iou_thres),
+                    self.config.max_det,
+                )
                 for pred in preds
             ]
         for i in range(len(preds)):

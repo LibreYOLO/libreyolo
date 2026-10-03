@@ -39,15 +39,17 @@ ACCEPTED_PREDICT_KWARGS = {
 DEFAULT_MAX_DET = 300
 
 
-def postprocess_max_det(max_det: int, classes) -> int:
+def postprocess_max_det(max_det: int, classes, agnostic_nms: bool = False) -> int:
     """Return the ``max_det`` to pass to a postprocess that runs before the
-    ``classes`` filter.
+    ``classes`` filter or class-agnostic NMS.
 
     Postprocess keeps the top ``max_det`` detections over every class, so with
-    a class filter a small ``max_det`` could keep only other classes. Keep at
-    least the default budget there and cut to ``max_det`` after filtering.
+    a class filter a small ``max_det`` could keep only other classes, and with
+    ``agnostic_nms`` the boxes it suppresses would leave slots that nothing
+    refills. Keep at least the default budget there and cut to ``max_det``
+    after filtering and suppression.
     """
-    if classes is None:
+    if classes is None and not agnostic_nms:
         return max_det
     return max(int(max_det), DEFAULT_MAX_DET)
 

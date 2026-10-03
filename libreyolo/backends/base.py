@@ -4884,7 +4884,7 @@ class BaseBackend(ABC):
             conf,
             ratio=ratio,
             iou=iou,
-            max_det=postprocess_max_det(max_det, classes),
+            max_det=postprocess_max_det(max_det, classes, _AGNOSTIC_NMS.get()),
         )
         boxes, max_scores, class_ids, masks, obb, keypoints = (
             self._unpack_parsed_outputs(parsed)
@@ -5185,7 +5185,7 @@ class BaseBackend(ABC):
                     conf,
                     ratio=ratio,
                     iou=iou,
-                    max_det=postprocess_max_det(max_det, classes),
+                    max_det=postprocess_max_det(max_det, classes, _AGNOSTIC_NMS.get()),
                 )
                 boxes, max_scores, class_ids, masks, obb, keypoints = (
                     self._unpack_parsed_outputs(parsed)
@@ -5508,7 +5508,7 @@ class BaseBackend(ABC):
                 conf,
                 ratio=ratio,
                 iou=iou,
-                max_det=postprocess_max_det(max_det, classes),
+                max_det=postprocess_max_det(max_det, classes, _AGNOSTIC_NMS.get()),
             )
             boxes, max_scores, class_ids, masks, obb, keypoints = (
                 self._unpack_parsed_outputs(parsed)

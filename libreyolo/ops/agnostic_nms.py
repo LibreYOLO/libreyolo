@@ -68,6 +68,22 @@ def agnostic_rotated_nms_keep(
     return keep.sort().values
 
 
+def top_detections(detections: Dict[str, Any], max_det: int) -> Dict[str, Any]:
+    """Keep the ``max_det`` highest-scoring detections, in their input order."""
+    scores = detections["scores"]
+    if max_det is None or max_det < 0 or len(scores) <= max_det:
+        return detections
+    top = torch.topk(scores.detach().float().cpu(), int(max_det)).indices.sort().values
+    filtered = dict(detections)
+    for key in DETECTION_KEYS:
+        value = detections.get(key)
+        if value is not None:
+            filtered[key] = value[top.to(value.device)]
+    if "num_detections" in filtered:
+        filtered["num_detections"] = len(top)
+    return filtered
+
+
 def agnostic_nms_detections(detections: Dict[str, Any], iou_thres: float) -> Dict[str, Any]:
     """Apply class-agnostic NMS to a detection dict of aligned tensors.
 

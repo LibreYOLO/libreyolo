@@ -297,8 +297,9 @@ class InferenceRunner:
                 ``iou``, keep only the highest-scoring one, whatever their
                 classes. Applied to the family's finished detections (after
                 ``classes``), so it behaves the same for every family that
-                returns boxes, NMS-free ones included. Detect, segment, pose
-                and OBB (rotated IoU) only.
+                returns boxes, NMS-free ones included. ``max_det`` is cut
+                afterwards, from the family's candidate budget of up to 300
+                boxes. Detect, segment, pose and OBB (rotated IoU) only.
             save: If True, saves annotated image or video.
             batch: Images per forward pass for directory and list sources.
                 With batch > 1, supported families run a single stacked
@@ -914,7 +915,7 @@ class InferenceRunner:
                 conf,
                 iou,
                 original_size,
-                max_det=postprocess_max_det(max_det, classes),
+                max_det=postprocess_max_det(max_det, classes, agnostic_nms),
                 ratio=ratio,
                 classes=classes,
                 **kwargs,
@@ -1083,9 +1084,10 @@ class InferenceRunner:
             original_size: (width, height) from preprocessing.
             image_path: Source path or None.
             classes: Optional class filter list.
-            max_det: With ``classes``, the number of highest-scoring boxes to
-                keep after filtering (the postprocess ran with a wider budget,
-                see ``postprocess_max_det``).
+            max_det: With ``classes`` or ``agnostic_iou``, the number of
+                highest-scoring boxes to keep after filtering and suppression
+                (the postprocess ran with a wider budget, see
+                ``postprocess_max_det``).
             agnostic_iou: With ``agnostic_nms``, the IoU above which a box is
                 suppressed by a higher-scoring one of any class. Runs after
                 the ``classes`` filter and before the ``max_det`` cut.
@@ -1431,7 +1433,11 @@ class InferenceRunner:
                 if obb_t is not None:
                     obb_t = obb_t[keep.to(obb_t.device)]
 
-        if classes is not None and max_det is not None and 0 <= max_det < len(conf_t):
+        if (
+            (classes is not None or agnostic_iou is not None)
+            and max_det is not None
+            and 0 <= max_det < len(conf_t)
+        ):
             top = torch.topk(conf_t, int(max_det)).indices.sort().values
             boxes_t, conf_t, cls_t = boxes_t[top], conf_t[top], cls_t[top]
             if masks_t is not None:
@@ -1517,7 +1523,7 @@ class InferenceRunner:
             conf,
             iou,
             original_size,
-            max_det=postprocess_max_det(max_det, classes),
+            max_det=postprocess_max_det(max_det, classes, agnostic_nms),
             ratio=ratio,
             classes=classes,
             **kwargs,
@@ -1617,7 +1623,7 @@ class InferenceRunner:
                 conf,
                 iou,
                 original_size,
-                max_det=postprocess_max_det(max_det, classes),
+                max_det=postprocess_max_det(max_det, classes, agnostic_nms),
                 ratio=ratio,
                 classes=classes,
                 **kwargs,

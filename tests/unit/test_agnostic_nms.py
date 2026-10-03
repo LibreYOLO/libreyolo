@@ -23,6 +23,7 @@ from libreyolo.ops.agnostic_nms import (
     agnostic_nms_detections,
     agnostic_nms_keep,
     agnostic_rotated_nms_keep,
+    top_detections,
 )
 from libreyolo.utils.image_loader import ImageLoader
 from libreyolo.validation.config import ValidationConfig
@@ -90,6 +91,21 @@ class TestKeep:
 
         same = torch.tensor([[50.0, 50.0, 80.0, 6.0, 0.0], [51.0, 50.0, 80.0, 6.0, 0.0]])
         assert agnostic_rotated_nms_keep(same, scores, 0.3).tolist() == [0]
+
+
+class TestTopDetections:
+    def test_keeps_the_highest_scores_in_input_order(self):
+        det = {
+            "boxes": _boxes([0, 0, 1, 1], [2, 2, 3, 3], [4, 4, 5, 5]),
+            "scores": torch.tensor([0.2, 0.9, 0.5]),
+            "classes": torch.tensor([0, 1, 2]),
+            "num_detections": 3,
+        }
+        out = top_detections(det, 2)
+        assert out["classes"].tolist() == [1, 2]
+        assert out["num_detections"] == 2
+        assert top_detections(det, 3) is det
+        assert top_detections(det, -1) is det
 
 
 class TestDetections:
@@ -243,6 +259,27 @@ class TestRunner:
             _image(), classes=[0, 2], agnostic_nms=True
         )
         assert _classes(result) == [0, 2]
+
+    def test_suppressed_slots_are_refilled_up_to_max_det(self):
+        """max_det is cut after suppression, from a wider candidate budget."""
+
+        class _HonorsMaxDet(_StubModel):
+            def _postprocess(self, output, conf, iou, original_size, max_det=300, **kw):
+                order = np.argsort(_DETECTIONS["scores"])[::-1][:max_det]
+                return {
+                    "boxes": [_DETECTIONS["boxes"][i] for i in order],
+                    "scores": [_DETECTIONS["scores"][i] for i in order],
+                    "classes": [_DETECTIONS["classes"][i] for i in order],
+                    "num_detections": len(order),
+                }
+
+        runner = InferenceRunner(_HonorsMaxDet())
+        # Without the wider budget the two top boxes (0.9, 0.6) overlap and
+        # only one would be left.
+        assert _classes(runner(_image(), max_det=2, agnostic_nms=True)) == [1, 2]
+        assert _classes(runner(_image(), max_det=1, agnostic_nms=True)) == [1]
+        # Default behavior is the family's own cut.
+        assert _classes(runner(_image(), max_det=2)) == [0, 1]
 
     def test_masks_and_keypoints_stay_aligned(self):
         class _WithPayloads(_StubModel):
@@ -399,6 +436,22 @@ class TestValidator:
         v = _validator(agnostic_nms=True, iou_thres=0.5, classes=[0, 2])
         v._update_metrics(_val_preds(), None, [(32, 32)], [1])
         assert v.coco_evaluator.classes == [[0, 2]]
+
+    def test_postprocess_budget_is_widened_then_cut_to_max_det(self):
+        from libreyolo.utils.predict_args import DEFAULT_MAX_DET
+
+        assert _validator(max_det=2)._postprocess_max_det() == 2
+        v = _validator(agnostic_nms=True, iou_thres=0.5, max_det=2)
+        assert v._postprocess_max_det() == DEFAULT_MAX_DET
+
+        v._update_metrics(_val_preds(), None, [(32, 32)], [1])
+        assert v.coco_evaluator.classes == [[1, 2]]
+
+        one = _validator(agnostic_nms=True, iou_thres=0.5, max_det=1)
+        preds = _val_preds()
+        one._update_metrics(preds, None, [(32, 32)], [1])
+        assert one.coco_evaluator.classes == [[1]]
+        assert preds[0]["masks"].shape[0] == 1
 
     def test_config_round_trips_the_option(self, tmp_path):
         config = ValidationConfig(data="x", agnostic_nms=True)
