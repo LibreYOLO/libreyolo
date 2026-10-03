@@ -7,7 +7,6 @@ from numbers import Integral
 
 
 NOOP_PREDICT_KWARGS = {
-    "agnostic_nms",
     "boxes",
     "dnn",
     "half",
@@ -18,6 +17,8 @@ NOOP_PREDICT_KWARGS = {
     "verbose",
 }
 REJECTED_PREDICT_KWARGS = {"visualize", "embed"}
+#: Tasks ``predict(agnostic_nms=True)`` covers: the ones that return boxes.
+AGNOSTIC_NMS_TASKS = ("detect", "segment", "pose", "obb")
 ACCEPTED_PREDICT_KWARGS = {
     "classes",
     "conf",
@@ -51,6 +52,23 @@ def postprocess_max_det(max_det: int, classes) -> int:
     return max(int(max_det), DEFAULT_MAX_DET)
 
 
+def check_agnostic_nms(agnostic_nms, task) -> bool:
+    """Validate ``agnostic_nms`` for a task and return it as a bool.
+
+    Class-agnostic NMS suppresses overlapping boxes, so it applies to the
+    tasks that return boxes; asking for it elsewhere is an error rather than
+    a silent no-op.
+    """
+    if not agnostic_nms:
+        return False
+    if task not in AGNOSTIC_NMS_TASKS:
+        raise ValueError(
+            f"agnostic_nms=True is not supported for task '{task}'; it covers "
+            f"{', '.join(AGNOSTIC_NMS_TASKS)}"
+        )
+    return True
+
+
 def normalize_classes(classes):
     """Accept a single class id (``classes=0``) as a one-element list."""
     if isinstance(classes, Integral) and not isinstance(classes, bool):
@@ -67,6 +85,14 @@ def normalize_predict_kwargs(kwargs: dict, passthrough: set[str] | None = None) 
     if rejected:
         raise NotImplementedError(
             f"LibreYOLO does not support these predict options: {', '.join(rejected)}."
+        )
+
+    # A predict path that implements agnostic_nms takes it as a named
+    # argument, so it only reaches here on a path that does not: fine when
+    # off, an error when asked for.
+    if remaining.pop("agnostic_nms", False):
+        raise NotImplementedError(
+            "agnostic_nms=True is not supported by this model's predict path."
         )
 
     noops = sorted(k for k in remaining if k in NOOP_PREDICT_KWARGS)
