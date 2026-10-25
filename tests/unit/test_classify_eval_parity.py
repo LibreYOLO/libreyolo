@@ -455,6 +455,19 @@ def test_no_antialias_train_crop_resizes_without_antialiasing():
     assert (ours - opencv.to(torch.int64)).abs().max() <= 1
 
 
+def test_no_antialias_transforms_report_antialias_false():
+    """Their ``antialias`` attribute and repr say what the resize does."""
+    from libreyolo.data.augment.classify import (
+        RandomResizedCropNoAntialias,
+        ResizeNoAntialias,
+    )
+
+    crop = RandomResizedCropNoAntialias(224, (0.08, 1.0))
+    for transform in (ResizeNoAntialias(224), crop):
+        assert transform.antialias is False
+        assert "antialias=False" in repr(transform)
+
+
 def test_no_antialias_survives_save_and_reload(tmp_path):
     from libreyolo.utils.serialization import validate_checkpoint_metadata
 
