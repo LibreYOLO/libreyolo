@@ -130,9 +130,11 @@ class LibreWeVisOneVL(LibreVLMModel):
             min_pixels / max_pixels: Pixel budget of the Qwen image processor
                 (defaults to the upstream ``16*32*32`` / ``2025*32*32``). A
                 lower ``max_pixels`` trades accuracy for speed.
-            decoder_batch_size: Instances decoded per pixel-decoder call. The
-                decoder refines every instance on a full 1024x1024 canvas,
-                which costs about 2 GB of FP32 activations per instance.
+            decoder_batch_size: Instances refined per pixel-decoder call. All
+                instances of a response are always encoded together, so this
+                bounds memory only and does not change the masks. Refinement
+                runs on a full 1024x1024 canvas at about 2 GB of FP32
+                activations per instance.
         """
         self.referring = bool(referring)
         self.mask_threshold = float(mask_threshold)
@@ -329,7 +331,8 @@ class LibreWeVisOneVL(LibreVLMModel):
             (teacher["input_ids"][0] == self.seg_token_id).nonzero().flatten()
         )
         with (
-            torch.no_grad(), VisualFeatureCapture(
+            torch.no_grad(),
+            VisualFeatureCapture(
                 self.model, self.decoder_cfg.vision_feature_layers
             ) as visual,
             LastHiddenCapture(self.model) as hidden,
@@ -355,20 +358,24 @@ class LibreWeVisOneVL(LibreVLMModel):
             dtype=np.float32,
         )
         canvas = torch.from_numpy(canvas / 255.0).permute(2, 0, 1)[None].to(self.device)
+        ordinals = torch.tensor(
+            [ordinal for ordinal, _ in selected], device=t_seg.device
+        )
+        boxes = torch.tensor(
+            [entry[1] for _, entry in selected], dtype=torch.float32, device=self.device
+        )
+        with torch.no_grad():
+            queries, pixel_feature = decoder.encode(
+                canvas, visual_maps, t_seg[ordinals].to(self.device), boxes
+            )
         width, height = img.size
         instances: List[dict] = []
         for start in range(0, len(selected), self.decoder_batch_size):
             batch = selected[start : start + self.decoder_batch_size]
-            ordinals = torch.tensor(
-                [ordinal for ordinal, _ in batch], device=t_seg.device
-            )
-            boxes = torch.tensor(
-                [entry[1] for _, entry in batch],
-                dtype=torch.float32,
-                device=self.device,
-            )
             with torch.no_grad():
-                logits = decoder(canvas, visual_maps, t_seg[ordinals], boxes)
+                logits = decoder.refine(
+                    canvas, pixel_feature, queries[start : start + len(batch)]
+                )
                 alphas = F.interpolate(
                     logits.float().sigmoid()[None],
                     size=(height, width),

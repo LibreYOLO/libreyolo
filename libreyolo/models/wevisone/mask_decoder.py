@@ -656,6 +656,21 @@ class WeVisOneMaskDecoder(nn.Module):
         The released weights are FP32 and run in FP32 regardless of the
         backbone dtype.
         """
+        queries, pixel_feature = self.encode(image, visual_features_2d, t_seg, boxes01)
+        return self.refine(image, pixel_feature, queries)
+
+    def encode(
+        self,
+        image: torch.Tensor,
+        visual_features_2d: List[torch.Tensor],
+        t_seg: torch.Tensor,
+        boxes01: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Return the decoded queries ``(Q, D)`` and the shared pixel feature.
+
+        The query transformer's self-attention mixes all ``Q`` objects, so
+        every object of one response must be encoded in the same call.
+        """
         if t_seg.shape[0] != boxes01.shape[0]:
             raise ValueError(
                 f"#OBJ={t_seg.shape[0]} does not match #boxes={boxes01.shape[0]}"
@@ -676,6 +691,18 @@ class WeVisOneMaskDecoder(nn.Module):
                 starts,
             ).squeeze(0)
             pixel_feature = self.pixel_fusion(image, encoded)
+        return queries, pixel_feature
+
+    def refine(
+        self, image: torch.Tensor, pixel_feature: torch.Tensor, queries: torch.Tensor
+    ) -> torch.Tensor:
+        """Full-resolution logits ``(Q, S, S)`` for already-decoded queries.
+
+        Each query is refined independently, so callers may split ``queries``
+        into chunks to bound the per-instance full-canvas activations.
+        """
+        with torch.autocast(device_type=image.device.type, enabled=False):
+            image = image.float()
             coarse_logits = self.mask_predictor(queries, pixel_feature)
             return self.highres_refine(image, pixel_feature, queries, coarse_logits)
 

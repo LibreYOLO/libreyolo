@@ -361,20 +361,18 @@ def test_segment_aligns_obj_hidden_states_with_valid_boxes(harness):
     )
     model = LibreWeVisOneVL(names=["dog"], device="cpu", decoder_batch_size=2)
     model.set_task("segment")
-    calls = []
-    model.mask_decoder.register_forward_pre_hook(
-        lambda _module, args: calls.append(args)
-    )
+    encode_calls, refine_calls = [], []
+    _spy(model.mask_decoder, "encode", encode_calls)
+    _spy(model.mask_decoder, "refine", refine_calls)
     result = model.predict(_image())
 
     assert harness.prompts == [matting]
     teacher = harness.messages[-1]
     assert teacher[-1] == {"role": "assistant", "content": harness.responses[matting]}
     assert harness.teacher_calls[-1]["use_cache"] is False
-    assert [len(call[2]) for call in calls] == [2, 1]
-    canvas, visual_maps = calls[0][:2]
-    t_seg = torch.cat([call[2] for call in calls])
-    boxes = torch.cat([call[3] for call in calls])
+    assert len(encode_calls) == 1
+    assert [len(call[2]) for call in refine_calls] == [2, 1]
+    canvas, visual_maps, t_seg, boxes = encode_calls[0]
     assert tuple(canvas.shape) == (1, 3, 64, 64)
     assert [tuple(m.shape) for m in visual_maps] == [(1, VIS_DIM, GRID, GRID)] * 4
     # The n-th <OBJ> sits at PREFIX_TOKENS + 1 + 2n; the malformed box n=1 is skipped.
@@ -394,10 +392,64 @@ def test_segment_aligns_obj_hidden_states_with_valid_boxes(harness):
     assert bool(model.predict(_image()).masks.data.all())
 
 
+def _spy(module, name, calls):
+    original = getattr(module, name)
+
+    def wrapper(*args):
+        calls.append(args)
+        return original(*args)
+
+    setattr(module, name, wrapper)
+
+
+def test_decoder_batch_size_does_not_change_mattes(harness):
+    response = (
+        "<ref>dog</ref><box><100><100><500><500><OBJ>,<600><600><900><900><OBJ>,"
+        "<200><500><700><950><OBJ></box>"
+    )
+    model = LibreWeVisOneVL(names=["dog"], device="cpu")
+    alphas = {}
+    for size in (1, 2, 3):
+        model.decoder_batch_size = size
+        instances = model._decode_instances(
+            _image(), prompts.matting_prompt("dog"), response
+        )
+        alphas[size] = np.stack([instance["alpha"] for instance in instances])
+    assert alphas[1].shape == (3, IMAGE_SIZE[1], IMAGE_SIZE[0])
+    np.testing.assert_allclose(alphas[2], alphas[1], atol=1e-6)
+    np.testing.assert_allclose(alphas[3], alphas[1], atol=1e-6)
+
+
+def test_decoder_refinement_chunks_match_joint_decoding():
+    torch.manual_seed(0)
+    decoder = build_mask_decoder(
+        VIS_DIM, TEXT_DIM, Qwen3VLSegConfig.from_dict(TINY_CFG)
+    ).eval()
+    image = torch.rand(1, 3, 64, 64)
+    maps = [torch.randn(1, VIS_DIM, GRID, GRID) for _ in range(4)]
+    t_seg = torch.randn(3, TEXT_DIM)
+    boxes = torch.tensor(
+        [[0.1, 0.1, 0.5, 0.5], [0.4, 0.2, 0.9, 0.8], [0.0, 0.5, 0.6, 1.0]]
+    )
+    with torch.no_grad():
+        joint = decoder(image, maps, t_seg, boxes)
+        queries, pixel_feature = decoder.encode(image, maps, t_seg, boxes)
+        chunked = torch.cat(
+            [decoder.refine(image, pixel_feature, queries[k : k + 1]) for k in range(3)]
+        )
+        alone = decoder(image, maps, t_seg[:1], boxes[:1])
+    torch.testing.assert_close(chunked, joint, atol=1e-5, rtol=1e-5)
+    # Objects attend to each other, so decoding one in isolation differs.
+    assert not torch.allclose(alone, joint[:1], atol=1e-3)
+
+
 class _BoxDecoder(nn.Module):
     """Decoder stand-in that paints each query's box."""
 
-    def forward(self, image, visual_maps, t_seg, boxes):
+    def encode(self, image, visual_maps, t_seg, boxes):
+        return boxes, None
+
+    def refine(self, image, pixel_feature, boxes):
         size = image.shape[-1]
         logits = torch.full((len(boxes), size, size), -30.0)
         for k, (x1, y1, x2, y2) in enumerate(boxes.tolist()):
