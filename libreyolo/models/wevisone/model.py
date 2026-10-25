@@ -327,9 +327,18 @@ class LibreWeVisOneVL(LibreVLMModel):
         if not any(entry is not None for entry in entries):
             return []
         teacher = self._encode(img, prompt, response=response)
-        obj_positions = (
+        seg_positions = (
             (teacher["input_ids"][0] == self.seg_token_id).nonzero().flatten()
         )
+        if int(seg_positions.numel()) < len(entries):
+            raise RuntimeError(
+                f"The teacher-forced response has {len(entries)} <OBJ> tags but "
+                f"tokenized to {int(seg_positions.numel())} <OBJ> tokens."
+            )
+        # The response is the last turn and the chat template closes it with
+        # <|im_end|> only, so its <OBJ> tokens are the trailing ones; any
+        # earlier ones come from the prompt.
+        obj_positions = seg_positions[int(seg_positions.numel()) - len(entries) :]
         with (
             torch.no_grad(),
             VisualFeatureCapture(
@@ -347,10 +356,8 @@ class LibreWeVisOneVL(LibreVLMModel):
         selected = [
             (ordinal, entry)
             for ordinal, entry in enumerate(entries)
-            if entry is not None and ordinal < int(t_seg.shape[0])
+            if entry is not None
         ]
-        if not selected:
-            return []
         decoder = self.mask_decoder.to(self.device)
         size = int(self.decoder_cfg.cnn_image_size)
         canvas = np.asarray(

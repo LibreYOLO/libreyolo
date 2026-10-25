@@ -402,6 +402,22 @@ def _spy(module, name, calls):
     setattr(module, name, wrapper)
 
 
+def test_custom_prompt_obj_tokens_do_not_shift_hidden_states(harness):
+    prompt = "Segment the dog and put <OBJ> after each box."
+    harness.responses[prompt] = (
+        "<ref>dog</ref><box><100><100><500><500><OBJ>,<600><600><900><900><OBJ></box>"
+    )
+    model = LibreWeVisOneVL(names=["dog"], prompt=prompt, device="cpu")
+    model.set_task("segment")
+    calls = []
+    _spy(model.mask_decoder, "encode", calls)
+    result = model.predict(_image())
+    t_seg = calls[0][2]
+    # Token PREFIX_TOKENS + 1 is the prompt's <OBJ>; the response's follow it.
+    assert t_seg[:, 0].tolist() == [PREFIX_TOKENS + 3, PREFIX_TOKENS + 5]
+    assert result.boxes.cls.tolist() == [0, 0]
+
+
 def test_decoder_batch_size_does_not_change_mattes(harness):
     response = (
         "<ref>dog</ref><box><100><100><500><500><OBJ>,<600><600><900><900><OBJ>,"
