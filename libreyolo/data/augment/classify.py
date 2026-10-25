@@ -105,7 +105,9 @@ class ResizeNoAntialias(transforms.Resize):
     """:class:`transforms.Resize` with bilinear and no antialiasing (#936)."""
 
     def __init__(self, size):
-        super().__init__(size, interpolation=InterpolationMode.BILINEAR)
+        super().__init__(
+            size, interpolation=InterpolationMode.BILINEAR, antialias=False
+        )
 
     def forward(self, img):
         return _resize_no_antialias(img, self.size)
@@ -115,7 +117,9 @@ class RandomResizedCropNoAntialias(transforms.RandomResizedCrop):
     """:class:`transforms.RandomResizedCrop` that resizes without antialiasing."""
 
     def __init__(self, size, scale):
-        super().__init__(size, scale=scale, interpolation=InterpolationMode.BILINEAR)
+        super().__init__(
+            size, scale=scale, interpolation=InterpolationMode.BILINEAR, antialias=False
+        )
 
     def forward(self, img):
         top, left, height, width = self.get_params(img, self.scale, self.ratio)
