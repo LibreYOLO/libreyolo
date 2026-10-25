@@ -1,0 +1,41 @@
+LibreWeVisOneVL - third-party attribution
+=========================================
+
+The WeVisOne-VL family loads its Qwen3-VL backbone through the native
+Hugging Face transformers classes and ports the inference path of the
+upstream pixel (alpha-matte) decoder.
+
+    Project:  WeVisOne-VL
+    Upstream: https://github.com/Tencent/WeVisOne-VL
+    Commit:   9a6bcd85404505df0d05cfb5d97512ccacf35dee
+    License:  Apache License 2.0 (the repository LICENSE prefixes the
+              Apache-2.0 text with a Tencent preamble; it adds no terms)
+    Copyright (C) 2026 Tencent. All rights reserved.
+
+Ported or adapted files (each keeps an SPDX header with this provenance):
+
+  * mask_decoder.py   <- wevisone_vl/mask_decoder.py, config.py, decoder.py
+  * feature_bridge.py <- wevisone_vl/feature_bridge.py
+  * prompts.py        <- wevisone_vl/prompts.py, engine.py (system prompt)
+  * parsing.py        <- evaluation/utils/parser.py,
+                         engine.py (parse_seg_boxes)
+
+LibreYOLO adaptations: inference-only (dropout and training-time
+initializers removed), single-image decoding, and the decoder's deformable
+cross-attention reuses LibreYOLO's Apache-2.0 Deformable-DETR port
+(libreyolo/models/deformable_detr/ms_deform_attn.py) instead of vendoring
+upstream wevisone_vl/msda.py. Module and parameter names are unchanged so the
+released mask_decoder.pt loads strictly. The vLLM backend, CLI, Gradio demo,
+visualization and evaluation scripts are not ported.
+
+Model weights are not redistributed by LibreYOLO. They download at runtime
+from the upstream Hugging Face repositories, pinned to:
+
+    tencent/WeVisOne-VL-2B  798ffc7c87ad6104410812b589e240ba32d92315
+    tencent/WeVisOne-VL-4B  4a7bed92750ac9d8b8a124cede14759036932dc2
+
+Both are Apache-2.0, Copyright (C) 2026 Tencent, and are fine-tuned from
+Qwen3-VL-2B-Instruct / Qwen3-VL-4B-Instruct (Apache-2.0, Copyright 2024
+Alibaba Cloud), as stated in the LICENSE file of each repository. The Qwen3-VL
+architecture runs from transformers (Apache-2.0); no Qwen code is copied into
+LibreYOLO.
