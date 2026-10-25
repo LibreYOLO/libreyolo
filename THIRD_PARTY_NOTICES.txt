@@ -2868,6 +2868,32 @@ allenai/Molmo2-O-7B @ 784410650d12be9bc086118fdefa32d2c3bced86
 include the SigLIP vision backbone and their tokenizer assets. Upstream model
 cards declare Apache-2.0 for all three snapshots.
 
+--------------------------------------------------------------------
+WeVisOne-VL pixel decoder, prompts and output parser
+----------------------------------------------------
+
+Upstream: Tencent, https://github.com/Tencent/WeVisOne-VL
+Commit: 9a6bcd85404505df0d05cfb5d97512ccacf35dee
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO). The
+repository LICENSE prefixes the Apache-2.0 text with a Tencent preamble that
+adds no terms.
+Copyright (C) 2026 Tencent. All rights reserved.
+
+Used for: the LibreWeVisOneVL family (libreyolo/models/wevisone/). The pixel
+decoder (wevisone_vl/mask_decoder.py, config.py, decoder.py), the ViT feature
+bridge (feature_bridge.py), the instruction strings (prompts.py, engine.py) and
+the tagged-coordinate parser (evaluation/utils/parser.py, engine.py) are
+ported for inference, with modifications noted in each file header. The
+deformable cross-attention reuses LibreYOLO's Deformable-DETR port instead of
+upstream msda.py. See libreyolo/models/wevisone/NOTICE.
+
+Weights are not redistributed; they download at runtime from
+tencent/WeVisOne-VL-2B @ 798ffc7c87ad6104410812b589e240ba32d92315 and
+tencent/WeVisOne-VL-4B @ 4a7bed92750ac9d8b8a124cede14759036932dc2 (Apache-2.0,
+Copyright (C) 2026 Tencent). They are fine-tuned from Qwen3-VL-2B-Instruct and
+Qwen3-VL-4B-Instruct (Apache-2.0, Copyright 2024 Alibaba Cloud), whose
+architecture runs from transformers; no Qwen code is copied.
+
 
 GTR (Gated Token Recurrence)
 Source: https://github.com/Intellindust-AI-Lab/GTR

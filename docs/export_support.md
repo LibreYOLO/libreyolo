@@ -151,6 +151,11 @@ in preflight.
 | vitmatte | matte |  |  |  |  |  |  |  |  |  |  |  |  |
 | vjepa2 | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
 | vjepa2 | classify | available | available | available | available | available |  |  |  |  |  |  |  |
+| wevisonevl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| wevisonevl | point |  |  |  |  |  |  |  |  |  |  |  |  |
+| wevisonevl | segment |  |  |  |  |  |  |  |  |  |  |  |  |
+| wevisonevl | matte |  |  |  |  |  |  |  |  |  |  |  |  |
+| wevisonevl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | wilddet3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | yolo1 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
 | yolo2 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  | ✓ |
@@ -1930,6 +1935,66 @@ These converter paths are callable with the recorded validation context.
 - `vjepa2` / `classify` / `tflite`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `vjepa2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vjepa2` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `wevisonevl` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `openvino`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `paddle`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `mnn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `rknn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `ncnn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `onnx`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `torchscript`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `executorch`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `openvino`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `paddle`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `mnn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `rknn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `ncnn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `tflite`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `coreml`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `coreai`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `onnx`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `torchscript`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `executorch`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `openvino`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `paddle`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `mnn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `rknn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `ncnn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `tflite`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `coreml`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `coreai`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `onnx`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `torchscript`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `executorch`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `openvino`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `paddle`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `mnn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `rknn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `ncnn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `tflite`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `coreml`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `coreai`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `openvino`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `paddle`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `mnn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `rknn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `ncnn`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
 - `wilddet3d` / `detect3d` / `onnx`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `wilddet3d` / `detect3d` / `torchscript`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `wilddet3d` / `detect3d` / `executorch`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
