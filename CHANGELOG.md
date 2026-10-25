@@ -12,6 +12,9 @@ before 1.4.0 are documented in the
 - **LibreGen sibling factory and the `generate` task. (#932)**
   `LibreGen("flux2-klein-4b")("a red fox")` returns `Results.generated`, an `(H, W, 3)` RGB image with the prompt, seed and call parameters that reproduce it. Shared arguments are `imgsz`, `seed`, `n`, `save` and `stream`; settings only some models have (`steps`, `guidance`) are per-family knobs with defaults, and an unsupported one raises. First families are FLUX.2 klein 4B and SANA-Sprint 0.6B (both Apache-2.0; SANA-Sprint bundles a Gemma 2 text encoder under the Gemma Terms of Use), loaded through `diffusers` at pinned revisions. `LibreGen(path)` loads a local pipeline directory. CLI: `libreyolo generate prompt="..."`. Install `libreyolo[gen]`. Training, validation, export and image-conditioned generation are reserved and raise. See ADR 0030 and `docs/libregen.md`.
 
+- **WeVisOne-VL VLM family.**
+  `LibreVLM("wevisone-vl", names=[...])` (or `LibreWeVisOneVL`) runs Tencent's WeVisOne-VL 2B (default) and 4B, Apache-2.0 code and weights, through the native transformers Qwen3-VL classes at pinned revisions. Tasks: `detect` (whole vocabulary in one generation, or one referring phrase per generation with `referring=True`, which returns nothing for an absent target), `point`, `segment` (boxes plus binary masks), `matte` (`Results.matte`) and `ocr` (`Results.ocr`). Masks and mattes come from a minimal Apache-2.0 port of the released pixel decoder (`mask_decoder.pt`). Inference only: confidence is a constant 1.0, and `train()`, `val()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+
 - **`libreyolo train --clip_max_norm`.**
   Sets the gradient-norm clip from the CLI for YOLO9-family training, and for other families whose registered training config declares `clip_max_norm`; `0` disables clipping.
 

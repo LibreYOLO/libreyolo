@@ -124,7 +124,7 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **OCR** | PP-OCR |
 | **点检测** | FOMO、LocateAnything |
 | **视线估计** | L2CS |
-| **开放词汇与 VLM** | Grounding DINO、OWLv2、OmDet-Turbo、OV-DEIM、Florence-2、Kosmos-2、Qwen3-VL、InternVL3、LFM2-VL、North Micro Vision、SmolVLM2、Molmo2、MODUS |
+| **开放词汇与 VLM** | Grounding DINO、OWLv2、OmDet-Turbo、OV-DEIM、Florence-2、Kosmos-2、Qwen3-VL、InternVL3、LFM2-VL、North Micro Vision、SmolVLM2、Molmo2、WeVisOne-VL、MODUS |
 | **机器人动作 (VLA)** | SmolVLA, ACT, Diffusion Policy |
 | **图像生成** | FLUX.2 klein, SANA-Sprint |
 
