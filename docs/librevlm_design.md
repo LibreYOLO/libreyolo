@@ -371,8 +371,9 @@ upstream detection benchmarks prompt one category per generation.
 
 Validation: the 2B checkpoint ran all five tasks through `predict()` on CPU in
 FP32, and the ported decoder loads the released sidecar strictly and matches
-the upstream module's logits to within 1e-4. The 4B checkpoint and CUDA were
-not run.
+the upstream module's logits to within 1e-4. The 4B decoder sidecar loads
+strictly against the 4B config and tokenizer, but the 4B backbone and CUDA
+were not run.
 
 ## Known limitations (v1)
 
