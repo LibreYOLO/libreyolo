@@ -2575,6 +2575,30 @@
     "available": true,
     "group": "g2"
   },
+  "wevisonevl": {
+    "class": "libreyolo.models.wevisone.model.LibreWeVisOneVL",
+    "tasks": [
+      "detect",
+      "point",
+      "segment",
+      "matte",
+      "ocr"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "2b": 1440,
+      "4b": 1440
+    },
+    "default_imgsz": {
+      "2b": 1440,
+      "4b": 1440
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "wilddet3d": {
     "class": "libreyolo.models.wilddet3d.model.LibreWildDet3D",
     "tasks": [

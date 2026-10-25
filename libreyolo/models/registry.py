@@ -147,6 +147,7 @@ MODEL_GROUPS: dict[str, str] = {
     "siglip2": "s",
     "libremodus": "s",
     "sensenovavision": "s",
+    "wevisonevl": "s",
 }
 
 
