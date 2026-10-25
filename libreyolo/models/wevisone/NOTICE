@@ -24,7 +24,9 @@ LibreYOLO adaptations: inference-only (dropout and training-time
 initializers removed), single-image decoding, and the decoder's deformable
 cross-attention reuses LibreYOLO's Apache-2.0 Deformable-DETR port
 (libreyolo/models/deformable_detr/ms_deform_attn.py) instead of vendoring
-upstream wevisone_vl/msda.py. Module and parameter names are unchanged so the
+upstream wevisone_vl/msda.py. All instances of a response share one
+query-transformer pass, and only the per-instance refinement is chunked to
+bound memory. Module and parameter names are unchanged so the
 released mask_decoder.pt loads strictly. The vLLM backend, CLI, Gradio demo,
 visualization and evaluation scripts are not ported.
 

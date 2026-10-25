@@ -5,9 +5,11 @@
 # Copyright (C) 2026 Tencent. All rights reserved.
 # Modified for LibreYOLO: inference-only (dropout and training-time
 # initializers removed), the deformable cross-attention reuses LibreYOLO's
-# Apache-2.0 Deformable-DETR port (libreyolo/models/deformable_detr), and the
-# stem is fixed to the released output stride of 2. Module and attribute names
-# are unchanged so the released mask_decoder.pt state dict loads strictly.
+# Apache-2.0 Deformable-DETR port (libreyolo/models/deformable_detr), the
+# stem is fixed to the released output stride of 2, and forward is split into
+# encode (all queries) and refine (per query) so refinement can be chunked
+# without changing the masks. Module and attribute names are unchanged so the
+# released mask_decoder.pt state dict loads strictly.
 """WeVisOne-VL pixel decoder: ``<OBJ>`` hidden states + boxes -> alpha mattes."""
 
 from __future__ import annotations

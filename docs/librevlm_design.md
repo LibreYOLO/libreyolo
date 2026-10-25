@@ -343,8 +343,11 @@ LibreVLM("wevisone-vl", names=["the man in red"], referring=True)
   phrase, so they need an explicit `names=` or `set_classes()`.
 - Mask decoding reads four ViT levels before the spatial merge and the last
   decoder layer's hidden state at each `<OBJ>`, then runs the decoder in FP32
-  on a 1024x1024 canvas. That costs about 2 GB of activations per instance,
-  so `decoder_batch_size` defaults to 1.
+  on a 1024x1024 canvas. All instances of a response share one
+  query-transformer pass, whose self-attention mixes them. Only the
+  full-canvas refinement, about 2 GB of activations per instance, is chunked
+  by `decoder_batch_size` (default 1), so the batch size does not change
+  the masks.
 - Counting is `len(result.boxes)` or `len(result.points)`. Visual-prompt
   detection and OCR grounding are not wrapped as tasks; use `chat()`.
 - `min_pixels` / `max_pixels` default to the upstream budget (16x32x32 to

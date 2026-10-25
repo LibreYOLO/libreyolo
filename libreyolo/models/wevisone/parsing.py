@@ -6,7 +6,8 @@
 # Modified for LibreYOLO: one scanner serves boxes, points and polygons; a
 # missing closing tag no longer swallows the next <ref>; every <OBJ> keeps its
 # ordinal (None when its box is malformed) so masks stay aligned with the
-# hidden states of the teacher-forced pass.
+# hidden states of the teacher-forced pass; points and polygons off the 0-1000
+# grid are dropped like boxes.
 """Parse WeVisOne-VL's tagged coordinate answers.
 
 The checkpoint answers with tags such as::
