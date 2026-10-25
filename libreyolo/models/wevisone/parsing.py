@@ -35,7 +35,7 @@ _SHAPE = re.compile(
     r"<(box|point|polygon)>(.*?)(?:</\1>|(?=<ref>|<box>|<point>|<polygon>)|$)",
     re.DOTALL,
 )
-_BIN = re.compile(r"<(\d{1,4})>")
+_BIN = re.compile(r"<(\d+)>")
 
 
 def strip_response(text: str) -> str:
@@ -61,16 +61,21 @@ def _iter_shapes(text: str) -> Iterator[Tuple[Optional[str], str, int, int]]:
         yield label, match.group(1), match.start(2), match.end(2)
 
 
+def _on_grid(values) -> bool:
+    return all(0 <= v <= COORD_SCALE for v in values)
+
+
 def _valid_box(values) -> bool:
     x1, y1, x2, y2 = values
-    return all(0 <= v <= COORD_SCALE for v in values) and x2 > x1 and y2 > y1
+    return _on_grid(values) and x2 > x1 and y2 > y1
 
 
 def parse_shapes(text: str) -> List[dict]:
     """Return ``{"label", "kind", "coords"}`` items with coords in raw bins.
 
     ``kind`` is ``box`` (``[x1, y1, x2, y2]``), ``point`` (``[x, y]``) or
-    ``polygon`` (flat ``[x0, y0, x1, y1, ...]``). Degenerate boxes are dropped.
+    ``polygon`` (flat ``[x0, y0, x1, y1, ...]``). Shapes with a coordinate
+    off the 0-1000 grid and degenerate boxes are dropped.
     """
     text = strip_response(text)
     items: List[dict] = []
@@ -80,11 +85,12 @@ def parse_shapes(text: str) -> List[dict]:
             values = [int(v) for v in _BIN.findall(segment)]
             if kind == "point":
                 for k in range(0, len(values) - 1, 2):
-                    items.append(
-                        {"label": label, "kind": kind, "coords": values[k : k + 2]}
-                    )
+                    if _on_grid(values[k : k + 2]):
+                        items.append(
+                            {"label": label, "kind": kind, "coords": values[k : k + 2]}
+                        )
             elif kind == "polygon":
-                if len(values) >= 6:
+                if len(values) >= 6 and _on_grid(values):
                     items.append(
                         {
                             "label": label,

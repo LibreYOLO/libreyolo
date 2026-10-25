@@ -77,6 +77,12 @@ TINY_CFG = {
         ("<ref>x</ref><box><10><10><5><20></box>", []),
         ("<ref>x</ref><box><10><10><50><1001></box>", []),
         ("<ref>x</ref><box><10><10><50></box>", []),
+        ("<ref>x</ref><box><10><10><50><20000><60><70></box>", []),
+        ("<ref>EXIT</ref><polygon><0><0><1500><0><100><100></polygon>", []),
+        (
+            "<ref>cup</ref><point><512><1640></point>,<point><1><2></point>",
+            [("cup", "point", [1, 2])],
+        ),
         ("None", []),
         ("", []),
     ],
@@ -506,6 +512,20 @@ def test_ocr_returns_reading_order_quads_with_transcripts(harness):
             [[200, 100], [280, 100], [280, 120], [200, 120]],
         ],
     )
+
+
+def test_ocr_drops_regions_off_the_coordinate_grid(harness):
+    harness.responses[prompts.OCR_PROMPT] = (
+        "<ref>BAD</ref><polygon><0><0><1500><0><1500><100><0><100></polygon>"
+        "<ref>EDGE</ref><polygon><0><0><1000><0><1000><1000><0><1000></polygon>"
+        "<ref>WIDE</ref><box><0><0><1200><100></box>"
+    )
+    model = LibreWeVisOneVL(device="cpu").set_task("ocr")
+    result = model.predict(_image())
+    assert result.ocr.texts == ["EDGE"]
+    polygons = result.ocr.polygons.cpu().numpy()
+    assert polygons[..., 0].min() >= 0 and polygons[..., 0].max() <= IMAGE_SIZE[0]
+    assert polygons[..., 1].min() >= 0 and polygons[..., 1].max() <= IMAGE_SIZE[1]
 
 
 def test_custom_prompt_and_chat(harness):
