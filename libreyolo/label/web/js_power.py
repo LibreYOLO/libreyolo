@@ -8,7 +8,7 @@ function dsname(c){ return (DS && DS.names && DS.names[c]!=null) ? DS.names[c] :
 // ---- Label-Error Radar: audit accepted labels with the model ----
 function radarQuery(){ const m=(assistModel==="__locate__")?(assist.default||""):assistModel; return "model="+encodeURIComponent(m||"")+"&conf="+conf+"&epoch="+((DS&&DS.epoch)||0); }
 function openRadar(){ $("#radar").classList.add("show"); }
-function showRadar(){ if(radarLast){ renderRadarDeck(radarLast); openRadar(); } else runRadar(); }   // reopen the last scan; Rescan inside the dialog refreshes it
+function showRadar(){ if(radarLast){ openRadar(); renderRadarDeck(radarLast); } else runRadar(); }   // reopen the last scan; Rescan inside the dialog refreshes it
 function closeRadar(){ $("#radar").classList.remove("show"); }
 async function runRadar(){
   if(!assist || !assist.available) return;
@@ -18,8 +18,7 @@ async function runRadar(){
   const myEpoch = DS && DS.epoch;   // project-scoped: image navigation must not abort the dataset-wide scan
   openRadar();
   $("#radarbody").innerHTML = `<div class="iload">Auditing your accepted labels with your model…<div class="ptrack" style="width:240px;margin:14px auto 0"><div class="pbar" id="rbar"></div></div></div>`;
-  radarDeck = []; radarLast = null;
-  try{
+  try{   // radarDeck/radarLast keep the last good scan until this one finishes, so a failed Rescan loses nothing
     const r = await fetch(`/api/assist/radar?${radarQuery()}`, {method:"POST"});
     if(!r.ok){ const e=await r.json().catch(()=>({})); $("#radarbody").innerHTML=`<div class="iload">Radar unavailable: ${esc(e.error||r.status)}</div>`; return; }
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf="";
