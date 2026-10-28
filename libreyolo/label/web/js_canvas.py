@@ -388,7 +388,7 @@ const KEY_DISPATCH = {   // actions for the remappable keys (tools self-gate by 
   toolsam: ()=>{ if(assist && assist.sam) setTool("seg"); },
   tighten: e=>{ e.preventDefault(); tightenSelected(); },
   loupe: ()=>{ loupeOn=!loupeOn; draw(); },
-  radar: e=>{ e.preventDefault(); runRadar(); },
+  radar: e=>{ e.preventDefault(); showRadar(); },
   flagged: e=>{ e.preventDefault(); nextFlagged(); },
   map: e=>{ e.preventDefault(); openMap(); },
   fit: ()=>{ fit(); draw(); },

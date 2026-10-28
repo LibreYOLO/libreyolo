@@ -8,6 +8,7 @@ function dsname(c){ return (DS && DS.names && DS.names[c]!=null) ? DS.names[c] :
 // ---- Label-Error Radar: audit accepted labels with the model ----
 function radarQuery(){ const m=(assistModel==="__locate__")?(assist.default||""):assistModel; return "model="+encodeURIComponent(m||"")+"&conf="+conf+"&epoch="+((DS&&DS.epoch)||0); }
 function openRadar(){ $("#radar").classList.add("show"); }
+function showRadar(){ if(radarLast){ renderRadarDeck(radarLast); openRadar(); } else runRadar(); }   // reopen the last scan; Rescan inside the dialog refreshes it
 function closeRadar(){ $("#radar").classList.remove("show"); }
 async function runRadar(){
   if(!assist || !assist.available) return;
@@ -17,7 +18,7 @@ async function runRadar(){
   const myEpoch = DS && DS.epoch;   // project-scoped: image navigation must not abort the dataset-wide scan
   openRadar();
   $("#radarbody").innerHTML = `<div class="iload">Auditing your accepted labels with your model…<div class="ptrack" style="width:240px;margin:14px auto 0"><div class="pbar" id="rbar"></div></div></div>`;
-  radarDeck = [];
+  radarDeck = []; radarLast = null;
   try{
     const r = await fetch(`/api/assist/radar?${radarQuery()}`, {method:"POST"});
     if(!r.ok){ const e=await r.json().catch(()=>({})); $("#radarbody").innerHTML=`<div class="iload">Radar unavailable: ${esc(e.error||r.status)}</div>`; return; }
@@ -27,7 +28,7 @@ async function runRadar(){
       while((nl=buf.indexOf("\n"))>=0){ const line=buf.slice(0,nl).trim(); buf=buf.slice(nl+1);
         if(!line) continue; let o; try{o=JSON.parse(line);}catch(e){ continue; }
         if(o.type==="progress"){ const bar=$("#rbar"); if(bar) bar.style.width=Math.round(100*o.i/Math.max(1,o.total))+"%"; }
-        else if(o.type==="done"){ if(!DS || DS.epoch!==myEpoch) return; radarDeck=o.deck||[]; renderRadarDeck(o); }
+        else if(o.type==="done"){ if(!DS || DS.epoch!==myEpoch) return; radarDeck=o.deck||[]; radarLast={...o, at:Date.now()}; renderRadarDeck(radarLast); }
         else if(o.type==="error"){ $("#radarbody").innerHTML=`<div class="iload">Radar failed: ${esc(o.error)}</div>`; }
       }
     }
@@ -35,8 +36,11 @@ async function runRadar(){
 }
 function renderRadarDeck(o){
   const deck=o.deck||[];
-  if(!o.scanned){ $("#radarbody").innerHTML=`<div class="iok">${ICO_CHECK}No labelled images to audit yet - accept some boxes, then run Radar to check them against your model.</div>`; return; }
-  if(!deck.length){ $("#radarbody").innerHTML=`<div class="iok">${ICO_CHECK}No disagreements - your model agrees with your labels across ${o.scanned} labelled image${o.scanned===1?"":"s"}.</div>`; return; }
+  const when=new Date(o.at||Date.now()).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+  const last=`<div class="rlast"><span>Results from the scan at ${when} - edits made since are not reflected.</span><button class="ifix" id="rrescan">Rescan</button></div>`;
+  const show=html=>{ $("#radarbody").innerHTML=last+html; $("#rrescan").onclick=()=>runRadar(); };
+  if(!o.scanned){ show(`<div class="iok">${ICO_CHECK}No labelled images to audit yet - accept some boxes, then run Radar to check them against your model.</div>`); return; }
+  if(!deck.length){ show(`<div class="iok">${ICO_CHECK}No disagreements - your model agrees with your labels across ${o.scanned} labelled image${o.scanned===1?"":"s"}.</div>`); return; }
   const totalIssues=deck.reduce((a,d)=>a+d.issues,0);
   const order={class:0,miss:1,phantom:2};
   const sum=`<div class="rsummary"><div class="iwarn">${deck.length} image${deck.length>1?"s":""} · ${totalIssues} likely issue${totalIssues>1?"s":""} - worst first. Click one to review; nothing changes until you edit by hand.</div></div>`;
@@ -46,9 +50,10 @@ function renderRadarDeck(o){
       .map(([t,c])=>`<span class="rbadge ${t}">${c} ${t==="class"?"class slip":t}</span>`).join("");
     const ratio=Math.max(0.1,(d.score||0)/maxS);
     const sevCol=ratio>0.66?"var(--danger)":ratio>0.33?"var(--warn)":"var(--ai)";
-    return `<button class="rrow" data-id="${d.id}"><img class="rthumb" loading="lazy" src="/api/thumb/${d.id}?e=${(DS&&DS.epoch)||0}"><span class="rmeta"><span class="rfn">${esc(d.name)}</span><span class="rb">${badges}</span></span><span class="rsev"><span style="width:${Math.round(ratio*100)}%;background:${sevCol}"></span></span><span class="rscore">${d.score}</span></button>`;
+    return `<button class="rrow${d.id===idx?" cur":""}" data-id="${d.id}"><img class="rthumb" loading="lazy" src="/api/thumb/${d.id}?e=${(DS&&DS.epoch)||0}"><span class="rmeta"><span class="rfn">${esc(d.name)}</span><span class="rb">${badges}</span></span><span class="rsev"><span style="width:${Math.round(ratio*100)}%;background:${sevCol}"></span></span><span class="rscore">${d.score}</span></button>`;
   }).join("");
-  $("#radarbody").innerHTML=sum+rows;
+  show(sum+rows);
+  const cur=$("#radarbody .rrow.cur"); if(cur) cur.scrollIntoView({block:"center"});
   document.querySelectorAll("#radarbody .rrow").forEach(b=> b.onclick=()=>{ closeRadar(); reviewFinding(+b.dataset.id); });
 }
 async function reviewFinding(id){ await load(id); if(idx===id) await loadRadarFindings(id); }   // only overlay if load() actually landed on this image
@@ -60,7 +65,10 @@ async function loadRadarFindings(id){
     if(radarFindings.length) banner(`Radar flagged ${radarFindings.length} here - fix by hand, then save. N: next flagged · Esc: clear.`);
   }catch(e){ if(myGen===loadSeq) radarFindings=[]; }
 }
-function nextFlagged(){ if(!radarDeck.length) return; const ids=radarDeck.map(d=>d.id); const nxt=ids.find(j=>j>idx); reviewFinding(nxt!=null?nxt:ids[0]); }
+// Step through the deck in its worst-first order (not by image id), wrapping at the end;
+// from an image outside the deck, start at the top.
+function radarNextId(deck, cur){ if(!deck.length) return null; const i=deck.findIndex(d=>d.id===cur); return deck[(i+1)%deck.length].id; }
+function nextFlagged(){ const nxt=radarNextId(radarDeck, idx); if(nxt!=null) reviewFinding(nxt); }
 function drawRadarFindings(){
   if(!radarFindings.length || !imgOk) return;
   const iw=img.naturalWidth, ih=img.naturalHeight;

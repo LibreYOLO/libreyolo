@@ -36,6 +36,7 @@ let imgQuery = "";             // sidebar filename filter
 let selSet = null;             // ids selected from the embedding map (sidebar filter)
 let radarFindings = [];        // Radar disagreements overlaid on the current image
 let radarDeck = [];            // worst-first deck from the last Radar scan
+let radarLast = null;          // last scan's result, so the Radar button reopens it without rescanning
 let loupeOn = false;           // magnifier toggled with L (opt-in; no auto-show while drawing)
 let gradData = null, gradW = 0, gradH = 0, gradScale = 1;  // edge map for Tighten/magnetic
 let mapPoints = [], mapFit = null, mapLasso = null;        // embedding scatter + lasso
