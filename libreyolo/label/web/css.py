@@ -244,9 +244,11 @@ PART = r"""  :root{
   .spin{animation:spin 1s linear infinite;transform-origin:50% 50%}
   @keyframes spin{to{transform:rotate(360deg)}}
   .rsummary{margin-bottom:13px}
+  .rlast{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:11.5px;color:var(--tx3)}
   .rrow{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:10px;background:var(--s2);
     border:1px solid var(--line);margin-bottom:7px;width:100%;text-align:left;transition:.12s}
   .rrow:hover{border-color:var(--ac);background:var(--s3)}
+  .rrow.cur{border-color:var(--ac)}
   .rrow .rthumb{width:62px;height:46px;object-fit:cover;border-radius:6px;background:var(--s3);flex:none}
   .rrow .rmeta{flex:1;min-width:0}
   .rrow .rfn{font-size:12.5px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
