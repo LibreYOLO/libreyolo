@@ -157,8 +157,10 @@ and records seed, camera and settings in a header comment.
 
 Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
 in under 8 GB of GPU memory. On CUDA, a seed gives the same object as the
-Speridlabs SDK. `compile=True` (CUDA) compiles the sampler: on an H100 an
-object takes 6.4 s instead of 9.8 s, after a first call that compiles.
+Speridlabs SDK. Rarely, a run places part of the Gaussians differently
+while the object stays the same: like the SDK, it runs one attention step on
+a cuDNN kernel whose result can depend on GPU memory history (ADR 0031). `compile=True` (CUDA) compiles the sampler: on an H100
+an object takes 6.4 s instead of 9.8 s, after a first call that compiles.
 
 ```python
 model = LibreGen("speridlabs-idol", compile=True)

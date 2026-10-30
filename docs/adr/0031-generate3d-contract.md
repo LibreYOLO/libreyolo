@@ -133,6 +133,18 @@ reference seeds it, so that a seed reproduces the reference's object. That
 choice is recorded in the family docstring. Idol makes it: on CUDA, a seed
 gives the object the upstream SDK gives for the same seed and settings.
 
+The port keeps the SDK's computation op for op, including one source of
+run-to-run variation the SDK has too. On an H100 with PyTorch 2.15, PyTorch's
+attention dispatch picks the cuDNN kernel for the octree decoder's first
+step (one query cell over the 8192 latent tokens), and that kernel's result
+depends on the GPU's memory history: 2 distinct outputs, 1.6e-4 apart, in 40
+repeats, against 1 for the flash, memory-efficient and math kernels. For an
+object whose point counts sit on a sampling boundary this moves some
+Gaussians; it was observed in both the SDK and the port, in 3 of 143
+port-versus-SDK object comparisons. Excluding the cuDNN kernel there would make a seed fully
+repeatable at the cost of matching the SDK bit for bit; the port keeps the
+SDK's behaviour.
+
 ## Families
 
 | Alias | Upstream | License | Knobs (defaults) |
