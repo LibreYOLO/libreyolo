@@ -54,11 +54,26 @@ class EncoderAccessError(RuntimeError):
     """The Hugging Face account in use cannot download a gated image encoder."""
 
 
-def require_encoder_access(repos: Sequence[str]) -> None:
+# What ``AutoModel.from_pretrained`` reads from an encoder repo.
+_ENCODER_FILES = ("config.json", "model.safetensors")
+
+
+def _encoder_cached(repo: str, revision: str) -> bool:
+    """True when the pinned encoder files are already in the Hugging Face cache."""
+    from huggingface_hub import try_to_load_from_cache
+
+    return all(
+        isinstance(try_to_load_from_cache(repo, name, revision=revision), str)
+        for name in _ENCODER_FILES
+    )
+
+
+def require_encoder_access(repos: Dict[str, str]) -> None:
     """Stop before anything large downloads when a gated encoder is not readable.
 
-    Network problems are not treated as missing access: the encoder may be
-    cached already.
+    ``repos`` maps each gated repo to its pinned revision. An encoder already
+    in the cache needs no access, and network problems are not treated as
+    missing access.
     """
     if os.environ.get("HF_HUB_OFFLINE", "0").lower() in ("1", "true", "yes"):
         return
@@ -66,7 +81,9 @@ def require_encoder_access(repos: Sequence[str]) -> None:
     from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
 
     denied = []
-    for repo in repos:
+    for repo, revision in repos.items():
+        if _encoder_cached(repo, revision):
+            continue
         try:
             auth_check(repo)
         except (GatedRepoError, RepositoryNotFoundError):
@@ -142,7 +159,7 @@ class LibreSperidlabsIdol(LibreGen3DModel):
             import transformers  # noqa: F401
         except ImportError as exc:
             raise ImportError(_INSTALL_HINT) from exc
-        require_encoder_access([_DINOV3_REPO])
+        require_encoder_access({_DINOV3_REPO: _DINOV3_REVISION})
 
     # ------------------------------------------------------------------
     # Loading
@@ -284,7 +301,10 @@ class LibreSperidlabsIdol(LibreGen3DModel):
             if knobs["margin"] is not None
             else CROP_MARGIN[knobs["mode"]]
         )
-        with torch.no_grad():
+        # One generation at a time per process: compiled sampling switches
+        # PyTorch's process-wide TF32 flag, and no other Idol call may run
+        # under it (see ``_tf32_matmuls``).
+        with _GENERATION_LOCK, torch.no_grad():
             prepared = preprocess_image(
                 image,
                 modules.birefnet,
@@ -364,33 +384,25 @@ class LibreSperidlabsIdol(LibreGen3DModel):
             yield
 
 
-_TF32_LOCK = threading.Lock()
-_TF32_USERS = 0
-_TF32_SAVED = False
+_GENERATION_LOCK = threading.Lock()
 
 
 @contextmanager
 def _tf32_matmuls():
-    """Allow TF32 matmuls while any compiled sampler runs, then restore the user's setting.
+    """Allow TF32 matmuls for the block, then restore the user's setting.
 
-    PyTorch keeps this flag process-wide, so overlapping calls share one
-    switch: the first in saves the setting, the last out restores it.
+    PyTorch keeps this flag process-wide. Callers hold ``_GENERATION_LOCK``,
+    so no other Idol generation (eager, or another compiled call's
+    decoders) runs while it is on.
     """
-    global _TF32_USERS, _TF32_SAVED
     import torch
 
-    with _TF32_LOCK:
-        if _TF32_USERS == 0:
-            _TF32_SAVED = torch.backends.cuda.matmul.allow_tf32
-            torch.backends.cuda.matmul.allow_tf32 = True
-        _TF32_USERS += 1
+    saved = torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cuda.matmul.allow_tf32 = True
     try:
         yield
     finally:
-        with _TF32_LOCK:
-            _TF32_USERS -= 1
-            if _TF32_USERS == 0:
-                torch.backends.cuda.matmul.allow_tf32 = _TF32_SAVED
+        torch.backends.cuda.matmul.allow_tf32 = saved
 
 
 class _IdolModules:

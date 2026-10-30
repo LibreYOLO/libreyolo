@@ -248,3 +248,29 @@ def test_source_conflicts_and_misuse(calls3d):
     assert result.exit_code == 2
     assert "gaussians" in json.loads(result.stdout)["message"]
     assert calls3d == []
+
+
+def test_inputs_go_by_keyword_so_families_refuse_the_wrong_kind(monkeypatch):
+    import libreyolo.models.gen as gen
+
+    seen = []
+
+    class Model:
+        task = "generate"
+
+        def __init__(self, name, **kwargs):
+            pass
+
+        def __call__(self, *args, **kwargs):
+            seen.append((args, sorted(kwargs)))
+            raise NotImplementedError("this family does not take source=")
+
+    monkeypatch.setattr(gen, "LibreGen", Model)
+    result = CliRunner().invoke(
+        app(), ["source=chair.jpg", "model=flux2-klein-4b", "--json", "--no-save"]
+    )
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["error"] == "config_unsupported"
+    assert seen[0][0] == () and "source" in seen[0][1]
+    CliRunner().invoke(app(), ["prompt=a chair", "--json", "--no-save"])
+    assert seen[1][0] == () and "prompt" in seen[1][1]

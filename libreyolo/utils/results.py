@@ -1374,10 +1374,11 @@ class Gaussians:
         return self._apply(_numpy)
 
     def __getitem__(self, idx) -> "Gaussians":
-        """Select Gaussians, e.g. ``gaussians[gaussians.opacities > 0.1]``."""
-        if isinstance(idx, int):
-            idx = slice(idx, idx + 1 if idx != -1 else None)
-        return self._apply(lambda data: data[idx])
+        """Select Gaussians, e.g. ``gaussians[gaussians.opacities > 0.1]``.
+
+        A scalar index (Python, NumPy or tensor) keeps the row dimension.
+        """
+        return self._apply(lambda data: _slice_first(data, idx))
 
     def __len__(self) -> int:
         return int(self.xyz.shape[0])

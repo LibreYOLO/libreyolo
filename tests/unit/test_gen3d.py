@@ -94,6 +94,11 @@ def test_payload_selects_gaussians():
     assert len(g[0]) == 1
     assert len(g[-1]) == 1
     assert torch.equal(g[-1].xyz, g.xyz[-1:])
+    # Scalar indices of any kind keep one Gaussian with its row dimension.
+    for index in (np.int64(2), g.opacities.argmax(), torch.tensor(3)):
+        one = g[index]
+        assert len(one) == 1 and one.sh.shape == (1, 1, 3)
+    assert len(g.numpy()[np.int64(1)]) == 1
 
 
 def test_colors_decode_the_degree_zero_term():
@@ -280,6 +285,13 @@ def test_sources_like_predict(model, chair, tmp_path):
     assert model(source=chair, seed=1).path == str(chair)
 
 
+def test_batches_split_like_predict(model):
+    results = model(np.zeros((3, 12, 10, 3), np.uint8), seed=0)
+    assert [r.orig_shape for r in results] == [(12, 10)] * 3
+    assert len(model(torch.zeros(2, 3, 8, 8), seed=0)) == 2
+    assert isinstance(model(np.zeros((1, 8, 8, 3), np.uint8), seed=0), Results)
+
+
 def test_n_and_seeds(model, chair):
     results = model([chair, chair], seed=2**32 - 1, n=2)
     assert [r.gaussians.seed for r in results] == [2**32 - 1, 0, 2**32 - 1, 0]
@@ -435,13 +447,30 @@ def test_gated_encoder_error_says_what_to_do(monkeypatch):
     monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
     monkeypatch.setattr(huggingface_hub, "auth_check", gated)
     monkeypatch.setattr(huggingface_hub, "get_token", lambda: None)
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", lambda *a, **k: None)
     with pytest.raises(EncoderAccessError) as error:
-        require_encoder_access(["facebook/dinov3-vith16plus-pretrain-lvd1689m"])
+        require_encoder_access({"facebook/dinov3-vith16plus-pretrain-lvd1689m": "c" * 40})
     message = str(error.value)
     assert "https://huggingface.co/facebook/dinov3-vith16plus-pretrain-lvd1689m" in message
     assert "hf auth login" in message
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
-    require_encoder_access(["facebook/dinov3-vith16plus-pretrain-lvd1689m"])
+    require_encoder_access({"facebook/dinov3-vith16plus-pretrain-lvd1689m": "c" * 40})
+
+
+def test_cached_encoder_needs_no_login(monkeypatch):
+    import huggingface_hub
+
+    from libreyolo.models.gen.speridlabs_idol.model import require_encoder_access
+
+    def gated(repo):
+        raise AssertionError("a cached encoder must not be checked online")
+
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.setattr(huggingface_hub, "auth_check", gated)
+    monkeypatch.setattr(
+        huggingface_hub, "try_to_load_from_cache", lambda repo, name, revision=None: f"/cache/{name}"
+    )
+    require_encoder_access({"facebook/dinov3-vith16plus-pretrain-lvd1689m": "c" * 40})
 
 
 # ---------------------------------------------------------------------------
@@ -673,10 +702,27 @@ def test_compiled_sampling_settings_stay_per_model():
 
     flags = torch.backends.cuda.matmul
     flags.allow_tf32 = False
-    first, second = _tf32_matmuls(), _tf32_matmuls()
-    first.__enter__()
-    second.__enter__()
-    first.__exit__(None, None, None)  # overlapping calls: the first one out
-    assert flags.allow_tf32 is True  # does not switch it off under the second
-    second.__exit__(None, None, None)
+    with _tf32_matmuls():
+        assert flags.allow_tf32 is True
     assert flags.allow_tf32 is False
+
+
+def test_idol_generations_run_one_at_a_time():
+    """Compiled sampling flips a process-wide flag, so no other generation may overlap it."""
+    import threading
+    import time
+
+    from libreyolo.models.gen.speridlabs_idol.model import _GENERATION_LOCK
+
+    model = _tiny_idol()
+    image = Image.new("RGB", (90, 60), (10, 20, 230))
+    done = threading.Event()
+    worker = threading.Thread(
+        target=lambda: (model(image, seed=1, steps=1, gaussians=32_768), done.set())
+    )
+    with _GENERATION_LOCK:
+        worker.start()
+        time.sleep(0.5)
+        assert not done.is_set()
+    worker.join(timeout=60)
+    assert done.is_set()

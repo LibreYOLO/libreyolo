@@ -146,9 +146,11 @@ def generate_cmd(
             from libreyolo import LibreGen
 
             model_obj = LibreGen(model, **load_kwargs)
+            # Inputs go by keyword so a family refuses the kind it does not
+            # take (an image for a text model, text for an image model).
             if source is not None:
                 results = model_obj(
-                    source,
+                    source=source,
                     seed=seed,
                     n=n,
                     save=save,
@@ -157,7 +159,7 @@ def generate_cmd(
                 )
             else:
                 results = model_obj(
-                    prompts,
+                    prompt=prompts,
                     imgsz=size,
                     seed=seed,
                     n=n,
@@ -168,7 +170,8 @@ def generate_cmd(
         results = results if isinstance(results, list) else [results]
         out.result(
             {
-                "task": "generate3d" if source is not None else "generate",
+                "task": getattr(model_obj, "task", None)
+                or ("generate3d" if source is not None else "generate"),
                 "model": model,
                 "results": [
                     {**r.summary()[0], "path": getattr(r, "saved_path", None)}

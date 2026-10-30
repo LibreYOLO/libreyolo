@@ -114,7 +114,10 @@ class LibreGen3DModel(LibreGenModel):
 
     @staticmethod
     def _expand_sources(source: Any) -> Tuple[List[Any], bool]:
-        """Return ``(items, single)``; a directory expands to its images."""
+        """Return ``(items, single)``; a directory or a batch expands to its images."""
+        import numpy as np
+        import torch
+
         from ...utils.image_loader import ImageLoader
 
         if isinstance(source, (list, tuple)):
@@ -134,6 +137,13 @@ class LibreGen3DModel(LibreGenModel):
                 if not images:
                     raise FileNotFoundError(f"No images found in {path}.")
                 return list(images), False
+        # An (N, ...) batch is N images, as predict reads it; a batch of one
+        # is one image.
+        is_batch = (isinstance(source, np.ndarray) and source.ndim == 4) or (
+            isinstance(source, torch.Tensor) and source.dim() == 4
+        )
+        if is_batch and source.shape[0] > 1:
+            return [source[i] for i in range(source.shape[0])], False
         return [source], True
 
     @staticmethod
