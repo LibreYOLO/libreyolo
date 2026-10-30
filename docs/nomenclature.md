@@ -349,6 +349,7 @@ From `libreyolo/tasks.py`:
 | `detect3d`    | `-detect3d` |
 | `act`         | `-act` |
 | `generate`    | `-generate` |
+| `generate3d`  | `-generate3d` |
 
 The factory accepts selected upstream-style aliases (`detection`, `det`,
 `segmentation`, `keypoints`, `cls`, …) at the API boundary; only the canonical
@@ -1044,6 +1045,18 @@ directories; they are not `.pt` files and are not registered in the
 seed and call parameters. `LibreGen(path)` loads a local pipeline directory
 of a supported family. The CLI verb is `libreyolo generate`. See ADR 0030
 for the call contract, the family-knob rule and the reserved surface.
+
+`LibreSperidlabsIdol` (`speridlabs_idol`, size `0.6b`, aliases
+`speridlabs-idol` and `speridlabs-idol-0.6b`) is the first image-to-3D
+family behind the same `LibreGen(...)` factory. The name keeps its maker:
+the model is Speridlabs Idol, and there is no bare `idol` alias. It uses
+`generate3d`, with aliases `generation3d`, `3d-generation`, `image-to-3d`,
+`image23d`, `img2-3d`, `img-to-3d` and `i23d`, and coverage group `s`. Its
+own weights are the pinned `speridlabs/idol` snapshot in
+`weights/LibreSperidlabsIdol0.6b/`; the DINOv3 and FLUX.2 VAE encoders load
+from their publishers at pinned revisions. `Results.gaussians` stores the
+object as a `Gaussians` payload; `libreyolo generate source=...` is the CLI.
+See ADR 0031.
 
 ## Vision-language-action policies
 

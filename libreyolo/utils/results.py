@@ -1271,6 +1271,332 @@ class GeneratedImage(_TensorPayload):
         )
 
 
+_SH_C0 = 0.28209479177387814  # degree-0 spherical-harmonic basis constant
+# z-up object frame -> the y-up frame splat viewers use: +90 degrees about x,
+# (x, y, z) -> (x, -z, y), as a (w, x, y, z) quaternion.
+_Z_UP_TO_Y_UP = (math.sqrt(0.5), math.sqrt(0.5), 0.0, 0.0)
+
+
+def _quaternion_multiply(a, b: np.ndarray) -> np.ndarray:
+    """Hamilton product a * b of (w, x, y, z) quaternions; a is one quaternion, b is (N, 4)."""
+    aw, ax, ay, az = a
+    bw, bx, by, bz = b[:, 0], b[:, 1], b[:, 2], b[:, 3]
+    return np.stack(
+        [
+            aw * bw - ax * bx - ay * by - az * bz,
+            aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+        ],
+        axis=1,
+    )
+
+
+class Gaussians:
+    """One generated 3D object as Gaussian splats (ADR 0031).
+
+    Object frame: z up, centred in ``[-0.5, 0.5]^3``. Rows describe one
+    Gaussian each:
+
+    - ``xyz`` ``(N, 3)`` positions.
+    - ``scales`` ``(N, 3)`` linear standard deviations along the local axes.
+    - ``rotations`` ``(N, 4)`` unit quaternions ``(w, x, y, z)``, local axes
+      into the object frame.
+    - ``opacities`` ``(N,)`` in ``[0, 1]``.
+    - ``sh`` ``(N, K, 3)`` spherical-harmonic colour coefficients, degree 0
+      first; ``colors`` is the ``(N, 3)`` RGB the degree-0 term encodes.
+
+    ``camera`` is the input view: the shot the model inferred (``yaw``,
+    ``pitch`` in radians, ``radius``, vertical ``fov`` in degrees) and the
+    ``margin`` of the crop it saw (crop side / object size); ``seed`` and
+    ``params`` reproduce the object; ``input_image`` is the RGB image the
+    model saw.
+    ``save()`` writes ``.ply`` (standard 3DGS layout) or ``.splat``.
+    """
+
+    _FIELDS = ("xyz", "scales", "rotations", "opacities", "sh")
+
+    def __init__(
+        self,
+        xyz: TensorLike,
+        scales: TensorLike,
+        rotations: TensorLike,
+        opacities: TensorLike,
+        sh: TensorLike,
+        *,
+        camera: Optional[Dict[str, float]] = None,
+        seed: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        input_image: Any = None,
+    ):
+        n = int(xyz.shape[0])
+        for name, value, shape in (
+            ("xyz", xyz, (n, 3)),
+            ("scales", scales, (n, 3)),
+            ("rotations", rotations, (n, 4)),
+            ("opacities", opacities, (n,)),
+        ):
+            if tuple(value.shape) != shape:
+                raise ValueError(
+                    f"Gaussians.{name} must be {shape}, got {tuple(value.shape)}"
+                )
+        if sh.ndim != 3 or sh.shape[0] != n or sh.shape[2] != 3:
+            raise ValueError(f"Gaussians.sh must be (N, K, 3), got {tuple(sh.shape)}")
+        self.xyz = xyz
+        self.scales = scales
+        self.rotations = rotations
+        self.opacities = opacities
+        self.sh = sh
+        self.camera = dict(camera) if camera else {}
+        self.seed = int(seed) if seed is not None else None
+        self.params = dict(params) if params else {}
+        self.input_image = input_image
+
+    def _apply(self, fn) -> "Gaussians":
+        return Gaussians(
+            *(fn(getattr(self, name)) for name in self._FIELDS),
+            camera=self.camera,
+            seed=self.seed,
+            params=self.params,
+            input_image=self.input_image,
+        )
+
+    def to(self, *args, **kwargs) -> "Gaussians":
+        return self._apply(lambda data: _move(data, *args, **kwargs))
+
+    def cpu(self) -> "Gaussians":
+        return self._apply(_cpu)
+
+    def cuda(self) -> "Gaussians":
+        return self._apply(_cuda)
+
+    def numpy(self) -> "Gaussians":
+        return self._apply(_numpy)
+
+    def __getitem__(self, idx) -> "Gaussians":
+        """Select Gaussians, e.g. ``gaussians[gaussians.opacities > 0.1]``."""
+        if isinstance(idx, int):
+            idx = slice(idx, idx + 1 if idx != -1 else None)
+        return self._apply(lambda data: data[idx])
+
+    def __len__(self) -> int:
+        return int(self.xyz.shape[0])
+
+    @property
+    def colors(self) -> TensorLike:
+        """``(N, 3)`` RGB in ``[0, 1]`` from the degree-0 colour term."""
+        dc = self.sh[:, 0, :]
+        if isinstance(dc, torch.Tensor):
+            return (dc * _SH_C0 + 0.5).clamp(0.0, 1.0)
+        return np.clip(dc * _SH_C0 + 0.5, 0.0, 1.0)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """One JSON-ready record: what the object is and how to reproduce it."""
+        return {
+            "name": "gaussians",
+            "count": len(self),
+            "seed": self.seed,
+            "camera": {key: float(value) for key, value in self.camera.items()},
+            **self.params,
+        }
+
+    # ------------------------------------------------------------------
+    # Files
+    # ------------------------------------------------------------------
+
+    def _ply_attributes(self) -> Tuple[np.ndarray, List[str]]:
+        """The standard 3DGS vertex table in the y-up viewer convention."""
+        tensors = {
+            name: getattr(self, name)
+            if isinstance(getattr(self, name), torch.Tensor)
+            else torch.as_tensor(getattr(self, name))
+            for name in self._FIELDS
+        }
+        sh = tensors["sh"].detach()
+        f_dc = sh[:, :1].transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = (
+            sh[:, 1:].transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        )
+        # Clamp before the inverse activations: a saturated opacity (exactly
+        # 1.0) or a zero scale would otherwise be written as +/-inf, which
+        # some viewers reject.
+        eps = 1e-6
+        opacity = tensors["opacities"].detach().reshape(-1, 1).clamp(eps, 1 - eps)
+        opacities = torch.log(opacity / (1 - opacity)).cpu().numpy()
+        scale = torch.log(tensors["scales"].detach().clamp_min(eps)).cpu().numpy()
+        rotation = tensors["rotations"].detach().cpu().numpy()
+        xyz = tensors["xyz"].detach().cpu().numpy()
+        normals = np.zeros_like(xyz)
+
+        xyz = np.stack([xyz[:, 0], -xyz[:, 2], xyz[:, 1]], axis=1)
+        rotation = _quaternion_multiply(np.array(_Z_UP_TO_Y_UP), rotation)
+
+        attributes = np.concatenate(
+            (xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1
+        ).astype(np.float32)
+        names = ["x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2"]
+        names += [f"f_rest_{i}" for i in range(f_rest.shape[1])]
+        names += [
+            "opacity",
+            "scale_0",
+            "scale_1",
+            "scale_2",
+            "rot_0",
+            "rot_1",
+            "rot_2",
+            "rot_3",
+        ]
+        return attributes, names
+
+    def _write_ply(self, path: Path) -> None:
+        attributes, names = self._ply_attributes()
+        header = ["ply", "format binary_little_endian 1.0"]
+        header.append(
+            "comment libreyolo " + json.dumps(self.to_dict(), ensure_ascii=True)
+        )
+        header.append(f"element vertex {attributes.shape[0]}")
+        header += [f"property float {name}" for name in names]
+        header.append("end_header")
+        with open(path, "wb") as handle:
+            handle.write(("\n".join(header) + "\n").encode("ascii"))
+            handle.write(attributes.astype("<f4").tobytes())
+
+    def _write_splat(self, path: Path) -> None:
+        """32 bytes per Gaussian: position and scale as float32, RGBA and rotation as uint8."""
+        attributes, names = self._ply_attributes()
+        column = {name: attributes[:, i] for i, name in enumerate(names)}
+        xyz = np.stack([column["x"], column["y"], column["z"]], axis=1)
+        scales = np.exp(np.stack([column[f"scale_{i}"] for i in range(3)], axis=1))
+        alpha = 1.0 / (1.0 + np.exp(-column["opacity"]))
+        rgb = 0.5 + _SH_C0 * np.stack([column[f"f_dc_{i}"] for i in range(3)], axis=1)
+        rgba = np.concatenate([rgb, alpha[:, None]], axis=1)
+        rotation = np.stack([column[f"rot_{i}"] for i in range(4)], axis=1)
+        rotation = rotation / np.linalg.norm(rotation, axis=1, keepdims=True)
+        # Largest and most opaque first, the order web viewers expect.
+        order = np.argsort(-np.prod(scales, axis=1) * alpha, kind="stable")
+        record = np.zeros(
+            len(order),
+            dtype=[
+                ("xyz", "<f4", 3),
+                ("scale", "<f4", 3),
+                ("rgba", "u1", 4),
+                ("rot", "u1", 4),
+            ],
+        )
+        record["xyz"] = xyz[order]
+        record["scale"] = scales[order]
+        record["rgba"] = np.clip(rgba[order] * 255, 0, 255).astype(np.uint8)
+        record["rot"] = np.clip(rotation[order] * 128 + 128, 0, 255).astype(np.uint8)
+        path.write_bytes(record.tobytes())
+
+    def save(self, path: str | Path) -> None:
+        """Write ``.ply`` (standard 3DGS, y-up) or ``.splat``.
+
+        A PLY also records seed, camera and params as JSON in a
+        ``comment libreyolo`` header line, which readers ignore.
+        """
+        path = Path(path)
+        suffix = path.suffix.lower()
+        if suffix not in (".ply", ".splat"):
+            raise ValueError(f"Gaussians save to .ply or .splat, got {path.name!r}.")
+        if path.parent and path.parent != Path("."):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        if suffix == ".ply":
+            self._write_ply(path)
+        else:
+            self._write_splat(path)
+
+    # ------------------------------------------------------------------
+    # Preview
+    # ------------------------------------------------------------------
+
+    def render(self, size: int = 512, background: Tuple[int, int, int] = (0, 0, 0)):
+        """Point render from the inferred input camera, as a ``PIL.Image``.
+
+        A quick look at the object, not a Gaussian rasterization: each
+        Gaussian with opacity above 0.1 is drawn as a dot sized by its
+        projected scale, nearest in front. The view is the camera's
+        direction and perspective, framed like the model's input crop: the
+        object centred and spanning ``1 / camera["margin"]`` of the image
+        (1.2 when the payload records no margin). The predicted distance
+        describes the original shot, not the crop, so it is not used for
+        scale.
+        """
+        from PIL import Image
+
+        xyz = np.asarray(_numpy(self.xyz), dtype=np.float64)
+        colors = np.asarray(_numpy(self.colors), dtype=np.float64)
+        opacity = np.asarray(_numpy(self.opacities), dtype=np.float64).reshape(-1)
+        radius_3d = np.asarray(_numpy(self.scales), dtype=np.float64).max(axis=1)
+        keep = opacity > 0.1
+        xyz, colors, radius_3d = xyz[keep], colors[keep], radius_3d[keep]
+        canvas = np.empty((size, size, 3), dtype=np.uint8)
+        canvas[:] = np.asarray(background, dtype=np.uint8)
+
+        yaw = float(self.camera.get("yaw", 0.0))
+        pitch = float(self.camera.get("pitch", 0.0))
+        distance = float(self.camera.get("radius", 2.0))
+        eye = distance * np.array(
+            [
+                math.sin(yaw) * math.cos(pitch),
+                math.cos(yaw) * math.cos(pitch),
+                math.sin(pitch),
+            ]
+        )
+        forward = -eye / np.linalg.norm(eye)
+        right = np.cross(forward, np.array([0.0, 0.0, 1.0]))
+        if np.linalg.norm(right) < 1e-8:  # looking straight up or down
+            right = np.array([1.0, 0.0, 0.0])
+        right /= np.linalg.norm(right)
+        up = np.cross(right, forward)
+
+        rel = xyz - eye
+        depth = rel @ forward
+        front = depth > 1e-6
+        rel, depth, colors, radius_3d = (
+            rel[front],
+            depth[front],
+            colors[front],
+            radius_3d[front],
+        )
+        if not len(depth):
+            return Image.fromarray(canvas)
+        # Image-plane coordinates, then framed like the input crop. Robust
+        # bounds keep a few stray splats from shrinking the object.
+        u = (rel @ right) / depth
+        v = -(rel @ up) / depth
+        low_u, high_u = np.percentile(u, [0.1, 99.9])
+        low_v, high_v = np.percentile(v, [0.1, 99.9])
+        side = max(high_u - low_u, high_v - low_v, 1e-12)
+        scale = size / float(self.camera.get("margin", 1.2)) / side
+        px = ((u - (low_u + high_u) / 2) * scale + size / 2).astype(np.int64)
+        py = ((v - (low_v + high_v) / 2) * scale + size / 2).astype(np.int64)
+        dot = np.clip(np.rint(scale * radius_3d / depth), 0, 2).astype(np.int64)
+
+        # Every pixel each dot covers, then one far-to-near pass so the
+        # nearest Gaussian is written last at every pixel.
+        xs, ys, zs, index = [px], [py], [depth], [np.arange(len(px))]
+        for reach in range(1, int(dot.max(initial=0)) + 1):
+            sel = np.nonzero(dot >= reach)[0]
+            for dy in range(-reach, reach + 1):
+                for dx in range(-reach, reach + 1):
+                    if max(abs(dx), abs(dy)) == reach:
+                        xs.append(px[sel] + dx)
+                        ys.append(py[sel] + dy)
+                        zs.append(depth[sel])
+                        index.append(sel)
+        xs, ys, zs, index = (np.concatenate(part) for part in (xs, ys, zs, index))
+        inside = (xs >= 0) & (xs < size) & (ys >= 0) & (ys < size)
+        xs, ys, zs, index = xs[inside], ys[inside], zs[inside], index[inside]
+        order = np.argsort(-zs, kind="stable")
+        rgb = np.clip(colors * 255, 0, 255).astype(np.uint8)
+        canvas[ys[order], xs[order]] = rgb[index[order]]
+        return Image.fromarray(canvas)
+
+    def __repr__(self) -> str:
+        return f"Gaussians(n={len(self)}, seed={self.seed})"
+
+
 class Matte(_TensorPayload):
     """Dense soft alpha matte for a single image.
 
@@ -1972,6 +2298,7 @@ class Results:
         "boxes3d",
         "actions",
         "generated",
+        "gaussians",
     )
 
     def __init__(
@@ -2008,6 +2335,7 @@ class Results:
         actions: Optional[Actions] = None,
         orig_img: Any = None,
         generated: Optional[GeneratedImage] = None,
+        gaussians: Optional[Gaussians] = None,
     ):
         if boxes is not None and boxes.orig_shape is None:
             boxes = boxes.with_orig_shape(orig_shape)
@@ -2052,6 +2380,7 @@ class Results:
         self.boxes3d = boxes3d
         self.actions = actions
         self.generated = generated
+        self.gaussians = gaussians
         # Integer upscale factor of a restore/super-resolution result: the
         # restored canvas is ``restore_scale`` times the input. 1 for
         # deblur/denoise and every non-restore task.
@@ -2117,6 +2446,7 @@ class Results:
             "boxes3d": self.boxes3d,
             "actions": self.actions,
             "generated": self.generated,
+            "gaussians": self.gaussians,
             "restore_scale": self.restore_scale,
             "embeddings": self.embeddings,
             "identities": self.identities,
@@ -2144,6 +2474,11 @@ class Results:
         overrides = {}
         for key in self._keys:
             value = getattr(self, key)
+            if key == "gaussians" and method == "__getitem__":
+                # One result is one object; indexing a Gaussians payload
+                # selects splats, which result slicing must not do.
+                overrides[key] = value
+                continue
             overrides[key] = (
                 getattr(value, method)(*args, **kwargs) if value is not None else None
             )
@@ -2193,6 +2528,7 @@ class Results:
         albedo: Optional[AlbedoMap] = None,
         actions: Optional[Actions] = None,
         generated: Optional[GeneratedImage] = None,
+        gaussians: Optional[Gaussians] = None,
     ) -> "Results":
         aligned_cuboids = boxes3d if boxes3d is not None else self.boxes3d
         if aligned_cuboids is not None:
@@ -2247,6 +2583,8 @@ class Results:
             self.actions = actions
         if generated is not None:
             self.generated = generated
+        if gaussians is not None:
+            self.gaussians = gaussians
         if meshes is not None:
             self.meshes = meshes
         if matte is not None:
@@ -2305,8 +2643,9 @@ class Results:
         Boxes, masks, OBB, keypoints, points, OCR, semantic and panoptic maps,
         and classification top-5 draw exactly like ``predict(save=True)`` and
         return an ``HxWx3`` uint8 BGR array. Dense maps (depth, normal, edge,
-        albedo), 3D cuboids, action chunks and generated images return a PIL
-        image. ``pil`` forces either return type.
+        albedo), 3D cuboids, action chunks, generated images and a preview of
+        generated Gaussians (rendered from the inferred input camera) return a
+        PIL image. ``pil`` forces either return type.
 
         The source image is ``img`` (BGR array or PIL image), else ``image``
         (RGB array or PIL image), else the image kept by predict
@@ -2354,9 +2693,11 @@ class Results:
         return np.ascontiguousarray(np.asarray(rendered.convert("RGB"))[..., ::-1])
 
     def _plot_dense(self, image=None):
-        """Render dense outputs, cuboids, actions or a generated image; else None."""
+        """Render dense outputs, cuboids, actions or a generated image or object; else None."""
         if self.generated is not None:
             return self.generated.image
+        if self.gaussians is not None:
+            return self.gaussians.render()
         if self.actions is not None:
             from PIL import Image
             from .drawing import draw_actions
@@ -2481,20 +2822,25 @@ class Results:
         return frame[..., ::-1] if ok else None
 
     def save(self, path: str, image: Any = None) -> str:
-        """Save a generated image, or a matte result as a transparent RGBA PNG.
+        """Save a generated image or 3D object, or a matte result as a transparent RGBA PNG.
 
-        Returns the written path. A matte cutout requires the source image
-        (via ``image`` or ``self.path``).
+        Returns the written path. Generated Gaussians go to ``.ply`` or
+        ``.splat``. A matte cutout requires the source image (via ``image``
+        or ``self.path``).
         """
         from PIL import Image
 
         if self.generated is not None:
             self.generated.save(path)
             return str(path)
+        if self.gaussians is not None:
+            self.gaussians.save(path)
+            return str(path)
         if self.matte is None:
             raise NotImplementedError(
-                "Results.save() writes a generated image or a transparent-PNG matte "
-                "cutout. Use result.plot(save=True) or CLI --save for other tasks."
+                "Results.save() writes a generated image or 3D object, or a "
+                "transparent-PNG matte cutout. Use result.plot(save=True) or CLI "
+                "--save for other tasks."
             )
         rgba = self.cutout(image=image)
         out = Path(path)
@@ -2514,6 +2860,8 @@ class Results:
                 return [self.actions.to_dict(decimals)]
             if self.generated is not None:
                 return [self.generated.to_dict()]
+            if self.gaussians is not None:
+                return [self.gaussians.to_dict()]
             if self.embeddings is not None:
                 emb = (
                     self.embeddings.numpy()
@@ -2823,6 +3171,8 @@ class Results:
             return len(self.actions)
         if self.generated is not None:
             return 1
+        if self.gaussians is not None:
+            return 1
         if self.embeddings is not None:
             return len(self.embeddings)
         if self.probs is not None:
@@ -2887,6 +3237,8 @@ class Results:
             parts.append(f"actions={self.actions}")
         if self.generated is not None:
             parts.append(f"generated={self.generated}")
+        if self.gaussians is not None:
+            parts.append(f"gaussians={self.gaussians}")
         if self.track_id is not None:
             parts.append(f"track_ids={len(self.track_id)}")
         if self.frame_idx is not None:

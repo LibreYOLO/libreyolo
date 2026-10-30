@@ -127,6 +127,7 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **开放词汇与 VLM** | Grounding DINO、OWLv2、OmDet-Turbo、OV-DEIM、Florence-2、Kosmos-2、Qwen3-VL、InternVL3、LFM2-VL、North Micro Vision、SmolVLM2、Molmo2、WeVisOne-VL、MODUS |
 | **机器人动作 (VLA)** | SmolVLA, ACT, Diffusion Policy |
 | **图像生成** | FLUX.2 klein, SANA-Sprint |
+| **3D 生成** | Speridlabs Idol |
 
 各模型系列的尺寸、权重与一致性验证证据见[模型参考](https://www.libreyolo.com/docs/models)。
 

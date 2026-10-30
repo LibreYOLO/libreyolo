@@ -35,8 +35,8 @@ Required field meanings:
   `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `albedo`, `restore`,
   `matte`, `ocr`, `embed`, `mesh`, or `detect3d`. The `act` task has no
   schema-v1 `.pt` form; its checkpoints are directories (see "Optional
-  LibreVLA runtime"). The `generate` task has none either (see "Optional
-  LibreGen runtime").
+  LibreVLA runtime"). The `generate` and `generate3d` tasks have none
+  either (see "Optional LibreGen runtime").
 - `nc`: positive integer class count.
 - `names`: `dict[int, str]` with keys in `0..nc-1`. Official checkpoints
   should write every key. Readers may pad missing keys with `class_i` labels for
@@ -501,6 +501,13 @@ folder with `model_index.json`, pinned to a Hub commit and never converted.
 A local directory loads when the pipeline class in its `model_index.json`
 matches a registered family. A LibreYOLO contract file for fine-tunes is not
 defined yet. See `docs/libregen.md` and ADR 0030.
+
+The `generate3d` task reserves the suffix `-generate3d`. Its first family,
+Speridlabs Idol, loads the upstream snapshot directory unchanged:
+`config.json` (with `image_encoders`, `denoiser`, `decoder` and
+`decoder_gs`) next to `denoiser.safetensors`, `decoder.safetensors`,
+`decoder_gs.safetensors` and `birefnet.safetensors`, pinned to a Hub commit.
+See ADR 0031.
 
 ### Optional LibreVLA runtime
 
