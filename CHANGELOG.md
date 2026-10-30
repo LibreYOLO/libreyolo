@@ -49,6 +49,9 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **A missing `libreyolo[rfdetr]` extra is named instead of a misleading error.**
+  Without `transformers`, `LibreYOLO("LibreRFDETRn.pt")` and the DINOv2 names failed with `unable to determine size from filename`, an explicit `size=` failed with `Could not determine download URL`, and `libreyolo predict model=LibreRFDETRn.pt` (or `model=rfdetr-n`) printed `Unknown model` with a list that left RF-DETR out. All of them now point to `pip install libreyolo[rfdetr]`, as loading a local RF-DETR checkpoint already did. Other unknown names keep their errors.
+
 - **CLI segmentation training uses the family recipe and loads the RF-DETR segment checkpoint. (#955)**
   SegFormer, LingBot-Vision and D-FINE did not declare their training config, so `libreyolo train` passed them the generic detection defaults (`sgd`, `lr0=0.01`, `yoloxwarmcos`, 300 epochs): SegFormer rejected the scheduler and the other two trained with the wrong optimizer and learning rate. They now start from their own recipes; this also changes the CLI defaults for D-FINE detection training (now `adamw`, `lr0=2e-4`, `flat_cosine`). `libreyolo train --model LibreRFDETRn-seg.pt --task segment` built the model from scratch instead of loading the checkpoint; it now loads it, whatever its filename, since the checkpoint metadata decides the task. A detection checkpoint with `--task segment` stops with a cross-task error, as in the Python API.
 

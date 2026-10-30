@@ -214,6 +214,47 @@ def test_info_unknown_model_exits_with_model_error_code():
     assert data["error"] == "model_not_found"
 
 
+@pytest.mark.parametrize("model", ["LibreRFDETRn.pt", "rfdetr-n", "dinov2-n"])
+def test_rfdetr_names_without_the_extra_name_the_install(model, monkeypatch):
+    import libreyolo.cli.config as config
+
+    monkeypatch.setattr("libreyolo.models.try_ensure_rfdetr", lambda: None)
+    monkeypatch.setattr(config, "_CLI_NAME_TO_WEIGHTS", {"yolox-s": "LibreYOLOXs.pt"})
+    app = _make_app(
+        [
+            ("predict", predict.predict_cmd),
+            ("export", export.export_cmd),
+            ("info", special.info_cmd),
+        ]
+    )
+
+    result = runner.invoke(app, ["info", f"model={model}", "--json"])
+
+    assert result.exit_code == 4
+    data = json.loads(result.stdout)
+    assert data["error"] == "model_load_failed"
+    assert "pip install libreyolo[rfdetr]" in result.stdout
+
+
+def test_unknown_rfdetr_names_with_the_extra_stay_unknown(monkeypatch):
+    import libreyolo.cli.config as config
+
+    monkeypatch.setattr("libreyolo.models.try_ensure_rfdetr", lambda: object)
+    monkeypatch.setattr(config, "_CLI_NAME_TO_WEIGHTS", {"yolox-s": "LibreYOLOXs.pt"})
+    app = _make_app(
+        [
+            ("predict", predict.predict_cmd),
+            ("export", export.export_cmd),
+            ("info", special.info_cmd),
+        ]
+    )
+
+    result = runner.invoke(app, ["info", "model=LibreRFDETRq.pt", "--json"])
+
+    assert result.exit_code == 4
+    assert json.loads(result.stdout)["error"] == "model_not_found"
+
+
 def test_metadata_command_inspects_checkpoint_without_loading_model(tmp_path):
     app = _make_app([("metadata", special.metadata_cmd), ("info", special.info_cmd)])
     checkpoint_path = tmp_path / "model.pt"
