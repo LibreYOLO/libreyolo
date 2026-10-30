@@ -99,6 +99,9 @@ def test_payload_selects_gaussians():
         one = g[index]
         assert len(one) == 1 and one.sh.shape == (1, 1, 3)
     assert len(g.numpy()[np.int64(1)]) == 1
+    # Iteration stops after the last Gaussian (an index past the end raises).
+    assert [len(one) for one in g] == [1] * 10
+    assert len(list(g.numpy())) == 10
 
 
 def test_colors_decode_the_degree_zero_term():
