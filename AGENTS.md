@@ -21,6 +21,13 @@
   code. Flagging is never the wrong move; quiet contribution always is.
 - Ported or adapted code must state its upstream: repository, commit, and
   license, in the PR description and the notice files.
+- These rules are about **code only**. Weights may carry any upstream
+  license, including non-commercial (CC-BY-NC, FLUX non-commercial, DINOv3,
+  and so on); a weight license is never a reason to block, gate, or avoid
+  porting a model. Audit code provenance; for weights, record the upstream
+  license on the model card and move on. The one weight check that stops a
+  hosted upload is terms that forbid redistribution (see the license-audit
+  skill).
 - See `skills/libreyolo-license-audit/` for the audit discipline and the
   notice surfaces.
 
