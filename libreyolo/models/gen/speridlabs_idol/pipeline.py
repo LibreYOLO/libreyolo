@@ -65,7 +65,15 @@ def preprocess_image(
 
     Resize so the short side is ``image_size``; if the image has no real alpha, BiRefNet predicts one; erode the
     alpha by 1 px so no background-coloured fringe survives; crop a square of side ``crop_margin`` x the object's
-    bounding box; resize to ``image_size``; composite on black."""
+    bounding box; resize to ``image_size``; composite on black.
+
+    Unlike upstream, a cutout stored as grayscale with alpha or as a palette
+    with transparency counts as a cutout too; RGB and RGBA inputs are
+    unchanged."""
+    if image.mode in ("LA", "PA") or (
+        image.mode == "P" and "transparency" in image.info
+    ):
+        image = image.convert("RGBA")
     width, height = image.size
     scale = image_size / min(width, height)
     image = image.resize(

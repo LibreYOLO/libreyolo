@@ -121,8 +121,8 @@ result.save("chair.ply")                 # opens in any Gaussian splat viewer
 
 The source is anything YOLO predict takes: a path, URL, `PIL.Image`, NumPy
 array (BGR), tensor, a folder of images or a list of them. A PNG or
-`PIL.Image` with a real alpha channel is used as the cutout; anything else
-gets its background removed first.
+`PIL.Image` with real transparency is used as the cutout; anything else gets
+its background removed first.
 
 ```python
 results = model(["chair.jpg", "lamp.png"], seed=0, n=2, save=True)
@@ -139,7 +139,7 @@ The result:
 g = result.gaussians
 g.xyz, g.scales, g.rotations             # (N, 3), (N, 3), (N, 4) wxyz
 g.opacities, g.sh, g.colors              # (N,), (N, 1, 3), (N, 3) RGB
-g.camera                                 # the input view: yaw, pitch, radius, fov
+g.camera                                 # the input view: yaw, pitch, radius, fov, margin
 g.seed, g.params                         # how to make it again
 g.input_image                            # what the model saw after its crop
 g[g.opacities > 0.1]                     # select Gaussians
@@ -157,8 +157,8 @@ and records seed, camera and settings in a header comment.
 
 Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
 in under 8 GB of GPU memory. On CUDA, a seed gives the same object as the
-Speridlabs SDK. `compile=True` (CUDA) compiles the sampler: about 1.7x
-faster after a first call that compiles.
+Speridlabs SDK. `compile=True` (CUDA) compiles the sampler: on an H100 an
+object takes 6.4 s instead of 9.8 s, after a first call that compiles.
 
 ```python
 model = LibreGen("speridlabs-idol", compile=True)

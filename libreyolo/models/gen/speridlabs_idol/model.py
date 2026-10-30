@@ -22,9 +22,11 @@ BiRefNet network with the BiRefNet weights from the Idol snapshot.
 from __future__ import annotations
 
 import json
+import math
 import os
+import threading
 from contextlib import contextmanager
-from numbers import Integral
+from numbers import Integral, Real
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Sequence, Tuple
 
@@ -241,11 +243,30 @@ class LibreSperidlabsIdol(LibreGen3DModel):
         margin = settings["margin"]
         if margin is not None and (
             isinstance(margin, bool)
-            or not isinstance(margin, (int, float))
+            or not isinstance(margin, Real)
+            or not math.isfinite(margin)
             or margin < 1
         ):
             raise ValueError(
                 f"margin must be a number >= 1 (crop side / object size), got {margin!r}."
+            )
+        shift = settings["shift"]
+        if (
+            isinstance(shift, bool)
+            or not isinstance(shift, Real)
+            or not math.isfinite(shift)
+            or shift <= 0
+        ):
+            raise ValueError(f"shift must be a positive number, got {shift!r}.")
+        guidance = settings["guidance"]
+        if (
+            isinstance(guidance, bool)
+            or not isinstance(guidance, Real)
+            or not math.isfinite(guidance)
+            or guidance < 0
+        ):
+            raise ValueError(
+                f"guidance must be a number >= 0 (0 turns it off), got {guidance!r}."
             )
         return settings
 
@@ -255,7 +276,6 @@ class LibreSperidlabsIdol(LibreGen3DModel):
         import numpy as np
         import torch
 
-        from .nn import cudnn_attention
         from .pipeline import CROP_MARGIN, decode_camera, preprocess_image, sample_flow
 
         modules = self._pipeline
@@ -293,7 +313,7 @@ class LibreSperidlabsIdol(LibreGen3DModel):
                 camera = torch.randn(
                     1, 1, denoiser.cam_channels, generator=generator, device=self.device
                 )
-                with self._sampling_settings(cudnn_attention):
+                with self._sampling_settings():
                     latent, camera = sample_flow(
                         denoiser,
                         latent,
@@ -335,20 +355,42 @@ class LibreSperidlabsIdol(LibreGen3DModel):
         return objects
 
     @contextmanager
-    def _sampling_settings(self, cudnn_attention):
-        """compile=True: cuDNN attention and TF32 matmuls for the denoiser only (cuDNN is slower in the decoders)."""
+    def _sampling_settings(self):
+        """compile=True: TF32 matmuls while the denoiser samples (its attention is pinned to cuDNN at load)."""
         if not self.compile:
             yield
             return
-        import torch
+        with _tf32_matmuls():
+            yield
 
-        tf32 = torch.backends.cuda.matmul.allow_tf32
-        torch.backends.cuda.matmul.allow_tf32 = True
-        try:
-            with cudnn_attention():
-                yield
-        finally:
-            torch.backends.cuda.matmul.allow_tf32 = tf32
+
+_TF32_LOCK = threading.Lock()
+_TF32_USERS = 0
+_TF32_SAVED = False
+
+
+@contextmanager
+def _tf32_matmuls():
+    """Allow TF32 matmuls while any compiled sampler runs, then restore the user's setting.
+
+    PyTorch keeps this flag process-wide, so overlapping calls share one
+    switch: the first in saves the setting, the last out restores it.
+    """
+    global _TF32_USERS, _TF32_SAVED
+    import torch
+
+    with _TF32_LOCK:
+        if _TF32_USERS == 0:
+            _TF32_SAVED = torch.backends.cuda.matmul.allow_tf32
+            torch.backends.cuda.matmul.allow_tf32 = True
+        _TF32_USERS += 1
+    try:
+        yield
+    finally:
+        with _TF32_LOCK:
+            _TF32_USERS -= 1
+            if _TF32_USERS == 0:
+                torch.backends.cuda.matmul.allow_tf32 = _TF32_SAVED
 
 
 class _IdolModules:

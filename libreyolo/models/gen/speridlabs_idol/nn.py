@@ -29,38 +29,23 @@ are plain tensors here, and attention always runs through PyTorch SDPA
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Dict, Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-# "sdpa" lets PyTorch pick the kernel; "sdpa_cudnn" pins the cuDNN kernel,
-# which compiled sampling selects for the denoiser (see ``cudnn_attention``).
-_ATTENTION_BACKEND = "sdpa"
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 
-@contextmanager
-def cudnn_attention():
-    """Run attention on the cuDNN SDPA kernel inside the block."""
-    global _ATTENTION_BACKEND
-    previous = _ATTENTION_BACKEND
-    _ATTENTION_BACKEND = "sdpa_cudnn"
-    try:
-        yield
-    finally:
-        _ATTENTION_BACKEND = previous
+def scaled_dot_product_attention(*args, cudnn: bool = False) -> torch.Tensor:
+    """(qkv [N, L, 3, H, C]) or (q [N, L, H, C], k [N, S, H, C], v [N, S, H, C]) -> [N, L, H, C].
 
-
-def scaled_dot_product_attention(*args) -> torch.Tensor:
-    """(qkv [N, L, 3, H, C]) or (q [N, L, H, C], k [N, S, H, C], v [N, S, H, C]) -> [N, L, H, C]."""
+    ``cudnn`` pins PyTorch SDPA to the cuDNN kernel, which compiled sampling
+    uses for the denoiser; otherwise PyTorch picks the kernel."""
     q, k, v = args[0].unbind(dim=2) if len(args) == 1 else args
     q, k, v = q.permute(0, 2, 1, 3), k.permute(0, 2, 1, 3), v.permute(0, 2, 1, 3)
-    if _ATTENTION_BACKEND == "sdpa_cudnn":
-        from torch.nn.attention import SDPBackend, sdpa_kernel
-
+    if cudnn:
         with sdpa_kernel(SDPBackend.CUDNN_ATTENTION):
             out = F.scaled_dot_product_attention(q, k, v)
     else:
@@ -352,13 +337,17 @@ class RopeMultiHeadAttention(nn.Module):
         self.q_norm = MultiHeadRMSNorm(self.head_dim, num_heads)
         self.k_norm = MultiHeadRMSNorm(self.head_dim, num_heads)
         self.out = nn.Linear(channels, channels)
+        # Set per model by ``compile_for_sampling``, never process-wide.
+        self.cudnn = False
 
     def forward(self, x: torch.Tensor, rope_emb: torch.Tensor) -> torch.Tensor:
         B, L, C = x.shape
         q, k, v = self.qkv(x).reshape(B, L, 3, self.num_heads, self.head_dim).unbind(2)
         q = self.q_norm(apply_rotary_emb(q, rope_emb))
         k = self.k_norm(apply_rotary_emb(k, rope_emb))
-        return self.out(scaled_dot_product_attention(q, k, v).reshape(B, L, C))
+        return self.out(
+            scaled_dot_product_attention(q, k, v, cudnn=self.cudnn).reshape(B, L, C)
+        )
 
 
 # -- Transformer blocks ------------------------------------------------------
@@ -583,13 +572,16 @@ class LatentSeqMMFlowModel(nn.Module):
 
 def compile_for_sampling(denoiser: LatentSeqMMFlowModel) -> None:
     """torch.compile the denoiser's transformer blocks and RePo layers, once per class and bound to this model's
-    instances only (the decoders stay eager), and switch the RePo layers to real-valued RoPE."""
+    instances only (the decoders stay eager), switch the RePo layers to real-valued RoPE, and pin the
+    denoiser's attention to the cuDNN kernel (the decoders keep PyTorch's choice)."""
     import types
 
     compiled = {}
     for module in denoiser.modules():
         if isinstance(module, RePo3DRotaryEmbedding):
             module.real_valued = True
+        if isinstance(module, RopeMultiHeadAttention):
+            module.cudnn = True
         if isinstance(module, (UnifiedTransformerBlock, RePo3DRotaryEmbedding)):
             if type(module) not in compiled:
                 compiled[type(module)] = torch.compile(

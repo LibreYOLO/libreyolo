@@ -1405,7 +1405,7 @@ class Gaussians:
     # ------------------------------------------------------------------
 
     def _ply_attributes(self) -> Tuple[np.ndarray, List[str]]:
-        """The standard 3DGS vertex table in the y-up viewer convention."""
+        """The standard 3DGS vertex table in the y-up viewer convention, degree-0 colour only."""
         tensors = {
             name: getattr(self, name)
             if isinstance(getattr(self, name), torch.Tensor)
@@ -1414,9 +1414,6 @@ class Gaussians:
         }
         sh = tensors["sh"].detach()
         f_dc = sh[:, :1].transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        f_rest = (
-            sh[:, 1:].transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        )
         # Clamp before the inverse activations: a saturated opacity (exactly
         # 1.0) or a zero scale would otherwise be written as +/-inf, which
         # some viewers reject.
@@ -1432,10 +1429,9 @@ class Gaussians:
         rotation = _quaternion_multiply(np.array(_Z_UP_TO_Y_UP), rotation)
 
         attributes = np.concatenate(
-            (xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1
+            (xyz, normals, f_dc, opacities, scale, rotation), axis=1
         ).astype(np.float32)
         names = ["x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2"]
-        names += [f"f_rest_{i}" for i in range(f_rest.shape[1])]
         names += [
             "opacity",
             "scale_0",
@@ -1449,6 +1445,14 @@ class Gaussians:
         return attributes, names
 
     def _write_ply(self, path: Path) -> None:
+        if self.sh.shape[1] > 1:
+            # Turning the object y-up also turns view-dependent colour; the
+            # higher-order terms would need that rotation, which is not
+            # implemented, so refuse rather than write wrong colours.
+            raise NotImplementedError(
+                "Writing a PLY with higher-order spherical harmonics (sh.shape[1] > 1) "
+                "is not supported yet; .splat keeps the degree-0 colour."
+            )
         attributes, names = self._ply_attributes()
         header = ["ply", "format binary_little_endian 1.0"]
         header.append(

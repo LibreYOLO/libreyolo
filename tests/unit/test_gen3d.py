@@ -127,16 +127,14 @@ def test_ply_is_the_standard_layout_turned_y_up(tmp_path):
     assert np.allclose(np.linalg.norm(q, axis=1), 1.0, atol=1e-5)
 
 
-def test_ply_writes_higher_order_sh_as_f_rest(tmp_path):
+def test_higher_order_sh_is_refused_in_ply_and_dropped_in_splat(tmp_path):
     base = _gaussians(n=3)
-    sh = torch.randn(3, 4, 3)
-    g = Gaussians(base.xyz, base.scales, base.rotations, base.opacities, sh)
-    g.save(tmp_path / "sh.ply")
-    _, names, data = _read_ply(tmp_path / "sh.ply")
-    assert [name for name in names if name.startswith("f_rest_")] == [f"f_rest_{i}" for i in range(9)]
-    # Channel-major, as 3DGS trainers write them: all red terms, then green, then blue.
-    assert np.allclose(data["f_rest_0"], sh[:, 1, 0].numpy())
-    assert np.allclose(data["f_rest_3"], sh[:, 1, 1].numpy())
+    g = Gaussians(base.xyz, base.scales, base.rotations, base.opacities, torch.randn(3, 4, 3))
+    with pytest.raises(NotImplementedError, match="higher-order"):
+        g.save(tmp_path / "sh.ply")
+    assert not (tmp_path / "sh.ply").exists()
+    g.save(tmp_path / "sh.splat")
+    assert (tmp_path / "sh.splat").stat().st_size == 32 * 3
 
 
 def test_splat_is_32_bytes_per_gaussian_sorted(tmp_path):
@@ -388,6 +386,11 @@ def test_idol_pins_every_download():
 @pytest.mark.parametrize(
     ("knobs", "match"),
     [
+        ({"shift": 0}, "shift must be"),
+        ({"shift": float("nan")}, "shift must be"),
+        ({"guidance": -1.0}, "guidance must be"),
+        ({"guidance": float("inf")}, "guidance must be"),
+        ({"margin": float("inf")}, "margin must be"),
         ({"mode": "photo"}, "mode must be"),
         ({"gaussians": 1000}, "gaussians must be"),
         ({"gaussians": 2_000_000}, "gaussians must be"),
@@ -627,3 +630,53 @@ def test_idol_knobs_accept_numpy_integers():
     )
     assert settings["gaussians"] == 65536 and type(settings["gaussians"]) is int
     assert settings["steps"] == 3 and type(settings["steps"]) is int
+
+
+@pytest.mark.parametrize("mode", ["LA", "P"])
+def test_cutouts_in_other_alpha_modes_are_kept(mode):
+    from libreyolo.models.gen.speridlabs_idol.pipeline import preprocess_image
+
+    class Untouchable(_CentreBlob):
+        def forward(self, x):
+            raise AssertionError("a cutout must not go through background removal")
+
+    rgba = Image.new("RGBA", (80, 80), (0, 0, 0, 0))
+    for x in range(30, 50):
+        for y in range(20, 60):
+            rgba.putpixel((x, y), (120, 120, 120, 255))
+    cutout = rgba.convert("LA") if mode == "LA" else rgba.convert("RGB").convert(
+        "P", palette=Image.Palette.ADAPTIVE
+    )
+    if mode == "P":
+        # Mark the background colour transparent, as a palette PNG stores it.
+        background = cutout.getpixel((0, 0))
+        cutout.info["transparency"] = background
+    prepared = preprocess_image(cutout, Untouchable(), image_size=64, crop_margin=1.2)
+    assert prepared.size == (64, 64)
+    assert np.array(prepared)[32, 32].max() > 0
+
+
+def test_compiled_sampling_settings_stay_per_model():
+    from libreyolo.models.gen.speridlabs_idol.model import _tf32_matmuls
+    from libreyolo.models.gen.speridlabs_idol.nn import (
+        MultiHeadAttention,
+        RopeMultiHeadAttention,
+        compile_for_sampling,
+    )
+
+    denoiser, _, _ = _tiny_networks()
+    other, _, decoder_gs = _tiny_networks()
+    compile_for_sampling(denoiser)
+    assert all(m.cudnn for m in denoiser.modules() if isinstance(m, RopeMultiHeadAttention))
+    assert not any(m.cudnn for m in other.modules() if isinstance(m, RopeMultiHeadAttention))
+    assert not any(hasattr(m, "cudnn") for m in decoder_gs.modules() if isinstance(m, MultiHeadAttention))
+
+    flags = torch.backends.cuda.matmul
+    flags.allow_tf32 = False
+    first, second = _tf32_matmuls(), _tf32_matmuls()
+    first.__enter__()
+    second.__enter__()
+    first.__exit__(None, None, None)  # overlapping calls: the first one out
+    assert flags.allow_tf32 is True  # does not switch it off under the second
+    second.__exit__(None, None, None)
+    assert flags.allow_tf32 is False

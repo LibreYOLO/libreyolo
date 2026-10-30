@@ -67,8 +67,11 @@ payload under the same task; it does not change this one.
 - `sh` `(N, K, 3)` float32 spherical-harmonic colour coefficients, degree 0
   first (`K = 1` for view-independent colour). `colors` returns the `(N, 3)`
   RGB in `[0, 1]` the degree-0 term encodes.
-- `camera` is the input view the model inferred: `yaw` and `pitch` in
-  radians, `radius` in object units, vertical `fov` in degrees.
+- `camera` is the input view: the shot the model inferred (`yaw` and `pitch`
+  in radians, `radius` in object units, vertical `fov` in degrees) and the
+  `margin` of the crop it saw (crop side over object size). The predicted
+  shot describes the picture before the family's crop, so a view of the
+  input frames the object by `margin`, not by `radius` and `fov`.
 - `seed` reproduces the object with the same model and settings; `params`
   records the rest of the call (`model` and every family knob in effect).
 - `input_image` is the RGB image the model saw after its own preprocessing
@@ -77,18 +80,22 @@ payload under the same task; it does not change this one.
 `len(gaussians)` is `N`. `save(path)` writes by extension:
 
 - `.ply`: the standard 3D Gaussian Splatting layout (`x y z nx ny nz f_dc_*
-  f_rest_* opacity scale_* rot_*`, with log scales and logit opacities) that
-  every splat viewer and trainer reads, turned to the y-up convention those
-  tools expect. A `comment libreyolo {...}` header line stores seed, camera
-  and params as JSON; readers ignore comments.
+  opacity scale_* rot_*`, with log scales and logit opacities) that every
+  splat viewer and trainer reads, turned to the y-up convention those tools
+  expect. A `comment libreyolo {...}` header line stores seed, camera and
+  params as JSON; readers ignore comments. A payload with higher-order
+  colour (`K > 1`) is refused: turning it y-up needs its view-dependent
+  terms rotated too, which a family that emits them adds with its own
+  conversion.
 - `.splat`: the compact 32-bytes-per-Gaussian web format, sorted by size and
   opacity, colour and rotation quantized to 8 bits.
 
 On `Results`: `boxes` is `None`; `path`, `orig_shape` and `orig_img` describe
 the source image; `len(result)` is 1; `summary()` returns one row with the
 payload's record; `result.save(path)` writes the object; `result.plot()`
-returns a preview of the object from the inferred input camera, a point
-render for a quick look rather than a Gaussian rasterization.
+returns a preview of the object from the inferred input view, framed like
+the input crop: a point render for a quick look rather than a Gaussian
+rasterization.
 
 Box-specific paths (tracking, tiling, export backends, mAP validation) do not
 apply.
@@ -101,8 +108,9 @@ same call.
 
 - `source` is what YOLO predict takes: a path, URL, `PIL.Image`, NumPy array
   (BGR by default, like predict), tensor, a directory of images, or a list of
-  any of these. A file or `PIL.Image` with a real alpha channel is used as
-  the object's cutout; otherwise the family removes the background itself.
+  any of these. A file or `PIL.Image` with a real alpha channel (RGBA,
+  grayscale with alpha, or a palette with transparency) is used as the
+  object's cutout; otherwise the family removes the background itself.
   `source=` may also be passed by keyword.
 - `prompt=` is rejected: an image-to-3D family has no text input.
 - `imgsz` is rejected: the input resolution is fixed by the model, and the
@@ -148,8 +156,11 @@ Constructor: `device` (`"auto"` picks CUDA, then MPS, then CPU) and
 `compile` (CUDA, default `False`), Ultralytics' name for `torch.compile`.
 `compile=True` is the upstream SDK's `optimize` path: compiled denoiser
 blocks, the guided and unguided passes in one batch, cuDNN attention and TF32
-matmuls while sampling. It is about 1.7x faster after a first call that
-compiles, and numerically close to, not bitwise equal with, the eager path.
+matmuls while sampling. On an H100 it takes an object from 9.8 s to 6.4 s
+(defaults, after a first call that compiles). It reproduces the SDK's
+compiled path bit for bit; against the eager path it is the same object,
+not the same Gaussians, because TF32 and fused kernels move the sampled
+latent slightly and the octree places its points from it.
 Precision is the published mixed precision (fp16 transformer blocks, bf16
 encoders), so `dtype` accepts only `"auto"`.
 
