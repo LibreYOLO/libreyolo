@@ -49,7 +49,7 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
-- **A missing `libreyolo[rfdetr]` extra is named instead of a misleading error.**
+- **A missing `libreyolo[rfdetr]` extra is named instead of a misleading error. (#965)**
   Without `transformers`, `LibreYOLO("LibreRFDETRn.pt")` and the DINOv2 names failed with `unable to determine size from filename`, an explicit `size=` failed with `Could not determine download URL`, and `libreyolo predict model=LibreRFDETRn.pt` (or `model=rfdetr-n`) printed `Unknown model` with a list that left RF-DETR out. All of them now point to `pip install libreyolo[rfdetr]`, as loading a local RF-DETR checkpoint already did. Other unknown names keep their errors.
 
 - **CLI segmentation training uses the family recipe and loads the RF-DETR segment checkpoint. (#955)**
