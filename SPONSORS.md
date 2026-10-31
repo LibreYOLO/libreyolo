@@ -100,4 +100,4 @@ None yet.
 
 People who contribute any amount, listed by name.
 
-None yet.
+- Mattia Di Giusto
