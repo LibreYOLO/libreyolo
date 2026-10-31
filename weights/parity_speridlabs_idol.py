@@ -8,8 +8,9 @@ compiled paths (upstream ``optimize=True``) and reports the same comparison.
 Prereqs (a CUDA machine; throwaway env, do NOT install into the main .venv):
     pip install -e ".[gen]" tensordict plyfile
     git clone https://github.com/speridlabs/idol-sdk   # commit 4702a7f
-    hf auth login   # an account that accepted the DINOv3 and FLUX.2-dev terms
-                    # (upstream reads its VAE from FLUX.2-dev; the port from klein)
+    hf auth login   # for the SDK side only: an account that accepted the DINOv3
+                    # and FLUX.2-dev terms. The port reads LibreYOLO's DINOv3
+                    # mirror and the klein VAE, so it needs no login.
 
 Run:
     ATTN_BACKEND=sdpa PYTHONPATH=path/to/idol-sdk python weights/parity_speridlabs_idol.py \

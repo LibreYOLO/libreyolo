@@ -178,15 +178,20 @@ encoders), so `dtype` accepts only `"auto"`.
 
 ## Weights
 
-Base weights follow ADR 0030: nothing is converted or redistributed. Idol's
-own weights (denoiser, decoders, BiRefNet) are the pinned snapshot of
-`speridlabs/idol`, downloaded into `weights/LibreSperidlabsIdol0.6b/`. Its two
-image encoders load from their publishers at pinned revisions through the
-Hugging Face cache:
+Nothing is gated and no login is needed. Idol's own weights (denoiser,
+decoders, BiRefNet) are the pinned snapshot of `speridlabs/idol`, downloaded
+unchanged into `weights/LibreSperidlabsIdol0.6b/`; they are deliberately not
+mirrored, so the downloads count for Speridlabs. Its two image encoders load
+at pinned revisions through the Hugging Face cache:
 
-- DINOv3 ViT-H+/16 from `facebook/dinov3-vith16plus-pretrain-lvd1689m`, gated
-  under Meta's DINOv3 License. The loader checks access before downloading
-  anything and says exactly which page to accept and how to log in.
+- DINOv3 ViT-H+/16 from LibreYOLO's mirror `LibreYOLO/LibreDINOv3vith16plus`
+  (revision `e849a3492905c6dabc89758042bf1402770fb4e6`), under Meta's DINOv3
+  License, which permits redistribution with a copy of the agreement. Meta's
+  own repo, `facebook/dinov3-vith16plus-pretrain-lvd1689m`, is gated behind a
+  manually reviewed form. The mirror is that checkpoint cast to bf16, the
+  precision Idol runs it in: all 615 tensors equal the upstream ones loaded
+  in bf16, so outputs do not change, the download halves (1.7 GB) and users
+  meet no gate.
 - The FLUX.2 VAE from `black-forest-labs/FLUX.2-klein-4B` (Apache-2.0, not
   gated). Upstream reads it from the gated `FLUX.2-dev` repo; the two repos'
   VAE checkpoints are identical tensor for tensor once cast to the bf16 the

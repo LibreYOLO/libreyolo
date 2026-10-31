@@ -780,10 +780,12 @@ Speridlabs Idol (Apache License 2.0)
     from diffusers' transformer_wan.py (Apache-2.0, Copyright 2025 The Wan
     Team and The HuggingFace Team). Background removal reuses LibreYOLO's
     BiRefNet network. The port is parity-gated against the SDK on CUDA,
-    bitwise at every stage (weights/parity_speridlabs_idol.py). Weights are
-    not redistributed: speridlabs/idol (Apache-2.0), the DINOv3 encoder
-    (Meta DINOv3 License) and the FLUX.2 VAE from FLUX.2-klein-4B
-    (Apache-2.0) download from their publishers at pinned revisions.
+    bitwise at every stage (weights/parity_speridlabs_idol.py). Weights:
+    speridlabs/idol (Apache-2.0) and the FLUX.2 VAE from FLUX.2-klein-4B
+    (Apache-2.0) download from their publishers; the DINOv3 encoder (Meta
+    DINOv3 License) downloads from LibreYOLO's bf16 mirror
+    LibreYOLO/LibreDINOv3vith16plus, which ships the agreement. All at
+    pinned revisions.
 
 ------------------------------------------------------------------------
 Pretrained model weights

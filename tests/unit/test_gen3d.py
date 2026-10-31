@@ -128,7 +128,9 @@ def test_ply_is_the_standard_layout_turned_y_up(tmp_path):
     assert np.array_equal(data["y"], -xyz[:, 2])
     assert np.array_equal(data["z"], xyz[:, 1])
     opacity = g.opacities.clamp(1e-6, 1 - 1e-6)
-    assert np.allclose(data["opacity"], torch.log(opacity / (1 - opacity)).numpy(), atol=1e-6)
+    assert np.allclose(
+        data["opacity"], torch.log(opacity / (1 - opacity)).numpy(), atol=1e-6
+    )
     assert np.allclose(data["scale_0"], torch.log(g.scales[:, 0]).numpy())
     # +90 degrees about x: the object's z axis becomes the viewer's y axis.
     q = np.stack([data[f"rot_{i}"] for i in range(4)], axis=1)
@@ -137,7 +139,9 @@ def test_ply_is_the_standard_layout_turned_y_up(tmp_path):
 
 def test_higher_order_sh_is_refused_in_ply_and_dropped_in_splat(tmp_path):
     base = _gaussians(n=3)
-    g = Gaussians(base.xyz, base.scales, base.rotations, base.opacities, torch.randn(3, 4, 3))
+    g = Gaussians(
+        base.xyz, base.scales, base.rotations, base.opacities, torch.randn(3, 4, 3)
+    )
     with pytest.raises(NotImplementedError, match="higher-order"):
         g.save(tmp_path / "sh.ply")
     assert not (tmp_path / "sh.ply").exists()
@@ -151,11 +155,19 @@ def test_splat_is_32_bytes_per_gaussian_sorted(tmp_path):
     raw = (tmp_path / "object.splat").read_bytes()
     assert len(raw) == 32 * 8
     record = np.frombuffer(
-        raw, dtype=[("xyz", "<f4", 3), ("scale", "<f4", 3), ("rgba", "u1", 4), ("rot", "u1", 4)]
+        raw,
+        dtype=[
+            ("xyz", "<f4", 3),
+            ("scale", "<f4", 3),
+            ("rgba", "u1", 4),
+            ("rot", "u1", 4),
+        ],
     )
     keys = np.prod(record["scale"], axis=1) * record["rgba"][:, 3]
     assert np.all(np.diff(keys) <= 1e-6 * keys.max())
-    assert set(np.round(record["xyz"][:, 1], 5)) == set(np.round(-g.xyz[:, 2].numpy(), 5))
+    assert set(np.round(record["xyz"][:, 1], 5)) == set(
+        np.round(-g.xyz[:, 2].numpy(), 5)
+    )
 
 
 def test_save_rejects_other_formats(tmp_path):
@@ -283,7 +295,9 @@ def test_sources_like_predict(model, chair, tmp_path):
     (folder / "notes.txt").write_text("not an image")
     results = model(folder, seed=1)
     assert [Path(r.path).name for r in results] == ["a.jpg", "b.png"]
-    results = model([chair, Image.new("RGB", (8, 8)), np.zeros((6, 9, 3), np.uint8)], seed=1)
+    results = model(
+        [chair, Image.new("RGB", (8, 8)), np.zeros((6, 9, 3), np.uint8)], seed=1
+    )
     assert [r.orig_shape for r in results] == [(30, 40), (8, 8), (6, 9)]
     assert model(source=chair, seed=1).path == str(chair)
 
@@ -351,7 +365,10 @@ def test_save_writes_ply_files(model, chair, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     model([chair, chair], seed=3, save=True)
     saved = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*.ply"))
-    assert saved == ["runs/generate/predict/000_chair_3.ply", "runs/generate/predict/001_chair_3.ply"]
+    assert saved == [
+        "runs/generate/predict/000_chair_3.ply",
+        "runs/generate/predict/001_chair_3.ply",
+    ]
     model(chair, seed=3, save=True, output_path=str(tmp_path / "out" / "chair.splat"))
     assert (tmp_path / "out" / "chair.splat").stat().st_size == 32 * 4
 
@@ -391,11 +408,27 @@ def test_idol_alias_resolves_without_loading():
 def test_idol_pins_every_download():
     from libreyolo.models.gen.speridlabs_idol import model as idol
 
-    assert LibreSperidlabsIdol.HF_REVISIONS["0.6b"] == "2731c2291fc65a797c5cb627a5e5526fc1490902"
+    assert (
+        LibreSperidlabsIdol.HF_REVISIONS["0.6b"]
+        == "2731c2291fc65a797c5cb627a5e5526fc1490902"
+    )
     for revision in (idol._DINOV3_REVISION, idol._FLUX2_VAE_REVISION):
         assert len(revision) == 40
-    # The VAE comes from the Apache-2.0, ungated klein repo LibreGen already uses.
+    # Nothing gated: the VAE comes from the Apache-2.0 klein repo LibreGen
+    # already uses, DINOv3 from LibreYOLO's ungated mirror.
     assert idol._FLUX2_VAE_REPO == "black-forest-labs/FLUX.2-klein-4B"
+    assert idol._DINOV3_REPO == "LibreYOLO/LibreDINOv3vith16plus"
+
+
+def test_idol_needs_no_hugging_face_login(monkeypatch):
+    import huggingface_hub
+
+    def online(*args, **kwargs):
+        raise AssertionError("checking Hub access is not needed")
+
+    monkeypatch.setattr(huggingface_hub, "auth_check", online)
+    monkeypatch.setattr(huggingface_hub, "get_token", lambda: None)
+    LibreSperidlabsIdol(device="cpu")._check_runtime()
 
 
 @pytest.mark.parametrize(
@@ -434,48 +467,6 @@ def test_idol_matches_its_snapshot_directory(tmp_path):
     assert isinstance(LibreGen(str(tmp_path), device="cpu"), LibreSperidlabsIdol)
 
 
-def test_gated_encoder_error_says_what_to_do(monkeypatch):
-    import huggingface_hub
-    from huggingface_hub.errors import GatedRepoError
-
-    from libreyolo.models.gen.speridlabs_idol.model import (
-        EncoderAccessError,
-        require_encoder_access,
-    )
-
-    def gated(repo):
-        # The real error needs an HTTP response; the check only reads its type.
-        raise GatedRepoError.__new__(GatedRepoError)
-
-    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
-    monkeypatch.setattr(huggingface_hub, "auth_check", gated)
-    monkeypatch.setattr(huggingface_hub, "get_token", lambda: None)
-    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", lambda *a, **k: None)
-    with pytest.raises(EncoderAccessError) as error:
-        require_encoder_access({"facebook/dinov3-vith16plus-pretrain-lvd1689m": "c" * 40})
-    message = str(error.value)
-    assert "https://huggingface.co/facebook/dinov3-vith16plus-pretrain-lvd1689m" in message
-    assert "hf auth login" in message
-    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
-    require_encoder_access({"facebook/dinov3-vith16plus-pretrain-lvd1689m": "c" * 40})
-
-
-def test_cached_encoder_needs_no_login(monkeypatch):
-    import huggingface_hub
-
-    from libreyolo.models.gen.speridlabs_idol.model import require_encoder_access
-
-    def gated(repo):
-        raise AssertionError("a cached encoder must not be checked online")
-
-    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
-    monkeypatch.setattr(huggingface_hub, "auth_check", gated)
-    monkeypatch.setattr(
-        huggingface_hub, "try_to_load_from_cache", lambda repo, name, revision=None: f"/cache/{name}"
-    )
-    require_encoder_access({"facebook/dinov3-vith16plus-pretrain-lvd1689m": "c" * 40})
-
-
 # ---------------------------------------------------------------------------
 # Speridlabs Idol networks and pipeline at a tiny size
 # ---------------------------------------------------------------------------
@@ -496,7 +487,14 @@ TINY = {
             "mlp_ratio": 2,
         }
     },
-    "decoder": {"args": {"model_channels": 24, "cond_channels": 4, "num_blocks": 1, "num_heads": 2}},
+    "decoder": {
+        "args": {
+            "model_channels": 24,
+            "cond_channels": 4,
+            "num_blocks": 1,
+            "num_heads": 2,
+        }
+    },
     "decoder_gs": {
         "args": {
             "in_channels": 3,
@@ -506,7 +504,13 @@ TINY = {
             "num_heads": 2,
             "representation_config": {
                 "num_gaussians": 4,
-                "lr": {"_xyz": 1.0, "_features_dc": 1.0, "_opacity": 1.0, "_scaling": 1.0, "_rotation": 0.1},
+                "lr": {
+                    "_xyz": 1.0,
+                    "_features_dc": 1.0,
+                    "_opacity": 1.0,
+                    "_scaling": 1.0,
+                    "_rotation": 0.1,
+                },
                 "perturbe_size": 1.5,
                 "3d_filter_kernel_size": 0.0009,
                 "scaling_bias": 0.004,
@@ -561,7 +565,9 @@ def _tiny_idol():
 
     model = LibreSperidlabsIdol(device="cpu")
     denoiser, decoder, decoder_gs = _tiny_networks()
-    model._pipeline = _IdolModules(dict(TINY), denoiser, decoder, decoder_gs, _CentreBlob(), _FakeEncoder())
+    model._pipeline = _IdolModules(
+        dict(TINY), denoiser, decoder, decoder_gs, _CentreBlob(), _FakeEncoder()
+    )
     return model
 
 
@@ -593,7 +599,9 @@ def test_systematic_sample_keeps_every_point():
 def test_octree_places_exactly_the_requested_points():
     denoiser, decoder, decoder_gs = _tiny_networks()
     latent = torch.randn(1, 16, 4)
-    anchors = decoder.sample(latent, num_points=37, level=3, generator=torch.Generator().manual_seed(0))
+    anchors = decoder.sample(
+        latent, num_points=37, level=3, generator=torch.Generator().manual_seed(0)
+    )
     assert anchors.shape == (1, 37, 3)
     assert anchors.min() >= 0 and anchors.max() <= 1
     splats = decoder_gs.to_gaussians(anchors, decoder_gs(anchors, latent))
@@ -610,8 +618,14 @@ def test_batched_guidance_matches_two_passes():
     denoiser = denoiser.float()
     denoiser.dtype = torch.float32
     g = torch.Generator().manual_seed(0)
-    latent, camera = torch.randn(1, 16, 4, generator=g), torch.randn(1, 1, 5, generator=g)
-    cond = {"feature1": torch.randn(1, 7, 8, generator=g), "feature2": torch.randn(1, 7, 6, generator=g)}
+    latent, camera = (
+        torch.randn(1, 16, 4, generator=g),
+        torch.randn(1, 1, 5, generator=g),
+    )
+    cond = {
+        "feature1": torch.randn(1, 7, 8, generator=g),
+        "feature2": torch.randn(1, 7, 6, generator=g),
+    }
     two = sample_flow(denoiser, latent, camera, cond, steps=3, batch_guidance=False)
     one = sample_flow(denoiser, latent, camera, cond, steps=3, batch_guidance=True)
     for a, b in zip(two, one):
@@ -676,8 +690,10 @@ def test_cutouts_in_other_alpha_modes_are_kept(mode):
     for x in range(30, 50):
         for y in range(20, 60):
             rgba.putpixel((x, y), (120, 120, 120, 255))
-    cutout = rgba.convert("LA") if mode == "LA" else rgba.convert("RGB").convert(
-        "P", palette=Image.Palette.ADAPTIVE
+    cutout = (
+        rgba.convert("LA")
+        if mode == "LA"
+        else rgba.convert("RGB").convert("P", palette=Image.Palette.ADAPTIVE)
     )
     if mode == "P":
         # Mark the background colour transparent, as a palette PNG stores it.
@@ -699,9 +715,17 @@ def test_compiled_sampling_settings_stay_per_model():
     denoiser, _, _ = _tiny_networks()
     other, _, decoder_gs = _tiny_networks()
     compile_for_sampling(denoiser)
-    assert all(m.cudnn for m in denoiser.modules() if isinstance(m, RopeMultiHeadAttention))
-    assert not any(m.cudnn for m in other.modules() if isinstance(m, RopeMultiHeadAttention))
-    assert not any(hasattr(m, "cudnn") for m in decoder_gs.modules() if isinstance(m, MultiHeadAttention))
+    assert all(
+        m.cudnn for m in denoiser.modules() if isinstance(m, RopeMultiHeadAttention)
+    )
+    assert not any(
+        m.cudnn for m in other.modules() if isinstance(m, RopeMultiHeadAttention)
+    )
+    assert not any(
+        hasattr(m, "cudnn")
+        for m in decoder_gs.modules()
+        if isinstance(m, MultiHeadAttention)
+    )
 
     flags = torch.backends.cuda.matmul
     flags.allow_tf32 = False

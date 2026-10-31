@@ -1053,8 +1053,9 @@ the model is Speridlabs Idol, and there is no bare `idol` alias. It uses
 `generate3d`, with aliases `generation3d`, `3d-generation`, `image-to-3d`,
 `image23d`, `img2-3d`, `img-to-3d` and `i23d`, and coverage group `s`. Its
 own weights are the pinned `speridlabs/idol` snapshot in
-`weights/LibreSperidlabsIdol0.6b/`; the DINOv3 and FLUX.2 VAE encoders load
-from their publishers at pinned revisions. `Results.gaussians` stores the
+`weights/LibreSperidlabsIdol0.6b/`; the FLUX.2 VAE loads from
+`FLUX.2-klein-4B` and the DINOv3 encoder from LibreYOLO's bf16 mirror
+`LibreYOLO/LibreDINOv3vith16plus`, both at pinned revisions. `Results.gaussians` stores the
 object as a `Gaussians` payload; `libreyolo generate source=...` is the CLI.
 See ADR 0031.
 

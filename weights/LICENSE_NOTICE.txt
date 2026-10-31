@@ -810,6 +810,24 @@ WildDet3D (LibreYOLO/LibreWildDet3D; byte-identical upstream mirror)
     Filename: wilddet3d_alldata_all_prompt_v1.0.pt
     SHA-256: f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57
 
+DINOv3 ViT-H+/16 encoder for Speridlabs Idol (LibreYOLO/LibreDINOv3vith16plus;
+bfloat16 mirror)
+    Source: https://huggingface.co/facebook/dinov3-vith16plus-pretrain-lvd1689m
+            revision c807c9eeea853df70aec4069e6f56b28ddc82acc
+    License: Meta's DINOv3 License, a custom non-OSI agreement. It permits
+    redistribution with a copy of the agreement and passes through
+    trade-control and end-use restrictions (military, weapons, espionage and
+    nuclear uses among them). These weights are not MIT. Mirrored ungated at
+    LibreYOLO/LibreDINOv3vith16plus revision
+    e849a3492905c6dabc89758042bf1402770fb4e6 with the complete agreement.
+    Change: float32 tensors cast to bfloat16, the precision Speridlabs Idol
+    runs the encoder in; all 615 tensors equal the upstream ones loaded in
+    bfloat16.
+    Upstream model.safetensors SHA-256:
+      3e1d4d18b9bfa9f28fad8e9de6a783f1313532d3460efa4cd0b12521d81d1a4d
+    Mirror model.safetensors SHA-256:
+      34252ee11eeebf00d50c528d53d725672f03ad88ff30cb724ddf3920bf67dc4c
+
 3D-MOOD (LibreYOLO/Libre3DMOODt and LibreYOLO/Libre3DMOODb)
     Source: https://huggingface.co/RoyYang0714/3D-MOOD revision
             3d1fab552189f1a62fdb60ebb606d20625a30b90

@@ -33,10 +33,12 @@ grayscale-with-alpha and palette-transparency cutouts are used as cutouts
 (upstream sends them to BiRefNet); shift, guidance, steps, margin and the
 Gaussian count are validated before anything runs.
 
-Weights are not redistributed by LibreYOLO. speridlabs/idol (Apache-2.0),
-facebook/dinov3-vith16plus-pretrain-lvd1689m (DINOv3 License) and
-black-forest-labs/FLUX.2-klein-4B (Apache-2.0, VAE only) are downloaded from
-their publishers at pinned revisions.
+Weights: speridlabs/idol (Apache-2.0) and black-forest-labs/FLUX.2-klein-4B
+(Apache-2.0, VAE only) are downloaded from their publishers at pinned
+revisions. The DINOv3 encoder is Meta's
+facebook/dinov3-vith16plus-pretrain-lvd1689m (DINOv3 License), rehosted by
+LibreYOLO in bfloat16 as LibreYOLO/LibreDINOv3vith16plus together with the
+DINOv3 License Agreement.
 
 Idol citation:
 Alejandro Cañada and Chema Garabito. "Idol: Single Image to 3D Gaussian

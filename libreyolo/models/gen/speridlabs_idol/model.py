@@ -11,19 +11,20 @@ reproduce it: on CUDA, a seed gives the object the SDK gives for the same
 seed and settings. Following the SDK, the seed drives a generator on the
 model's device, so objects differ across devices.
 
-Weights are not redistributed. Idol's own files come from the pinned
-``speridlabs/idol`` snapshot; DINOv3 (gated, Meta's DINOv3 License) and the
-FLUX.2 VAE (Apache-2.0, read from ``FLUX.2-klein-4B``, tensor-identical in
-bf16 to the copy in the gated ``FLUX.2-dev`` repo the SDK names) load from
-their publishers at pinned revisions. Background removal runs on LibreYOLO's
-BiRefNet network with the BiRefNet weights from the Idol snapshot.
+Nothing is gated and no login is needed. Idol's own files come from the
+pinned ``speridlabs/idol`` snapshot (Apache-2.0); the FLUX.2 VAE from
+``FLUX.2-klein-4B`` (Apache-2.0, tensor-identical in bf16 to the copy in the
+gated ``FLUX.2-dev`` repo the SDK names); the DINOv3 encoder from LibreYOLO's
+bf16 mirror ``LibreYOLO/LibreDINOv3vith16plus`` (Meta's DINOv3 License,
+tensor-identical in bf16 to the gated upstream). All at pinned revisions.
+Background removal runs on LibreYOLO's BiRefNet network with the BiRefNet
+weights from the Idol snapshot.
 """
 
 from __future__ import annotations
 
 import json
 import math
-import os
 import threading
 from contextlib import contextmanager
 from numbers import Integral, Real
@@ -34,8 +35,10 @@ from ....utils.results import Gaussians
 from ..base import _INSTALL_HINT
 from ..base3d import LibreGen3DModel
 
-_DINOV3_REPO = "facebook/dinov3-vith16plus-pretrain-lvd1689m"
-_DINOV3_REVISION = "c807c9eeea853df70aec4069e6f56b28ddc82acc"
+# Meta's facebook/dinov3-vith16plus-pretrain-lvd1689m@c807c9e, cast to bf16
+# (the precision Idol runs it in) and mirrored ungated under the DINOv3 License.
+_DINOV3_REPO = "LibreYOLO/LibreDINOv3vith16plus"
+_DINOV3_REVISION = "e849a3492905c6dabc89758042bf1402770fb4e6"
 _FLUX2_VAE_REPO = "black-forest-labs/FLUX.2-klein-4B"
 _FLUX2_VAE_REVISION = "e7b7dc27f91deacad38e78976d1f2b499d76a294"
 _WEIGHT_FILES = (
@@ -48,68 +51,6 @@ _WEIGHT_FILES = (
 # BiRefNet heads used only for training supervision; Idol ships without them.
 _BIREFNET_TRAINING_ONLY = ("decoder.conv_ms_spvn_", "decoder.gdt_convs_pred_")
 _MODES = ("synthetic", "real")
-
-
-class EncoderAccessError(RuntimeError):
-    """The Hugging Face account in use cannot download a gated image encoder."""
-
-
-# What ``AutoModel.from_pretrained`` reads from an encoder repo.
-_ENCODER_FILES = ("config.json", "model.safetensors")
-
-
-def _encoder_cached(repo: str, revision: str) -> bool:
-    """True when the pinned encoder files are already in the Hugging Face cache."""
-    from huggingface_hub import try_to_load_from_cache
-
-    return all(
-        isinstance(try_to_load_from_cache(repo, name, revision=revision), str)
-        for name in _ENCODER_FILES
-    )
-
-
-def require_encoder_access(repos: Dict[str, str]) -> None:
-    """Stop before anything large downloads when a gated encoder is not readable.
-
-    ``repos`` maps each gated repo to its pinned revision. An encoder already
-    in the cache needs no access, and network problems are not treated as
-    missing access.
-    """
-    if os.environ.get("HF_HUB_OFFLINE", "0").lower() in ("1", "true", "yes"):
-        return
-    from huggingface_hub import auth_check, get_token
-    from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
-
-    denied = []
-    for repo, revision in repos.items():
-        if _encoder_cached(repo, revision):
-            continue
-        try:
-            auth_check(repo)
-        except (GatedRepoError, RepositoryNotFoundError):
-            denied.append(repo)
-        except Exception:
-            pass
-    if not denied:
-        return
-    pages = "\n".join(f"  https://huggingface.co/{repo}" for repo in denied)
-    if get_token() is None:
-        reason = (
-            "You are not logged in to Hugging Face, and this image encoder is gated:"
-        )
-        steps = (
-            "1. Accept the terms on the page above with your Hugging Face account.\n"
-            "2. Log in: run `hf auth login`, or set HF_TOKEN to a token of that account."
-        )
-    else:
-        reason = "Your Hugging Face account does not have access yet to this gated image encoder:"
-        steps = (
-            "1. Accept the terms on the page above (approval can take a while).\n"
-            "2. Check that the token in use (`hf auth whoami`) belongs to the account that accepted them."
-        )
-    raise EncoderAccessError(
-        f"Speridlabs Idol reads its input through DINOv3.\n{reason}\n{pages}\n{steps}"
-    )
 
 
 class LibreSperidlabsIdol(LibreGen3DModel):
@@ -134,7 +75,8 @@ class LibreSperidlabsIdol(LibreGen3DModel):
     }
     _LICENSE_NOTICE = (
         "Speridlabs Idol code and weights are Apache-2.0. Its DINOv3 image encoder "
-        "is downloaded from Meta under the DINOv3 License."
+        "is Meta's, mirrored at LibreYOLO/LibreDINOv3vith16plus under the DINOv3 "
+        "License, which restricts some uses (see the repository's LICENSE)."
     )
 
     @classmethod
@@ -159,7 +101,6 @@ class LibreSperidlabsIdol(LibreGen3DModel):
             import transformers  # noqa: F401
         except ImportError as exc:
             raise ImportError(_INSTALL_HINT) from exc
-        require_encoder_access({_DINOV3_REPO: _DINOV3_REVISION})
 
     # ------------------------------------------------------------------
     # Loading

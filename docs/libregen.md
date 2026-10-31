@@ -153,7 +153,7 @@ and records seed, camera and settings in a header comment.
 
 | Alias | Parameters | Knobs (defaults) | Download | License |
 | --- | --- | --- | --- | --- |
-| `speridlabs-idol` | 0.66B (plus DINOv3 ViT-H+ and the FLUX.2 VAE encoder) | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"` or `"real"`), `margin` (crop override) | about 3.1 GB, plus 3.4 GB DINOv3 and 0.2 GB VAE | Apache-2.0; DINOv3 under Meta's DINOv3 License |
+| `speridlabs-idol` | 0.66B (plus DINOv3 ViT-H+ and the FLUX.2 VAE encoder) | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"` or `"real"`), `margin` (crop override) | about 3.1 GB, plus 1.7 GB DINOv3 and 0.2 GB VAE | Apache-2.0; the DINOv3 encoder under Meta's DINOv3 License |
 
 Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
 in under 8 GB of GPU memory. On CUDA, a seed gives the same object as the
@@ -166,11 +166,11 @@ an object takes 6.4 s instead of 9.8 s, after a first call that compiles.
 model = LibreGen("speridlabs-idol", compile=True)
 ```
 
-One-time setup: DINOv3, the image encoder Idol reads its input through, is
-gated by Meta. Accept its terms at
-https://huggingface.co/facebook/dinov3-vith16plus-pretrain-lvd1689m and log
-in with `hf auth login`. If either is missing, Idol stops before downloading
-anything and says which.
+No setup: nothing is gated and no Hugging Face login is needed. The DINOv3
+encoder Idol reads its input through comes from LibreYOLO's bf16 mirror,
+[`LibreYOLO/LibreDINOv3vith16plus`](https://huggingface.co/LibreYOLO/LibreDINOv3vith16plus),
+under Meta's DINOv3 License, which restricts some uses (military, weapons,
+sanctioned parties among them); read it before use.
 
 ```bash
 libreyolo generate source=chair.jpg
@@ -191,6 +191,7 @@ reserved by ADRs 0030 and 0031.
 LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
 Idol networks ported from the Apache-2.0 Idol SDK (see the family's
 `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
-Weights are downloaded from the upstream Hub repos at pinned revisions;
-LibreYOLO does not redistribute them. LibreYOLO adds no content filter;
+Weights are downloaded from the upstream Hub repos at pinned revisions. The
+one exception is Speridlabs Idol's DINOv3 encoder, which LibreYOLO mirrors
+in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;
 upstream usage policies apply.

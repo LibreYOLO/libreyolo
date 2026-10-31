@@ -2992,12 +2992,17 @@ Source: https://github.com/huggingface/diffusers
 License: Apache-2.0
 Copyright 2025 The Wan Team and The HuggingFace Team. All rights reserved.
 
-NOTE - code vs. weights: no weights are bundled or rehosted. speridlabs/idol
-(Apache-2.0, revision 2731c2291fc65a797c5cb627a5e5526fc1490902), the DINOv3
-ViT-H+/16 encoder (Meta DINOv3 License, revision
-c807c9eeea853df70aec4069e6f56b28ddc82acc) and the FLUX.2 VAE from
+NOTE - code vs. weights: no weights are bundled in the package.
+speridlabs/idol (Apache-2.0, revision
+2731c2291fc65a797c5cb627a5e5526fc1490902) and the FLUX.2 VAE from
 black-forest-labs/FLUX.2-klein-4B (Apache-2.0, revision
 e7b7dc27f91deacad38e78976d1f2b499d76a294) download from their publishers.
+The DINOv3 ViT-H+/16 encoder (Meta DINOv3 License) is rehosted by LibreYOLO
+as LibreYOLO/LibreDINOv3vith16plus (revision
+e849a3492905c6dabc89758042bf1402770fb4e6): Meta's
+facebook/dinov3-vith16plus-pretrain-lvd1689m at revision
+c807c9eeea853df70aec4069e6f56b28ddc82acc, cast to bfloat16, shipped with the
+DINOv3 License Agreement as that agreement requires.
 
 MIT License (TripoSplat)
 
