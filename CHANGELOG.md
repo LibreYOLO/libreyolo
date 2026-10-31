@@ -9,7 +9,7 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
-- **Unguarded `train()` and `val()` scripts run on macOS and Windows.**
+- **Unguarded `train()` and `val()` scripts run on macOS and Windows. (#971)**
   A call at the top level of a script, outside `if __name__ == "__main__":`, now runs with `workers=0` and logs one line on how to get parallel data loading back, instead of stopping with an error (#954). This applies under the `spawn` and `forkserver` start methods; guarded scripts, notebooks, the CLI and Linux `fork` keep their workers.
 
 ## [1.7.0] - 2026-10-31
