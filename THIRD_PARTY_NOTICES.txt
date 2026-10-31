@@ -424,6 +424,22 @@ Used for: YOLOX model family (libreyolo/models/yolox/), EMA helper
           assignment logic to the v7 anchor head).
 
 --------------------------------------------------------------------
+DATE (Yiqun Chen)
+--------------------------------------------------------------------
+Source: https://github.com/YiqunChen1999/date
+        (date/models/heads/date.py)
+Commit: 5daf092c74a88b666db8956c5772df55dafb018a
+License: Apache License 2.0 (full text: licenses/Apache-2.0.txt)
+Copyright 2022 Yiqun Chen. All rights reserved.
+Used for: the design of the YOLO9-E2E dual predictor
+          (libreyolo/models/yolo9_e2e/nn.py, loss.py and
+          libreyolo/postprocess/yolo9_e2e.py): a one-to-many and a
+          one-to-one predictor trained together with their losses summed,
+          and inference from the one-to-one predictor by top-k selection
+          without NMS. The implementation was written for LibreYOLO on top
+          of the MIT YOLOv9 port; no DATE code is copied.
+
+--------------------------------------------------------------------
 TorchVision RandomPerspective (PyTorch contributors)
 --------------------------------------------------------------------
 Source: https://github.com/pytorch/vision
