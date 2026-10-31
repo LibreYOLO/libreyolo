@@ -118,6 +118,7 @@ _RESULTS_EXPORTS = (
     "NormalMap",
     "RestoredImage",
     "GeneratedImage",
+    "Gaussians",
     "Matte",
     "Meshes",
     "OCRRegions",
@@ -209,6 +210,7 @@ def __getattr__(name):
         "LibreGen": (".models.gen", "LibreGen"),
         "LibreFlux2Klein": (".models.gen", "LibreFlux2Klein"),
         "LibreSanaSprint": (".models.gen", "LibreSanaSprint"),
+        "LibreSperidlabsIdol": (".models.gen", "LibreSperidlabsIdol"),
         "LibreVLM": (".models.vlm", "LibreVLM"),
         "LibreLFM2VL": (".models.vlm", "LibreLFM2VL"),
         "LibreQwen3VL": (".models.vlm", "LibreQwen3VL"),
@@ -388,10 +390,11 @@ __all__ = [
     "LibreSmolVLA",
     "LibreACT",
     "LibreDiffusionPolicy",
-    # Generative image tier (optional, requires libreyolo[gen])
+    # Generative tier (optional, requires libreyolo[gen])
     "LibreGen",
     "LibreFlux2Klein",
     "LibreSanaSprint",
+    "LibreSperidlabsIdol",
     # Calibrated native monocular 3D detection
     "LibreFCOS3D",
     # Promptable 3D detection (separately installed upstream runtime)
@@ -430,6 +433,7 @@ __all__ = [
     "NormalMap",
     "RestoredImage",
     "GeneratedImage",
+    "Gaussians",
     "Matte",
     "Meshes",
     "OCRRegions",

@@ -62,6 +62,7 @@ OPTIONAL_MODELS = (
     ("libreyolo.models.vla.diffusion_policy", "LibreDiffusionPolicy", "vla", "lerobot"),
     ("libreyolo.models.gen.flux2_klein", "LibreFlux2Klein", "gen", "diffusers"),
     ("libreyolo.models.gen.sana_sprint", "LibreSanaSprint", "gen", "diffusers"),
+    ("libreyolo.models.gen.speridlabs_idol", "LibreSperidlabsIdol", "gen", "diffusers"),
     (
         "libreyolo.models.ground.florence",
         "LibreGroundFlorence2",

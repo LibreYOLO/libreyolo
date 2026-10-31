@@ -111,6 +111,7 @@ def test_task_type_literal_is_public():
         "detect3d",
         "act",
         "generate",
+        "generate3d",
     }
 
 

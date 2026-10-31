@@ -181,3 +181,96 @@ def test_bad_imgsz_is_reported(calls):
     assert result.exit_code == 2
     assert json.loads(result.stdout)["error"] == "invalid_imgsz"
     assert calls == []
+
+
+@pytest.fixture
+def calls3d(monkeypatch):
+    import torch
+
+    import libreyolo.models.gen as gen
+    from libreyolo.utils.results import Gaussians, Results
+
+    recorded = []
+
+    class Model:
+        def __init__(self, name, **kwargs):
+            recorded.append(("load", name, kwargs))
+
+        def __call__(self, source, **kwargs):
+            recorded.append(("call", source, kwargs))
+            gaussians = Gaussians(
+                torch.zeros(2, 3),
+                torch.ones(2, 3),
+                torch.tensor([[1.0, 0.0, 0.0, 0.0]] * 2),
+                torch.ones(2),
+                torch.zeros(2, 1, 3),
+                seed=4,
+            )
+            return Results(None, (8, 8), path=source, gaussians=gaussians)
+
+    monkeypatch.setattr(gen, "LibreGen", Model)
+    return recorded
+
+
+def test_source_turns_an_image_into_a_3d_object(calls3d):
+    args = ["source=chair.jpg", "gaussians=65536", "mode=real", "compile=true"]
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["task"] == "generate3d"
+    assert payload["model"] == "speridlabs-idol"
+    assert payload["results"][0]["name"] == "gaussians"
+    assert payload["results"][0]["count"] == 2
+    assert calls3d[0] == (
+        "load",
+        "speridlabs-idol",
+        {"device": "auto", "dtype": "auto", "offload": False, "compile": True},
+    )
+    assert calls3d[1] == (
+        "call",
+        "chair.jpg",
+        {
+            "seed": None,
+            "n": 1,
+            "save": False,
+            "output_path": None,
+            "gaussians": 65536,
+            "mode": "real",
+        },
+    )
+
+
+def test_source_conflicts_and_misuse(calls3d):
+    result = CliRunner().invoke(app(), ["source=chair.jpg", "prompt=a chair", "--json"])
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["error"] == "config_conflict"
+    result = CliRunner().invoke(app(), ["source=chair.jpg", "imgsz=512", "--json"])
+    assert result.exit_code == 2
+    assert "gaussians" in json.loads(result.stdout)["message"]
+    assert calls3d == []
+
+
+def test_inputs_go_by_keyword_so_families_refuse_the_wrong_kind(monkeypatch):
+    import libreyolo.models.gen as gen
+
+    seen = []
+
+    class Model:
+        task = "generate"
+
+        def __init__(self, name, **kwargs):
+            pass
+
+        def __call__(self, *args, **kwargs):
+            seen.append((args, sorted(kwargs)))
+            raise NotImplementedError("this family does not take source=")
+
+    monkeypatch.setattr(gen, "LibreGen", Model)
+    result = CliRunner().invoke(
+        app(), ["source=chair.jpg", "model=flux2-klein-4b", "--json", "--no-save"]
+    )
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["error"] == "config_unsupported"
+    assert seen[0][0] == () and "source" in seen[0][1]
+    CliRunner().invoke(app(), ["prompt=a chair", "--json", "--no-save"])
+    assert seen[1][0] == () and "prompt" in seen[1][1]

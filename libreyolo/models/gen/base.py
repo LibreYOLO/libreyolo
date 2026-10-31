@@ -45,7 +45,6 @@ _INSTALL_HINT = (
 )
 _SNAPSHOT_COMPLETE_MARKER = ".libreyolo_snapshot_complete"
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
-_UNSUPPORTED_TASK = "LibreGen models solve the 'generate' task only."
 _SEED_RANGE = 2**32
 _DTYPES = ("auto", "bf16", "fp16", "fp32")
 
@@ -100,7 +99,11 @@ class LibreGenModel:
 
         resolved_task = normalize_task(task, default=self.DEFAULT_TASK)
         if resolved_task not in self.SUPPORTED_TASKS:
-            raise ValueError(f"{_UNSUPPORTED_TASK} Got task={task!r}.")
+            raise ValueError(
+                f"{type(self).__name__} solves the "
+                f"{' and '.join(repr(t) for t in self.SUPPORTED_TASKS)} task only. "
+                f"Got task={task!r}."
+            )
         if dtype not in _DTYPES:
             raise ValueError(f"dtype must be one of {_DTYPES}, got {dtype!r}.")
         self.task = resolved_task

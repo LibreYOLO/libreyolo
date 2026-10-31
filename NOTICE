@@ -766,6 +766,27 @@ ViTMatte / ViTDet inference graph (Apache License 2.0 and MIT)
     and distribution by Adobe's dataset agreement; see the family NOTICE and
     weights/LICENSE_NOTICE.txt.
 
+Speridlabs Idol (Apache License 2.0)
+    Path:    libreyolo/models/gen/speridlabs_idol/
+    License: libreyolo/models/gen/speridlabs_idol/NOTICE
+    Source:  https://github.com/speridlabs/idol-sdk
+             (commit 4702a7f00850e34b6e83a2170cc123c3e9570744)
+             Copyright Speridlabs.
+
+    The Idol denoiser, octree and Gaussian decoders, preprocessing, encoder
+    tokenization, flow sampler and camera decoding are ported from the
+    Apache-2.0 Idol SDK, which builds on TripoSplat (MIT,
+    https://github.com/VAST-AI-Research/TripoSplat) and adapts its denoiser
+    from diffusers' transformer_wan.py (Apache-2.0, Copyright 2025 The Wan
+    Team and The HuggingFace Team). Background removal reuses LibreYOLO's
+    BiRefNet network. The port is parity-gated against the SDK on CUDA,
+    bitwise at every stage (weights/parity_speridlabs_idol.py). Weights:
+    speridlabs/idol (Apache-2.0) and the FLUX.2 VAE from FLUX.2-klein-4B
+    (Apache-2.0) download from their publishers; the DINOv3 encoder (Meta
+    DINOv3 License) downloads from LibreYOLO's bf16 mirror
+    LibreYOLO/LibreDINOv3vith16plus, which ships the agreement. All at
+    pinned revisions.
+
 ------------------------------------------------------------------------
 Pretrained model weights
 ------------------------------------------------------------------------

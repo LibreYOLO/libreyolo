@@ -29,6 +29,7 @@ TaskType = Literal[
     "detect3d",
     "act",
     "generate",
+    "generate3d",
 ]
 TASKS = (
     "detect",
@@ -52,6 +53,7 @@ TASKS = (
     "detect3d",
     "act",
     "generate",
+    "generate3d",
 )
 
 TASK_ALIASES = {
@@ -162,6 +164,17 @@ TASK_ALIASES = {
     "text2image": "generate",
     "txt2img": "generate",
     "t2i": "generate",
+    # Image-to-3D models: a synthesized 3D object is the primitive.
+    "generate3d": "generate3d",
+    "generation3d": "generate3d",
+    "3d-generation": "generate3d",
+    "3d_generation": "generate3d",
+    "image-to-3d": "generate3d",
+    "image_to_3d": "generate3d",
+    "image23d": "generate3d",
+    "img2-3d": "generate3d",
+    "img-to-3d": "generate3d",
+    "i23d": "generate3d",
 }
 
 TASK_TO_SUFFIX = {
@@ -185,6 +198,7 @@ TASK_TO_SUFFIX = {
     "mesh": "mesh",
     "act": "act",
     "generate": "generate",
+    "generate3d": "generate3d",
 }
 
 SUFFIX_TO_TASK = {v: k for k, v in TASK_TO_SUFFIX.items()}

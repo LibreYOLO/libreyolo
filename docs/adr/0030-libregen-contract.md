@@ -176,7 +176,7 @@ Install: `pip install "libreyolo[gen]"`.
 
 - Content filtering. LibreYOLO adds no safety checker; upstream usage
   policies apply to the weights.
-- Video, audio and 3D generation.
+- Video, audio and 3D generation. (Image-to-3D was added by ADR 0031.)
 - LoRA loading and prompt rewriting.
 
 ## Consequences

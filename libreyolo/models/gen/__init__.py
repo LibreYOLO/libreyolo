@@ -1,8 +1,9 @@
-"""LibreGen: generative image models behind the LibreYOLO call surface.
+"""LibreGen: generative models behind the LibreYOLO call surface.
 
 User-facing entry point is the ``LibreGen(...)`` factory, a sibling to
-``LibreYOLO(...)``, ``LibreVLM(...)`` and ``LibreVLA(...)``. Text goes in; an
-image comes out as ``Results.generated``.
+``LibreYOLO(...)``, ``LibreVLM(...)`` and ``LibreVLA(...)``. Text goes in and
+an image comes out as ``Results.generated``, or an image goes in and a 3D
+object comes out as ``Results.gaussians``.
 
     from libreyolo import LibreGen
 
@@ -10,9 +11,10 @@ image comes out as ``Results.generated``.
     result = model("a red fox sleeping in fresh snow")
     result.save("fox.png")
 
-    results = model(["a red fox", "a blue jay"], seed=0, n=2, save=True)
+    model = LibreGen("speridlabs-idol")
+    model("chair.jpg").save("chair.ply")
 
-See ``docs/libregen.md`` and ``docs/adr/0030-libregen-contract.md``.
+See ``docs/libregen.md`` and ADRs 0030 and 0031 in ``docs/adr/``.
 """
 
 from __future__ import annotations
@@ -21,9 +23,11 @@ from pathlib import Path
 from typing import Dict, Tuple, Type
 
 from .base import LibreGenModel
+from .base3d import LibreGen3DModel
 from .diffusers_family import DiffusersGenFamily
 from .flux2_klein import LibreFlux2Klein
 from .sana_sprint import LibreSanaSprint
+from .speridlabs_idol import LibreSperidlabsIdol
 
 # alias -> (family class, size)
 _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
@@ -33,6 +37,8 @@ _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
     "flux.2-klein-4b": (LibreFlux2Klein, "4b"),
     "sana-sprint": (LibreSanaSprint, "0.6b"),
     "sana-sprint-0.6b": (LibreSanaSprint, "0.6b"),
+    "speridlabs-idol": (LibreSperidlabsIdol, "0.6b"),
+    "speridlabs-idol-0.6b": (LibreSperidlabsIdol, "0.6b"),
 }
 
 _DEFAULT_MODEL = "flux2-klein-4b"
@@ -50,19 +56,23 @@ def _is_directory(model) -> bool:
 
 
 def LibreGen(model: str = _DEFAULT_MODEL, **kwargs) -> LibreGenModel:
-    """Load a generative image model by alias or local model directory.
+    """Load a generative model by alias or local model directory.
 
     Args:
-        model: Alias (``"flux2-klein-4b"``, ``"sana-sprint-0.6b"``) or a path
-            to a local model directory in a supported family's upstream
-            format, such as a fine-tune or an offline copy.
+        model: Alias (``"flux2-klein-4b"``, ``"sana-sprint-0.6b"``,
+            ``"speridlabs-idol"``) or a path to a local model directory in a
+            supported family's upstream format, such as a fine-tune or an
+            offline copy.
         **kwargs: Forwarded to the family constructor: ``device``, ``dtype``
-            (``"auto"``, ``"bf16"``, ``"fp16"``, ``"fp32"``), ``offload``
-            (keep idle components off the GPU) and, for a directory,
+            (``"auto"``, ``"bf16"``, ``"fp16"``, ``"fp32"``; image-to-3D
+            families take ``"auto"`` only), ``offload`` (text-to-image: keep
+            idle components off the GPU), ``compile`` (image-to-3D:
+            ``torch.compile`` the sampler on CUDA) and, for a directory,
             ``size``.
 
     Returns:
-        A ``LibreGenModel``; call it with a prompt.
+        A ``LibreGenModel``; call it with a prompt (text-to-image) or an
+        image (image-to-3D).
     """
     # Aliases win, so a folder that happens to share an alias name cannot
     # shadow it; pass "./name" to load such a folder.
@@ -88,7 +98,9 @@ def LibreGen(model: str = _DEFAULT_MODEL, **kwargs) -> LibreGenModel:
 __all__ = [
     "LibreGen",
     "LibreGenModel",
+    "LibreGen3DModel",
     "DiffusersGenFamily",
     "LibreFlux2Klein",
     "LibreSanaSprint",
+    "LibreSperidlabsIdol",
 ]

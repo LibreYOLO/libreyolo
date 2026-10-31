@@ -2352,6 +2352,25 @@
     "available": true,
     "group": "s"
   },
+  "speridlabs_idol": {
+    "class": "libreyolo.models.gen.speridlabs_idol.model.LibreSperidlabsIdol",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "0.6b": 1024
+    },
+    "default_imgsz": {
+      "0.6b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "ssd": {
     "class": "libreyolo.models.ssd.model.LibreSSD",
     "tasks": [

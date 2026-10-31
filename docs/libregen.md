@@ -1,8 +1,9 @@
 # LibreGen
 
-`LibreGen` runs generative image models: text in, an image out, behind the
-same call as every other LibreYOLO task. The contract lives in
-`docs/adr/0030-libregen-contract.md`.
+`LibreGen` runs generative models behind the same call as every other
+LibreYOLO task: text in and an image out, or an image in and a 3D object
+out. The contracts live in `docs/adr/0030-libregen-contract.md` (images)
+and `docs/adr/0031-generate3d-contract.md` (3D objects).
 
 ## Install
 
@@ -105,14 +106,92 @@ prompt per line; pass one or the other. `imgsz` is `1024` for a square image
 or `HEIGHTxWIDTH` such as `768x1024`. Images are saved by default; pass
 `--no-save` to skip.
 
+## Image to 3D
+
+One picture of an object in, the whole object out as 3D Gaussian splats,
+including the sides the picture never showed:
+
+```python
+from libreyolo import LibreGen
+
+model = LibreGen("speridlabs-idol")      # autodownloads
+result = model("chair.jpg")              # Results
+result.save("chair.ply")                 # opens in any Gaussian splat viewer
+```
+
+The source is anything YOLO predict takes: a path, URL, `PIL.Image`, NumPy
+array (BGR), tensor, a folder of images or a list of them. A PNG or
+`PIL.Image` with real transparency is used as the cutout; anything else gets
+its background removed first.
+
+```python
+results = model(["chair.jpg", "lamp.png"], seed=0, n=2, save=True)
+# writes runs/generate/predict/*.ply
+
+model("photo.jpg", mode="real")          # photographs: a looser crop
+model("render.png", gaussians=1_048_576) # more detail, from 32,768 to 1,048,576
+model("chair.jpg", steps=25)             # faster, a little less detail
+```
+
+The result:
+
+```python
+g = result.gaussians
+g.xyz, g.scales, g.rotations             # (N, 3), (N, 3), (N, 4) wxyz
+g.opacities, g.sh, g.colors              # (N,), (N, 1, 3), (N, 3) RGB
+g.camera                                 # the input view: yaw, pitch, radius, fov, margin
+g.seed, g.params                         # how to make it again
+g.input_image                            # what the model saw after its crop
+g[g.opacities > 0.1]                     # select Gaussians
+result.save("chair.splat")               # compact web format
+result.plot()                            # a quick preview from the input view
+```
+
+The object is z-up and centred in `[-0.5, 0.5]^3`. The `.ply` is the
+standard 3DGS layout turned y-up, the way viewers and trainers expect it,
+and records seed, camera and settings in a header comment.
+
+| Alias | Parameters | Knobs (defaults) | Download | License |
+| --- | --- | --- | --- | --- |
+| `speridlabs-idol` | 0.66B (plus DINOv3 ViT-H+ and the FLUX.2 VAE encoder) | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"` or `"real"`), `margin` (crop override) | about 3.1 GB, plus 1.7 GB DINOv3 and 0.2 GB VAE | Apache-2.0; the DINOv3 encoder under Meta's DINOv3 License |
+
+Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
+in under 8 GB of GPU memory. On CUDA, a seed gives the same object as the
+Speridlabs SDK. Rarely, a run places part of the Gaussians differently
+while the object stays the same: like the SDK, it runs one attention step on
+a cuDNN kernel whose result can depend on GPU memory history (ADR 0031). `compile=True` (CUDA) compiles the sampler: on an H100
+an object takes 6.4 s instead of 9.8 s, after a first call that compiles.
+
+```python
+model = LibreGen("speridlabs-idol", compile=True)
+```
+
+No setup: nothing is gated and no Hugging Face login is needed. The DINOv3
+encoder Idol reads its input through comes from LibreYOLO's bf16 mirror,
+[`LibreYOLO/LibreDINOv3vith16plus`](https://huggingface.co/LibreYOLO/LibreDINOv3vith16plus),
+under Meta's DINOv3 License, which restricts some uses (military, weapons,
+sanctioned parties among them); read it before use.
+
+```bash
+libreyolo generate source=chair.jpg
+libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
+```
+
+With `source=` the model defaults to `speridlabs-idol` and objects are saved
+as `.ply`.
+
 ## Not supported yet
 
-`train()`, `val()`, `export()` and `source=` (image-conditioned generation)
-raise `NotImplementedError`. Their names are reserved by ADR 0030.
+`train()`, `val()`, `export()` and, on text-to-image models, `source=`
+(image-conditioned generation) raise `NotImplementedError`. Their names are
+reserved by ADRs 0030 and 0031.
 
 ## Licensing
 
-LibreYOLO ships only its own adapter and payload code. Models load through
-the Apache-2.0 `diffusers` API. Weights are downloaded from the upstream Hub
-repo at a pinned revision; LibreYOLO does not redistribute them. LibreYOLO
-adds no content filter; upstream usage policies apply.
+LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
+Idol networks ported from the Apache-2.0 Idol SDK (see the family's
+`NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
+Weights are downloaded from the upstream Hub repos at pinned revisions. The
+one exception is Speridlabs Idol's DINOv3 encoder, which LibreYOLO mirrors
+in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;
+upstream usage policies apply.
