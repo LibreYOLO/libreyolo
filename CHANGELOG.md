@@ -7,101 +7,207 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-31
+
+YOLO9 now runs on code ported from the MIT upstream, MultimediaTechLab/YOLO, and checkpoints written by earlier releases give bit-identical float outputs. Two new tasks arrive with the `LibreGen` factory: `generate` (text to image) and `generate3d` (one image to 3D Gaussian splats). The release also adds the WeVisOne-VL VLM family, a confusion matrix on detect, segment and classify validation, per-class precision/recall/F1 curves on detect and segment validation, and class-agnostic NMS. 106 commits, 25 merged pull requests. Several changes move training results, metrics or output paths you may be comparing against v1.6.0 (YOLO9-family and YOLOv7 training recipes, `perspective` warps, D-FINE CLI defaults, some CLI run folders, confusion-matrix counts, `single_cls` validation, segmentation masks for box-only label rows, RTMDet-Ins detection counts): read **Changed** and **Breaking changes** before upgrading.
+
+### Highlights
+
+- **YOLO9 on MIT upstream code. (#930)**
+  The YOLO9 building blocks, the detection-head towers YOLO9-E2E and YOLO9-P2 share, the PGI branches and mixup are ported from MultimediaTechLab/YOLO (MIT). Existing checkpoints load unchanged and predict the same boxes.
+
+- **Image and 3D generation. (#933, #964)**
+  `LibreGen` runs FLUX.2 klein 4B and SANA-Sprint 0.6B for text to image, and Speridlabs Idol turns one picture of an object into 3D Gaussian splats.
+
+- **WeVisOne-VL. (#957)**
+  Tencent's 2B and 4B VLMs detect, point, segment, matte and read text through `LibreVLM`.
+
+- **Validation explains more of its results. (#931)**
+  Detect and segment `val()` return a confusion matrix and per-class P/R/F1 curves, classify `val()` a confusion matrix, and predict and val gain class-agnostic NMS.
+
+- **YOLO9 training fixes. (#930, #939)**
+  Fine-tunes no longer start with a randomly initialised PGI branch, gradients are clipped, labels are assigned in fp32, and label-assignment memory no longer grows with `max_labels`.
+
 ### Added
 
-- **Image-to-3D generation: the `generate3d` task and Speridlabs Idol.**
-  `LibreGen("speridlabs-idol")("chair.jpg").save("chair.ply")` turns one picture of an object into the whole object as 3D Gaussian splats. Speridlabs Idol (0.66B, Apache-2.0 code and weights) is ported from the Speridlabs SDK, and on CUDA a seed gives the same object as the SDK. Sources are what predict takes (paths, URLs, PIL, NumPy, folders, lists); a real alpha channel is used as the cutout. `Results.gaussians` is a `Gaussians` payload (`xyz`, `scales`, `rotations`, `opacities`, `sh`, `colors`, the inferred input `camera`, `seed`), saved as the standard 3DGS `.ply` or as `.splat`, with `plot()` as a preview. Knobs: `steps`, `guidance`, `shift`, `gaussians` (32,768 to 1,048,576), `mode` (`synthetic` or `real`) and `margin`; `compile=True` compiles the sampler on CUDA. Nothing is gated and no login is needed: the FLUX.2 VAE is read from the Apache-2.0 FLUX.2 klein repo, identical in bf16 to the gated copy upstream names, and the DINOv3 encoder from LibreYOLO's new bf16 mirror `LibreYOLO/LibreDINOv3vith16plus` (Meta's DINOv3 License, tensor-identical to Meta's gated checkpoint in bf16). CLI: `libreyolo generate source=chair.jpg`. Install `libreyolo[gen]`. See ADR 0031 and `docs/libregen.md`.
+- **Image-to-3D generation: the `generate3d` task and Speridlabs Idol. (#964)**
+  `LibreGen("speridlabs-idol")("chair.jpg").save("chair.ply")` turns one picture of an object into the whole object as 3D Gaussian splats. Speridlabs Idol (a 0.66B denoiser on DINOv3 ViT-H+ and FLUX.2 VAE encoders; Apache-2.0 code and weights) is ported from the Speridlabs SDK, and on CUDA a seed gives the same object as the SDK, apart from a rare cuDNN run-to-run variation the SDK shows too (ADR 0031). Sources are what predict takes (paths, URLs, PIL, NumPy, folders, lists); a real alpha channel in an image file or a PIL image is used as the cutout, and other inputs are cut out by BiRefNet. `Results.gaussians` is a `Gaussians` payload (`xyz`, `scales`, `rotations`, `opacities`, `sh`, `colors`, the inferred input `camera`, `seed`), saved as the standard 3DGS `.ply` or as `.splat`, with `plot()` as a preview. Knobs: `steps`, `guidance`, `shift`, `gaussians` (32,768 to 1,048,576), `mode` (`synthetic` or `real`) and `margin`; `compile=True` compiles the sampler on CUDA. Nothing is gated and no login is needed: the FLUX.2 VAE is read from the Apache-2.0 FLUX.2 klein repo, and the DINOv3 encoder from LibreYOLO's new bf16 mirror `LibreYOLO/LibreDINOv3vith16plus` (Meta's DINOv3 License, tensor-identical to Meta's gated checkpoint in bf16). CLI: `libreyolo generate source=chair.jpg`. Install `libreyolo[gen]`. See ADR 0031 and `docs/libregen.md`.
 
-- **LibreGen sibling factory and the `generate` task. (#932)**
-  `LibreGen("flux2-klein-4b")("a red fox")` returns `Results.generated`, an `(H, W, 3)` RGB image with the prompt, seed and call parameters that reproduce it. Shared arguments are `imgsz`, `seed`, `n`, `save` and `stream`; settings only some models have (`steps`, `guidance`) are per-family knobs with defaults, and an unsupported one raises. First families are FLUX.2 klein 4B and SANA-Sprint 0.6B (both Apache-2.0; SANA-Sprint bundles a Gemma 2 text encoder under the Gemma Terms of Use), loaded through `diffusers` at pinned revisions. `LibreGen(path)` loads a local pipeline directory. CLI: `libreyolo generate prompt="..."`. Install `libreyolo[gen]`. Training, validation, export and image-conditioned generation are reserved and raise. See ADR 0030 and `docs/libregen.md`.
+- **LibreGen sibling factory and the `generate` task. (#933)**
+  `LibreGen("flux2-klein-4b")("a red fox")` returns `Results.generated`, a `GeneratedImage` holding an `(H, W, 3)` RGB image with the prompt, seed and call parameters that reproduce it. Shared arguments are `imgsz`, `seed`, `n`, `save` and `stream`; settings only some models have (`steps`, `guidance`) are per-family knobs with defaults, and an unsupported one raises. First families are FLUX.2 klein 4B and SANA-Sprint 0.6B (both Apache-2.0; SANA-Sprint bundles a Gemma 2 text encoder under the Gemma Terms of Use), loaded through `diffusers` at pinned revisions. `LibreGen(path)` loads a local pipeline directory. CLI: `libreyolo generate prompt="..."` (or `prompt_file=` with one prompt per line); the CLI saves generations by default, under `runs/generate/predict` (in Python, pass `save=True`). Install `libreyolo[gen]`. Training, validation, export and image-conditioned generation are reserved and raise. See ADR 0030 and `docs/libregen.md`.
 
-- **WeVisOne-VL VLM family.**
-  `LibreVLM("wevisone-vl", names=[...])` (or `LibreWeVisOneVL`) runs Tencent's WeVisOne-VL 2B (default) and 4B, Apache-2.0 code and weights, through the native transformers Qwen3-VL classes at pinned revisions. Tasks: `detect` (whole vocabulary in one generation, or one referring phrase per generation with `referring=True`, which returns nothing for an absent target), `point`, `segment` (boxes plus binary masks), `matte` (`Results.matte`) and `ocr` (`Results.ocr`). Masks and mattes come from a minimal Apache-2.0 port of the released pixel decoder (`mask_decoder.pt`). Inference only: confidence is a constant 1.0, and `train()`, `val()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+- **WeVisOne-VL VLM family. (#957)**
+  `LibreVLM("wevisone-vl", names=[...])` (or `LibreWeVisOneVL`) runs Tencent's WeVisOne-VL 2B (default) and 4B, Apache-2.0 code and weights, through the native transformers Qwen3-VL classes at pinned revisions. Tasks: `detect` (whole vocabulary in one generation, or one referring phrase per generation with `referring=True`, which returns nothing for an absent target), `point`, `segment` (boxes plus binary masks), `matte` (`Results.matte`) and `ocr` (`Results.ocr`); `segment`, `matte` and referring detection need `names=`. Masks and mattes come from a minimal Apache-2.0 port of the released pixel decoder (`mask_decoder.pt`). Inference only: confidence is a constant 1.0, and `train()`, `val()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
 
-- **`libreyolo train --clip_max_norm`.**
-  Sets the gradient-norm clip from the CLI for YOLO9-family training, and for other families whose registered training config declares `clip_max_norm`; `0` disables clipping.
+- **`libreyolo train clip_max_norm=` (or `--clip-max-norm`). (#930)**
+  Sets the gradient-norm clip from the CLI for families whose registered training config declares `clip_max_norm`: YOLO9, YOLO9-E2E and YOLO9-P2 (default 10), and D-FINE, DEIM, DEIMv2, DINOv2, DOME-DETR, GTR, RF-DETR, RT-DETR, RT-DETRv2, RT-DETRv4 and TinyFormer (default 0.1). `0` disables clipping; negative or non-finite values are rejected, and other families exit with `config_unsupported`.
 
-- **Class-agnostic NMS. (#928)**
-  `predict(agnostic_nms=True)` and `val(agnostic_nms=True)` (CLI `--agnostic-nms`) keep only the highest-scoring box among boxes that overlap above `iou`, whatever their classes. It is one step applied to a family's finished detections, after the `classes` filter, so it works for every family that returns boxes (NMS-free families and exported backends included) and for masks, keypoints and oriented boxes (rotated IoU). Predict covers detect, segment, pose and OBB; validation covers detect and segment. Other tasks and predict paths raise instead of ignoring it.
+- **Class-agnostic NMS. (#931)**
+  `predict(agnostic_nms=True)` and `val(agnostic_nms=True)` (CLI `--agnostic-nms` or `agnostic_nms=True`) keep only the highest-scoring box among boxes that overlap above `iou`, whatever their classes. It is one step applied to a family's finished detections, after the `classes` filter, so it behaves the same for NMS-free families and exported backends, with TTA (`augment=True`) and tiling; masks and keypoints follow their box, and oriented boxes use rotated IoU. Predict covers detect, segment, pose and OBB. On the standard predict path, tasks without boxes raise `ValueError`; `LibreEnsemble` and HRNet raise `NotImplementedError`, the SAM tier rejects the keyword with `TypeError`, and the gaze, OCR, body-mesh and face-embedding runners ignore it. Validation covers detect and segment, and `val(agnostic_nms=True)` on any other task raises `ValueError`.
 
-- **Confusion matrix on validation results. (#928)**
-  `val()` returns `results.confusion_matrix` for detect, segment and classify: `matrix[predicted, true]` (detection adds a `background` row and column), with `summary()`, `to_df()` (Polars, optional), `to_csv()`, `to_json()`, `tp_fp()`, `nonzero()`, `plot()` and `class_accuracy()`, the share of found objects of each class that got that class. It is computed on every validation, not only with `plots=True`.
+- **Confusion matrix on validation results. (#931)**
+  `val()` returns `results.confusion_matrix` for detect, segment and classify: `matrix[predicted, true]` (detection adds a `background` row and column), with `summary()`, `to_df()` (Polars, optional), `to_csv()`, `to_json()`, `tp_fp()`, `nonzero()`, `plot()` and `class_accuracy()` (per class, the share of its images, or for detection of its found objects, that got that class). It is computed on every validation, not only with `plots=True`. For classification with more than 2,000 classes the dense matrix (`matrix`, `summary()`, `to_*()`, `plot()`) raises and `plots=True` skips its images; `tp_fp()`, `nonzero()` and `class_accuracy()` still work.
 
-- **Per-class precision, recall and F1 across confidence thresholds. (#928)**
-  Detect and segment results expose `box.p_curve`, `box.r_curve` and `box.f1_curve` over `box.px` (1000 confidences, IoU 0.5 matching), one row per class in `box.ap_class_index`, plus `box.p`, `box.r` and `box.f1` at the confidence that maximizes mean F1. `plots=True` also writes `f1_conf_box.png`.
+- **Per-class precision, recall and F1 across confidence thresholds. (#931)**
+  Detect and segment results expose `box.p_curve`, `box.r_curve` and `box.f1_curve` over `box.px` (1000 confidences, IoU 0.5 matching; box-level for segmentation too), one row per class with ground truth in `box.ap_class_index`, plus `box.p`, `box.r` and `box.f1` at the confidence that maximizes mean F1. `plots=True` also writes `f1_conf_box.png`.
 
-- **Classification validation results object. (#928)**
-  Classification `val()` results gain `top1`, `top5` and `confusion_matrix`, and `plots=True` saves the confusion matrix. The returned object is still the same flat metrics dict.
+- **Classification validation results object. (#931)**
+  Classification `val()` results gain `top1`, `top5` and `confusion_matrix`. They are still a flat metrics dict (a `dict` subclass) with the same keys. `plots=True` writes `confusion_matrix.png` (counts) and `confusion_matrix_normalized.png`; 1.6.0 wrote no classification plots.
 
 ### Changed
 
-- **YOLO9 internals use the MultimediaTechLab/YOLO module names.**
-  Code that reaches into the network sees `YOLO9Head` instead of `DDetect` (box and class towers in `anchor_convs` / `class_convs`, `num_classes`, `strides`), `RepConv` instead of `RepConvN`, `Bottleneck` instead of `RepNBottleneck`, and `conv1`/`conv2`/`bottleneck` instead of `cv1`/`cv2`/`m` inside blocks. ONNX node names follow, e.g. `/head/anchor_convs.0/...` (update Hailo end-node configs). Model inputs, outputs and output names are unchanged. Freshly built YOLO9 models with more than 100 classes get class towers up to 128 channels wide instead of 100. `LibreYOLO9Model.fuse()` and `RepConvN.fuse_convs()` are removed; predict, val and export never called them.
-- **YOLO9-m and YOLO9-c build the MultimediaTechLab/YOLO auxiliary branch when PGI is attached.**
+- **YOLO9-family training gives different results than 1.6.0. (#930)**
+  YOLO9, YOLO9-E2E and YOLO9-P2 clip the gradient norm at 10 by default (1.6.0 did not clip), and the training assigner scores anchors in fp32, so under fp16 AMP the chosen positives can differ. Plain YOLO9 fine-tunes from the published `LibreYOLO9{t,s,m,c}.pt` weights no longer attach a PGI branch at `aux_weight=0.25`. A YOLO9-family run started in 1.6.0 and resumed in 1.7.0 also clips from the resumed epoch, because its saved config has no `clip_max_norm`; pass `clip_max_norm=0` to resume it unchanged. The fixes behind these changes are listed under Fixed.
+
+- **YOLO9 internals use the MultimediaTechLab/YOLO module names. (#930)**
+  Code that reaches into the network sees `YOLO9Head` instead of `DDetect` (box and class towers in `anchor_convs` / `class_convs`, `anchor2vec` instead of `dfl`, `num_classes` instead of `nc`, `strides` (the level strides, a tuple) instead of the `stride` buffer and the per-anchor `strides` cache; `no`, `nl`, `anchors` and `dynamic` are gone), `RepConv` instead of `RepConvN`, `Bottleneck` instead of `RepNBottleneck` (the old plain-conv `Bottleneck` is gone), `Anchor2Vec` instead of `DFL`, and `convN` instead of `cvN` (`conv` instead of `cv` in AConv) and `bottleneck` instead of `m` inside blocks. Block constructors take the MultimediaTechLab arguments. In YOLO9-E2E, `YOLO9E2EHead` replaces `YOLO9E2EDetect`, and the one-to-one towers are `one_to_one_anchor_convs` / `one_to_one_class_convs` (were `one2one_cv2` / `one2one_cv3`). ONNX node names follow in the head, backbone and neck, e.g. `/head/anchor_convs.0/...` (update Hailo end-node configs; the `libreyolo-export-hailo` skill carries the new names). Model inputs, outputs and output names are unchanged. Freshly built YOLO9-t, YOLO9-E2E-t and YOLO9-P2-t/s models with more than 100 classes get class towers up to 128 channels wide instead of 100; other sizes are unchanged, and a loaded checkpoint keeps its stored width. `LibreYOLO9Model.fuse()`, `RepConvN.fuse_convs()`, `Conv.forward_without_bn()`, `Concat` and `yolo9.utils.decode_boxes` are removed; predict, val and export never called them. There are no compatibility aliases.
+
+- **YOLO9-m and YOLO9-c build the MultimediaTechLab/YOLO auxiliary branch when PGI is attached. (#930)**
   The training-only PGI branch of these two sizes is now the one in the upstream `v9-m.yaml` / `v9-c.yaml`: `CBLinear` taps on the three backbone stages, a second backbone fed with the image whose stages are summed with those taps by `CBFuse`, and a detection head on its outputs. 1.6.0 built the YOLO9-t/s top-down branch for every size. Converting upstream `v9-m.pt` / `v9-c.pt` now keeps their auxiliary tensors (`aux.*`, `aux_head.*`) instead of skipping them, so fine-tunes from those conversions train with PGI. At 80 classes the branch and its head have 12.8M parameters for YOLO9-m (7.5M before) and 25.7M for YOLO9-c (10.2M before), so PGI training of these sizes uses more memory and time per step; inference, export and YOLO9-t/s are unchanged. Checkpoints that carry the previous m/c branch (`aux.spp.*`, `aux.elan_a4.*`, `aux.elan_a3.*`) still resume and fine-tune with that branch.
-- **`perspective` augmentation uses corner displacement.**
-  With `perspective > 0`, the four corners of the augmentation canvas are each pulled inward by a random amount and the image and boxes are warped by the resulting homography, on top of the usual rotation, scale, shear and translation. `distortion_scale = min(perspective * 100, 0.2)` in the sense of torchvision's `RandomPerspective`, so `perspective=0.001` moves each corner by at most 5% of the canvas side, at any resolution. The same value therefore gives a different warp than in 1.6.0, and negative values raise `ValueError`. The default `perspective=0` is unchanged. Applies to every family that uses the shared affine warp (YOLO9, YOLOX, YOLO-NAS).
-- **YOLO9 mixup samples the blend ratio from Beta(1, 1).**
-  This is the MultimediaTechLab/YOLO recipe; the ratio was drawn from Beta(32, 32) before, which kept it close to 0.5. It applies only when mixup is enabled (`mixup_prob` is 0 by default).
 
-- **Confusion matrix plots. (#928)**
-  `plots=True` now writes raw counts to `confusion_matrix.png` and per-true-class shares to `confusion_matrix_normalized.png` (previously one normalized image named `confusion_matrix.png`). Detections are counted at confidence 0.25, or `conf` if higher, instead of a fixed 0.15, matching `visualize` and `box.image_metrics`; with `classes=`, ground truth of the dropped classes is no longer counted as missed. The exported `libreyolo.validation.ConfusionMatrix` now indexes `matrix[predicted, true]` (it was `[actual, predicted]`).
+- **`perspective` augmentation uses corner displacement. (#930)**
+  With `perspective > 0`, the four corners of the augmentation canvas are each pulled inward by a random amount and the image and boxes are warped by the resulting homography, on top of the usual rotation, scale, shear and translation. `distortion_scale = min(perspective * 100, 0.2)` in the sense of torchvision's `RandomPerspective`, so `perspective=0.001` moves each corner by at most 5% of the canvas side, at any resolution. The same value therefore gives a different warp than in 1.6.0, and negative values raise `ValueError` when the first sample is warped. The default `perspective=0` is unchanged. Applies to every family that uses the shared affine warp: YOLO9 (and its E2E and P2 variants), YOLOX, YOLOv7, YOLO-NAS, PP-YOLOE, RTMDet, PicoDet, RT-DETR and RT-DETRv2.
 
-- **`agnostic_nms` is no longer a silent no-op in `predict()`. (#928)**
-  It used to warn and do nothing. `agnostic_nms=False` is still accepted everywhere.
+- **The YOLO9 mosaic pipeline samples the mixup ratio from Beta(1, 1). (#930)**
+  This is the MultimediaTechLab/YOLO recipe; the ratio was drawn from Beta(32, 32) before, which kept it close to 0.5. **Default YOLOv7 training changes**, because YOLOv7 shares this pipeline and enables mixup by default (`mixup_prob=1.0`). For YOLO9, YOLO9-E2E, YOLO9-P2, RT-DETR and RT-DETRv2 it applies only when mixup is enabled (`mixup_prob` is 0 by default; RT-DETR and RT-DETRv2 also need `mosaic_prob > 0`, which is 0 by default too).
+
+- **`libreyolo train` without `name=` uses the run name `model.train()` uses for more families. (#946)**
+  EC, D-FINE, SegFormer and LingBot-Vision runs go to `runs/train/ec_exp`, `dfine_exp`, `segformer_exp` and `lingbotvision_exp` instead of `runs/train/exp`; V-JEPA 2 probes go to `runs/train/train`, and YOLO9-P2 to `runs/train/yolo9_exp` (was `yolo9_p2_exp`). Families with a registered training config already did this in 1.6.0. Pass `name=exp` for the old path, or `name=yolo9_p2_exp` for YOLO9-P2. Thanks @Emyyr.
+
+- **Confusion matrix plots. (#931)**
+  `plots=True` now writes raw counts to `confusion_matrix.png` and per-true-class shares to `confusion_matrix_normalized.png` (previously one normalized image named `confusion_matrix.png`). Detections are counted at confidence 0.25, or `conf` if higher, instead of 0.15 (or `conf` if higher), matching `visualize` and `box.image_metrics`; with `classes=`, ground truth of the dropped classes is no longer counted as missed. The exported `libreyolo.validation.ConfusionMatrix` now indexes `matrix[predicted, true]` (it was `[actual, predicted]`), defaults to `conf_thres=0.25` (was 0.15), exposes `matrix` as a property that can no longer be reassigned and takes keyword-only `names=` and `task=`; it lives in `libreyolo.validation.confusion_matrix`, and the old imports still work.
+
+- **`predict(agnostic_nms=True)` now suppresses overlapping boxes. (#931)**
+  1.6.0 warned and ignored it. `agnostic_nms=False` is accepted as before, now without the warning.
+
+### Breaking changes
+
+- **YOLO9-family checkpoints saved by 1.7.0 do not load in 1.6.x. (#930)**
+  YOLO9, YOLO9-E2E and YOLO9-P2 checkpoints use the new tensor names. 1.6.x loads YOLO9 and YOLO9-P2 ones with a missing-keys warning, leaves most layers at their initial weights and predicts no boxes; `LibreYOLO()` in 1.6.x routes a YOLO9-E2E one to plain YOLO9 and raises a `model_family` mismatch error. Checkpoints from earlier releases still load in 1.7.0, and ONNX exports are unaffected.
+  Migration: Upgrade every environment that reads YOLO9-family checkpoints written by 1.7.0.
+
+- **YOLO9 module names, attributes and ONNX node names changed, with no aliases. (#930)**
+  See the YOLO9 internals entry under Changed.
+  Migration: Update code that reaches into `model.model` and tools keyed on ONNX node names, such as Hailo end-node configs; the YOLO9 internals entry under Changed lists the renames, and `docs/upgrading.md` has the main ones.
+
+- **`libreyolo.validation.ConfusionMatrix` is transposed and its plot files changed. (#931)**
+  `matrix[predicted, true]` replaces `[actual, predicted]`, the default `conf_thres` is 0.25, `matrix` can no longer be reassigned, and `confusion_matrix.png` holds counts.
+  Migration: Transpose code that indexed the old matrix, pass `conf_thres=0.15` for the old counts, and read `confusion_matrix_normalized.png` for the normalized plot.
+
+- **`predict(agnostic_nms=True)` raises where it is not supported. (#931)**
+  In `predict()`, tasks without boxes raise `ValueError`, and predict paths that do not implement it raise `NotImplementedError`, where 1.6.0 warned and continued.
+  Migration: Drop `agnostic_nms=True` from those calls.
+
+- **An unknown classifier `interpolation` raises. (#942)**
+  Names other than `bilinear`, `bicubic`, `nearest` and `bilinear_no_antialias`, and the torchvision modes `LANCZOS`, `BOX`, `HAMMING` and `NEAREST_EXACT`, raise `ValueError`; 1.6.0 resized bilinearly or passed them through.
+  Migration: Use one of the four supported names.
+
+- **Training recipes and some CLI run folders changed. (#930, #946, #955)**
+  YOLO9-family and YOLOv7 training, D-FINE CLI training and the default CLI run folder of EC, D-FINE, SegFormer, LingBot-Vision, YOLO9-P2 and V-JEPA 2 differ from 1.6.0; see Changed and Fixed.
+  Migration: To get closer to 1.6.0 runs, pass `clip_max_norm=0` and `aux_weight=0.25` (YOLO9), `name=exp` (CLI; `name=yolo9_p2_exp` for YOLO9-P2), and for D-FINE the generic values 1.6.0 sent (`epochs=300 optimizer=sgd lr0=0.01 weight_decay=5e-4 warmup_epochs=5 mosaic=1.0 mixup=1.0 hsv_prob=1.0 degrees=10 translate=0.1 shear=2.0`). The mixup ratio, the fp32 label assignment and the perspective warp have no switch, so default YOLOv7 training, and YOLO9 runs that use mixup or perspective, cannot be reproduced exactly.
 
 ### Fixed
 
 - **A missing `libreyolo[rfdetr]` extra is named instead of a misleading error. (#965)**
-  Without `transformers`, `LibreYOLO("LibreRFDETRn.pt")` and the DINOv2 names failed with `unable to determine size from filename`, an explicit `size=` failed with `Could not determine download URL`, and `libreyolo predict model=LibreRFDETRn.pt` (or `model=rfdetr-n`) printed `Unknown model` with a list that left RF-DETR out. All of them now point to `pip install libreyolo[rfdetr]`, as loading a local RF-DETR checkpoint already did. Other unknown names keep their errors.
+  Without `transformers`, `LibreYOLO("LibreRFDETRn.pt")` and the DINOv2 names failed with `unable to determine size from filename`, an explicit `size=` failed with `Could not determine download URL`, and `libreyolo predict model=LibreRFDETRn.pt` (or `model=rfdetr-n`) printed `Unknown model` with a list that left RF-DETR out. All of them now point to `pip install libreyolo[rfdetr]`, as loading a local RF-DETR checkpoint already did; the CLI's JSON error code for these names is now `model_load_failed` (was `model_not_found`). Other unknown names keep their errors.
 
-- **CLI segmentation training uses the family recipe and loads the RF-DETR segment checkpoint. (#955)**
-  SegFormer, LingBot-Vision and D-FINE did not declare their training config, so `libreyolo train` passed them the generic detection defaults (`sgd`, `lr0=0.01`, `yoloxwarmcos`, 300 epochs): SegFormer rejected the scheduler and the other two trained with the wrong optimizer and learning rate. They now start from their own recipes; this also changes the CLI defaults for D-FINE detection training (now `adamw`, `lr0=2e-4`, `flat_cosine`). `libreyolo train --model LibreRFDETRn-seg.pt --task segment` built the model from scratch instead of loading the checkpoint; it now loads it, whatever its filename, since the checkpoint metadata decides the task. A detection checkpoint with `--task segment` stops with a cross-task error, as in the Python API.
+- **CLI training uses the SegFormer, LingBot-Vision and D-FINE recipes and loads the RF-DETR segment checkpoint. (#955)**
+  SegFormer, LingBot-Vision and D-FINE did not declare their training config, so `libreyolo train` passed them the generic detection defaults. SegFormer and LingBot-Vision rejected the CLI's `yoloxwarmcos` scheduler (`Unknown ... scheduler`), and D-FINE trained with the generic `lr0=0.01`, weight decay, 300 epochs and mosaic/mixup augmentation. They now start from their own recipes; for D-FINE detection and segmentation that means 132 epochs, `lr0=2e-4`, `weight_decay=1e-4`, 2 warmup epochs and no mosaic, mixup, HSV or affine augmentation (D-FINE always trained with AdamW and flat cosine). `libreyolo train --model LibreRFDETRn-seg.pt --task segment` built the model from scratch instead of loading the checkpoint; it now loads it, whatever its filename, since the checkpoint metadata decides the task. A detection checkpoint with `--task segment` stops with a cross-task error, as in the Python API. Thanks @lwlovelmm.
 
-- **Unguarded `train()` / `val()` scripts stop with one clear line. (#925)**
+- **Unguarded `train()` / `val()` scripts stop with one clear line. (#954)**
   On macOS, Windows, and with the `spawn` or `forkserver` start method, DataLoader workers re-run the user's script, so a `train()` or `val()` call outside `if __name__ == "__main__":` failed with hundreds of lines of multiprocessing tracebacks. Each worker now stops first and prints `LibreYOLO: val() was called at the top level of your script...`, which names the fix (the main guard, or `workers=0`). Guarded scripts, `workers=0`, Linux `fork` and multi-GPU DDP are unchanged.
 
-- **RTMDet-Ins respects `max_det` above 100. (#950)**
-  The instance-segmentation postprocess capped detections at `min(max_det, 100)`, so `predict(max_det=1000)` still returned at most 100 masks and dense scenes silently lost objects. MMDetection's `max_per_img=100` is a test-config default, not a ceiling, so `max_det` is now applied as given, like the other families and RTMDet detection.
+- **`libreyolo train device=0,1` trains on several GPUs. (#912)**
+  The CLI built the model on `'0,1'` and stopped with `Invalid device string: '0,1'`. It now builds the model on the first listed GPU and passes the list to `train()`, which launches the DDP ranks. `device=[0,1]` means the same.
 
-- **`libreyolo formats --family` reports only the precisions `export()` accepts. (#951)**
-  The FP16 and INT8 fields described the format alone, so blocked rows, FP32-only GTR rows and non-YOLO9 ONNX INT8 rows still printed `True` and the matching `export()` call raised. With `--family`, each row now also applies the combination's tier, FP32-only families and the per-format INT8 allowlists, which `export()` reads from the same table. Without `--family` the fields still describe the format.
+- **RTMDet-Ins respects `max_det` above 100. (#953)**
+  The instance-segmentation postprocess capped detections at `min(max_det, 100)`, so `predict(max_det=1000)` still returned at most 100 masks and dense scenes silently lost objects. MMDetection's `max_per_img=100` is a test-config default, not a ceiling, so `max_det` is now applied as given, like the other families and RTMDet detection. Default calls now keep up to 300 masks per image (`max_det=300`), so RTMDet-Ins `val()` numbers can differ from 1.6.0, mostly on images with more than 100 objects (one dense-scene report in #950: mask mAP50 0.726 to 0.796); pass `max_det=100` for MMDetection's setting.
 
-- **YOLO9 label assignment no longer scales with `max_labels`. (#935)**
-  The task-aligned matcher of YOLO9, YOLO9-E2E and YOLO9-P2 built dense batch × `max_labels` × anchors tensors over the padded label rows, so a high `max_labels` ran out of GPU memory even on sparse data (about 40 GiB at batch 16, 800 px and `max_labels=3000`). Each image is now matched on its own boxes, as YOLOX and MMDetection assign labels, so memory follows the densest image in the batch. Assignments and losses are unchanged, and matching is faster on typical data. Boxes beyond `max_labels` are still dropped, now with a warning.
+- **Segmentation validation treats box-only label rows as rectangle masks. (#945)**
+  A 5-field row in a YOLO-format segment dataset got an empty mask in `val()`, so predictions on those objects counted as mask misses, while training used the rectangle. Mask mAP on datasets that mix box-only and polygon rows goes up; polygon-only datasets score as before. Thanks @Emyyr.
 
-- **A classifier's `interpolation` now applies everywhere and is saved with the model. (#936)**
-  Setting `model.interpolation` (`"bilinear"`, `"bicubic"` or `"nearest"`) changed training, `val()` and export metadata, but `predict()` and INT8 calibration kept each family's built-in filter (bicubic for MobileNetV4, ResNet, ConvNeXt, EfficientNetV2, DeiT, Swin and ViT; bilinear for AlexNet and VGG), and the value reset to that default on reload and in DDP workers. `predict()` and calibration now read it too, `save()`, `best.pt` and `last.pt` record it and loading restores it (older checkpoints keep the family default), and an unknown filter name raises instead of silently resizing bilinearly. A new value, `model.interpolation = "bilinear_no_antialias"`, resizes with plain bilinear and no antialiasing in training (`RandomResizedCrop` included), evaluation, `predict()`, calibration and exported backends, as `cv2.resize(INTER_LINEAR)` and torch `antialias=False` do, so a classifier can be trained on the pixels a TFLite or OpenCV-style runtime resize gives it. Defaults are unchanged.
+- **`libreyolo formats --family` reports only the precisions `export()` accepts. (#952)**
+  The FP16 and INT8 fields described the format alone, so blocked rows, FP32-only GTR rows, non-YOLO9 ONNX INT8 rows and TFLite INT8 rows other than YOLOX and YOLO9 detection still printed `True`, and the matching `export()` call raised. With `--family`, each row now also applies the combination's tier, FP32-only families and the per-format INT8 allowlists, which `export()` reads from the same table. Without `--family` the fields still describe the format.
 
-- **COCO crowd regions no longer count as false positives in the confusion matrix, `image_metrics` and `visualize`. (#934)**
+- **`libreyolo models` lists SenseNova-Vision and MODUS. (#948)**
+  The model inventory left out both families, so `libreyolo models` and the export-support tables did not show them; they now appear with their extras (`sensenova`, `modus`) and install hints, and `libreyolo formats --family` reports their export formats as blocked. Thanks @Emyyr.
+
+- **TensorRT export no longer fails at network creation on TensorRT 11. (#944)**
+  TensorRT 11 removed the `EXPLICIT_BATCH` network flag that export read, so `export(format="engine")` failed before building. The network is now created without it there; older TensorRT is unchanged. Thanks @Emyyr.
+
+- **YOLO9 label assignment no longer scales with `max_labels`. (#939)**
+  The task-aligned matcher of YOLO9, YOLO9-E2E and YOLO9-P2 built dense batch × `max_labels` × anchors tensors over the padded label rows, so a high `max_labels` ran out of GPU memory even on sparse data (an estimated 40 GiB at batch 16, 800 px and `max_labels=3000`). Each image is now matched on its own boxes, as YOLOX and MMDetection assign labels, so memory follows the densest image in the batch. Assignments and losses are unchanged, and matching was faster in an MPS benchmark (CUDA memory and timing were not measured). Boxes beyond `max_labels` are still dropped, now with a one-time warning.
+
+- **A classifier's `interpolation` now applies everywhere and is saved with the model. (#942, #956)**
+  Setting `model.interpolation` (`"bilinear"`, `"bicubic"` or `"nearest"`) changed training, `val()` and export metadata, but `predict()` and INT8 calibration kept each family's built-in filter (bicubic for MobileNetV4, ResNet, ConvNeXt, EfficientNetV2, DeiT, Swin and ViT; bilinear for AlexNet and VGG), and the value reset to that default on reload and in DDP workers. `predict()` and calibration now read it too, `save()`, `best.pt` and `last.pt` record it (only ConvNeXt V2's `save()` did before) and loading restores it (older checkpoints keep the family default; CLIP, SigLIP2 and PE restore it too), and an unknown filter name raises instead of silently resizing bilinearly. A new value, `model.interpolation = "bilinear_no_antialias"`, resizes with plain bilinear and no antialiasing in training (`RandomResizedCrop` included), evaluation, `predict()`, calibration and exported backends, as torch `F.interpolate(..., antialias=False)` does, and as `cv2.resize(INTER_LINEAR)` does to within one grey level, so a classifier can be trained on the pixels a TFLite or OpenCV-style runtime resize gives it. Defaults are unchanged.
+
+- **COCO crowd regions no longer count as false positives in the confusion matrix, `image_metrics` and `visualize`. (#938)**
   The dataloaders skip `iscrowd=1` annotations, so a prediction on a crowd region was counted as a false positive by the confusion matrix, `results.box.image_metrics` and the `visualize` images, while mAP (pycocotools) ignored it in the same `val()` run. They now apply the COCO rule too: a prediction no ground truth of its class matched, lying at least half inside a same-class crowd region (intersection over its own area), is ignored. mAP is unchanged, and datasets without crowd annotations score exactly as before.
 
-- **`val(single_cls=True)` scores a multiclass model's detections as one class. (#934)**
-  The ground truth was collapsed to class 0 but the predictions kept the model's own class ids, so with a model trained on several classes (a COCO checkpoint, say) every detection that wasn't class 0 was dropped from mAP, the confusion matrix and `image_metrics`. Detections are now kept to `classes=` in the model's label space and then relabelled 0. Models trained with `single_cls=True` score exactly as before. YOLO9-t on coco8 with `single_cls=True`: mAP50-95 0.222 before, 0.383 now.
+- **`val(single_cls=True)` scores a multiclass model's detections as one class. (#938)**
+  The ground truth was collapsed to class 0 but the predictions kept the model's own class ids, so with a model trained on several classes (a COCO checkpoint, say) every detection that wasn't class 0 was dropped from mAP and the confusion matrix, and counted as a false positive by `image_metrics` and `visualize`. Detections are now kept to `classes=` in the model's label space and then relabelled 0 (1.6.0 kept only the model's class 0). Models trained with `single_cls=True` score exactly as before. YOLO9-t on coco8 with `single_cls=True`, measured in #938 against dev before the fix: mAP50-95 0.222 before, 0.383 after.
 
-- **Simultaneous `save=True` runs no longer share a run directory.**
-  `increment_path(..., mkdir=True)` now reserves the directory by creating it, so two predict, track or generate calls starting at the same moment get separate `predict`, `predict2`, ... folders instead of overwriting each other's files.
+- **Simultaneous `save=True` runs no longer share a run directory. (#933)**
+  `increment_path(..., mkdir=True)` now reserves the directory by creating it, so two processes that save predictions (image, video or CLI `predict` and `val`) or generations at the same moment get separate numbered folders (`predict`, `predict2`, ..., or `exp`, `exp2`, ... for CLI `val`) instead of overwriting each other's files.
 
-- **YOLO9 training clips the gradient norm and assigns labels in fp32. (#927)**
+- **YOLO9 training clips the gradient norm and assigns labels in fp32. (#930)**
   YOLO9, YOLO9-E2E and YOLO9-P2 clip the gradient L2 norm at 10 before each optimizer step, as the MultimediaTechLab/YOLO recipe does (`clip_max_norm`, `0` to disable). The training assigner scores anchors in fp32, so fp16 autocast can no longer flush every class probability to zero and leave a batch without positives.
-- **YOLO9 fine-tuning no longer trains a randomly initialised PGI branch by default. (#927)**
-  Since 1.6.0, `train()` attached the PGI auxiliary branch at `aux_weight=0.25` to every YOLO9 run, but the published `LibreYOLO9{t,s,m,c}.pt` weights carry no PGI tensors, so the branch started from random weights on top of a converged model. The branch is now attached by default only when the loaded or `pretrained=` weights contain PGI tensors, or when training from scratch; otherwise the run trains the main head only, as in 1.5.0, and logs it. Passing `aux_weight` explicitly (Python or `libreyolo train aux_weight=0.25`) still attaches a new branch. Resumed runs are unchanged.
-- **PGI head weights load when their class towers are wider than a fresh build.**
+
+- **YOLO9 fine-tuning no longer trains a randomly initialised PGI branch by default. (#930)**
+  Since 1.6.0, `train()` attached the PGI auxiliary branch at `aux_weight=0.25` to every new plain-YOLO9 training run, but the published `LibreYOLO9{t,s,m,c}.pt` weights carry no PGI tensors, so the branch started from random weights on top of a converged model. The branch is now attached by default only when the loaded or `pretrained=` weights contain PGI tensors, or when training from scratch; otherwise the run trains the main head only, as in 1.5.0, and logs it. Passing `aux_weight` explicitly (Python or `libreyolo train aux_weight=0.25`) still attaches a new branch. Resumed runs keep their checkpoint's PGI setup. YOLO9-E2E and YOLO9-P2 have no PGI branch.
+
+- **PGI head weights load when their class-tower width differs from a fresh build. (#930)**
   The PGI head now takes the class-tower width stored in the checkpoint, as the main head already did. Before, a width mismatch left the PGI class towers randomly initialised without a message.
 
-- **TensorRT batched predict with `classes` and a small `max_det`. (#928)**
-  The batched path cut to `max_det` before the class filter, so it could return fewer boxes than `batch=1`. It now uses the same candidate budget as single-image predict.
+- **TensorRT batched predict with `classes` and a small `max_det`. (#931)**
+  The batched path of dynamic-batch engines cut to `max_det` before the class filter, so it could return fewer boxes than `batch=1`. It now uses the same candidate budget as single-image predict.
 
-- **Validation no longer crashes when training with `amp_dtype="bfloat16"`. (#940)**
+- **Validation no longer crashes when training with `amp_dtype="bfloat16"`. (#941)**
   Validation under bf16 autocast passed bfloat16 outputs to postprocessors that convert them to NumPy, which has no bfloat16, so it failed with `Got unsupported ScalarType BFloat16`. The validator now casts bfloat16 outputs to float32 before postprocessing; fp16 and fp32 outputs are passed through unchanged. Thanks @AnuarSv.
+
+- **`libreyolo label`: `N` visits every Radar finding, and the Radar button reopens the last results. (#961)**
+  `N` skipped flagged images because it followed image ids instead of the worst-first order shown in the Radar dialog; it now follows that order and wraps at the end. The Radar button (`Y`) reopens the last scan, with its time and a Rescan button, instead of scanning again.
 
 ### Security/Licensing
 
-- **YOLO9 and YOLO9-P2 code follows the MIT upstream.**
-  The YOLO9 building blocks, the YOLO9 and YOLO9-P2 detection heads and the YOLO9 mixup blend are ported from MultimediaTechLab/YOLO (MIT, commit c4cb5f6f); mosaic tile placement reuses the YOLOX-derived helper, and `THIRD_PARTY_NOTICES.txt` describes each source. Float inference is unchanged: raw outputs of checkpoints written by 1.6.0 (t/s/m/c, 2 and 120 classes) and sample-image detections of the published t and m weights are bit-identical, and the main path matches the pinned upstream model on random weights (`tests/unit/test_yolo9_parity.py`). Checkpoints written by earlier releases load through a rename of legacy tensor names, and of the module names in quantization manifests; resumed training checkpoints go through the same rename. Training behaviour does change, as listed under Changed and Fixed. Exported-runtime parity beyond ONNX on YOLO9-t and CUDA mixed-precision training were not measured.
+- **YOLO9, YOLO9-E2E and YOLO9-P2 code follows the MIT upstream. (#930)**
+  The YOLO9 building blocks, the detection-head towers shared by YOLO9-E2E and YOLO9-P2, the PGI branches and the YOLO9 mixup blend are ported from MultimediaTechLab/YOLO (MIT, commit c4cb5f6f); the YOLO9-E2E one-to-one design follows DATE (Apache-2.0), the P2 level is LibreYOLO code, and mosaic tile placement reuses the YOLOX-derived helper. `THIRD_PARTY_NOTICES.txt` gains entries for the DATE design (Apache-2.0), the torchvision `RandomPerspective` design and batched-NMS coordinate trick (BSD-3-Clause), its MMDetection entry now also credits `filter_scores_and_topk` (Apache-2.0), and the RepVGG entry is removed with `fuse_convs()`. Float inference is unchanged: raw outputs of checkpoints written by 1.6.0 (t/s/m/c, 2 and 120 classes) and sample-image detections of the published t and m weights are bit-identical, and the main path matches the pinned upstream model on random weights (`tests/unit/test_yolo9_parity.py`, which needs the upstream checkout and is not part of CI). Checkpoints written by earlier releases load through a rename of legacy tensor names, and of the module names in quantization manifests; resumed training checkpoints go through the same rename. Training behaviour does change, as listed under Changed and Fixed. Exported-runtime parity beyond ONNX on YOLO9-t and CUDA mixed-precision training were not measured.
 
-- **GitHub detects the license as MIT.**
-  `LICENSE` now holds only the MIT License text. Its two appended notes, on weights and on third-party code, moved word for word to the top of `NOTICE`; with them in `LICENSE`, GitHub's license detection reported the repository as "Other". The license terms are unchanged.
+- **Notices for the new families. (#967)**
+  `NOTICE` gains a WeVisOne-VL entry, and `weights/LICENSE_NOTICE.txt` gains entries for the Speridlabs Idol, FLUX.2 klein and SANA-Sprint weights, including the Gemma Terms of Use that cover SANA-Sprint's Gemma 2 text encoder. All three download from their publishers at pinned revisions.
+
+- **GitHub detects the license as MIT. (#966)**
+  `LICENSE` now holds only the MIT License text. Its two appended notes, on weights and on third-party code, moved word for word near the top of `NOTICE`; with them in `LICENSE`, GitHub's license detection reported the repository as "Other". The license terms are unchanged.
+
+### Dependencies & extras
+
+- **New `gen` extra. (#933)**
+  `libreyolo[gen]` installs `diffusers>=0.38.0`, `transformers>=5.1.0` and `accelerate>=1.7.0` for LibreGen and Speridlabs Idol. It is part of `libreyolo[all]` and cannot be installed together with `libreyolo[molmo2]`.
+
+### Known limitations
+
+- Class-agnostic NMS raises on `LibreEnsemble`, HRNet pose and the SAM tier, and is silently ignored by the gaze, OCR, body-mesh and face-embedding runners. With `max_det` of 300 or more, which includes the default of 300, the slots it frees are not refilled.
+- `track(save=True)` output files are not reserved, so two simultaneous tracking runs on the same video name can still collide.
+- TensorRT 11 was checked only with a mocked TensorRT module at network creation; no engine build (FP32, FP16 or INT8) was run on TensorRT 11, and the FP16/INT8 builder flags may still fail there.
+- `libreyolo train` still sends the generic CLI defaults to EC (detect, segment, pose) and V-JEPA 2, and DEIM's CLI `lr0` (1e-4) differs from Python `train()` (4e-4) (#925).
+- Still open from the 1.6.0 QA (#925): RF-DETR n/s/m/l pose weights download and then fail to load (only `LibreRFDETRx-pose.pt` loads); `LibreYOLOX("LibreYOLOXn.pt")` called on the class directly ignores the size in the name; `from_fiftyone()` exports boxes only; `LibreVLM("moondream-3")` does not load from the pinned mirror; the `[all]`, `[vlm]`, `[vlm-train]` and `[ground]` extras do not install on macOS arm64 and aarch64 Linux.
+
+### Contributors
+
+- **Emyyr**, first-time contributor, 4 commits: TensorRT 11 export (#944), rectangle masks for box-only rows in segmentation validation (#945), family run names in CLI training (#946), SenseNova and MODUS in the model inventory (#948).
+- **AnuarSv**, first-time contributor, 1 commit: validation under bf16 training (#941).
+- **lwlovelmm**, 3 commits: CLI segmentation training recipes and RF-DETR segment checkpoints (#955).
+- **Xuban Ceccon**: everything else, 98 commits.
+
+Thanks to the people whose issues closed in this window: AnuarSv (#940, #950), christuchez (#928, #934), derdobner (#958, #959), feyzhen (#951), ManuelZ (#935, #936), moltco (#960), tom20040101-wq (#927).
+
+### Stats
+
+106 commits, 201 files changed, +19,517 / -2,717 lines, 25 merged pull requests (#911-#966), 11 issues closed as completed. 14 new test modules (589 to 603). 3 new documentation pages.
+
+```
+pip install --upgrade libreyolo
+```
 
 ## [1.6.0] - 2026-09-27
 

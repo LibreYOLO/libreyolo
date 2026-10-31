@@ -801,6 +801,22 @@ Speridlabs Idol (Apache License 2.0)
     LibreYOLO/LibreDINOv3vith16plus, which ships the agreement. All at
     pinned revisions.
 
+WeVisOne-VL (Apache License 2.0)
+    Path:    libreyolo/models/wevisone/
+    License: libreyolo/models/wevisone/NOTICE
+    Source:  https://github.com/Tencent/WeVisOne-VL
+             (commit 9a6bcd85404505df0d05cfb5d97512ccacf35dee)
+             Copyright (C) 2026 Tencent.
+
+    The pixel (alpha-matte) decoder, feature bridge, prompts and response
+    parsing are ported from the Apache-2.0 WeVisOne-VL repository for
+    inference only; the decoder's deformable attention reuses LibreYOLO's
+    Apache-2.0 Deformable-DETR port. The Qwen3-VL backbone runs from
+    Transformers (Apache-2.0); no Qwen code is copied. Weights
+    tencent/WeVisOne-VL-2B and -4B (Apache-2.0, fine-tuned from
+    Qwen3-VL-2B/4B-Instruct, Apache-2.0) download from Tencent at pinned
+    revisions.
+
 ------------------------------------------------------------------------
 Pretrained model weights
 ------------------------------------------------------------------------

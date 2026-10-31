@@ -27,8 +27,10 @@ explicit torch.Generator seeded like upstream's global generator; the Idol
 SDK's own BiRefNet module is replaced by LibreYOLO's BiRefNet network
 (libreyolo/models/birefnet, ported from ZhengPeng7/BiRefNet, MIT), which
 loads the same weights; the PLY writer no longer needs plyfile; the
-denoiser's cuDNN attention and TF32 matmuls under compiled sampling are set
-per model and reference-counted instead of through process-wide flags;
+denoiser's cuDNN attention under compiled sampling is pinned per model
+instead of through a process-wide flag, and TF32 matmuls are switched on only
+while a compiled sampler runs, restoring the user's setting afterwards, with
+Idol generations serialized by a process-wide lock;
 grayscale-with-alpha and palette-transparency cutouts are used as cutouts
 (upstream sends them to BiRefNet); shift, guidance, steps, margin and the
 Gaussian count are validated before anything runs.

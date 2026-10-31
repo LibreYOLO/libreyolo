@@ -945,6 +945,57 @@ in each repository's LICENSE. Ported inference code: see
 libreyolo/models/wevisone/NOTICE.
 
 
+Speridlabs Idol (LibreSperidlabsIdol 0.6b)              Apache-2.0
+Image-to-3D Gaussian splats
+---------------------------
+
+Upstream: Speridlabs, https://github.com/speridlabs/idol-sdk
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+speridlabs/idol @ 2731c2291fc65a797c5cb627a5e5526fc1490902
+
+The FLUX.2 VAE it encodes with comes from black-forest-labs/FLUX.2-klein-4B
+(see the FLUX.2 klein entry below). The DINOv3 encoder comes from LibreYOLO's
+bfloat16 mirror LibreYOLO/LibreDINOv3vith16plus under Meta's DINOv3 License
+(see its entry above). Ported inference code: see
+libreyolo/models/gen/speridlabs_idol/NOTICE.
+
+
+FLUX.2 klein (LibreFlux2Klein 4b)                       Apache-2.0
+Text-to-image pipeline, also the VAE source for Speridlabs Idol
+---------------------------------------------------------------
+
+Upstream: Black Forest Labs, https://huggingface.co/black-forest-labs/FLUX.2-klein-4B
+License: Apache-2.0, as declared by the official model repository.
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+black-forest-labs/FLUX.2-klein-4B @ e7b7dc27f91deacad38e78976d1f2b499d76a294
+
+The pipeline runs from diffusers (Apache-2.0); LibreYOLO ships only its own
+adapter code.
+
+
+SANA-Sprint (LibreSanaSprint 0.6b)                      Apache-2.0 + Gemma
+Text-to-image pipeline; Gemma 2 text encoder under the Gemma Terms of Use
+-------------------------------------------------------------------------
+
+Upstream: NVIDIA, https://huggingface.co/Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers
+License: the SANA-Sprint weights are Apache-2.0, as declared by the official
+model repository. The bundled Gemma 2 2B text encoder stays under Google's
+Gemma Terms of Use (https://ai.google.dev/gemma/terms) and the Gemma
+Prohibited Use Policy; the loader logs this notice once. These terms are not MIT.
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers @ aa76e7f4f4928f378716b6716a2130fba3caf5b1
+
+The pipeline runs from diffusers (Apache-2.0); LibreYOLO ships only its own
+adapter code.
+
+
 EdgeCrafter original COCO defaults (detection, segmentation and pose)
 --------------------------------------------------------------------
 License: Apache-2.0, reproduced in licenses/Apache-2.0.txt and each HF mirror.
