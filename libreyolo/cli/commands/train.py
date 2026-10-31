@@ -422,7 +422,7 @@ def train_cmd(
         help="YOLO9 only: PGI auxiliary-branch loss weight. Unset: 0.25 when "
         "the weights carry PGI tensors or training starts from scratch, "
         "otherwise no branch. A positive value attaches a branch; 0 trains "
-        "the main head only",
+        "the main head only. Resumed runs keep their checkpoint's PGI setup",
     ),
     seed: int = typer.Option(0, help="Random seed"),
     resume: str = typer.Option("", help="Resume training: true, or path to checkpoint"),
