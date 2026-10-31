@@ -421,6 +421,9 @@ def test_idol_pins_every_download():
 
 
 def test_idol_needs_no_hugging_face_login(monkeypatch):
+    # The runtime check imports the gen extra; the unit gate runs without it.
+    pytest.importorskip("diffusers")
+    pytest.importorskip("transformers")
     import huggingface_hub
 
     def online(*args, **kwargs):
