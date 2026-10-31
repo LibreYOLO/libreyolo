@@ -79,8 +79,11 @@ overlap above `iou`, whatever their classes. Default `False`.
 
 It runs on a family's finished detections, after the `classes` filter, so it
 behaves the same for NMS-free families, exported backends, `augment=True` and
-tiling. `max_det` is applied after suppression: the postprocess is asked for
-at least 300 candidates, so suppressed boxes are replaced by the next ones.
+tiling. `max_det` is applied after suppression. With `max_det` below 300 the
+postprocess is asked for 300 candidates, so suppressed boxes are replaced by
+the next ones; at 300 or more, which includes the default of 300, the slots
+that suppression frees are not refilled (`postprocess_max_det()` in
+`libreyolo/utils/predict_args.py`).
 Masks and keypoints follow their box; oriented boxes use rotated IoU.
 
 - `predict()`: detect, segment, pose and obb. On the standard predict path
