@@ -61,7 +61,7 @@ predict contracts.
   `segformer_exp` and `lingbotvision_exp` instead of `runs/train/exp`,
   V-JEPA 2 probes to `runs/train/train`, and YOLO9-P2 runs to
   `runs/train/yolo9_exp` (was `yolo9_p2_exp`). Pass `name=exp` for the old
-  path.
+  path, or `name=yolo9_p2_exp` for YOLO9-P2.
 - **Internal names.** `DDetect` is `YOLO9Head` (`anchor_convs` /
   `class_convs`), `RepConvN` is `RepConv`, `RepNBottleneck` is `Bottleneck`,
   `DFL` is `Anchor2Vec` (`anchor2vec`), `nc` is `num_classes`, and block
