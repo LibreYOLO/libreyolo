@@ -9,7 +9,7 @@ before 1.4.0 are documented in the
 
 ## [1.7.0] - 2026-10-31
 
-YOLO9 now runs on code ported from the MIT upstream, MultimediaTechLab/YOLO, and checkpoints written by earlier releases give bit-identical float outputs. Two new tasks arrive with the `LibreGen` factory: `generate` (text to image) and `generate3d` (one image to 3D Gaussian splats). The release also adds the WeVisOne-VL VLM family, a confusion matrix on detect, segment and classify validation, per-class precision/recall/F1 curves on detect and segment validation, and class-agnostic NMS. 106 commits, 25 merged pull requests. Several changes move training results, metrics or output paths you may be comparing against v1.6.0 (YOLO9-family and YOLOv7 training recipes, `perspective` warps, D-FINE CLI defaults, some CLI run folders, confusion-matrix counts, `single_cls` validation, segmentation masks for box-only label rows, RTMDet-Ins detection counts): read **Changed** and **Breaking changes** before upgrading.
+YOLO9 now runs on code ported from the MIT upstream, MultimediaTechLab/YOLO, and checkpoints written by earlier releases give bit-identical float outputs. Two new tasks arrive with the `LibreGen` factory: `generate` (text to image) and `generate3d` (one image to 3D Gaussian splats). The release also adds the WeVisOne-VL VLM family, a confusion matrix on detect, segment and classify validation, per-class precision/recall/F1 curves on detect and segment validation, and class-agnostic NMS. 115 commits, 27 merged pull requests. Several changes move training results, metrics or output paths you may be comparing against v1.6.0 (YOLO9-family and YOLOv7 training recipes, `perspective` warps, D-FINE CLI defaults, some CLI run folders, confusion-matrix counts, `single_cls` validation, segmentation masks for box-only label rows, RTMDet-Ins detection counts): read **Changed** and **Breaking changes** before upgrading.
 
 ### Highlights
 
@@ -197,13 +197,13 @@ YOLO9 now runs on code ported from the MIT upstream, MultimediaTechLab/YOLO, and
 - **Emyyr**, first-time contributor, 4 commits: TensorRT 11 export (#944), rectangle masks for box-only rows in segmentation validation (#945), family run names in CLI training (#946), SenseNova and MODUS in the model inventory (#948).
 - **AnuarSv**, first-time contributor, 1 commit: validation under bf16 training (#941).
 - **lwlovelmm**, 3 commits: CLI segmentation training recipes and RF-DETR segment checkpoints (#955).
-- **Xuban Ceccon**: everything else, 98 commits.
+- **Xuban Ceccon**: everything else, 107 commits.
 
 Thanks to the people whose issues closed in this window: AnuarSv (#940, #950), christuchez (#928, #934), derdobner (#958, #959), feyzhen (#951), ManuelZ (#935, #936), moltco (#960), tom20040101-wq (#927).
 
 ### Stats
 
-106 commits, 201 files changed, +19,517 / -2,717 lines, 25 merged pull requests (#911-#966), 11 issues closed as completed. 14 new test modules (589 to 603). 3 new documentation pages.
+115 commits, 202 files changed, +19,740 / -2,718 lines, 27 merged pull requests (#911-#967), 11 issues closed as completed. 14 new test modules (589 to 603). 3 new documentation pages.
 
 ```
 pip install --upgrade libreyolo
