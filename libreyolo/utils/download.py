@@ -334,16 +334,17 @@ def download_weights(model_path: str, size: str):
 
     # RF-DETR is lazily registered — try loading it if no match yet
     if url is None:
-        try:
-            from libreyolo.models import _ensure_rfdetr
+        from libreyolo.models import _ensure_rfdetr, _needs_rfdetr_extra
 
+        try:
             _ensure_rfdetr()
             for cls in BaseModel._registry:
                 url = cls.get_download_url(path.name)
                 if url:
                     break
         except (ModuleNotFoundError, ImportError):
-            pass
+            if _needs_rfdetr_extra(path.name):
+                raise
 
     if url is None:
         raise ValueError(f"Could not determine download URL for '{path.name}'.")

@@ -204,6 +204,18 @@ def _ensure_rfdetr():
     from .dinov2.model import LibreDINOv2  # noqa: F401  (import triggers registration)
 
 
+# Weight-name prefixes and family ids of the families _ensure_rfdetr()
+# registers, spelled out because their modules cannot be imported to read
+# FILENAME_PREFIX / FAMILY without the extra installed.
+_RFDETR_EXTRA_PREFIXES = ("librerfdetr", "libredinov2")
+_RFDETR_EXTRA_FAMILIES = ("rfdetr", "dinov2")
+
+
+def _needs_rfdetr_extra(filename: str) -> bool:
+    """True when ``filename`` names RF-DETR or DINOv2 weights."""
+    return Path(filename).name.lower().startswith(_RFDETR_EXTRA_PREFIXES)
+
+
 def try_ensure_rfdetr():
     """Try to register RF-DETR. Returns the model class or ``None`` if unavailable."""
     try:
@@ -509,7 +521,10 @@ def LibreYOLO(
                             logger.debug("Detected size '%s' from filename", size)
                             break
                 except ModuleNotFoundError:
-                    pass
+                    # The install hint beats "unable to determine size" for
+                    # weights that only resolve once the extra is installed.
+                    if _needs_rfdetr_extra(model_path):
+                        raise
             if size is None:
                 from ..utils.hf_hub import looks_like_repo_id
 
