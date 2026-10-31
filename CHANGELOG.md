@@ -7,6 +7,11 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+### Fixed
+
+- **Unguarded `train()` and `val()` scripts run on macOS and Windows.**
+  A call at the top level of a script, outside `if __name__ == "__main__":`, now runs with `workers=0` and logs one line on how to get parallel data loading back, instead of stopping with an error (#954). This applies under the `spawn` and `forkserver` start methods; guarded scripts, notebooks, the CLI and Linux `fork` keep their workers.
+
 ## [1.7.0] - 2026-10-31
 
 YOLO9 now runs on code ported from the MIT upstream, MultimediaTechLab/YOLO, and checkpoints written by earlier releases give bit-identical float outputs. Two new tasks arrive with the `LibreGen` factory: `generate` (text to image) and `generate3d` (one image to 3D Gaussian splats). The release also adds the WeVisOne-VL VLM family, a confusion matrix on detect, segment and classify validation, per-class precision/recall/F1 curves on detect and segment validation, and class-agnostic NMS. 106 commits, 25 merged pull requests. Several changes move training results, metrics or output paths you may be comparing against v1.6.0 (YOLO9-family and YOLOv7 training recipes, `perspective` warps, D-FINE CLI defaults, some CLI run folders, confusion-matrix counts, `single_cls` validation, segmentation masks for box-only label rows, RTMDet-Ins detection counts): read **Changed** and **Breaking changes** before upgrading.

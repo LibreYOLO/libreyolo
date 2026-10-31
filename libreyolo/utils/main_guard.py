@@ -1,25 +1,130 @@
-"""Clear exit for ``train()`` / ``val()`` called outside a main guard (#925).
+"""``train()`` / ``val()`` called outside a main guard (#925).
 
 Under the ``spawn`` and ``forkserver`` start methods (macOS, Windows, and Linux
 from Python 3.14) every DataLoader worker re-imports the ``__main__`` script
 before it runs. A top-level ``train()`` or ``val()`` call then runs again
-inside each worker, which fails with a long multiprocessing traceback. The
-worker is stopped here instead, with one line that says what to change.
+inside each worker, which fails with a long multiprocessing traceback.
+
+The main process reads the script and runs such a call with ``workers=0``,
+logging one line that says how to get the workers back. A worker that still
+re-runs a call (a guard this check cannot see) is stopped with one line that
+says what to change.
 """
 
 from __future__ import annotations
 
+import ast
 import functools
 import inspect
+import logging
 import multiprocessing
 import sys
-from typing import Callable
+from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 MESSAGE = (
     "LibreYOLO: {action} was called at the top level of your script. DataLoader "
     "workers re-run that script on this platform, so put the call under "
     '`if __name__ == "__main__":`, or pass workers=0.'
 )
+
+FALLBACK_MESSAGE = (
+    "{action} is called at the top level of your script, and DataLoader workers "
+    "re-run that script on this platform, so it runs with workers=0. Put the call "
+    'under `if __name__ == "__main__":` to load data in parallel.'
+)
+
+_warned: set[str] = set()
+
+
+def _reimports_main() -> bool:
+    """True when a new process re-runs the ``__main__`` script before its target.
+
+    Follows ``multiprocessing.spawn``: ``spawn`` and ``forkserver`` children
+    import ``__main__`` again by module name (skipped for a package's
+    ``__main__``) or by file path; a REPL or notebook has neither.
+    """
+    method = (
+        multiprocessing.get_start_method(allow_none=True)
+        or multiprocessing.get_all_start_methods()[0]
+    )
+    if method not in ("spawn", "forkserver"):
+        return False
+    main = sys.modules.get("__main__")
+    name = getattr(getattr(main, "__spec__", None), "name", None)
+    if name is not None:
+        return name != "__main__" and not name.endswith(".__main__")
+    return getattr(main, "__file__", None) is not None
+
+
+def _main_line() -> Optional[int]:
+    """The line of the ``__main__`` script's top-level code that led to this call."""
+    main_globals = getattr(sys.modules.get("__main__"), "__dict__", None)
+    frame = inspect.currentframe()
+    try:
+        while frame is not None:
+            if frame.f_code.co_name == "<module>" and frame.f_globals is main_globals:
+                return frame.f_lineno
+            frame = frame.f_back
+        return None
+    finally:
+        del frame
+
+
+def _is_main_test(node: ast.expr) -> bool:
+    if not (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], ast.Eq)
+    ):
+        return False
+    sides = (node.left, node.comparators[0])
+    return any(isinstance(n, ast.Name) and n.id == "__name__" for n in sides) and any(
+        isinstance(n, ast.Constant) and n.value == "__main__" for n in sides
+    )
+
+
+def is_main_guarded(source, line: int) -> bool:
+    """True when ``line`` of ``source`` sits in an ``if __name__ == "__main__":`` body."""
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.If) and node.body and _is_main_test(node.test):
+            if node.body[0].lineno <= line <= node.body[-1].end_lineno:
+                return True
+    return False
+
+
+def workers_for_main_process(action: str, workers):
+    """The worker count a ``train()`` / ``val()`` call can use without failing.
+
+    ``0`` when DataLoader workers would re-run the call (it is at the top level
+    of a script, outside a main guard, under ``spawn`` or ``forkserver``);
+    ``workers`` otherwise, including whenever the script cannot be read.
+    """
+    try:
+        if workers is not None and int(workers) <= 0:
+            return workers
+    except (TypeError, ValueError):
+        return workers
+    if getattr(multiprocessing.current_process(), "_inheriting", False):
+        return workers
+    if not _reimports_main():
+        return workers
+    line = _main_line()
+    path = getattr(sys.modules.get("__main__"), "__file__", None)
+    if line is None or path is None:
+        return workers
+    try:
+        with open(path, "rb") as f:
+            guarded = is_main_guarded(f.read(), line)
+    except (OSError, SyntaxError, ValueError):
+        return workers
+    if guarded:
+        return workers
+    if action not in _warned:
+        _warned.add(action)
+        logger.warning(FALLBACK_MESSAGE.format(action=action))
+    return 0
 
 
 def exit_if_reimporting_main(action: str, workers=None) -> None:
@@ -50,17 +155,25 @@ def guard_main_reimport(action: str) -> Callable[[Callable], Callable]:
             return fn
 
         signature = inspect.signature(fn)
+        takes_workers = "workers" in signature.parameters
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            if getattr(multiprocessing.current_process(), "_inheriting", False):
+            inheriting = getattr(multiprocessing.current_process(), "_inheriting", False)
+            if inheriting or (takes_workers and _reimports_main()):
                 try:
                     bound = signature.bind_partial(*args, **kwargs)
                     bound.apply_defaults()
-                    workers = bound.arguments.get("workers")
                 except TypeError:
-                    workers = None
-                exit_if_reimporting_main(action, workers)
+                    bound = None
+                workers = bound.arguments.get("workers") if bound else None
+                if inheriting:
+                    exit_if_reimporting_main(action, workers)
+                elif bound is not None:
+                    resolved = workers_for_main_process(action, workers)
+                    if resolved != workers:
+                        bound.arguments["workers"] = resolved
+                        return fn(*bound.args, **bound.kwargs)
             return fn(*args, **kwargs)
 
         wrapper._libreyolo_main_guarded = True
@@ -69,4 +182,9 @@ def guard_main_reimport(action: str) -> Callable[[Callable], Callable]:
     return decorate
 
 
-__all__ = ["exit_if_reimporting_main", "guard_main_reimport"]
+__all__ = [
+    "exit_if_reimporting_main",
+    "guard_main_reimport",
+    "is_main_guarded",
+    "workers_for_main_process",
+]

@@ -48,7 +48,11 @@ from ...training.config import TrainConfig, apply_train_aliases, load_train_cfg
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.logging import ensure_default_logging
-from ...utils.main_guard import exit_if_reimporting_main, guard_main_reimport
+from ...utils.main_guard import (
+    exit_if_reimporting_main,
+    guard_main_reimport,
+    workers_for_main_process,
+)
 from ...utils.model_info import build_model_info, format_model_info
 from ...utils.results import Results
 from ...utils.serialization import (
@@ -232,6 +236,16 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
 
         from ...data.event_histogram import prepare_histogram_training
         prepare_histogram_training(self, args, merged)
+        requested = _requested_workers(self, sig, pos_names, args, merged)
+        workers = workers_for_main_process("train()", requested)
+        if workers != requested:
+            if "workers" in pos_names[: len(args)]:
+                args = list(args)
+                args[pos_names.index("workers")] = workers
+            elif "workers" in sig.parameters or any(
+                p.kind == p.VAR_KEYWORD for p in sig.parameters.values()
+            ):
+                merged["workers"] = workers
         return train_fn(self, *args, **merged)
 
     wrapper._libreyolo_cfg_wrapped = True  # type: ignore[attr-defined]

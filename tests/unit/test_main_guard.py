@@ -1,4 +1,4 @@
-"""train()/val() called outside a main guard exit workers with a clear message (#925)."""
+"""train()/val() called outside a main guard run with workers=0, and re-run workers exit with a clear message (#925)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,13 @@ import pytest
 
 from libreyolo.backends.base import BaseBackend
 from libreyolo.models.base.model import BaseModel, _wrap_train_with_cfg
-from libreyolo.utils.main_guard import exit_if_reimporting_main, guard_main_reimport
+from libreyolo.utils import main_guard
+from libreyolo.utils.main_guard import (
+    exit_if_reimporting_main,
+    guard_main_reimport,
+    is_main_guarded,
+    workers_for_main_process,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -157,19 +163,41 @@ def _run_script(
         ),
     ],
 )
-def test_unguarded_script_names_the_fix(tmp_path, start_method):
+def test_unguarded_script_runs_without_workers(tmp_path, start_method):
     result = _run_script(
         tmp_path,
         """
         model = LibreYOLO9(None, size="t", device="cpu")
         model.val(data=DATA, imgsz=64, batch=2, plots=False, workers=1)
+        model.val(data=DATA, imgsz=64, batch=2, plots=False, workers=1)
+        print("SCRIPT_DONE")
         """,
         start_method,
     )
 
-    assert result.returncode != 0
-    assert "val() was called at the top level of your script" in result.stderr
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "SCRIPT_DONE" in result.stdout
+    assert result.stderr.count("so it runs with workers=0") == 1
+    assert "was called at the top level" not in result.stderr
     assert "bootstrapping phase" not in result.stderr
+
+
+def test_unguarded_script_trains_without_workers(tmp_path):
+    result = _run_script(
+        tmp_path,
+        """
+        model = LibreYOLO9(None, size="t", device="cpu")
+        model.train(
+            data=DATA, epochs=1, imgsz=64, batch=2, workers=2, amp=False,
+            project=str(__import__("pathlib").Path.cwd() / "runs"), plots=False,
+        )
+        print("SCRIPT_DONE")
+        """,
+    )
+
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "SCRIPT_DONE" in result.stdout
+    assert "train() is called at the top level of your script" in result.stderr
 
 
 def test_guarded_spawn_script_keeps_its_workers(tmp_path):
@@ -210,3 +238,58 @@ def test_unguarded_workers_zero_script_keeps_its_own_processes(tmp_path):
     assert result.returncode == 0, result.stderr[-4000:]
     assert "CHILD_RAN" in result.stdout
     assert "SCRIPT_DONE" in result.stdout
+
+
+GUARDED = """\
+import x
+
+def main():
+    x.train()
+
+if __name__ == "__main__":
+    main()
+    x.val(
+        workers=4,
+    )
+if "__main__" == __name__:
+    x.train()
+main()
+"""
+
+
+@pytest.mark.parametrize(
+    "line, guarded",
+    [(4, False), (7, True), (8, True), (10, True), (12, True), (13, False), (1, False)],
+)
+def test_main_guard_is_read_from_the_source(line, guarded):
+    assert is_main_guarded(GUARDED, line) is guarded
+
+
+def test_workers_zero_and_fork_are_left_alone(monkeypatch):
+    monkeypatch.setattr(main_guard, "_reimports_main", lambda: False)
+    assert workers_for_main_process("val()", 4) == 4
+    monkeypatch.setattr(main_guard, "_reimports_main", lambda: True)
+    assert workers_for_main_process("val()", 0) == 0
+
+
+def test_a_call_from_outside_the_script_keeps_its_workers(monkeypatch):
+    # Under pytest the call comes from the test runner, not from top-level
+    # code of the __main__ script, so nothing is changed.
+    monkeypatch.setattr(main_guard, "_reimports_main", lambda: True)
+    monkeypatch.setattr(main_guard, "_main_line", lambda: None)
+    assert workers_for_main_process("val()", 4) == 4
+
+
+def test_an_unguarded_line_drops_the_workers(monkeypatch, tmp_path, caplog):
+    script = tmp_path / "script.py"
+    script.write_text(GUARDED, encoding="utf-8")
+    monkeypatch.setattr(main_guard, "_reimports_main", lambda: True)
+    monkeypatch.setattr(sys.modules["__main__"], "__file__", str(script), raising=False)
+    monkeypatch.setattr(main_guard, "_warned", set())
+    monkeypatch.setattr(main_guard, "_main_line", lambda: 13)
+    with caplog.at_level("WARNING"):
+        assert workers_for_main_process("train()", 8) == 0
+        assert workers_for_main_process("train()", None) == 0
+    assert caplog.text.count("so it runs with workers=0") == 1
+    monkeypatch.setattr(main_guard, "_main_line", lambda: 7)
+    assert workers_for_main_process("train()", 8) == 8
