@@ -1,6 +1,6 @@
 [project]
 name = "libreyolo"
-version = "1.6.0"
+version = "1.7.0"
 description = "MIT-licensed computer vision library: one Python API for YOLO, RF-DETR, RT-DETR and dozens more model families, with training and export where a family supports them."
 keywords = [
     "yolo",
@@ -140,6 +140,16 @@ vla = [
     # interpreters and the tier raises an ImportError that says so. Kept out
     # of `all` for the same reason.
     "lerobot[smolvla,diffusion,dataset]>=0.6.1; python_version >= '3.12'",
+]
+gen = [
+    # LibreGen loads generative image pipelines (FLUX.2 klein, SANA-Sprint)
+    # through the Apache-2.0 diffusers package; text encoders come from
+    # transformers and accelerate backs low-memory loading and offload=True.
+    # Speridlabs Idol reads DINOv3 through transformers and the FLUX.2 VAE
+    # through diffusers.
+    "diffusers>=0.38.0",
+    "transformers>=5.1.0",
+    "accelerate>=1.7.0",
 ]
 llm = [
     # LibreLLM talks to OpenAI-compatible Responses / Chat Completions
@@ -365,6 +375,7 @@ all = [
     "libreyolo[coreml]",
     "libreyolo[vlm]",
     "libreyolo[llm]",
+    "libreyolo[gen]",
     "libreyolo[sam]",
     "libreyolo[label]",
     "libreyolo[openvocab]",
@@ -432,6 +443,7 @@ conflicts = [
     [{ extra = "molmo2" }, { extra = "hf" }],
     [{ extra = "molmo2" }, { extra = "all" }],
     [{ extra = "molmo2" }, { extra = "eomt" }],
+    [{ extra = "molmo2" }, { extra = "gen" }],
     [{ extra = "molmo2" }, { extra = "ground" }],
     [{ extra = "molmo2" }, { extra = "label" }],
     [{ extra = "molmo2" }, { extra = "lora" }],
@@ -608,6 +620,7 @@ markers = [
     "vlm: tests covering the LibreVLM (VLM-as-detector) tier",
     "llm: tests covering the LibreLLM OpenAI-compatible client",
     "vla: tests covering the LibreVLA (vision-language-action) tier",
+    "gen: tests covering the LibreGen (generative image) tier",
     "sam: tests covering the LibreSAM (promptable-segmentation) tier",
     "openvocab: tests covering the LibreOpenVocab detector tier",
     "sensenova: tests covering the LibreSenseNovaVision unified multimodal family",

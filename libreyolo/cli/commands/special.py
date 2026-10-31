@@ -446,7 +446,7 @@ def formats_cmd(
 ) -> None:
     """List supported export formats."""
     from libreyolo.export.exporter import BaseExporter
-    from libreyolo.export.support import get_support
+    from libreyolo.export.support import get_support, precision_support
     from libreyolo.models.inventory import collect_model_inventory
     from libreyolo.tasks import normalize_task
 
@@ -495,6 +495,9 @@ def formats_cmd(
             info["tier"] = support.tier
             info["reason"] = support.reason
             info["constraint"] = support.constraint
+            fp16, int8 = precision_support(family, selected_task, name)
+            info["fp16"] = info["fp16"] and fp16
+            info["int8"] = info["int8"] and int8
         formats.append(info)
 
     out = _get_output(json_output, quiet)

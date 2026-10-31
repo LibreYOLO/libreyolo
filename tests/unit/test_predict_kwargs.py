@@ -3,6 +3,7 @@
 import pytest
 
 from libreyolo.utils.predict_args import (
+    check_agnostic_nms,
     normalize_classes,
     normalize_predict_kwargs,
     postprocess_max_det,
@@ -20,7 +21,6 @@ def test_noop_predict_kwargs_warn_and_are_removed():
 @pytest.mark.parametrize(
     "key",
     [
-        "agnostic_nms",
         "boxes",
         "dnn",
         "half",
@@ -35,6 +35,41 @@ def test_supported_noop_predict_kwargs_warn_and_are_removed(key):
     with pytest.warns(UserWarning, match="no-op"):
         remaining = normalize_predict_kwargs({key: True})
     assert remaining == {}
+
+
+def test_agnostic_nms_off_is_dropped_silently():
+    """A path without agnostic NMS still accepts the option switched off."""
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert normalize_predict_kwargs({"agnostic_nms": False}) == {}
+
+
+def test_agnostic_nms_on_fails_where_it_is_not_implemented():
+    """It is never accepted and ignored (#928)."""
+    with pytest.raises(NotImplementedError, match="agnostic_nms"):
+        normalize_predict_kwargs({"agnostic_nms": True})
+
+
+@pytest.mark.parametrize("task", ["detect", "segment", "pose", "obb"])
+def test_check_agnostic_nms_accepts_box_tasks(task):
+    assert check_agnostic_nms(True, task) is True
+    assert check_agnostic_nms(False, task) is False
+
+
+@pytest.mark.parametrize("task", ["classify", "semantic", "depth", None])
+def test_check_agnostic_nms_rejects_tasks_without_boxes(task):
+    assert check_agnostic_nms(False, task) is False
+    with pytest.raises(ValueError, match="agnostic_nms"):
+        check_agnostic_nms(True, task)
+
+
+def test_postprocess_max_det_widens_for_agnostic_nms():
+    assert postprocess_max_det(5, None) == 5
+    assert postprocess_max_det(5, None, agnostic_nms=True) == 300
+    assert postprocess_max_det(500, None, agnostic_nms=True) == 500
+    assert postprocess_max_det(5, [0]) == 300
 
 
 def test_rejected_predict_kwargs_fail_clearly():

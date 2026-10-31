@@ -20,7 +20,8 @@ from .semantic_validator import SemanticValidator
 from .panoptic_quality import PanopticQuality
 from .panoptic_validator import PanopticValidator
 from .fomo_validator import FOMOValidator
-from .val_plotter import ValPlotter, ConfusionMatrix
+from .confusion_matrix import ConfusionMatrix
+from .val_plotter import ValPlotter
 
 __all__ = [
     "ValidationConfig",

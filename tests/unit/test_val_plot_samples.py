@@ -100,14 +100,20 @@ class _RecordingConfusionMatrix:
     def __init__(self):
         self.calls = []
 
-    def process_image(self, pb, pc, ps, gt_boxes, gt_classes):
+    def process_image(
+        self, pb, pc, ps, gt_boxes, gt_classes, crowd_boxes=None, crowd_classes=None
+    ):
         self.calls.append(
             (pb.tolist(), pc.tolist(), ps.tolist(), gt_boxes.tolist(), gt_classes.tolist())
         )
 
 
 def _run_track_plots(budget, n_images):
-    """Drive the real _track_plots_data with a given sample budget."""
+    """Drive the real per-batch plot and scoring hooks with a sample budget.
+
+    ``_track_plots_data`` keeps the sample images; ``_score_images`` feeds the
+    confusion matrix (it runs on every validation, plots or not).
+    """
     from types import SimpleNamespace
 
     import torch
@@ -117,7 +123,7 @@ def _run_track_plots(budget, n_images):
     v.nc = 2
     v.seen = 0
     v._val_samples = []
-    v._confusion_matrix = _RecordingConfusionMatrix()
+    v.confusion_matrix = _RecordingConfusionMatrix()
     v.dataloader = SimpleNamespace(dataset=object())
     v._resolve_img_path = lambda dataset, idx, img_id: f"img{idx}.jpg"
 
@@ -136,6 +142,7 @@ def _run_track_plots(budget, n_images):
     img_ids = list(range(n_images))
 
     v._track_plots_data(preds, targets, img_info, img_ids)
+    v._score_images(preds, targets, img_info, img_ids)
     return v
 
 
@@ -144,12 +151,13 @@ class TestBudgetDoesNotAffectScoring:
     def test_confusion_matrix_sees_every_image_regardless_of_budget(self, budget):
         """Every image is still processed; only the plot buffer is capped."""
         v = _run_track_plots(budget, n_images=12)
-        assert len(v._confusion_matrix.calls) == 12
+        assert len(v.confusion_matrix.calls) == 12
 
     def test_confusion_matrix_input_is_identical_across_budgets(self):
-        baseline = _run_track_plots(8, n_images=12)._confusion_matrix.calls
+        baseline = _run_track_plots(8, n_images=12).confusion_matrix.calls
+        assert len(baseline) == 12
         for budget in (0, 1, 20, PLOT_SAMPLES_ALL):
-            other = _run_track_plots(budget, n_images=12)._confusion_matrix.calls
+            other = _run_track_plots(budget, n_images=12).confusion_matrix.calls
             assert other == baseline
 
     @pytest.mark.parametrize(

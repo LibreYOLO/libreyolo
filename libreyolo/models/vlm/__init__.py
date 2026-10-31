@@ -93,6 +93,15 @@ _MODUS_ALIASES: Dict[str, str] = {
     "modus": "14b-a7b",
     "modus-14b-a7b": "14b-a7b",
 }
+# WeVisOne-VL lives in ``models/wevisone`` (it ports its pixel decoder) and
+# resolves lazily for the same reason as SenseNova.
+_WEVISONE_ALIASES: Dict[str, str] = {
+    "wevisone-vl": "2b",
+    "wevisone": "2b",
+    "wevisonevl": "2b",
+    "wevisone-vl-2b": "2b",
+    "wevisone-vl-4b": "4b",
+}
 
 _DEFAULT_MODEL = "qwen3-vl-4b"
 
@@ -144,11 +153,16 @@ def LibreVLM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreVLMModel:
         from ..modus import LibreMODUS
 
         return LibreMODUS(size=_MODUS_ALIASES[key], **kwargs)
+    if key in _WEVISONE_ALIASES:
+        from ..wevisone import LibreWeVisOneVL
+
+        return LibreWeVisOneVL(size=_WEVISONE_ALIASES[key], **kwargs)
     match = _ALIASES.get(key)
     if match is None:
+        known = set(_ALIASES) | set(_LAZY_ALIASES) | set(_MODUS_ALIASES)
+        known |= set(_WEVISONE_ALIASES)
         raise ValueError(
-            f"Unknown VLM model {model!r}. Known aliases: "
-            f"{', '.join(sorted(set(_ALIASES) | set(_LAZY_ALIASES) | set(_MODUS_ALIASES)))}."
+            f"Unknown VLM model {model!r}. Known aliases: {', '.join(sorted(known))}."
         )
     family_cls, size = match
     return family_cls(size=size, **kwargs)
@@ -163,6 +177,10 @@ def __getattr__(name: str):
         from ..modus import LibreMODUS
 
         return LibreMODUS
+    if name == "LibreWeVisOneVL":
+        from ..wevisone import LibreWeVisOneVL
+
+        return LibreWeVisOneVL
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -181,6 +199,7 @@ __all__ = [
     "LibreMolmo2",
     "LibreNorthMicroVision",
     "LibreSenseNovaVision",
+    "LibreWeVisOneVL",
     "LibreMODUS",
     "LibreModus",
 ]

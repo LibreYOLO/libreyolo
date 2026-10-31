@@ -20,7 +20,7 @@ from typing import Any, Generator, Iterable
 
 import numpy as np
 
-from .support import get_support, iter_entries
+from .support import INT8_EXPORTS, get_support, iter_entries
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def ensure_tflite_family_supported(
 
 # (family, task) pairs whose full-integer TFLite export has been checked on real
 # weights. The graph for these emits ``SPLIT_OUTPUT_LAYOUT``.
-TFLITE_INT8_EXPORTS = frozenset({("yolox", "detect"), ("yolo9", "detect")})
+TFLITE_INT8_EXPORTS = INT8_EXPORTS["tflite"]
 
 # Sidecar ``output_layout`` value: output 0 is normalized cxcywh boxes shaped
 # ``(B, 4, N)`` (divided by the input width/height) and output 1 is scores

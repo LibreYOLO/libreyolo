@@ -222,6 +222,7 @@ def test_export_copy_caches_sppm_kernels_per_rectangle():
 
 
 def test_sppm_fixed_pooling_matches_adaptive_pooling():
+    torch.manual_seed(0)
     net = _tiny_net("t50")
     net.eval()
     feature = torch.randn(1, 1024, 16, 32)
@@ -230,7 +231,9 @@ def test_sppm_fixed_pooling_matches_adaptive_pooling():
     net.encoder.context_module.prep_model_for_conversion((512, 1024))
     with torch.no_grad():
         fixed = net.encoder.context_module(feature)
-    assert torch.allclose(adaptive, fixed, atol=1e-6)
+    # The two pooling paths sum in a different order: float32 noise reaches
+    # ~2e-6 on outputs of magnitude ~3, so 1e-6 failed on some runners.
+    assert torch.allclose(adaptive, fixed, atol=1e-5)
 
 
 def test_semantic_recipe_attributes_follow_the_size():

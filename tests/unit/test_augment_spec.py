@@ -133,7 +133,7 @@ def test_extra_knobs_exist_on_family_configs():
 # trainable flag" convention (their model classes don't declare it, so they
 # cannot be discovered from the registry). If you set TRAIN_CONFIG on one of
 # these, remove it here — a test below enforces that this list stays minimal.
-_TRAINABLE_WITHOUT_TRAIN_CONFIG = {"dfine", "ec", "yolonas", "segformer"}
+_TRAINABLE_WITHOUT_TRAIN_CONFIG = {"ec", "yolonas"}
 
 
 def test_spec_covers_every_trainable_family():

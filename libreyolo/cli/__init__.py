@@ -134,6 +134,10 @@ def entrypoint() -> None:
 
     app.command("3dmood", cls=KeyValueCommand)(mood3d_cmd)
 
+    from .commands.generate import generate_cmd
+
+    app.command("generate", cls=KeyValueCommand)(generate_cmd)
+
     # Core mode commands
     app.command("predict", cls=KeyValueCommand)(predict.predict_cmd)
     app.command("train", cls=KeyValueCommand)(train.train_cmd)

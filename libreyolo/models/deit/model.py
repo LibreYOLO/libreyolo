@@ -124,7 +124,11 @@ class LibreDeiT(BaseModel):
     def _get_preprocess_numpy(self):
         from .utils import preprocess_numpy
 
-        return partial(preprocess_numpy, crop_pct=self.crop_pct)
+        return partial(
+            preprocess_numpy,
+            crop_pct=self.crop_pct,
+            interpolation=self.interpolation,
+        )
 
     def _preprocess(
         self,
@@ -143,6 +147,7 @@ class LibreDeiT(BaseModel):
             input_size=effective_size,
             crop_pct=self.crop_pct,
             color_format=color_format,
+            interpolation=self.interpolation,
         )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:

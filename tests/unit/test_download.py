@@ -456,3 +456,69 @@ def test_published_neighbours_of_unpublished_names_still_route(
     assert seen["url"] == (
         f"https://huggingface.co/LibreYOLO/{stem}/resolve/main/{filename}"
     )
+
+
+def _without_rfdetr_extra(monkeypatch):
+    import libreyolo.models as models
+
+    def missing_extra():
+        raise ModuleNotFoundError(
+            "RF-DETR support requires extra dependencies.\n"
+            "Install with: pip install libreyolo[rfdetr]"
+        )
+
+    monkeypatch.setattr(models, "_ensure_rfdetr", missing_extra)
+    monkeypatch.setattr(
+        BaseModel,
+        "_registry",
+        [
+            cls
+            for cls in BaseModel._registry
+            if cls.__name__ not in {"LibreRFDETR", "LibreDINOv2"}
+        ],
+    )
+    return models
+
+
+@pytest.mark.parametrize(
+    "filename", ["LibreRFDETRn.pt", "LibreRFDETRn-seg.pt", "LibreDINOv2n.pt"]
+)
+def test_factory_names_the_missing_rfdetr_extra(filename, monkeypatch, tmp_path):
+    models = _without_rfdetr_extra(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ModuleNotFoundError, match=r"pip install libreyolo\[rfdetr\]"):
+        models.LibreYOLO(filename)
+
+
+def test_explicit_size_download_names_the_missing_rfdetr_extra(monkeypatch, tmp_path):
+    models = _without_rfdetr_extra(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(FileNotFoundError, match=r"pip install libreyolo\[rfdetr\]"):
+        models.LibreYOLO("LibreRFDETRn.pt", size="n")
+
+
+def test_other_unknown_names_keep_the_size_error(monkeypatch, tmp_path):
+    models = _without_rfdetr_extra(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="unable to determine size"):
+        models.LibreYOLO("NotAModel.pt")
+
+
+def test_rfdetr_extra_names_match_the_lazy_families():
+    pytest.importorskip("transformers")
+    from libreyolo.models import (
+        _RFDETR_EXTRA_FAMILIES,
+        _RFDETR_EXTRA_PREFIXES,
+        _ensure_rfdetr,
+    )
+
+    _ensure_rfdetr()
+    from libreyolo.models.dinov2.model import LibreDINOv2
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    lazy = (LibreRFDETR, LibreDINOv2)
+    assert set(_RFDETR_EXTRA_PREFIXES) == {c.FILENAME_PREFIX.lower() for c in lazy}
+    assert set(_RFDETR_EXTRA_FAMILIES) == {c.FAMILY for c in lazy}

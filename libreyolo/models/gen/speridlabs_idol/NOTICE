@@ -1,0 +1,47 @@
+LibreSperidlabsIdol includes code ported from Speridlabs Idol:
+
+Source: https://github.com/speridlabs/idol-sdk (commit 4702a7f00850e34b6e83a2170cc123c3e9570744)
+License: Apache-2.0.
+Copyright Speridlabs (https://speridlabs.com). Authors: Alejandro Cañada, Chema Garabito.
+
+Idol builds on TripoSplat:
+
+Source: https://github.com/VAST-AI-Research/TripoSplat (commit d8db9e018b413dd9c4a9fe22463781bf98e8e68d)
+License: MIT.
+Copyright (c) 2026 VAST.
+
+The Idol denoiser (LatentSeqMMFlowModel in nn.py) is adapted by Idol from
+diffusers' transformer_wan.py:
+
+Source: https://github.com/huggingface/diffusers
+License: Apache-2.0.
+Copyright 2025 The Wan Team and The HuggingFace Team.
+
+The port covers inference: the denoiser, the octree and Gaussian decoders,
+preprocessing, the image encoders' tokenization, the flow sampler and the
+camera decoding. Parameter names mirror upstream so the released
+safetensors load with strict=True. Changes from upstream: TensorDict inputs
+are plain tensors; attention always uses PyTorch SDPA (no flash-attn
+backend, no ATTN_BACKEND environment variable); randomness comes from an
+explicit torch.Generator seeded like upstream's global generator; the Idol
+SDK's own BiRefNet module is replaced by LibreYOLO's BiRefNet network
+(libreyolo/models/birefnet, ported from ZhengPeng7/BiRefNet, MIT), which
+loads the same weights; the PLY writer no longer needs plyfile; the
+denoiser's cuDNN attention under compiled sampling is pinned per model
+instead of through a process-wide flag, and TF32 matmuls are switched on only
+while a compiled sampler runs, restoring the user's setting afterwards, with
+Idol generations serialized by a process-wide lock;
+grayscale-with-alpha and palette-transparency cutouts are used as cutouts
+(upstream sends them to BiRefNet); shift, guidance, steps, margin and the
+Gaussian count are validated before anything runs.
+
+Weights: speridlabs/idol (Apache-2.0) and black-forest-labs/FLUX.2-klein-4B
+(Apache-2.0, VAE only) are downloaded from their publishers at pinned
+revisions. The DINOv3 encoder is Meta's
+facebook/dinov3-vith16plus-pretrain-lvd1689m (DINOv3 License), rehosted by
+LibreYOLO in bfloat16 as LibreYOLO/LibreDINOv3vith16plus together with the
+DINOv3 License Agreement.
+
+Idol citation:
+Alejandro Cañada and Chema Garabito. "Idol: Single Image to 3D Gaussian
+Splats." Speridlabs, 2026. https://speridlabs.com/research/idol

@@ -147,7 +147,11 @@ class LibreSwin(BaseModel):
 
         from .utils import preprocess_numpy
 
-        return partial(preprocess_numpy, crop_pct=self.crop_pct)
+        return partial(
+            preprocess_numpy,
+            crop_pct=self.crop_pct,
+            interpolation=self.interpolation,
+        )
 
     def _validate_imgsz(self, imgsz: Any, *, context: str) -> int:
         """Enforce the resolution-specific final-stage attention graph."""
@@ -192,6 +196,7 @@ class LibreSwin(BaseModel):
             input_size=effective_size,
             crop_pct=self.crop_pct,
             color_format=color_format,
+            interpolation=self.interpolation,
         )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:

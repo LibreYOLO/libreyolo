@@ -122,3 +122,71 @@ def test_val_device_moves_model_to_validator_device(monkeypatch, requested, expe
 
     assert seen == {"config": expected, "weights": expected}
     assert model.device.type == expected
+
+
+def _stub_inference(monkeypatch, outputs):
+    monkeypatch.setattr(
+        "libreyolo.models.base.cuda_graph.forward_maybe_graphed",
+        lambda model, images: outputs,
+    )
+    validator = _stub_validator(half=False, device="cpu")
+    validator.model = None
+    return validator._inference(torch.zeros(1, 3, 32, 32))
+
+
+def test_bfloat16_outputs_are_upcast_before_postprocessing(monkeypatch):
+    outputs = {
+        "pred_logits": torch.randn(1, 300, 1, dtype=torch.bfloat16),
+        "aux": [torch.zeros(2, dtype=torch.bfloat16), torch.zeros(2, dtype=torch.float16)],
+        "shape": (torch.zeros(1, dtype=torch.int64), 640),
+    }
+
+    preds = _stub_inference(monkeypatch, outputs)
+
+    assert preds["pred_logits"].dtype == torch.float32
+    assert preds["aux"][0].dtype == torch.float32
+    assert preds["aux"][1].dtype == torch.float16
+    assert isinstance(preds["shape"], tuple)
+    assert preds["shape"][0].dtype == torch.int64
+    assert preds["shape"][1] == 640
+
+
+@pytest.mark.parametrize(
+    "outputs",
+    [
+        (torch.randn(1, 4, dtype=torch.float16), torch.randn(1, 4)),
+        {"pred_logits": torch.randn(1, 4), "aux": [torch.zeros(2, dtype=torch.float16)]},
+    ],
+)
+def test_non_bfloat16_outputs_are_returned_unchanged(monkeypatch, outputs):
+    assert _stub_inference(monkeypatch, outputs) is outputs
+
+
+def test_bfloat16_upcast_keeps_dict_subclass(monkeypatch):
+    class Outputs(dict):
+        pass
+
+    outputs = Outputs(pred_logits=torch.zeros(1, dtype=torch.bfloat16), other=torch.zeros(1))
+
+    preds = _stub_inference(monkeypatch, outputs)
+
+    assert type(preds) is Outputs
+    assert preds["pred_logits"].dtype == torch.float32
+    assert preds["other"] is outputs["other"]
+    assert outputs["pred_logits"].dtype == torch.bfloat16
+
+
+def test_bfloat16_detr_outputs_reach_numpy(monkeypatch):
+    from libreyolo.postprocess.ec import postprocess_seg
+
+    outputs = {
+        "pred_logits": torch.randn(1, 300, 1, dtype=torch.bfloat16),
+        "pred_boxes": torch.rand(1, 300, 4, dtype=torch.bfloat16),
+        "pred_masks": torch.randn(1, 300, 16, 16, dtype=torch.bfloat16),
+    }
+
+    result = postprocess_seg(
+        _stub_inference(monkeypatch, outputs), conf_thres=0.0, original_size=(64, 64)
+    )
+
+    assert result["scores"].dtype.kind == "f"

@@ -389,7 +389,7 @@ function resetClientState(){
   clearTimeout(boostTimer); boostTimer=null;
   clearTimeout(autosaveTimer); autosaveTimer=null;
   idx=-1; sel=-1; selPoly=-1; selBoxes.clear(); hover=-1; active=0; boxes=[]; polys=[]; ghosts=[]; radarFindings=[];
-  IMAGES=[]; suggestedIds=new Set(); selSet=null; listFilter="all"; radarDeck=[]; mapPoints=[]; mapFit=null; progSig="";
+  IMAGES=[]; suggestedIds=new Set(); selSet=null; listFilter="all"; radarDeck=[]; radarLast=null; mapPoints=[]; mapFit=null; progSig="";
   undoStack=[]; redoStack=[]; gestureSnap=null; dirty=false; imgOk=false; gradData=null; assist=null; assistModel=null;
   CLSCOL=[];
   setTool("box");

@@ -414,35 +414,93 @@ License: Apache License 2.0
 Copyright (c) 2021-2022 Megvii Inc. All rights reserved.
 Used for: YOLOX model family (libreyolo/models/yolox/), EMA helper
           (libreyolo/training/ema.py), augmentation pipeline
-          (libreyolo/training/augment.py), and the SimOTA training loss
+          (libreyolo/data/augment/, re-exported by
+          libreyolo/training/augment.py; the YOLO9 mosaic wrapper in
+          data/augment/yolo9.py places its tiles with
+          mosaic.get_mosaic_coordinate), and the SimOTA training loss
           adapted for the YOLOv7 family (libreyolo/models/yolo7/loss.py:
           imports bboxes_iou/IoULoss from the yolox modules and adapts the
           get_assignments/get_geometry_constraint/simota_matching/get_losses
           assignment logic to the v7 anchor head).
 
 --------------------------------------------------------------------
+DATE (Yiqun Chen)
+--------------------------------------------------------------------
+Source: https://github.com/YiqunChen1999/date
+        (date/models/heads/date.py)
+Commit: 5daf092c74a88b666db8956c5772df55dafb018a
+License: Apache License 2.0 (full text: licenses/Apache-2.0.txt)
+Copyright 2022 Yiqun Chen. All rights reserved.
+Used for: the design of the YOLO9-E2E dual predictor
+          (libreyolo/models/yolo9_e2e/nn.py, loss.py and
+          libreyolo/postprocess/yolo9_e2e.py): a one-to-many and a
+          one-to-one predictor trained together with their losses summed,
+          and inference from the one-to-one predictor by top-k selection
+          without NMS. The implementation was written for LibreYOLO on top
+          of the MIT YOLOv9 port; no DATE code is copied.
+
+--------------------------------------------------------------------
+TorchVision RandomPerspective (PyTorch contributors)
+--------------------------------------------------------------------
+Source: https://github.com/pytorch/vision
+        (torchvision/transforms/transforms.py RandomPerspective.get_params,
+        torchvision/transforms/functional.py _get_perspective_coeffs)
+Version: torchvision 0.29.0
+License: BSD-3-Clause
+Copyright (c) Soumith Chintala 2016 and the torchvision contributors
+Used for: the design of the projective branch of get_affine_matrix in
+          libreyolo/data/augment/geometry.py (the `perspective` training
+          argument): a homography defined by pulling each canvas corner
+          inward by a random amount bounded by a distortion scale. The
+          implementation was written for LibreYOLO (Python `random`
+          sampling, continuous offsets, cv2.getPerspectiveTransform solve,
+          composition with the YOLOX-derived affine); no torchvision code
+          is copied. The full BSD-3-Clause text is reproduced in
+          libreyolo/models/fcn/NOTICE.
+
+--------------------------------------------------------------------
+TorchVision batched NMS coordinate trick (PyTorch contributors)
+--------------------------------------------------------------------
+Source: https://github.com/pytorch/vision
+        (torchvision/ops/boxes.py _batched_nms_coordinate_trick)
+Version: torchvision 0.29.0
+License: BSD-3-Clause
+Copyright (c) Soumith Chintala 2016 and the torchvision contributors
+Used for: the class-aware suppression step of EmbeddedNMSDetector in
+          libreyolo/export/nms.py: each candidate box is shifted by its
+          class index times (maximum coordinate + 1) so one NMS pass
+          suppresses within each class only. Adapted for tracing: the
+          maximum is taken over all sanitized anchor boxes and the
+          empty-input early return is dropped. The full BSD-3-Clause text
+          is reproduced in libreyolo/models/fcn/NOTICE.
+
+--------------------------------------------------------------------
 YOLO (MultimediaTechLab/YOLO)
 --------------------------------------------------------------------
 Source: https://github.com/MultimediaTechLab/YOLO
+Commit: c4cb5f6f56102eceeaa7d75e23e1125cd0373eaf
 License: MIT
 Copyright (c) 2024 Kin-Yiu Wong and Hao-Tang Tsui
-Used for: YOLO9 model family (libreyolo/models/yolo9/ and
-          libreyolo/models/yolo9_e2e/): the architecture blocks and
-          detection head in nn.py and the loss port in loss.py.
+Used for: YOLO9 model family (libreyolo/models/yolo9/, yolo9_e2e/ and
+          yolo9_p2/): the architecture blocks, detection-head towers and
+          bias initialization in yolo9/nn.py (ported from
+          yolo/model/module.py and yolo/utils/module_utils.py); anchor
+          generation and box decoding (generate_anchors and Vec2Box in
+          yolo/utils/bounding_box_utils.py); the loss port in yolo9/loss.py
+          (yolo/tools/loss_functions.py and the BoxMatcher, Vec2Box and
+          calculate_iou code of bounding_box_utils.py, the latter also in
+          libreyolo/utils/box_ops.py compute_iou); the PGI auxiliary
+          branches in yolo9/nn.py (AuxNeck for yolo9-t/s; CBLinear, CBFuse
+          and AuxBackbone for yolo9-m/c, following the auxiliary sections
+          of yolo/config/model/v9-{t,s,m,c}.yaml) and the auxiliary-loss
+          weighting; the gradient-clipping value (yolo/lazy.py); and the
+          MixUp blend in libreyolo/data/augment/yolo9.py
+          (yolo/tools/data_augmentation.py).
           Also the YOLOv7 family (libreyolo/models/yolo7/): the architecture
           (net.py, blocks.py) and the Anc2Box anchor decode reproduced in
           postprocess/yolo7.py and mirrored by the training loss (loss.py:
           _decode). Upstream ships no v7 training loss, so training assignment
           is adapted from YOLOX (see the YOLOX entry above), not from here.
-
---------------------------------------------------------------------
-RepVGG (DingXiaoH)
---------------------------------------------------------------------
-Source: https://github.com/DingXiaoH/RepVGG
-License: MIT
-Copyright (c) 2020 DingXiaoH
-Used for: RepConv fuse / re-parameterization logic
-          (libreyolo/models/yolo9/nn.py RepConvN.fuse_convs).
 
 --------------------------------------------------------------------
 mmdetection (OpenMMLab)
@@ -457,6 +515,14 @@ Used for: RTMDet model family (libreyolo/models/rtmdet/): architecture
           DynamicSoftLabelAssigner and MlvlPointGenerator in loss.py.
           Published RTMDet and RTMDet-Ins COCO weights were trained with
           mmdetection.
+          YOLO9 pre-NMS candidate filtering (score threshold, then keep
+          the top ``nms_pre`` (anchor, class) pairs by score): adapted
+          from ``filter_scores_and_topk`` in mmdet/models/utils/misc.py,
+          with the ``nms_pre=30000`` value of
+          configs/rtmdet/rtmdet_l_8xb32-300e_coco.py, in
+          libreyolo/postprocess/yolo9.py (``_filter_scores_and_topk``),
+          libreyolo/backends/base.py (NumPy counterpart) and
+          libreyolo/export/nms.py (traced counterpart for ONNX export).
 
 --------------------------------------------------------------------
 mmsegmentation (OpenMMLab)
@@ -1863,11 +1929,12 @@ Source: https://github.com/MultimediaTechLab/YOLO
 License: MIT
 Copyright (c) 2024 Kin-Yiu, Wong and Hao-Tang, Tsui
 Used for: the LibreYOLO7 family (native port of YOLOv7,
-          libreyolo/models/yolo7) and the LibreYOLO9 detection head. This is
-          the original authors' MIT re-release, NOT the GPL-3.0
-          WongKinYiu/yolov7 or WongKinYiu/yolov9. Module names mirror upstream
-          so the MIT-licensed weights load unchanged; the v7.yaml model
-          definition is bundled under libreyolo/models/yolo7/.
+          libreyolo/models/yolo7) and the LibreYOLO9 family (blocks,
+          detection heads, anchor decoding and loss; see the YOLO entry
+          above). This is the original authors' MIT re-release, NOT the
+          GPL-3.0 WongKinYiu/yolov7 or WongKinYiu/yolov9. Module names mirror
+          upstream so the MIT-licensed weights load unchanged; the v7.yaml
+          model definition is bundled under libreyolo/models/yolo7/.
 
 MIT License
 
@@ -2817,6 +2884,32 @@ allenai/Molmo2-O-7B @ 784410650d12be9bc086118fdefa32d2c3bced86
 include the SigLIP vision backbone and their tokenizer assets. Upstream model
 cards declare Apache-2.0 for all three snapshots.
 
+--------------------------------------------------------------------
+WeVisOne-VL pixel decoder, prompts and output parser
+----------------------------------------------------
+
+Upstream: Tencent, https://github.com/Tencent/WeVisOne-VL
+Commit: 9a6bcd85404505df0d05cfb5d97512ccacf35dee
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO). The
+repository LICENSE prefixes the Apache-2.0 text with a Tencent preamble that
+adds no terms.
+Copyright (C) 2026 Tencent. All rights reserved.
+
+Used for: the LibreWeVisOneVL family (libreyolo/models/wevisone/). The pixel
+decoder (wevisone_vl/mask_decoder.py, config.py, decoder.py), the ViT feature
+bridge (feature_bridge.py), the instruction strings (prompts.py, engine.py) and
+the tagged-coordinate parser (evaluation/utils/parser.py, engine.py) are
+ported for inference, with modifications noted in each file header. The
+deformable cross-attention reuses LibreYOLO's Deformable-DETR port instead of
+upstream msda.py. See libreyolo/models/wevisone/NOTICE.
+
+Weights are not redistributed; they download at runtime from
+tencent/WeVisOne-VL-2B @ 798ffc7c87ad6104410812b589e240ba32d92315 and
+tencent/WeVisOne-VL-4B @ 4a7bed92750ac9d8b8a124cede14759036932dc2 (Apache-2.0,
+Copyright (C) 2026 Tencent). They are fine-tuned from Qwen3-VL-2B-Instruct and
+Qwen3-VL-4B-Instruct (Apache-2.0, Copyright 2024 Alibaba Cloud), whose
+architecture runs from transformers; no Qwen code is copied.
+
 
 GTR (Gated Token Recurrence)
 Source: https://github.com/Intellindust-AI-Lab/GTR
@@ -2868,6 +2961,68 @@ The portable recurrence is implemented directly in attention.py.
 MIT License
 
 Copyright (c) 2026 Intellindust-AI-Lab
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+Speridlabs Idol image-to-3D networks and pipeline
+-------------------------------------------------
+
+Upstream: Speridlabs, https://github.com/speridlabs/idol-sdk
+Commit: 4702a7f00850e34b6e83a2170cc123c3e9570744
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Authors: Alejandro Cañada, Chema Garabito (Speridlabs).
+Citation: Cañada, A. and Garabito, C. "Idol: Single Image to 3D Gaussian
+          Splats." Speridlabs, 2026. https://speridlabs.com/research/idol
+Used for: the Speridlabs Idol family (libreyolo/models/gen/speridlabs_idol/):
+          the denoiser, octree and Gaussian decoders, preprocessing, encoder
+          tokenization, flow sampler and camera decoding. Parameter names
+          are unchanged so the released safetensors load strictly. Parity
+          verified on CUDA: bitwise equal to the SDK at every stage, eager
+          and compiled.
+
+Idol builds on TripoSplat:
+Source: https://github.com/VAST-AI-Research/TripoSplat
+Commit: d8db9e018b413dd9c4a9fe22463781bf98e8e68d
+License: MIT
+Copyright (c) 2026 VAST.
+
+The Idol denoiser is adapted by Idol from diffusers' transformer_wan.py:
+Source: https://github.com/huggingface/diffusers
+License: Apache-2.0
+Copyright 2025 The Wan Team and The HuggingFace Team. All rights reserved.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+speridlabs/idol (Apache-2.0, revision
+2731c2291fc65a797c5cb627a5e5526fc1490902) and the FLUX.2 VAE from
+black-forest-labs/FLUX.2-klein-4B (Apache-2.0, revision
+e7b7dc27f91deacad38e78976d1f2b499d76a294) download from their publishers.
+The DINOv3 ViT-H+/16 encoder (Meta DINOv3 License) is rehosted by LibreYOLO
+as LibreYOLO/LibreDINOv3vith16plus (revision
+e849a3492905c6dabc89758042bf1402770fb4e6): Meta's
+facebook/dinov3-vith16plus-pretrain-lvd1689m at revision
+c807c9eeea853df70aec4069e6f56b28ddc82acc, cast to bfloat16, shipped with the
+DINOv3 License Agreement as that agreement requires.
+
+MIT License (TripoSplat)
+
+Copyright (c) 2026 VAST
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

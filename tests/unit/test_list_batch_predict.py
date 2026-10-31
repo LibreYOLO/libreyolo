@@ -651,6 +651,96 @@ def test_tensorrt_batched_in_memory_images_keep_path_none_and_indexed_saves():
     assert seen_parse_kwargs == [{"iou": 0.6, "max_det": 50}] * 3
 
 
+def _tensorrt_parser_max_det(**predict_kwargs):
+    """max_det the TensorRT batch path hands its output parser."""
+    backend = _bare_backend()
+    backend.task = "detect"
+    backend._dynamic_batch = True
+    backend._max_batch = 2
+    backend.imgsz = 64
+    backend.output_names = ["dets"]
+    backend._preprocess = lambda image, imgsz, color_format: (
+        torch.zeros(1, 3, imgsz, imgsz),
+        np.zeros((imgsz, imgsz, 3), dtype=np.uint8),
+        (imgsz, imgsz),
+    )
+    backend._infer = lambda blob: {
+        "dets": np.zeros((blob.shape[0], 1, 4), dtype=np.float32)
+    }
+    seen = []
+
+    def parse_outputs(per_image, imgsz, orig_size, conf, ratio=1.0, iou=0.45, max_det=300):
+        seen.append(max_det)
+        return (
+            np.zeros((0, 4), dtype=np.float32),
+            np.zeros((0,), dtype=np.float32),
+            np.zeros((0,), dtype=np.int64),
+            None,
+        )
+
+    backend._parse_outputs = parse_outputs
+    backend._build_result = lambda *args, **kwargs: None
+    backend(
+        [np.zeros((8, 8, 3), dtype=np.uint8)] * 2, batch=2, max_det=2, **predict_kwargs
+    )
+    return seen
+
+
+def test_tensorrt_batch_uses_the_single_image_candidate_budget():
+    """Filtering and suppression need candidates beyond max_det (#931 review).
+
+    The batch path used to hand the parser the caller's max_det, so with
+    agnostic_nms (or classes) it kept fewer boxes than batch=1.
+    """
+    assert _tensorrt_parser_max_det() == [2, 2]
+    assert _tensorrt_parser_max_det(agnostic_nms=True) == [300, 300]
+    assert _tensorrt_parser_max_det(classes=[0]) == [300, 300]
+
+
+def test_tensorrt_batch_matches_single_image_under_agnostic_nms():
+    """Two overlapping top boxes and a third: batch=2 must agree with batch=1."""
+    boxes = np.array(
+        [[2, 2, 12, 12], [3, 3, 13, 13], [20, 20, 28, 28]], dtype=np.float32
+    )
+    scores = np.array([0.9, 0.6, 0.5], dtype=np.float32)
+    class_ids = np.array([0, 1, 2])
+
+    def run(batch):
+        backend = _bare_backend()
+        backend.task = "detect"
+        backend.names = {0: "a", 1: "b", 2: "c"}
+        backend._dynamic_batch = True
+        backend._max_batch = 2
+        backend.imgsz = 64
+        backend.output_names = ["dets"]
+        backend._preprocess = lambda image, imgsz, color_format: (
+            torch.zeros(1, 3, 64, 64),
+            np.zeros((64, 64, 3), dtype=np.uint8),
+            (64, 64),
+            1.0,
+        )
+        backend._infer = lambda blob: {
+            "dets": np.zeros((blob.shape[0], 1, 4), dtype=np.float32)
+        }
+        backend._run_inference = lambda blob: [np.zeros((1, 1, 4), dtype=np.float32)]
+
+        def parse_outputs(outputs, imgsz, orig_size, conf, ratio=1.0, iou=0.45, max_det=300):
+            return boxes[:max_det], scores[:max_det], class_ids[:max_det], None
+
+        backend._parse_outputs = parse_outputs
+        results = backend(
+            [np.zeros((8, 8, 3), dtype=np.uint8)] * 2,
+            batch=batch,
+            max_det=2,
+            iou=0.5,
+            agnostic_nms=True,
+        )
+        return [sorted(int(c) for c in r.boxes.cls.tolist()) for r in results]
+
+    assert run(batch=1) == [[0, 2], [0, 2]]
+    assert run(batch=2) == [[0, 2], [0, 2]]
+
+
 # =============================================================================
 # True batched inference: PyTorch pipeline mechanics
 # =============================================================================

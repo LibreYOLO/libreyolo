@@ -110,6 +110,22 @@ def test_guided_restoration_specialists_block_unvalidated_exports(family, task):
         assert get_support(family, task, format_name).tier == "blocked"
 
 
+@pytest.mark.parametrize(
+    ("module_name", "class_name"),
+    [
+        ("libreyolo.models.sensenova.model", "LibreSenseNovaVision"),
+        ("libreyolo.models.modus.model", "LibreMODUS"),
+    ],
+)
+def test_generative_multimodal_families_block_every_export(module_name, class_name):
+    """Their export() always raises, so no task/format may claim support."""
+    cls = getattr(importlib.import_module(module_name), class_name)
+    for task in cls.SUPPORTED_TASKS:
+        for format_name in EXPORT_FORMATS:
+            entry = get_support(cls.FAMILY, task, format_name)
+            assert entry.tier == "blocked", (cls.FAMILY, task, format_name)
+
+
 @pytest.mark.parametrize("family", ["yolo9", "yolo9_e2e", "yolonas", "picodet"])
 def test_rknn_retained_families_are_available(family):
     entry = get_support(family, "detect", "rknn")
@@ -920,3 +936,14 @@ def test_shipping_rows_never_claim_a_future_since_version():
     assert not offenders, (
         f"Rows claim since > {'.'.join(map(str, floor))}: {sorted(offenders.items())}"
     )
+
+
+def test_gtr_export_rejects_half_like_precision_support():
+    from libreyolo.export.support import FP32_ONLY_FAMILIES
+    from libreyolo.models.gtr.model import LibreGTR
+
+    assert "gtr" in FP32_ONLY_FAMILIES
+    model = LibreGTR.__new__(LibreGTR)
+    model._quant_manifest = None
+    with pytest.raises(ValueError, match="requires FP32"):
+        model.export(format="onnx", half=True)

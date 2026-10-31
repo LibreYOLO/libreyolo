@@ -252,7 +252,8 @@ class TestYOLOCocoAPI:
         assert len(api.imgs) == 1
         assert len(api.anns) == 1
 
-    def test_yolo_coco_api_empty_segmentation_decodes_to_empty_mask(self, tmp_path):
+    def test_yolo_coco_api_box_only_row_is_rectangular_segment(self, tmp_path):
+        """A 5-field row in a segment dataset is a rectangular segment."""
         images_dir = tmp_path / "images"
         labels_dir = tmp_path / "labels"
         images_dir.mkdir()
@@ -264,10 +265,30 @@ class TestYOLOCocoAPI:
         (labels_dir / "img.txt").write_text("0 0.5 0.5 0.4 0.4\n")
 
         api = YOLOCocoAPI(images_dir, labels_dir, ["cat"], load_segments=True)
-        mask = api.annToMask(api.loadAnns()[0])
+        ann = api.loadAnns()[0]
+        mask = api.annToMask(ann)
 
+        assert ann["segmentation"] == [[6.0, 3.0, 14.0, 3.0, 14.0, 7.0, 6.0, 7.0]]
         assert mask.shape == (10, 20)
-        assert mask.sum() == 0
+        assert mask[3:7, 6:14].all()
+        assert mask.sum() == 8 * 4
+
+    def test_yolo_coco_api_box_only_row_has_no_segmentation_without_segments(
+        self, tmp_path
+    ):
+        images_dir = tmp_path / "images"
+        labels_dir = tmp_path / "labels"
+        images_dir.mkdir()
+        labels_dir.mkdir()
+
+        from PIL import Image
+
+        Image.new("RGB", (20, 10)).save(images_dir / "img.jpg")
+        (labels_dir / "img.txt").write_text("0 0.5 0.5 0.4 0.4\n")
+
+        api = YOLOCocoAPI(images_dir, labels_dir, ["cat"])
+
+        assert "segmentation" not in api.loadAnns()[0]
 
     def test_yolo_coco_api_preserves_multiple_polygon_rings(self, tmp_path):
         images_dir = tmp_path / "images"

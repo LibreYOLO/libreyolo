@@ -42,7 +42,9 @@ from ...utils.general import (
 )
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.image_size import reject_rectangular_imgsz, round_imgsz_to_stride
+from ...ops.agnostic_nms import agnostic_nms_keep, agnostic_rotated_nms_keep
 from ...utils.predict_args import (
+    check_agnostic_nms,
     normalize_classes,
     normalize_predict_kwargs,
     postprocess_max_det,
@@ -259,6 +261,7 @@ class InferenceRunner:
         device: str | None = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
+        agnostic_nms: bool = False,
         augment: bool = False,
         save: bool = False,
         batch: int = 1,
@@ -290,6 +293,13 @@ class InferenceRunner:
             imgsz: Input size override (None = model default).
             classes: Filter to specific class IDs, a list or a single int.
             max_det: Maximum detections per image.
+            agnostic_nms: Class-agnostic NMS: among boxes that overlap above
+                ``iou``, keep only the highest-scoring one, whatever their
+                classes. Applied to the family's finished detections (after
+                ``classes``), so it behaves the same for every family that
+                returns boxes, NMS-free ones included. ``max_det`` is cut
+                afterwards, from the family's candidate budget of up to 300
+                boxes. Detect, segment, pose and OBB (rotated IoU) only.
             save: If True, saves annotated image or video.
             batch: Images per forward pass for directory and list sources.
                 With batch > 1, supported families run a single stacked
@@ -339,6 +349,11 @@ class InferenceRunner:
             key: kwargs.pop(key) for key in declared_predict_inputs if key in kwargs
         }
         classes = normalize_classes(classes)
+        if check_agnostic_nms(agnostic_nms, getattr(self.model, "task", None)):
+            # Carried in kwargs only when on, so a default call reaches every
+            # predict path exactly as before. The paths that build results
+            # take it as a named argument; it never reaches a postprocess.
+            kwargs["agnostic_nms"] = True
         missing_predict_inputs = sorted(
             key
             for key in required_predict_inputs
@@ -827,6 +842,7 @@ class InferenceRunner:
         max_det: int = 300,
         color_format: str = "auto",
         output_file_format: Optional[str] = None,
+        agnostic_nms: bool = False,
         **kwargs,
     ) -> List[Results]:
         """Run one stacked forward pass over a chunk of images.
@@ -880,6 +896,7 @@ class InferenceRunner:
                         if isinstance(image, (str, Path))
                         else f"image{start_idx + offset}"
                     ),
+                    agnostic_nms=agnostic_nms,
                     **kwargs,
                 )
                 for offset, image in enumerate(chunk)
@@ -898,14 +915,19 @@ class InferenceRunner:
                 conf,
                 iou,
                 original_size,
-                max_det=postprocess_max_det(max_det, classes),
+                max_det=postprocess_max_det(max_det, classes, agnostic_nms),
                 ratio=ratio,
                 classes=classes,
                 **kwargs,
             )
             image_path = image if isinstance(image, (str, Path)) else None
             result = self._wrap_results(
-                detections, original_size, image_path, classes, max_det=max_det
+                detections,
+                original_size,
+                image_path,
+                classes,
+                max_det=max_det,
+                agnostic_iou=iou if agnostic_nms else None,
             )
             keep_source(result, original_img, image_path)
             if save:
@@ -1052,6 +1074,7 @@ class InferenceRunner:
         image_path,
         classes: Optional[List[int]],
         max_det: Optional[int] = None,
+        agnostic_iou: Optional[float] = None,
     ) -> Results:
         """Convert raw detection dict to a Results object.
 
@@ -1061,9 +1084,13 @@ class InferenceRunner:
             original_size: (width, height) from preprocessing.
             image_path: Source path or None.
             classes: Optional class filter list.
-            max_det: With ``classes``, the number of highest-scoring boxes to
-                keep after filtering (the postprocess ran with a wider budget,
-                see ``postprocess_max_det``).
+            max_det: With ``classes`` or ``agnostic_iou``, the number of
+                highest-scoring boxes to keep after filtering and suppression
+                (the postprocess ran with a wider budget, see
+                ``postprocess_max_det``).
+            agnostic_iou: With ``agnostic_nms``, the IoU above which a box is
+                suppressed by a higher-scoring one of any class. Runs after
+                the ``classes`` filter and before the ``max_det`` cut.
         """
         # Classification: a probs vector, no boxes. Wrap into Results.probs so
         # result.probs.top1 / .top5 work like the rest of the ecosystem.
@@ -1390,15 +1417,35 @@ class InferenceRunner:
             )
             if obb_t is not None:
                 obb_t = obb_t[cls_mask]
-            if max_det is not None and 0 <= max_det < len(conf_t):
-                top = torch.topk(conf_t, int(max_det)).indices.sort().values
-                boxes_t, conf_t, cls_t = boxes_t[top], conf_t[top], cls_t[top]
+
+        # Class-agnostic NMS (agnostic_nms=True); rotated IoU for OBB.
+        if agnostic_iou is not None and len(boxes_t) > 1:
+            if obb_t is not None:
+                keep = agnostic_rotated_nms_keep(obb_t[:, :5], conf_t, agnostic_iou)
+            else:
+                keep = agnostic_nms_keep(boxes_t, conf_t, agnostic_iou)
+            if len(keep) < len(boxes_t):
+                boxes_t, conf_t, cls_t = boxes_t[keep], conf_t[keep], cls_t[keep]
                 if masks_t is not None:
-                    masks_t = masks_t[top]
+                    masks_t = masks_t[keep.to(masks_t.device)]
                 if keypoints_t is not None:
-                    keypoints_t = keypoints_t[top]
+                    keypoints_t = keypoints_t[keep.to(keypoints_t.device)]
                 if obb_t is not None:
-                    obb_t = obb_t[top]
+                    obb_t = obb_t[keep.to(obb_t.device)]
+
+        if (
+            (classes is not None or agnostic_iou is not None)
+            and max_det is not None
+            and 0 <= max_det < len(conf_t)
+        ):
+            top = torch.topk(conf_t, int(max_det)).indices.sort().values
+            boxes_t, conf_t, cls_t = boxes_t[top], conf_t[top], cls_t[top]
+            if masks_t is not None:
+                masks_t = masks_t[top]
+            if keypoints_t is not None:
+                keypoints_t = keypoints_t[top]
+            if obb_t is not None:
+                obb_t = obb_t[top]
 
         # original_size from preprocess is (W, H); orig_shape is (H, W)
         orig_w, orig_h = original_size
@@ -1440,6 +1487,7 @@ class InferenceRunner:
         output_file_format: Optional[str] = None,
         save_stem: Optional[str] = None,
         predict_input_kwargs: Optional[Dict[str, object]] = None,
+        agnostic_nms: bool = False,
         **kwargs,
     ) -> Results:
         """Run inference on a single image.
@@ -1475,7 +1523,7 @@ class InferenceRunner:
             conf,
             iou,
             original_size,
-            max_det=postprocess_max_det(max_det, classes),
+            max_det=postprocess_max_det(max_det, classes, agnostic_nms),
             ratio=ratio,
             classes=classes,
             **kwargs,
@@ -1483,7 +1531,12 @@ class InferenceRunner:
 
         # Wrap into Results
         result = self._wrap_results(
-            detections, original_size, image_path, classes, max_det=max_det
+            detections,
+            original_size,
+            image_path,
+            classes,
+            max_det=max_det,
+            agnostic_iou=iou if agnostic_nms else None,
         )
         keep_source(result, original_img, image_path)
 
@@ -1548,6 +1601,7 @@ class InferenceRunner:
         imgsz: Optional[int] = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
+        agnostic_nms: bool = False,
         **kwargs,
     ):
         """Build the per-frame ``PIL image -> Results`` callable for a stream."""
@@ -1569,13 +1623,18 @@ class InferenceRunner:
                 conf,
                 iou,
                 original_size,
-                max_det=postprocess_max_det(max_det, classes),
+                max_det=postprocess_max_det(max_det, classes, agnostic_nms),
                 ratio=ratio,
                 classes=classes,
                 **kwargs,
             )
             result = self._wrap_results(
-                detections, original_size, source_label, classes, max_det=max_det
+                detections,
+                original_size,
+                source_label,
+                classes,
+                max_det=max_det,
+                agnostic_iou=iou if agnostic_nms else None,
             )
             result.orig_img = original_img
             return result
@@ -1651,8 +1710,13 @@ class InferenceRunner:
         scores: List,
         classes: List,
         iou_thres: float,
+        agnostic_nms: bool = False,
     ) -> Tuple[List, List, List]:
-        """Merge detections from tiles using class-wise NMS."""
+        """Merge detections from tiles using class-wise NMS.
+
+        With ``agnostic_nms`` the merged boxes then go through class-agnostic
+        NMS, so a seam duplicate carrying another class is removed too.
+        """
         if not boxes:
             return [], [], []
 
@@ -1675,6 +1739,10 @@ class InferenceRunner:
         nms_boxes = boxes_t - boxes_t.min().clamp(max=0)
         # Single per-class-batched dispatch instead of one NMS call per class.
         keep = batched_nms(nms_boxes, scores_t, classes_t, iou_thres)
+        if agnostic_nms:
+            # keep is in descending score order, which the agnostic step
+            # preserves.
+            keep = keep[agnostic_nms_keep(boxes_t[keep], scores_t[keep], iou_thres)]
         return (
             boxes_t[keep].cpu().tolist(),
             scores_t[keep].cpu().tolist(),
@@ -1695,6 +1763,7 @@ class InferenceRunner:
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
         save_stem: Optional[str] = None,
+        agnostic_nms: bool = False,
         **kwargs,
     ) -> Results:
         """Run tiled inference on large images.
@@ -1720,6 +1789,7 @@ class InferenceRunner:
                 color_format=color_format,
                 output_file_format=output_file_format,
                 save_stem=save_stem,
+                agnostic_nms=agnostic_nms,
                 **kwargs,
             )
         if getattr(self.model, "task", "detect") == "depth":
@@ -1785,6 +1855,7 @@ class InferenceRunner:
                 color_format=color_format,
                 output_file_format=output_file_format,
                 save_stem=save_stem,
+                agnostic_nms=agnostic_nms,
                 **kwargs,
             )
 
@@ -1813,6 +1884,7 @@ class InferenceRunner:
                 imgsz=tile_imgsz,
                 classes=classes,
                 max_det=max_det,
+                agnostic_nms=agnostic_nms,
                 **kwargs,
             )
 
@@ -1827,7 +1899,7 @@ class InferenceRunner:
 
         # Merge detections
         final_boxes, final_scores, final_classes = self._merge_tile_detections(
-            all_boxes, all_scores, all_classes, iou
+            all_boxes, all_scores, all_classes, iou, agnostic_nms=agnostic_nms
         )
         if max_det >= 0:
             final_boxes = final_boxes[:max_det]

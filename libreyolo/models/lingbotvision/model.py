@@ -31,6 +31,7 @@ from PIL import Image
 
 from ...tasks import normalize_task
 from ...training.callbacks import TrainCallbacks
+from ...training.config import LingBotVisionConfig
 from ...training.ddp_spawn import ddp_aware
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
@@ -83,6 +84,7 @@ class LibreLingBotVision(BaseModel):
     DEFAULT_TASK: ClassVar[str] = "semantic"
     REQUIRE_TASK_SUFFIX: ClassVar[bool] = True
     INPUT_SIZES: ClassVar[Dict[str, int]] = {size: 512 for size in SIZE_CONFIGS}
+    TRAIN_CONFIG: ClassVar[type[LingBotVisionConfig]] = LingBotVisionConfig
     # g is the 1.1B teacher: loadable and fine-tunable, but no LibreYOLO-hosted
     # checkpoint exists for it (see the module docstring). Kept as data so
     # get_download_url and the error message cannot drift apart.

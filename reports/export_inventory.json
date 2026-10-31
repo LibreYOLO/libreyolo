@@ -893,6 +893,25 @@
     "available": true,
     "group": "s"
   },
+  "flux2_klein": {
+    "class": "libreyolo.models.gen.flux2_klein.LibreFlux2Klein",
+    "tasks": [
+      "generate"
+    ],
+    "default_task": "generate",
+    "sizes": {
+      "4b": 1024
+    },
+    "default_imgsz": {
+      "4b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "fomo": {
     "class": "libreyolo.models.fomo.model.LibreFOMO",
     "tasks": [
@@ -1256,6 +1275,27 @@
     "task_sizes": {},
     "export_override": "blocked",
     "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
+  "libremodus": {
+    "class": "libreyolo.models.modus.model.LibreMODUS",
+    "tasks": [
+      "detect",
+      "depth",
+      "normal",
+      "edge"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "14b-a7b": 1024
+    },
+    "default_imgsz": {
+      "14b-a7b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "modus",
     "available": true,
     "group": "s"
   },
@@ -2164,6 +2204,25 @@
     "available": false,
     "group": "g3"
   },
+  "sana_sprint": {
+    "class": "libreyolo.models.gen.sana_sprint.LibreSanaSprint",
+    "tasks": [
+      "generate"
+    ],
+    "default_task": "generate",
+    "sizes": {
+      "0.6b": 1024
+    },
+    "default_imgsz": {
+      "0.6b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "segformer": {
     "class": "libreyolo.models.segformer.model.LibreSegformer",
     "tasks": [
@@ -2191,6 +2250,30 @@
     "optional_extra": null,
     "available": true,
     "group": "g2"
+  },
+  "sensenovavision": {
+    "class": "libreyolo.models.sensenova.model.LibreSenseNovaVision",
+    "tasks": [
+      "detect",
+      "segment",
+      "panoptic",
+      "pose",
+      "point",
+      "depth",
+      "ocr"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "7b": 1024
+    },
+    "default_imgsz": {
+      "7b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "sensenova",
+    "available": true,
+    "group": "s"
   },
   "showui": {
     "class": "libreyolo.models.ground.showui.LibreShowUI",
@@ -2268,6 +2351,25 @@
     "optional_extra": "vlm",
     "available": true,
     "group": "s"
+  },
+  "speridlabs_idol": {
+    "class": "libreyolo.models.gen.speridlabs_idol.model.LibreSperidlabsIdol",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "0.6b": 1024
+    },
+    "default_imgsz": {
+      "0.6b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
   },
   "ssd": {
     "class": "libreyolo.models.ssd.model.LibreSSD",
@@ -2491,6 +2593,30 @@
     "optional_extra": null,
     "available": true,
     "group": "g2"
+  },
+  "wevisonevl": {
+    "class": "libreyolo.models.wevisone.model.LibreWeVisOneVL",
+    "tasks": [
+      "detect",
+      "point",
+      "segment",
+      "matte",
+      "ocr"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "2b": 1440,
+      "4b": 1440
+    },
+    "default_imgsz": {
+      "2b": 1440,
+      "4b": 1440
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
   },
   "wilddet3d": {
     "class": "libreyolo.models.wilddet3d.model.LibreWildDet3D",

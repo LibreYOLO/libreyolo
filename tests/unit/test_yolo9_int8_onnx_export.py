@@ -55,7 +55,7 @@ def test_yolo9_detect_onnx_int8_export_loads_and_predicts(tmp_path):
     data_yaml = _calibration_yaml(tmp_path)
 
     model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
-    for block in model.model.head.cv3:
+    for block in model.model.head.class_convs:
         convs = [m for m in block.modules() if isinstance(m, torch.nn.Conv2d)]
         convs[-1].bias.data.fill_(4.0)
     fp32_path = tmp_path / "LibreYOLO9t.onnx"

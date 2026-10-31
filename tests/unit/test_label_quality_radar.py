@@ -743,3 +743,35 @@ def test_boost_gather_skips_read_only_files(tmp_path):
     be = BoostEngine(ds, model_name="yolo9-t", enabled=False)
     images, _labels, _accepted = be._gather(ds)
     assert images == []
+
+
+# --- "N: next flagged" walks the deck in worst-first order (#958) -----------
+def _radar_next_ids(deck_ids, start, presses):
+    """Run the web UI's radarNextId() under node, pressing N `presses` times."""
+    import json
+    import re
+    import shutil
+    import subprocess
+
+    from libreyolo.label.web import js_power
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    fn = re.search(r"^function radarNextId\(.*$", js_power.PART, re.M).group(0)
+    script = (fn + f"\nconst deck={json.dumps([{'id': i} for i in deck_ids])}; let cur={start}; const seen=[];"
+              f"\nfor(let k=0;k<{presses};k++){{ cur=radarNextId(deck, cur); seen.push(cur); }}"
+              "\nconsole.log(JSON.stringify(seen));")
+    out = subprocess.run([node, "-e", script], capture_output=True, text=True, check=True)
+    return json.loads(out.stdout)
+
+
+def test_next_flagged_visits_every_image_in_deck_order():
+    # ids not ascending: the old "first id greater than current" lookup looped 7 -> 25 -> 30 -> 7
+    deck = [7, 25, 3, 12, 30, 5]
+    assert _radar_next_ids(deck, 7, 6) == [25, 3, 12, 30, 5, 7]
+
+
+def test_next_flagged_from_unflagged_image_starts_at_top():
+    assert _radar_next_ids([7, 25, 3], 99, 2) == [7, 25]
+    assert _radar_next_ids([], 4, 1) == [None]

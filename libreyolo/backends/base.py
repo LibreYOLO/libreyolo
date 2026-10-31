@@ -5,9 +5,11 @@
 # down.
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -16,6 +18,7 @@ from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple, Union
 import cv2
 import numpy as np
 from ..utils.lazy import lazy_module, module_available
+from ..utils.main_guard import guard_main_reimport
 
 from PIL import Image
 
@@ -24,7 +27,7 @@ from PIL import Image
 # ``models/__init__.py`` (which eagerly builds every nn.Module to populate
 # the can_load registry) and keeps this module importable without torch.
 from ..postprocess.yolo9 import (
-    _YOLO9_MAX_NMS_CANDIDATES,
+    _YOLO9_NMS_PRE,
     postprocess as yolo9_postprocess,
 )
 from ..postprocess.ppyoloe import PPYOLOE_PRE_NMS_TOP_K
@@ -59,6 +62,7 @@ from ..utils.general import (
 from ..utils.image_loader import ImageLoader
 from ..utils.model_info import build_model_info, format_model_info
 from ..utils.predict_args import (
+    check_agnostic_nms,
     normalize_classes,
     normalize_predict_kwargs,
     postprocess_max_det,
@@ -194,6 +198,21 @@ class _BackendEvalProxy:
         return self
 
 
+def _undo_letterbox_xyxy(
+    boxes: np.ndarray, ratio: float, pad_x: float, pad_y: float
+) -> np.ndarray:
+    """Map ``(N, 4)`` xyxy boxes from the letterboxed canvas to the source image.
+
+    Letterboxing resizes the image by ``ratio`` and places it ``pad_x`` pixels
+    from the left and ``pad_y`` pixels from the top of the model canvas (see
+    :func:`letterbox_geometry`). This is the inverse: remove the padding, then
+    divide by the scale. Returns a new array of the same dtype; the result is
+    not clipped to the image.
+    """
+    padding = np.array([pad_x, pad_y, pad_x, pad_y], dtype=boxes.dtype)
+    return (boxes - padding) / ratio
+
+
 def _imgsz_hw(imgsz: ImageSize) -> Tuple[int, int]:
     if isinstance(imgsz, tuple):
         if len(imgsz) != 2:
@@ -323,6 +342,28 @@ def _validate_letterbox_pad(value) -> str:
     return value
 
 
+# Whether the predict call in progress asked for agnostic_nms=True. The
+# request enters at ``BaseBackend.__call__`` and is consumed in
+# ``_build_result``; a context variable carries it past the runtime-specific
+# batching overrides in between, whose signatures are fixed.
+_AGNOSTIC_NMS: ContextVar[bool] = ContextVar(
+    "libreyolo_backend_agnostic_nms", default=False
+)
+
+
+def _agnostic_nms_scoped(results: Generator) -> Generator:
+    """Run each step of a lazy predict generator with agnostic NMS on."""
+    while True:
+        token = _AGNOSTIC_NMS.set(True)
+        try:
+            item = next(results)
+        except StopIteration:
+            return
+        finally:
+            _AGNOSTIC_NMS.reset(token)
+        yield item
+
+
 def _nms_numpy(
     boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.45
 ) -> list:
@@ -351,6 +392,41 @@ def _nms_numpy(
         order = order[np.where(iou <= iou_threshold)[0] + 1]
 
     return keep
+
+
+def _agnostic_nms_keep_numpy(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    iou_threshold: float,
+    obb: "np.ndarray | None" = None,
+) -> np.ndarray:
+    """Indices kept by class-agnostic NMS, in their input order.
+
+    The numpy counterpart of ``libreyolo.ops.agnostic_nms.agnostic_nms_keep``
+    (same rule: a box is dropped when a higher-scoring kept box overlaps it
+    above the threshold; non-finite rows pass through), so this module stays
+    importable without torch. Rotated boxes use the shared rotated-IoU NMS.
+    """
+    scores = np.asarray(scores, dtype=np.float64)
+    if obb is not None:
+        from ..ops.agnostic_nms import agnostic_rotated_nms_keep
+
+        keep = agnostic_rotated_nms_keep(
+            torch.from_numpy(np.asarray(obb, dtype=np.float32)[:, :5]),
+            torch.from_numpy(scores.astype(np.float32)),
+            iou_threshold,
+        )
+        return keep.numpy()
+    boxes = np.asarray(boxes, dtype=np.float64)
+    finite = np.isfinite(boxes).all(axis=1) & np.isfinite(scores)
+    candidates = np.flatnonzero(finite)
+    kept = candidates[
+        np.asarray(
+            _nms_numpy(boxes[candidates], scores[candidates], iou_threshold),
+            dtype=np.int64,
+        )
+    ]
+    return np.sort(np.concatenate([kept, np.flatnonzero(~finite)]))
 
 
 def _batched_nms_numpy(
@@ -2033,9 +2109,7 @@ class BaseBackend(ABC):
         ratio, _, _, dx, dy = letterbox_geometry(
             orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
         )
-        boxes[:, [0, 2]] -= dx
-        boxes[:, [1, 3]] -= dy
-        boxes /= ratio
+        boxes = _undo_letterbox_xyxy(boxes, ratio, dx, dy)
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
         valid = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
@@ -2374,49 +2448,51 @@ class BaseBackend(ABC):
             keypoints_all = np.asarray(all_outputs[1][0], dtype=np.float32)
 
         if self.model_family == "yolo9_e2e" and self.task == "detect":
-            topk_anchors = min(max_det, scores.shape[0])
-            if topk_anchors == 0 or scores.shape[-1] == 0:
-                return (
-                    np.empty((0, 4), dtype=np.float32),
-                    np.empty((0,), dtype=np.float32),
-                    np.empty((0,), dtype=np.int64),
-                )
-
-            anchor_scores = np.max(scores, axis=1)
-            anchor_idx = np.argpartition(-anchor_scores, topk_anchors - 1)[
-                :topk_anchors
-            ]
-            anchor_idx = anchor_idx[np.argsort(-anchor_scores[anchor_idx])]
-            boxes_subset = boxes_input_all[anchor_idx]
-            scores_subset = scores[anchor_idx]
-
-            flat_scores = scores_subset.reshape(-1)
-            topk_scores = min(max_det, flat_scores.size)
-            flat_idx = np.argpartition(-flat_scores, topk_scores - 1)[:topk_scores]
-            flat_idx = flat_idx[np.argsort(-flat_scores[flat_idx])]
-            class_ids = flat_idx % scores_subset.shape[-1]
-            box_indices = flat_idx // scores_subset.shape[-1]
-            boxes_input = boxes_subset[box_indices]
-            max_scores = flat_scores[flat_idx]
-            keep = max_scores > conf
-            boxes_input = boxes_input[keep]
-            max_scores = max_scores[keep]
-            class_ids = class_ids[keep]
-        else:
-            anchor_idx, class_ids = np.nonzero(scores > conf)
-            boxes_input = boxes_input_all[anchor_idx]
-            max_scores = scores[anchor_idx, class_ids]
-            if keypoints_all is not None:
-                keypoints = keypoints_all[anchor_idx].copy()
-            max_nms = max(max_det, _YOLO9_MAX_NMS_CANDIDATES)
-            if max_scores.size > max_nms:
-                keep = np.argpartition(-max_scores, max_nms - 1)[:max_nms]
-                keep = keep[np.argsort(-max_scores[keep])]
+            # NMS-free one-to-one head: keep the max_det best (anchor, class)
+            # pairs of the flattened (N, nc) score matrix, highest first,
+            # then apply the confidence threshold. No NMS runs afterwards.
+            num_anchors, num_classes = scores.shape
+            k = min(int(max_det), num_anchors * num_classes)
+            if k > 0:
+                flat_scores = scores.reshape(-1)
+                top = np.argpartition(-flat_scores, k - 1)[:k]
+                top = top[np.lexsort((top, -flat_scores[top]))]
+                max_scores = flat_scores[top]
+                class_ids = (top % num_classes).astype(np.int64)
+                boxes_input = boxes_input_all[top // num_classes]
+                keep = max_scores > conf
                 boxes_input = boxes_input[keep]
                 max_scores = max_scores[keep]
                 class_ids = class_ids[keep]
-                if keypoints is not None:
-                    keypoints = keypoints[keep]
+            else:
+                boxes_input = np.zeros((0, 4), dtype=np.float32)
+                max_scores = np.zeros((0,), dtype=np.float32)
+                class_ids = np.zeros((0,), dtype=np.int64)
+        else:
+            # NumPy counterpart of postprocess/yolo9.py::_filter_scores_and_topk,
+            # adapted from ``filter_scores_and_topk`` in open-mmlab/mmdetection
+            # (Apache-2.0), mmdet/models/utils/misc.py, commit
+            # cfd5d3a985b0249de009b67d04f37263e11cdf3d: threshold the
+            # (num_anchors, num_classes) score matrix, flatten the valid
+            # (anchor, class) pairs, order them by descending score, keep the
+            # first ``nms_pre``. As in the torch path the cap applies to the
+            # whole image (mmdetection: per feature level) and the pairs are
+            # reordered only when the cap bites.
+            valid_mask = scores > conf
+            max_scores = scores[valid_mask]
+            valid_idxs = np.argwhere(valid_mask)
+            nms_pre = max(max_det, _YOLO9_NMS_PRE)
+            if valid_idxs.shape[0] > nms_pre:
+                # argpartition + argsort of the survivors: same descending
+                # prefix as a full sort followed by ``[:nms_pre]``.
+                idxs = np.argpartition(-max_scores, nms_pre - 1)[:nms_pre]
+                idxs = idxs[np.argsort(-max_scores[idxs])]
+                max_scores = max_scores[idxs]
+                valid_idxs = valid_idxs[idxs]
+            anchor_idx, class_ids = valid_idxs[:, 0], valid_idxs[:, 1]
+            boxes_input = boxes_input_all[anchor_idx]
+            if keypoints_all is not None:
+                keypoints = keypoints_all[anchor_idx].copy()
 
         boxes = boxes_input.copy()
 
@@ -2433,9 +2509,7 @@ class BaseBackend(ABC):
             ratio, _, _, dx, dy = letterbox_geometry(
                 orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
             )
-            boxes[:, [0, 2]] -= dx
-            boxes[:, [1, 3]] -= dy
-            boxes[:, :4] /= ratio
+            boxes = _undo_letterbox_xyxy(boxes, ratio, dx, dy)
             if keypoints is not None:
                 keypoints[..., 0] -= dx
                 keypoints[..., 1] -= dy
@@ -4127,6 +4201,21 @@ class BaseBackend(ABC):
             if keypoints is not None:
                 keypoints = keypoints[cls_keep]
 
+        # Class-agnostic NMS (agnostic_nms=True), the same step native predict
+        # applies: after the classes filter, before the max_det cut.
+        if _AGNOSTIC_NMS.get() and len(boxes) > 1:
+            keep = _agnostic_nms_keep_numpy(boxes, max_scores, iou, obb=obb)
+            if len(keep) < len(boxes):
+                boxes = boxes[keep]
+                max_scores = max_scores[keep]
+                class_ids = class_ids[keep]
+                if masks is not None:
+                    masks = masks[keep]
+                if obb is not None:
+                    obb = obb[keep]
+                if keypoints is not None:
+                    keypoints = keypoints[keep]
+
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
             boxes = boxes[top_indices]
@@ -4483,6 +4572,7 @@ class BaseBackend(ABC):
             det["obb"] = result.obb.data
         return det
 
+    @guard_main_reimport("val()")
     def val(
         self,
         data: str | None = None,
@@ -4547,6 +4637,13 @@ class BaseBackend(ABC):
             raise ValueError(
                 f"visualize=True is not supported for task '{self.task}'; "
                 f"it covers {', '.join(VISUALIZE_TASKS)}"
+            )
+        from libreyolo.validation.config import AGNOSTIC_NMS_VAL_TASKS
+
+        if kwargs.get("agnostic_nms") and self.task not in AGNOSTIC_NMS_VAL_TASKS:
+            raise ValueError(
+                f"agnostic_nms=True is not supported for task '{self.task}' "
+                f"validation; it covers {', '.join(AGNOSTIC_NMS_VAL_TASKS)}"
             )
 
         validation_device = device or (
@@ -4802,7 +4899,7 @@ class BaseBackend(ABC):
             conf,
             ratio=ratio,
             iou=iou,
-            max_det=postprocess_max_det(max_det, classes),
+            max_det=postprocess_max_det(max_det, classes, _AGNOSTIC_NMS.get()),
         )
         boxes, max_scores, class_ids, masks, obb, keypoints = (
             self._unpack_parsed_outputs(parsed)
@@ -5103,7 +5200,7 @@ class BaseBackend(ABC):
                     conf,
                     ratio=ratio,
                     iou=iou,
-                    max_det=postprocess_max_det(max_det, classes),
+                    max_det=postprocess_max_det(max_det, classes, _AGNOSTIC_NMS.get()),
                 )
                 boxes, max_scores, class_ids, masks, obb, keypoints = (
                     self._unpack_parsed_outputs(parsed)
@@ -5159,9 +5256,43 @@ class BaseBackend(ABC):
         show: bool = False,
         output_path: str | None = None,
         color_format: str = "auto",
+        agnostic_nms: bool = False,
         **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
-        """Run inference on images, directories, videos, or screen captures."""
+        """Run inference on images, directories, videos, or screen captures.
+
+        ``agnostic_nms`` keeps only the highest-scoring box among boxes that
+        overlap above ``iou``, whatever their classes, exactly as native
+        ``predict()`` does (detect, segment, pose and OBB).
+        """
+        if agnostic_nms and check_agnostic_nms(True, getattr(self, "task", None)):
+            # Re-enter with the request held in a context variable instead of
+            # an argument (see _AGNOSTIC_NMS).
+            token = _AGNOSTIC_NMS.set(True)
+            try:
+                results = self(
+                    source,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    device=device,
+                    classes=classes,
+                    max_det=max_det,
+                    save=save,
+                    batch=batch,
+                    stream=stream,
+                    stream_buffer=stream_buffer,
+                    vid_stride=vid_stride,
+                    show=show,
+                    output_path=output_path,
+                    color_format=color_format,
+                    **kwargs,
+                )
+            finally:
+                _AGNOSTIC_NMS.reset(token)
+            if inspect.isgenerator(results):
+                return _agnostic_nms_scoped(results)
+            return results
         normalize_predict_kwargs(kwargs)
         classes = normalize_classes(classes)
         if device not in (None, "", "auto", self.device):
@@ -5392,7 +5523,7 @@ class BaseBackend(ABC):
                 conf,
                 ratio=ratio,
                 iou=iou,
-                max_det=postprocess_max_det(max_det, classes),
+                max_det=postprocess_max_det(max_det, classes, _AGNOSTIC_NMS.get()),
             )
             boxes, max_scores, class_ids, masks, obb, keypoints = (
                 self._unpack_parsed_outputs(parsed)

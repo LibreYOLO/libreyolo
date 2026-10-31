@@ -50,6 +50,10 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
     _class_tp: torch.Tensor | None = None
     _class_pred: torch.Tensor | None = None
     _class_target: torch.Tensor | None = None
+    #: ``results.confusion_matrix`` (#928): top-1 prediction against label.
+    #: It stores only the pairs that occur, so it too stays small for wide
+    #: heads. Sized lazily from the logits width, like the vectors above.
+    confusion_matrix = None
 
     def __init__(
         self,
@@ -203,6 +207,7 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._class_tp = None
         self._class_pred = None
         self._class_target = None
+        self.confusion_matrix = None
         if getattr(self.config, "visualize", False):
             from .val_plotter import reset_visualize_dir  # noqa: PLC0415
 
@@ -267,6 +272,10 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._class_pred.index_add_(0, pred_idx, ones)
         hit = target_idx == pred_idx
         self._class_tp.index_add_(0, target_idx[hit], ones[hit])
+        if self.confusion_matrix is None:
+            self.confusion_matrix = self._new_confusion_matrix(num_classes)
+        if self.confusion_matrix is not None:
+            self.confusion_matrix.process_cls_preds(pred_idx, target_idx)
         if getattr(self.config, "visualize", False):
             self._visualize_batch(logits, targets, pred)
 
@@ -313,6 +322,47 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
                 )
             except Exception as exc:
                 logger.warning("visualize failed for image %d: %s", index, exc)
+
+    def _new_confusion_matrix(self, num_classes: int):
+        """A classification confusion matrix named after the model's classes."""
+        from .confusion_matrix import ConfusionMatrix  # noqa: PLC0415
+
+        try:
+            classes = self._model_class_names() or getattr(
+                getattr(getattr(self, "dataloader", None), "dataset", None),
+                "classes",
+                None,
+            )
+        except Exception:
+            classes = None
+        try:
+            return ConfusionMatrix(
+                nc=int(num_classes), names=classes, task="classify"
+            )
+        except Exception as exc:
+            logger.warning("Confusion matrix unavailable: %s", exc)
+            return None
+
+    def _save_plots(self, metrics: Dict[str, float]) -> None:
+        """Save the confusion matrix as raw counts and as per-label shares."""
+        from .confusion_matrix import MAX_DENSE_CLASSES  # noqa: PLC0415
+
+        confusion_matrix = self.confusion_matrix
+        if confusion_matrix is None:
+            return
+        if confusion_matrix.nc > MAX_DENSE_CLASSES:
+            logger.info(
+                "Skipping the confusion matrix plots for %d classes; read "
+                "results.confusion_matrix.nonzero() instead.",
+                confusion_matrix.nc,
+            )
+            return
+        plots_dir = self.save_dir / "plots"
+        for normalize in (False, True):
+            try:
+                confusion_matrix.plot(normalize=normalize, save_dir=plots_dir)
+            except Exception as exc:
+                logger.warning("Confusion matrix plot failed: %s", exc)
 
     def _class_display_name(self, index: int) -> str:
         # Label indices follow the model's explicit class order when it has

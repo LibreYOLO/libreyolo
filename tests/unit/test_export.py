@@ -1,8 +1,11 @@
 """Unit tests for the unified Exporter module."""
 
 import json
+import sys
 import tempfile
+import types
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -1527,6 +1530,54 @@ class TestTensorRTImportCheck:
         error_msg = str(exc_info.value)
         assert "tensorrt" in error_msg.lower()
         assert "pip install" in error_msg
+
+
+class TestTensorRTNetworkCreation:
+    """Network creation flags across TensorRT API versions, with a fake module."""
+
+    @staticmethod
+    def _fake_tensorrt(flag_enum):
+        trt = types.ModuleType("tensorrt")
+        trt.__version__ = "0.0.0"
+        trt.Logger = MagicMock()
+        trt.Builder = MagicMock()
+        # Fail at the parse step right after create_network, so the test does
+        # not need to fake the rest of the engine build.
+        trt.OnnxParser = MagicMock()
+        trt.OnnxParser.return_value.parse.return_value = False
+        trt.OnnxParser.return_value.num_errors = 0
+        if flag_enum is not None:
+            trt.NetworkDefinitionCreationFlag = flag_enum
+        return trt
+
+    def _create_network_flags(self, monkeypatch, tmp_path, flag_enum):
+        from libreyolo.export.tensorrt import export_tensorrt
+
+        trt = self._fake_tensorrt(flag_enum)
+        monkeypatch.setitem(sys.modules, "tensorrt", trt)
+        onnx_path = tmp_path / "model.onnx"
+        onnx_path.write_bytes(b"")
+
+        with pytest.raises(RuntimeError, match="Failed to parse ONNX model"):
+            export_tensorrt(str(onnx_path), str(tmp_path / "model.engine"))
+
+        builder = trt.Builder.return_value
+        builder.create_network.assert_called_once()
+        return builder.create_network.call_args.args[0]
+
+    def test_legacy_api_uses_explicit_batch_flag(self, monkeypatch, tmp_path):
+        flag_enum = SimpleNamespace(EXPLICIT_BATCH=0)
+        assert self._create_network_flags(monkeypatch, tmp_path, flag_enum) == 1 << 0
+
+    @pytest.mark.parametrize(
+        "flag_enum",
+        [SimpleNamespace(STRONGLY_TYPED=1), None],
+        ids=["no_explicit_batch_member", "no_flag_enum"],
+    )
+    def test_tensorrt_11_api_creates_network_without_flags(
+        self, monkeypatch, tmp_path, flag_enum
+    ):
+        assert self._create_network_flags(monkeypatch, tmp_path, flag_enum) == 0
 
 
 class TestCalibrationDataLoader:

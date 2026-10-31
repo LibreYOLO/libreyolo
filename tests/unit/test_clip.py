@@ -324,6 +324,17 @@ class TestEmbedTask:
         assert loaded.task == "embed"
 
 
+    def test_saved_interpolation_is_restored(self, tiny_clip, tmp_path):
+        """A changed resize filter survives save and reload (#936)."""
+        tiny_clip.interpolation = "bilinear"
+        path = tiny_clip.save(str(tmp_path / "clip_tiny.pt"))
+        assert torch.load(path, weights_only=True)["interpolation"] == "bilinear"
+        restored = LibreCLIP(path, size="tiny", classes=["a cat"], device="cpu")
+        assert restored.interpolation == "bilinear"
+        image = Image.new("RGB", (40, 30), color=(10, 20, 30))
+        assert torch.equal(restored._preprocess(image)[0], tiny_clip._preprocess(image)[0])
+
+
 # ---------------------------------------------------------------------------
 # Train is out of scope; export is frozen-class ONNX only
 # ---------------------------------------------------------------------------

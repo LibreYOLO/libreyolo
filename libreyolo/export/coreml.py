@@ -99,44 +99,26 @@ def _wrap_for_family(nn_model: nn.Module, model_family: str | None) -> nn.Module
 def _prepare_yolo9_static_eval(nn_model: nn.Module, dummy: torch.Tensor):
     """Bake YOLOv9 head anchors as constants for the fixed CoreML export size.
 
-    The head's ``_anchor_grid`` rebuilds per-scale anchor grids from traced
-    feature-map shapes on every forward. Tracing that produces length-1 int
-    tensors (``h * w`` products) that coremltools 9+ rejects in its ``int``
-    cast op (numpy 2.x stopped accepting ``int(array([n]))``). A warm-up
-    forward populates ``head.anchors`` / ``head.strides``; we then swap
-    ``_anchor_grid`` for a stub returning those frozen tensors, so the traced
-    graph carries constants instead of shape arithmetic.
+    The head rebuilds its anchor grid from the traced feature-map shapes on
+    every export-mode forward. Tracing that produces length-1 int tensors
+    (``h * w`` products) that coremltools 9+ rejects in its ``int`` cast op
+    (numpy 2.x stopped accepting ``int(array([n]))``). CoreML artifacts are
+    fixed-canvas, so the grid for ``dummy``'s H/W is pinned with
+    ``head.freeze_anchor_grid`` and the traced graph carries constants
+    instead of shape arithmetic.
 
-    Returns a callable that restores the original ``_anchor_grid``.
+    Returns a callable that unfreezes the grid and restores ``head.export``.
     """
     head = getattr(nn_model, "head", None)
-    if head is None or not hasattr(head, "_anchor_grid"):
+    if head is None or not hasattr(head, "freeze_anchor_grid"):
         return lambda: None
 
-    # Warm-up forward: input values are irrelevant — anchors depend only on
-    # the feature-map geometry, which is fixed by dummy's H/W. The exporter
-    # already set ``head.export``, and that branch skips the anchor cache, so
-    # warm up without it or the frozen tensors stay empty (IndexError below).
     was_export = getattr(head, "export", False)
-    head.export = False
-    try:
-        with torch.no_grad():
-            nn_model(dummy)
-    finally:
-        head.export = was_export
-
-    frozen_anchors = head.anchors.detach().clone()
-    frozen_strides = head.strides.detach().clone()
-
-    def _const_anchor_grid(feats):
-        # The head transposes each returned tensor; pre-transpose so the
-        # round-trip reproduces the frozen (post-transpose) values.
-        return frozen_anchors.transpose(0, 1), frozen_strides.transpose(0, 1)
-
-    head._anchor_grid = _const_anchor_grid
+    head.freeze_anchor_grid((int(dummy.shape[2]), int(dummy.shape[3])))
 
     def _restore():
-        head.__dict__.pop("_anchor_grid", None)
+        head.unfreeze_anchor_grid()
+        head.export = was_export
 
     return _restore
 

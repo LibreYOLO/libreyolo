@@ -124,11 +124,12 @@ class LibreVGG(BaseModel):
             "classifier": self.model.classifier,
         }
 
-    @staticmethod
-    def _get_preprocess_numpy():
+    def _get_preprocess_numpy(self):
+        from functools import partial
+
         from .utils import preprocess_numpy
 
-        return preprocess_numpy
+        return partial(preprocess_numpy, interpolation=self.interpolation)
 
     def _preprocess(
         self,
@@ -146,6 +147,7 @@ class LibreVGG(BaseModel):
             image,
             input_size=effective_size,
             color_format=color_format,
+            interpolation=self.interpolation,
         )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:

@@ -29,7 +29,7 @@ import torch
 import torch.nn as nn
 from torchvision.ops import nms as _nms
 
-from ..models.yolo9.utils import _YOLO9_MAX_NMS_CANDIDATES
+from ..models.yolo9.utils import _YOLO9_NMS_PRE
 
 
 class EmbeddedNMSDetector(nn.Module):
@@ -74,17 +74,30 @@ class EmbeddedNMSDetector(nn.Module):
 
         # Multi-label candidate selection: every (anchor, class) pair scoring
         # above conf becomes a detection, matching the YOLO9 post-processing.
-        # Native YOLO9 caps candidates before NMS; taking the top scores before
-        # thresholding is equivalent to threshold-then-cap, but bounds the ONNX
-        # NonMaxSuppression input for low-conf exports.
+        #
+        # Traced counterpart of postprocess/yolo9.py::_filter_scores_and_topk,
+        # adapted from ``filter_scores_and_topk`` in open-mmlab/mmdetection
+        # (Apache-2.0), mmdet/models/utils/misc.py, commit
+        # cfd5d3a985b0249de009b67d04f37263e11cdf3d: threshold the
+        # (num_anchors, num_classes) score matrix, flatten, order by descending
+        # score, keep the first ``nms_pre``. Two adaptations for tracing:
+        # ``torch.topk`` needs a ``k`` known at export time, so the matrix is
+        # flattened whole and the invalid pairs are dropped after the top-k
+        # instead of before it. Every valid pair outscores every invalid one,
+        # so the kept set equals threshold-then-cap, and the ONNX
+        # NonMaxSuppression input stays bounded for low-conf exports. As in
+        # the native path the cap applies to the whole image (mmdetection:
+        # per feature level).
+        valid_mask = safe_scores_all > self.conf
         flat_scores = safe_scores_all.reshape(-1)
+        flat_valid = valid_mask.reshape(-1)
         num_classes = safe_scores_all.shape[1]
-        max_nms = min(
+        nms_pre = min(
             flat_scores.shape[0],
-            max(self.max_det, _YOLO9_MAX_NMS_CANDIDATES),
+            max(self.max_det, _YOLO9_NMS_PRE),
         )
-        top_scores, top_flat_idx = torch.topk(flat_scores, max_nms)
-        score_mask = top_scores > self.conf
+        top_scores, top_flat_idx = torch.topk(flat_scores, nms_pre)
+        score_mask = flat_valid[top_flat_idx]
         top_scores = top_scores[score_mask]
         top_flat_idx = top_flat_idx[score_mask]
         anchor_idx = torch.floor(top_flat_idx.to(torch.float32) / float(num_classes)).to(
@@ -101,13 +114,22 @@ class EmbeddedNMSDetector(nn.Module):
         cand_scores = cand_scores[valid_boxes]
         cand_cls = cand_cls[valid_boxes]
 
-        # Class-aware NMS via the coordinate-offset trick. Use sanitized boxes
-        # for the global range so non-finite anchors outside the candidate set
-        # cannot poison the offset applied to valid detections.
-        lo = safe_boxes_all.min()
-        step = (safe_boxes_all.max() - lo).clamp(min=1.0) + 1.0
-        nmsbox = (cand_boxes - lo) + cand_cls[:, None] * step
-        keep = _nms(nmsbox, cand_scores, self.iou)
+        # Class-aware NMS, adapted from ``_batched_nms_coordinate_trick`` in
+        # pytorch/vision (BSD-3-Clause), torchvision/ops/boxes.py: shift every
+        # box by an offset that depends only on its class index and exceeds
+        # the largest coordinate, so boxes of different classes never overlap
+        # and a single NMS pass suppresses within each class independently.
+        # Two adaptations for tracing: torchvision returns early when there
+        # are no boxes, a data-dependent branch a traced graph cannot hold, so
+        # ``max_coordinate`` is taken over every sanitized anchor box (never
+        # empty, and an upper bound of the candidates' maximum) instead of
+        # over the candidates; and the "+ 1" is a Python scalar rather than a
+        # tensor constant. Boxes are clamped to the canvas above, so no
+        # coordinate is negative and the per-class bands stay disjoint.
+        max_coordinate = safe_boxes_all.max()
+        offsets = cand_cls * (max_coordinate + 1.0)
+        boxes_for_nms = cand_boxes + offsets[:, None]
+        keep = _nms(boxes_for_nms, cand_scores, self.iou)
 
         row = torch.cat(
             (cand_boxes[keep], cand_scores[keep, None], cand_cls[keep, None]), dim=1

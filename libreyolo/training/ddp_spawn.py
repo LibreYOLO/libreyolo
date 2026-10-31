@@ -63,10 +63,13 @@ def _libreyolo_ddp_worker(
     cls = init_kw.pop("_class_object", None)
     module_path = init_kw.pop("_module")
     class_name = init_kw.pop("_class")
+    attrs = init_kw.pop("_attrs", {})
     if cls is None:
         cls = getattr(importlib.import_module(module_path), class_name)
 
     model = cls(weights_path, **init_kw)
+    for name, value in attrs.items():
+        setattr(model, name, value)
     try:
         result = model.train(**train_kw)
     finally:
@@ -145,6 +148,10 @@ def _bootstrap_checkpoint(model_instance: Any) -> dict:
     return hook(model_instance, state) if callable(hook) else state
 
 
+#: Plain model attributes a DDP worker copies from the coordinator's model.
+_WORKER_ATTRS = ("interpolation",)
+
+
 def _build_init_kw(model_instance: Any) -> dict:
     """Collect __init__ kwargs needed to reconstruct *model_instance* in a worker.
 
@@ -188,6 +195,15 @@ def _build_init_kw(model_instance: Any) -> dict:
     ):
         if (attr in supported or supports_kwargs) and hasattr(model_instance, attr):
             kw[attr] = getattr(model_instance, attr)
+    # Model settings no __init__ takes, set on the worker's model once built:
+    # a classifier's resize filter (#936) drives its training transforms.
+    attrs = {
+        attr: getattr(model_instance, attr)
+        for attr in _WORKER_ATTRS
+        if attr in vars(model_instance)
+    }
+    if attrs:
+        kw["_attrs"] = attrs
     if supports_kwargs and getattr(model_instance, "_training_from_scratch", False):
         # Workers rebuild the architecture before loading the temporary state
         # dict. Preserve scratch-only backbone trainability during that build.
@@ -398,6 +414,11 @@ def ddp_aware(batch_key: str = "batch"):
                         f"Multi-GPU DDP requires CUDA. Got device={device!r} but "
                         "CUDA is not available on this machine."
                     )
+                # Family hook: settle defaults that depend on the parent's
+                # state, which workers cannot see through the bootstrap file.
+                prepare = getattr(self, "_ddp_prepare_train_kwargs", None)
+                if callable(prepare):
+                    train_kw = prepare(train_kw)
                 return spawn_for_model(self, train_kw, len(devices), devices=devices, batch_key=batch_key)
 
             return train_fn(self, *args, **kwargs)

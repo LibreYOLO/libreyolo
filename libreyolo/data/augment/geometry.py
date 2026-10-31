@@ -2,7 +2,10 @@
 pipelines.
 
 Moved verbatim from ``libreyolo/training/augment.py`` (originally adapted
-from the official YOLOX repository).
+from the official YOLOX repository, Apache-2.0). The projective branch of
+:func:`get_affine_matrix` is not from YOLOX: it follows the corner-displacement
+design of torchvision's ``RandomPerspective`` (BSD-3-Clause) and solves the
+homography with OpenCV's ``cv2.getPerspectiveTransform``.
 """
 
 import math
@@ -10,6 +13,14 @@ import random
 
 import cv2
 import numpy as np
+
+# ``perspective`` -> torchvision-style ``distortion_scale`` conversion, and the
+# largest distortion_scale the projective branch will use. See
+# :func:`get_affine_matrix`.
+PERSPECTIVE_TO_DISTORTION = 100.0
+MAX_PERSPECTIVE_DISTORTION = 0.2
+# Smallest homogeneous coordinate used when dividing warped box corners.
+_MIN_HOMOGENEOUS_W = 1e-6
 
 
 def get_aug_params(value, center=0):
@@ -31,30 +42,37 @@ def get_affine_matrix(
     """Build a random affine (or projective) warp matrix.
 
     With ``perspective == 0.0`` this returns the historical 2x3 affine matrix
-    (rotation + scale + shear + translation), byte for byte, and draws no extra
-    random numbers.
+    (rotation + scale + shear + translation, adapted from YOLOX), byte for
+    byte, and draws no extra random numbers.
 
-    With ``perspective != 0.0`` it returns a full 3x3 homography built from
-    first principles as a standard composition of elementary transforms, read
-    right to left as applied to a source pixel ``[x, y, 1]``:
+    With ``perspective > 0.0`` it returns a 3x3 homography ``M = P @ A`` that
+    maps source pixels to the ``target_size`` canvas: ``A`` is that same affine
+    (built from the same six random draws) and ``P`` is a random projective
+    distortion of the canvas applied on top of it.
 
-        M = translate @ shear @ rotate_scale @ perspective @ center
+    ``P`` follows the design of ``torchvision.transforms.RandomPerspective``
+    (BSD-3-Clause): the four canvas corners are each pulled inward by a random
+    amount and ``P`` is the unique homography sending the canvas rectangle to
+    that quadrilateral (solved with ``cv2.getPerspectiveTransform``, i.e. the
+    standard four-point linear system). ``perspective`` sets the strength::
 
-    - ``center`` shifts the image center to the origin so every following
-      transform pivots about the center;
-    - ``perspective`` adds the two projective terms ``P[2, 0]`` and ``P[2, 1]``,
-      each sampled uniformly in ``[-perspective, +perspective]``, which tilt the
-      plane; the homogeneous divide happens in ``cv2.warpPerspective`` and in
-      :func:`apply_affine_to_bboxes`;
-    - ``rotate_scale`` is the same rotation+scale used by the affine path;
-    - ``shear`` applies the x/y shear as a left-multiply of the rotation
-      (matching the affine path's ``R[0] + shear_y * R[1]`` construction);
-    - ``translate`` recenters the image and adds the sampled translation.
+        distortion_scale = min(perspective * 100, 0.2)
 
-    The first six random draws (angle, scale, two shears, two translations)
-    keep the same order as the affine path so switching perspective on does not
-    reshuffle the shared draws; the two projective terms are drawn last and only
-    when perspective is active.
+    where ``distortion_scale`` has torchvision's meaning: every corner moves
+    toward the canvas centre by ``uniform(0, distortion_scale * width / 2)``
+    pixels in x and ``uniform(0, distortion_scale * height / 2)`` in y, all
+    eight offsets independent. So ``perspective=0.001`` displaces each corner
+    by at most 5% of the canvas side per axis (32 px at 640), independent of
+    the canvas resolution. Unlike torchvision the offsets are continuous
+    (``random.uniform``, eight draws made after the six affine draws) and the
+    corners are the canvas extents ``(0, 0)..(width, height)``.
+
+    Conditioning: because every corner stays inside its own corner region of
+    size ``distortion_scale / 2`` of the canvas, the quadrilateral is always
+    convex and ``P`` never folds over. With ``P`` scaled so ``P[2, 2] == 1``
+    its denominator on the canvas stays within ``[0.81, 1.24]`` at
+    ``perspective=0.001`` and above ``0.63`` at the 0.2 cap
+    (``perspective >= 0.002``); larger values are clamped to the cap.
     """
     twidth, theight = target_size
 
@@ -80,38 +98,44 @@ def get_affine_matrix(
         M[1, 2] = translation_y
         return M, scale
 
-    # Projective path: draw the two tilt terms last, then compose the 3x3.
-    perspective_x = random.uniform(-perspective, perspective)
-    perspective_y = random.uniform(-perspective, perspective)
+    if perspective < 0.0:
+        raise ValueError(f"perspective must be non-negative, got {perspective}")
 
-    center = np.eye(3)
-    center[0, 2] = -twidth / 2.0
-    center[1, 2] = -theight / 2.0
+    A = np.eye(3)
+    A[0, :2] = R[0, :2] + shear_y * R[1, :2]
+    A[1, :2] = R[1, :2] + shear_x * R[0, :2]
+    A[0, 2] = translation_x
+    A[1, 2] = translation_y
 
-    projective = np.eye(3)
-    projective[2, 0] = perspective_x
-    projective[2, 1] = perspective_y
+    distortion = min(perspective * PERSPECTIVE_TO_DISTORTION, MAX_PERSPECTIVE_DISTORTION)
+    max_dx = distortion * twidth / 2
+    max_dy = distortion * theight / 2
+    # Corner order: top-left, top-right, bottom-right, bottom-left.
+    src = np.array(
+        [[0, 0], [twidth, 0], [twidth, theight], [0, theight]], dtype=np.float32
+    )
+    dst = np.array(
+        [
+            [random.uniform(0, max_dx), random.uniform(0, max_dy)],
+            [twidth - random.uniform(0, max_dx), random.uniform(0, max_dy)],
+            [twidth - random.uniform(0, max_dx), theight - random.uniform(0, max_dy)],
+            [random.uniform(0, max_dx), theight - random.uniform(0, max_dy)],
+        ],
+        dtype=np.float32,
+    )
+    P = cv2.getPerspectiveTransform(src, dst)  # float64, P[2, 2] == 1
 
-    rotate_scale = np.eye(3)
-    rotate_scale[:2] = R
-
-    shear_m = np.eye(3)
-    shear_m[0, 1] = shear_y
-    shear_m[1, 0] = shear_x
-
-    translate_m = np.eye(3)
-    translate_m[0, 2] = twidth / 2.0 + translation_x
-    translate_m[1, 2] = theight / 2.0 + translation_y
-
-    M = translate_m @ shear_m @ rotate_scale @ projective @ center
-    return M, scale
+    return P @ A, scale
 
 
 def apply_affine_to_bboxes(targets, target_size, M, scale):
     """Warp box corners through M, then recompute axis-aligned bounds.
 
     ``M`` may be a 2x3 affine or a 3x3 homography; for the projective case the
-    warped corners are divided by their homogeneous coordinate.
+    warped corners are divided by their homogeneous coordinate. A corner far
+    outside the canvas can reach the homography's horizon (homogeneous
+    coordinate <= 0); it is treated as a point at infinity in its direction, so
+    the box extends to the canvas edge instead of folding over.
     """
     num_gts = len(targets)
 
@@ -123,7 +147,8 @@ def apply_affine_to_bboxes(targets, target_size, M, scale):
     )  # x1y1, x2y2, x1y2, x2y1
     corner_points = corner_points @ M.T  # apply affine / projective transform
     if M.shape[0] == 3:
-        corner_points = corner_points[:, :2] / corner_points[:, 2:3]
+        w = np.maximum(corner_points[:, 2:3], _MIN_HOMOGENEOUS_W)
+        corner_points = corner_points[:, :2] / w
     corner_points = corner_points.reshape(num_gts, 8)
 
     # Create new boxes

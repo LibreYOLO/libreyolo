@@ -223,7 +223,7 @@ async function initAssist(){
   if(assist.sam && asam){ asam.style.display="inline-flex"; asam.onclick = ()=> setTool("seg"); }
   bar.style.display = "flex";
   if(assist.sam){ const ts=$("#toolSeg"); if(ts) ts.style.display="grid"; }
-  const ar=$("#aradar"); if(ar){ ar.style.display="inline-flex"; ar.onclick=()=>runRadar(); }
+  const ar=$("#aradar"); if(ar){ ar.style.display="inline-flex"; ar.onclick=()=>showRadar(); }
   const mb=$("#mapbtn"); if(mb && assist.embed) mb.style.display="grid";
   const bb=$("#boostbtn"); if(bb && assist.boost) bb.style.display="grid";
   if(DS && DS.task==="segment"){

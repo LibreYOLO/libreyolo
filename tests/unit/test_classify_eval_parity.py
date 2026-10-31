@@ -339,3 +339,257 @@ def test_runtime_metadata_filter_keeps_the_eval_pipeline():
     backend = _backend("vit", **exported)
     assert backend.norm_mean == (0.1, 0.2, 0.3)
     assert backend.resize_mode == "stretch"
+
+
+# ---------------------------------------------------------------------------
+# The model's resize filter (#936)
+# ---------------------------------------------------------------------------
+
+_OTHER_FILTER = {"bicubic": "bilinear", "bilinear": "bicubic"}
+
+
+@pytest.fixture
+def switched_filter():
+    """Set a cached model's ``interpolation`` (default: the other filter), then restore it."""
+    changed = []
+
+    def switch(family, interpolation=None):
+        model = _model(family)
+        changed.append((model, vars(model).get("interpolation")))
+        model.interpolation = interpolation or _OTHER_FILTER[model.interpolation]
+        return model
+
+    yield switch
+    for model, original in changed:
+        if original is None:
+            del model.interpolation  # back to the class attribute
+        else:
+            model.interpolation = original
+
+
+# DINOv2 and V-JEPA 2 declare no resize filter of their own.
+@pytest.mark.parametrize("interpolation", [None, "bilinear_no_antialias"])
+@pytest.mark.parametrize("family", sorted(set(FAMILIES) - {"dinov2", "vjepa2"}))
+def test_interpolation_reaches_every_preprocessing_path(
+    family, interpolation, switched_filter
+):
+    """predict, val, calibration and exported backends resize the same way."""
+    from libreyolo.export.exporter import _classify_eval_metadata
+
+    default = _model(family)._preprocess(_IMAGE)[0][0]
+    model = switched_filter(family, interpolation)
+    predicted = model._preprocess(_IMAGE)[0][0]
+
+    assert not torch.equal(predicted, default)
+    assert torch.equal(_val_tensor(model), predicted)
+    array, _ = model._get_preprocess_numpy()(np.asarray(_IMAGE), model.input_size)
+    np.testing.assert_array_equal(array, predicted.numpy())
+    metadata = _classify_eval_metadata(model)
+    assert metadata["interpolation"] == model.interpolation
+    backend = _backend(family, **metadata)
+    exported = backend._preprocess_classify(_IMAGE, model.input_size, "auto")[0][0]
+    assert torch.equal(exported, predicted)
+
+
+def _cv2_bilinear(array, height, width):
+    import cv2
+
+    return cv2.resize(array, (width, height), interpolation=cv2.INTER_LINEAR)
+
+
+@pytest.mark.parametrize("shape", [(1333, 1999, 3), (48, 64, 3)], ids=["down", "up"])
+def test_no_antialias_resize_is_plain_bilinear(shape):
+    """``bilinear_no_antialias`` is cv2 INTER_LINEAR / torch antialias=False."""
+    import torch.nn.functional as F
+
+    from libreyolo.data.augment.classify import build_classify_transforms
+
+    array = np.random.default_rng(936).integers(0, 256, shape, dtype=np.uint8)
+    transform = build_classify_transforms(
+        224, augment=False, mean=(0, 0, 0), std=(1, 1, 1),
+        interpolation="bilinear_no_antialias", square_resize=True,
+    )
+    ours = (transform(Image.fromarray(array)) * 255).round().to(torch.int64)
+    reference = F.interpolate(
+        torch.from_numpy(array).permute(2, 0, 1)[None].float(),
+        size=(224, 224), mode="bilinear", align_corners=False, antialias=False,
+    )[0].round().clamp(0, 255).to(torch.int64)
+    assert torch.equal(ours, reference)
+    opencv = torch.from_numpy(_cv2_bilinear(array, 224, 224)).permute(2, 0, 1)
+    assert (ours - opencv.to(torch.int64)).abs().max() <= 1  # cv2 fixed-point rounding
+
+
+def test_no_antialias_differs_from_pillow_bilinear_on_a_downscale():
+    from libreyolo.data.augment.classify import build_classify_transforms
+
+    image = Image.fromarray(
+        np.random.default_rng(1).integers(0, 256, (1333, 1999, 3), dtype=np.uint8)
+    )
+    pillow, plain = (
+        build_classify_transforms(224, augment=False, interpolation=name)(image)
+        for name in ("bilinear", "bilinear_no_antialias")
+    )
+    assert (pillow - plain).abs().mean() > 0.1
+
+
+def test_no_antialias_train_crop_resizes_without_antialiasing():
+    """The training crop resizes its random box the same way as eval."""
+    from torchvision import transforms
+
+    from libreyolo.data.augment.classify import build_classify_transforms
+
+    array = np.random.default_rng(2).integers(0, 256, (900, 1200, 3), dtype=np.uint8)
+    pipeline = build_classify_transforms(
+        64, augment=True, mean=(0, 0, 0), std=(1, 1, 1), flip_prob=0.0,
+        interpolation="bilinear_no_antialias",
+    )
+    crop = pipeline.transforms[0]
+    torch.manual_seed(5)
+    top, left, height, width = transforms.RandomResizedCrop.get_params(
+        Image.fromarray(array), crop.scale, crop.ratio
+    )
+    torch.manual_seed(5)
+    ours = (pipeline(Image.fromarray(array)) * 255).round().to(torch.int64)
+    box = np.ascontiguousarray(array[top : top + height, left : left + width])
+    opencv = torch.from_numpy(_cv2_bilinear(box, 64, 64)).permute(2, 0, 1)
+    assert (ours - opencv.to(torch.int64)).abs().max() <= 1
+
+
+def test_no_antialias_transforms_report_antialias_false():
+    """Their ``antialias`` attribute and repr say what the resize does."""
+    from libreyolo.data.augment.classify import (
+        RandomResizedCropNoAntialias,
+        ResizeNoAntialias,
+    )
+
+    crop = RandomResizedCropNoAntialias(224, (0.08, 1.0))
+    for transform in (ResizeNoAntialias(224), crop):
+        assert transform.antialias is False
+        assert "antialias=False" in repr(transform)
+
+
+def test_no_antialias_survives_save_and_reload(tmp_path):
+    from libreyolo.utils.serialization import validate_checkpoint_metadata
+
+    model = _cls("mobilenetv4")(size="s", nb_classes=3, device="cpu")
+    model.interpolation = "bilinear_no_antialias"
+    path = model.save(str(tmp_path / "model.pt"))
+    checkpoint = torch.load(path, weights_only=True)
+    assert checkpoint["interpolation"] == "bilinear_no_antialias"
+    assert validate_checkpoint_metadata(checkpoint) == []
+    restored = libreyolo.LibreYOLO(path, device="cpu")
+    assert restored.interpolation == "bilinear_no_antialias"
+    assert torch.equal(restored._preprocess(_IMAGE)[0], model._preprocess(_IMAGE)[0])
+
+
+def test_unknown_interpolation_raises(switched_filter):
+    from libreyolo.data.augment.classify import build_classify_transforms
+
+    with pytest.raises(ValueError, match="Unknown interpolation 'lanczos'"):
+        build_classify_transforms(224, augment=False, interpolation="lanczos")
+    model = switched_filter("resnet")
+    model.interpolation = "lanczos"
+    with pytest.raises(ValueError, match="Unknown interpolation"):
+        model._preprocess(_IMAGE)
+
+
+def test_interpolation_survives_save_and_reload(tmp_path):
+    from libreyolo.utils.serialization import validate_checkpoint_metadata
+
+    model = _cls("mobilenetv4")(size="s", nb_classes=3, device="cpu")
+    model.interpolation = "bilinear"
+    path = model.save(str(tmp_path / "model.pt"))
+    checkpoint = torch.load(path, weights_only=True)
+    assert checkpoint["interpolation"] == "bilinear"
+    assert validate_checkpoint_metadata(checkpoint) == []
+
+    restored = libreyolo.LibreYOLO(path, device="cpu")
+    assert restored.interpolation == "bilinear"
+    assert torch.equal(
+        restored._preprocess(_IMAGE)[0], model._preprocess(_IMAGE)[0]
+    )
+
+    del checkpoint["interpolation"]  # a checkpoint from before #936
+    torch.save(checkpoint, path)
+    assert libreyolo.LibreYOLO(path, device="cpu").interpolation == "bicubic"
+
+
+def test_checkpoint_with_an_unknown_interpolation_is_invalid(tmp_path):
+    from libreyolo.utils.serialization import validate_checkpoint_metadata
+
+    path = _cls("mobilenetv4")(size="s", nb_classes=3, device="cpu").save(
+        str(tmp_path / "model.pt")
+    )
+    checkpoint = torch.load(path, weights_only=True)
+    checkpoint["interpolation"] = "lanczos"
+    assert any("lanczos" in e for e in validate_checkpoint_metadata(checkpoint))
+    torch.save(checkpoint, path)
+    with pytest.raises(RuntimeError, match="Unknown interpolation"):
+        libreyolo.LibreYOLO(path, device="cpu")
+
+
+def test_training_checkpoints_keep_the_interpolation(switched_filter):
+    """``best.pt`` and ``last.pt`` take the trainer's extra metadata."""
+    from libreyolo.training.trainer import BaseTrainer
+
+    model = switched_filter("resnet")
+    metadata = BaseTrainer._checkpoint_extra_metadata(SimpleNamespace(wrapper_model=model))
+    assert metadata == {"interpolation": model.interpolation}
+
+
+def test_resume_takes_the_interpolation_before_the_trainer_is_built(
+    tmp_path, monkeypatch
+):
+    """``train(resume=path)`` sets the saved filter before datasets are built."""
+    from libreyolo.models.mobilenetv4 import trainer as mobilenetv4_trainer
+
+    saved = _cls("mobilenetv4")(size="s", nb_classes=2, device="cpu")
+    saved.interpolation = "bilinear"
+    path = saved.save(str(tmp_path / "last.pt"))
+    checkpoint = torch.load(path, weights_only=True)
+    checkpoint["config"] = {"epochs": 1}  # a training checkpoint, minus the state
+    torch.save(checkpoint, path)
+
+    seen = []
+
+    class _Trainer:
+        def __init__(self, *, wrapper_model, **kwargs):
+            seen.append(wrapper_model.interpolation)
+
+        def setup(self):
+            raise _Stop
+
+    class _Stop(Exception):
+        pass
+
+    monkeypatch.setattr(mobilenetv4_trainer, "MobileNetV4Trainer", _Trainer)
+    fresh = _cls("mobilenetv4")(size="s", nb_classes=2, device="cpu")
+    with pytest.raises(_Stop):
+        fresh.train(data=str(tmp_path), resume=path, device="cpu")
+    assert seen == ["bilinear"]
+
+
+def test_ddp_workers_get_the_interpolation(tmp_path, monkeypatch, switched_filter):
+    from libreyolo.training import ddp_spawn
+
+    model = switched_filter("resnet")
+    init_kw = ddp_spawn._build_init_kw(model)
+    assert init_kw["_attrs"] == {"interpolation": model.interpolation}
+
+    seen = {}
+
+    class _Worker:
+        def __init__(self, weights_path, **kwargs):
+            self.interpolation = "bicubic"  # what a fresh build sets
+
+        def train(self, **kwargs):
+            seen["interpolation"] = self.interpolation
+            return {}
+
+    for key in ("RANK", "LOCAL_RANK", "WORLD_SIZE", "MASTER_ADDR", "MASTER_PORT"):
+        monkeypatch.setenv(key, "0")
+    ddp_spawn._libreyolo_ddp_worker(
+        0, 1, "127.0.0.1", 0, str(tmp_path / "result.json"), "unused.pt",
+        {**init_kw, "_class_object": _Worker}, {},
+    )
+    assert seen == {"interpolation": model.interpolation}

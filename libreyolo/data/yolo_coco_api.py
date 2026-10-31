@@ -301,7 +301,9 @@ class YOLOCocoAPI:
                             if segment:
                                 ann["segmentation"] = [segment]
                             else:
-                                ann["segmentation"] = []
+                                # A box-only row is a rectangular segment
+                                # (docs/dataset_schema.md), as in training.
+                                ann["segmentation"] = [[x1, y1, x2, y1, x2, y2, x1, y2]]
                         self.anns[ann_id] = ann
                         self.imgToAnns[img_id].append(ann)
                         ann_id += 1

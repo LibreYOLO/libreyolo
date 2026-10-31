@@ -573,9 +573,20 @@ def test_validator_init_metrics_filters_coco_json_ground_truth_by_classes(tmp_pa
     assert validator.coco_evaluator.results[0]["category_id"] == 2
 
 
-@pytest.mark.parametrize("single_cls, expected", [(False, [3]), (True, [0])])
+@pytest.mark.parametrize(
+    "single_cls, nb_classes, expected, index",
+    [
+        (False, 4, [3], 2),
+        # A multiclass model keeps classes= in its own labels, then scores as 0.
+        (True, 4, [0], 2),
+        # A model trained with single_cls already labels every box 0.
+        (True, 1, [0], 0),
+    ],
+)
 @pytest.mark.parametrize("segment", [False, True])
-def test_subset_predictions_keep_aligned_fields(tmp_path, single_cls, expected, segment):
+def test_subset_predictions_keep_aligned_fields(
+    tmp_path, single_cls, nb_classes, expected, index, segment
+):
     from unittest.mock import Mock
 
     config = ValidationConfig(
@@ -585,7 +596,7 @@ def test_subset_predictions_keep_aligned_fields(tmp_path, single_cls, expected, 
     from libreyolo.validation.detection_validator import SegmentationValidator
 
     validator_cls = SegmentationValidator if segment else DetectionValidator
-    validator = validator_cls(_minimal_val_model(), config)
+    validator = validator_cls(_minimal_val_model(nb_classes), config)
     validator.coco_evaluator = Mock()
     validator.mask_evaluator = Mock()
     pred = {
@@ -596,7 +607,6 @@ def test_subset_predictions_keep_aligned_fields(tmp_path, single_cls, expected, 
     }
     validator._update_metrics([pred], torch.empty(0), [(48, 64)], [1])
     scored = validator.coco_evaluator.update.call_args.args[0]
-    index = 0 if single_cls else 2
     assert scored["classes"].tolist() == expected
     for key in ("boxes", "scores", "masks"):
         assert torch.equal(scored[key], pred[key][index:index + 1])

@@ -39,6 +39,29 @@ calibration and exported backends take this pipeline from the model
 train-time and `val()` evaluation only; export runtime metadata keeps the
 family's native value.
 
+## Resize filter
+
+Both pipelines resize with the model's `interpolation` (each family sets its
+upstream filter, e.g. bicubic for MobileNetV4, ResNet and ViT, bilinear for
+AlexNet and VGG). Set it on the model before training, and `predict()`,
+`val()`, INT8 calibration, export metadata and saved checkpoints follow:
+
+```python
+model = LibreMobileNetV4(size="s")
+model.interpolation = "bilinear_no_antialias"
+model.train(data="/path/to/imagefolder")
+```
+
+| Value | Resize |
+| --- | --- |
+| `bilinear`, `bicubic`, `nearest` | Pillow. It filters (antialiases) when it downscales. |
+| `bilinear_no_antialias` | Plain bilinear with half-pixel centers and no antialiasing, as torch `F.interpolate(mode="bilinear", align_corners=False, antialias=False)` (identical) and `cv2.resize(..., INTER_LINEAR)` (within one grey level; cv2 rounds in fixed point) compute. For runtimes that resize this way, such as TFLite `RESIZE_BILINEAR`. |
+
+With `bilinear_no_antialias`, the eval `Resize` and the train
+`RandomResizedCrop` both resize without antialiasing, and the `auto_augment`
+rotations and shears use plain bilinear. Checkpoints saved before a model recorded its filter keep the
+family default.
+
 `hsv_prob`, `degrees`, `translate`, `shear`, `perspective`, `mosaic` and
 `mosaic_scale` are detection knobs. Classification ignores them and the CLI
 says so when they are set explicitly.

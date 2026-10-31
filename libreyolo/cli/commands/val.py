@@ -61,6 +61,11 @@ def val_cmd(
     ),
     conf: float = typer.Option(0.001, help="Confidence threshold"),
     iou: float = typer.Option(0.6, help="NMS IoU threshold"),
+    agnostic_nms: bool = typer.Option(
+        False,
+        help="Class-agnostic NMS: among boxes overlapping above iou, keep "
+        "only the highest-scoring one whatever their classes (detect, segment)",
+    ),
     max_det: int = typer.Option(300, help="Max predictions per image after NMS"),
     eval_max_det: Optional[int] = typer.Option(
         None,
@@ -212,6 +217,7 @@ def val_cmd(
             crop_pct=crop_pct,
             # Only when set: some families' val() reject unknown kwargs.
             **({"single_cls": True} if single_cls else {}),
+            **({"agnostic_nms": True} if agnostic_nms else {}),
             **({"visualize": True} if visualize else {}),
             **({"show_labels": False} if not show_labels else {}),
             **({"show_conf": False} if not show_conf else {}),
