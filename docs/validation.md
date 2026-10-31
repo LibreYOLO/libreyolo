@@ -37,7 +37,10 @@ produced no curves.
   Predictions at confidence 0.25, or the run's `conf` if higher, pair one to
   one with ground-truth boxes at IoU 0.5 or more, highest IoU first, whatever
   their classes. An unpaired ground truth counts in the `background` row, an
-  unpaired prediction in the `background` column. Segmentation pairs boxes.
+  unpaired prediction in the `background` column. A prediction with at
+  least half of its own area inside a same-class COCO crowd region
+  (`iscrowd=1`) does not pair with ground truth of another class, and is
+  ignored instead of counted when it stays unpaired. Segmentation pairs boxes.
   With `classes=`, ground truth of the other classes is not counted.
 - Classify: `(nc, nc)`, one count per image at `[top-1 class, label]`.
 
