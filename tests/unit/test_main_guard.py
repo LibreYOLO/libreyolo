@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import multiprocessing
 import os
 import subprocess
@@ -254,12 +255,14 @@ if __name__ == "__main__":
 if "__main__" == __name__:
     x.train()
 main()
+if __name__ == "__main__" and ENABLED:
+    x.train()
 """
 
 
 @pytest.mark.parametrize(
     "line, guarded",
-    [(4, False), (7, True), (8, True), (10, True), (12, True), (13, False), (1, False)],
+    [(4, False), (7, True), (8, True), (10, True), (12, True), (13, False), (1, False), (15, True)],
 )
 def test_main_guard_is_read_from_the_source(line, guarded):
     assert is_main_guarded(GUARDED, line) is guarded
@@ -278,6 +281,44 @@ def test_a_call_from_outside_the_script_keeps_its_workers(monkeypatch):
     monkeypatch.setattr(main_guard, "_reimports_main", lambda: True)
     monkeypatch.setattr(main_guard, "_main_line", lambda: None)
     assert workers_for_main_process("val()", 4) == 4
+
+
+@dataclasses.dataclass
+class _NoWorkersConfig:
+    workers: int = 0
+
+
+class _ResumingTrain:
+    """Defaults to workers=0 and restores a saved count on resume, like RF-DETR."""
+
+    task = None
+    TRAIN_CONFIG = _NoWorkersConfig
+
+    def _restore_resume_interpolation(self, resume):
+        pass
+
+    def _checkpoint_train_config(self, resume):
+        return {}
+
+    @staticmethod
+    def _raw_train(self, data=None, resume=None, **kwargs):
+        return kwargs.get("workers", 2 if resume else 0)
+
+
+_ResumingTrain.train = _wrap_train_with_cfg(_ResumingTrain._raw_train)
+
+
+def test_unguarded_train_passes_workers_zero_explicitly(monkeypatch, caplog):
+    import libreyolo.models.base.model as base_model
+
+    monkeypatch.setattr(main_guard, "_warned", set())
+    monkeypatch.setattr(base_model, "runs_unguarded", lambda: True)
+    with caplog.at_level("WARNING"):
+        assert _ResumingTrain().train(data="d.yaml") == 0
+        assert _ResumingTrain().train(data="d.yaml", resume="last.pt") == 0
+    assert caplog.text.count("so it runs with workers=0") == 1
+    monkeypatch.setattr(base_model, "runs_unguarded", lambda: False)
+    assert _ResumingTrain().train(data="d.yaml", resume="last.pt") == 2
 
 
 def test_an_unguarded_line_drops_the_workers(monkeypatch, tmp_path, caplog):

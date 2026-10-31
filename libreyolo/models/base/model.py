@@ -51,7 +51,8 @@ from ...utils.logging import ensure_default_logging
 from ...utils.main_guard import (
     exit_if_reimporting_main,
     guard_main_reimport,
-    workers_for_main_process,
+    runs_unguarded,
+    warn_workers_dropped,
 )
 from ...utils.model_info import build_model_info, format_model_info
 from ...utils.results import Results
@@ -236,16 +237,21 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
 
         from ...data.event_histogram import prepare_histogram_training
         prepare_histogram_training(self, args, merged)
-        requested = _requested_workers(self, sig, pos_names, args, merged)
-        workers = workers_for_main_process("train()", requested)
-        if workers != requested:
+        if runs_unguarded():
+            # Passed explicitly even when the default is already 0: a family
+            # that restores a resumed run's settings keeps explicit arguments.
+            requested = _requested_workers(self, sig, pos_names, args, merged)
+            if resume or requested is None or requested > 0:
+                warn_workers_dropped("train()")
             if "workers" in pos_names[: len(args)]:
                 args = list(args)
-                args[pos_names.index("workers")] = workers
+                args[pos_names.index("workers")] = 0
+            elif "num_workers" in merged:
+                merged["num_workers"] = 0
             elif "workers" in sig.parameters or any(
                 p.kind == p.VAR_KEYWORD for p in sig.parameters.values()
             ):
-                merged["workers"] = workers
+                merged["workers"] = 0
         return train_fn(self, *args, **merged)
 
     wrapper._libreyolo_cfg_wrapped = True  # type: ignore[attr-defined]

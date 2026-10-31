@@ -73,6 +73,9 @@ def _main_line() -> Optional[int]:
 
 
 def _is_main_test(node: ast.expr) -> bool:
+    if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
+        # ``if __name__ == "__main__" and ...:`` never runs in a re-import either.
+        return any(_is_main_test(value) for value in node.values)
     if not (
         isinstance(node, ast.Compare)
         and len(node.ops) == 1
@@ -94,36 +97,50 @@ def is_main_guarded(source, line: int) -> bool:
     return False
 
 
+def runs_unguarded() -> bool:
+    """True when DataLoader workers would re-run the call that is running now.
+
+    That is a main process under ``spawn`` or ``forkserver`` whose ``__main__``
+    script reached this call from top-level code outside an
+    ``if __name__ == "__main__":`` body. False whenever the script cannot be
+    read or the call did not come from its top-level code.
+    """
+    if getattr(multiprocessing.current_process(), "_inheriting", False):
+        return False
+    if not _reimports_main():
+        return False
+    line = _main_line()
+    path = getattr(sys.modules.get("__main__"), "__file__", None)
+    if line is None or path is None:
+        return False
+    try:
+        with open(path, "rb") as f:
+            return not is_main_guarded(f.read(), line)
+    except (OSError, SyntaxError, ValueError):
+        return False
+
+
+def warn_workers_dropped(action: str) -> None:
+    """Log, once per action, that an unguarded call runs with ``workers=0``."""
+    if action not in _warned:
+        _warned.add(action)
+        logger.warning(FALLBACK_MESSAGE.format(action=action))
+
+
 def workers_for_main_process(action: str, workers):
     """The worker count a ``train()`` / ``val()`` call can use without failing.
 
-    ``0`` when DataLoader workers would re-run the call (it is at the top level
-    of a script, outside a main guard, under ``spawn`` or ``forkserver``);
-    ``workers`` otherwise, including whenever the script cannot be read.
+    ``0`` when DataLoader workers would re-run the call (see
+    :func:`runs_unguarded`); ``workers`` otherwise.
     """
     try:
         if workers is not None and int(workers) <= 0:
             return workers
     except (TypeError, ValueError):
         return workers
-    if getattr(multiprocessing.current_process(), "_inheriting", False):
+    if not runs_unguarded():
         return workers
-    if not _reimports_main():
-        return workers
-    line = _main_line()
-    path = getattr(sys.modules.get("__main__"), "__file__", None)
-    if line is None or path is None:
-        return workers
-    try:
-        with open(path, "rb") as f:
-            guarded = is_main_guarded(f.read(), line)
-    except (OSError, SyntaxError, ValueError):
-        return workers
-    if guarded:
-        return workers
-    if action not in _warned:
-        _warned.add(action)
-        logger.warning(FALLBACK_MESSAGE.format(action=action))
+    warn_workers_dropped(action)
     return 0
 
 
@@ -186,5 +203,7 @@ __all__ = [
     "exit_if_reimporting_main",
     "guard_main_reimport",
     "is_main_guarded",
+    "runs_unguarded",
+    "warn_workers_dropped",
     "workers_for_main_process",
 ]
