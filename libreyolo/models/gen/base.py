@@ -20,6 +20,7 @@ import random
 import re
 import threading
 import time
+import weakref
 from numbers import Integral
 from pathlib import Path
 from typing import (
@@ -40,8 +41,19 @@ from ...utils.results import GeneratedImage, Results
 
 logger = logging.getLogger(__name__)
 
-# Threads that first call a model at the same time load it once.
-_LOAD_LOCK = threading.RLock()
+# One load lock per model, so threads that first call the same model at the
+# same time load it once while other models load in parallel. Kept off the
+# instance so models still copy and pickle.
+_LOAD_LOCKS: "weakref.WeakKeyDictionary[Any, threading.RLock]" = weakref.WeakKeyDictionary()
+_LOAD_LOCKS_GUARD = threading.Lock()
+
+
+def _load_lock(model: Any) -> threading.RLock:
+    with _LOAD_LOCKS_GUARD:
+        lock = _LOAD_LOCKS.get(model)
+        if lock is None:
+            lock = _LOAD_LOCKS[model] = threading.RLock()
+        return lock
 
 _INSTALL_HINT = (
     "LibreGen models require the 'gen' extra. Install with:\n"
@@ -182,7 +194,7 @@ class LibreGenModel:
 
     def _ensure_loaded(self) -> None:
         if self._pipeline is None:
-            with _LOAD_LOCK:
+            with _load_lock(self):
                 if self._pipeline is None:
                     self._check_runtime()
                     self._load(self._ensure_weights())
