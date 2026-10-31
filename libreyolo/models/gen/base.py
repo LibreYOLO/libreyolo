@@ -71,6 +71,8 @@ class LibreGenModel:
     # ``negative`` for a negative prompt.
     KNOBS: ClassVar[Tuple[str, ...]] = ()
     DEFAULTS: ClassVar[Dict[str, Any]] = {}
+    # Shared arguments the unknown-knob error lists before the family knobs.
+    SHARED_ARGS: ClassVar[Tuple[str, ...]] = ("imgsz", "seed", "n")
     SNAPSHOT_ALLOW_PATTERNS: ClassVar[Tuple[str, ...]] = ()
     TRAINABLE: ClassVar[bool] = False
     # `libreyolo models` points at the dedicated verb instead of `model=` names.
@@ -386,7 +388,7 @@ class LibreGenModel:
         """Merge family defaults with the call's knobs; reject unknown names."""
         unknown = sorted(set(knobs) - set(self.KNOBS))
         if unknown:
-            supported = ["imgsz", "seed", "n", *self.KNOBS]
+            supported = [*self.SHARED_ARGS, *self.KNOBS]
             raise TypeError(
                 f"{type(self).__name__} does not accept {', '.join(map(repr, unknown))}. "
                 f"Supported: {', '.join(supported)}."
