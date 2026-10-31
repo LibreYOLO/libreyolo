@@ -100,6 +100,9 @@ before 1.4.0 are documented in the
 - **YOLO9 and YOLO9-P2 code follows the MIT upstream.**
   The YOLO9 building blocks, the YOLO9 and YOLO9-P2 detection heads and the YOLO9 mixup blend are ported from MultimediaTechLab/YOLO (MIT, commit c4cb5f6f); mosaic tile placement reuses the YOLOX-derived helper, and `THIRD_PARTY_NOTICES.txt` describes each source. Float inference is unchanged: raw outputs of checkpoints written by 1.6.0 (t/s/m/c, 2 and 120 classes) and sample-image detections of the published t and m weights are bit-identical, and the main path matches the pinned upstream model on random weights (`tests/unit/test_yolo9_parity.py`). Checkpoints written by earlier releases load through a rename of legacy tensor names, and of the module names in quantization manifests; resumed training checkpoints go through the same rename. Training behaviour does change, as listed under Changed and Fixed. Exported-runtime parity beyond ONNX on YOLO9-t and CUDA mixed-precision training were not measured.
 
+- **GitHub detects the license as MIT.**
+  `LICENSE` now holds only the MIT License text. Its two appended notes, on weights and on third-party code, moved word for word to the top of `NOTICE`; with them in `LICENSE`, GitHub's license detection reported the repository as "Other". The license terms are unchanged.
+
 ## [1.6.0] - 2026-09-27
 
 Three new tasks (`detect3d`, `albedo` and `act`, taking the canonical task list from 17 to 20), 34 new top-level `Libre*` exports (31 model classes, the `LibreLLM` client and the `LibreGround` and `LibreVLA` factories), validation error analysis, and a release QA pass over 1.5.0 behavior. 592 commits, 105 merged pull requests. Several changes move outputs or numbers you may be comparing against v1.5.0 (NumPy channel order, batched inputs, resume, RF-DETR preprocessing, EdgeCrafter pose, COCO evaluation ids): read **Changed** and **Breaking changes** before upgrading.

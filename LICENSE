@@ -19,20 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-NOTE ON WEIGHTS: No pretrained weight files are shipped with this source
-repository. Pretrained LibreYOLO weights are published separately on
-Hugging Face under https://huggingface.co/LibreYOLO and carry their own
-per-family licenses, reflecting each upstream. Those licenses vary and
-are not all permissive: some published weights are non-commercial or
-otherwise restricted, and this MIT License does not extend to them.
-Choosing a model means choosing its license. See
-`weights/LICENSE_NOTICE.txt` and the LICENSE / NOTICE files on each
-Hugging Face model card for the authoritative terms.
-
-NOTE ON THIRD-PARTY CODE: Portions of this repository are derived from
-other open-source projects. See `THIRD_PARTY_NOTICES.txt` for the list
-of upstream projects and their licenses.
-
