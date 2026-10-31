@@ -18,6 +18,7 @@ import logging
 import platform
 import random
 import re
+import threading
 import time
 from numbers import Integral
 from pathlib import Path
@@ -38,6 +39,9 @@ import numpy as np
 from ...utils.results import GeneratedImage, Results
 
 logger = logging.getLogger(__name__)
+
+# Threads that first call a model at the same time load it once.
+_LOAD_LOCK = threading.RLock()
 
 _INSTALL_HINT = (
     "LibreGen models require the 'gen' extra. Install with:\n"
@@ -178,8 +182,10 @@ class LibreGenModel:
 
     def _ensure_loaded(self) -> None:
         if self._pipeline is None:
-            self._check_runtime()
-            self._load(self._ensure_weights())
+            with _LOAD_LOCK:
+                if self._pipeline is None:
+                    self._check_runtime()
+                    self._load(self._ensure_weights())
 
     @staticmethod
     def _resolve_device(device: Any):
