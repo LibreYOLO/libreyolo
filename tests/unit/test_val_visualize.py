@@ -18,6 +18,7 @@ import torch
 from libreyolo.validation.base import BaseValidator
 from libreyolo.validation.classify_validator import ClassifyValidator
 from libreyolo.validation.config import VISUALIZE_TASKS, ValidationConfig
+from libreyolo.validation.confusion_matrix import ConfusionMatrix
 from libreyolo.validation.detection_validator import DetectionValidator
 from libreyolo.validation.val_plotter import ValPlotter, match_detections
 
@@ -101,6 +102,61 @@ class TestMatchDetections:
         )
         assert m["tp"].tolist() == [False, True]
         assert m["fn"].tolist() == [False]
+
+    def test_a_zero_threshold_never_matches_another_class(self):
+        m = _match([(10, 10, 50, 50, 2, 0.9)], [(10, 10, 50, 50, 1)], iou_thres=0.0)
+        assert m["tp"].tolist() == [False]
+        assert m["fn"].tolist() == [True]
+
+
+_CROWD = {
+    "crowd_boxes": np.array([[0.0, 0.0, 100.0, 100.0]]),
+    "crowd_classes": np.array([1]),
+}
+
+
+class TestCrowdRegions:
+    """COCO crowd regions (``iscrowd=1``) ignore predictions, as in mAP (#934)."""
+
+    def test_unmatched_prediction_inside_is_dropped(self):
+        m = _match(
+            [(10, 10, 50, 50, 1, 0.9), (60, 60, 90, 90, 1, 0.8)],
+            [(10, 10, 50, 50, 1)],
+            **_CROWD,
+        )
+        assert m["keep"].tolist() == [True, False]
+        assert m["tp"].tolist() == [True]
+        assert m["fn"].tolist() == [False]
+
+    def test_ground_truth_inside_is_still_matched_first(self):
+        m = _match(
+            [(60, 60, 90, 90, 1, 0.9)], [(60, 60, 90, 90, 1)], **_CROWD
+        )
+        assert m["keep"].tolist() == [True]
+        assert m["tp"].tolist() == [True]
+
+    def test_another_class_is_still_a_false_positive(self):
+        m = _match([(60, 60, 90, 90, 0, 0.9)], [], **_CROWD)
+        assert m["tp"].tolist() == [False]
+
+    def test_another_class_counts_at_a_zero_threshold(self):
+        m = _match([(60, 60, 90, 90, 0, 0.9)], [], iou_thres=0.0, **_CROWD)
+        assert m["keep"].tolist() == [True]
+        assert m["tp"].tolist() == [False]
+
+    def test_mostly_outside_is_still_a_false_positive(self):
+        # 40x40 box with a 20x20 corner inside: overlap 0.25 of its own area.
+        m = _match([(80, 80, 120, 120, 1, 0.9)], [], **_CROWD)
+        assert m["tp"].tolist() == [False]
+
+    def test_no_crowd_regions_change_nothing(self):
+        pred = [(10, 10, 50, 50, 1, 0.9), (60, 60, 90, 90, 1, 0.8)]
+        gt = [(10, 10, 50, 50, 1)]
+        plain, empty = _match(pred, gt), _match(
+            pred, gt, crowd_boxes=np.zeros((0, 4)), crowd_classes=np.zeros(0)
+        )
+        for key in ("keep", "tp", "fn"):
+            assert plain[key].tolist() == empty[key].tolist()
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +257,33 @@ class TestDetectionValidator:
         v._single_cls_enabled = lambda: False
         v._update_metrics(*_batch([True]))
         assert v.image_metrics["img0.jpg"]["fn"] == 0
+
+    def test_crowd_regions_ignore_predictions_like_map(self, tmp_path):
+        # COCO ground truth with one crowd region of category 5 (label 1):
+        # the loaders drop it from targets, the scoring still honours it.
+        v = _detection_validator(tmp_path, visualize=True, n_images=1)
+        v.confusion_matrix = ConfusionMatrix(nc=2)
+        v.coco_evaluator.label_to_category_id = {0: 3, 1: 5}
+        v.coco_evaluator.coco_gt = SimpleNamespace(
+            anns={
+                7: {"image_id": 0, "category_id": 5, "bbox": [50, 50, 40, 40], "iscrowd": 1},
+                8: {"image_id": 0, "category_id": 5, "bbox": [20, 20, 20, 20], "iscrowd": 0},
+            }
+        )
+        preds, targets, info, ids = _batch([True])
+        preds[0] = {
+            "boxes": torch.tensor([[20.0, 20.0, 40.0, 40.0], [55.0, 55.0, 85.0, 85.0]]),
+            "scores": torch.tensor([0.9, 0.9]),
+            "classes": torch.tensor([1, 1]),
+        }
+        v._update_metrics(preds, targets, info, ids)
+        assert v.image_metrics["img0.jpg"]["fp"] == 0
+        assert v.image_metrics["img0.jpg"]["tp"] == 1
+        assert v.confusion_matrix.matrix[1, 2] == 0
+        assert v.confusion_matrix.matrix[1, 1] == 1
+        assert _written(v.save_dir) == ["correct/000000_img0.jpg"]
+        # mAP gets every prediction; the crowd rule is pycocotools' own.
+        assert len(v.coco_evaluator.calls[0][0]) == 2
 
     def test_off_writes_nothing(self, tmp_path):
         v = _detection_validator(tmp_path, visualize=False)

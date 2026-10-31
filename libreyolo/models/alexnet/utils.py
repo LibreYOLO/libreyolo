@@ -19,6 +19,7 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 def build_eval_transform(
     input_size: int,
     crop_pct: float = 0.875,
+    interpolation: str = "bilinear",
 ) -> transforms.Compose:
     """Resize the shorter side, center-crop, and apply ImageNet normalization.
 
@@ -26,7 +27,7 @@ def build_eval_transform(
     so ``predict()`` and ``val()`` run the same code (#886).
     """
     return build_classify_transforms(
-        input_size, augment=False, crop_pct=crop_pct, interpolation="bilinear"
+        input_size, augment=False, crop_pct=crop_pct, interpolation=interpolation
     )
 
 
@@ -35,11 +36,14 @@ def preprocess_image(
     input_size: int,
     crop_pct: float = 0.875,
     color_format: str = "auto",
+    interpolation: str = "bilinear",
 ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
     """Return a normalized batch tensor plus the unchanged source image metadata."""
     pil = ImageLoader.load(image, color_format=color_format)
     orig_w, orig_h = pil.size
-    tensor = build_eval_transform(input_size, crop_pct)(pil).unsqueeze(0)
+    tensor = build_eval_transform(input_size, crop_pct, interpolation=interpolation)(
+        pil
+    ).unsqueeze(0)
     return tensor, pil, (orig_w, orig_h), 1.0
 
 
@@ -47,6 +51,7 @@ def preprocess_numpy(
     img_rgb_hwc,
     input_size: int,
     crop_pct: float = 0.875,
+    interpolation: str = "bilinear",
 ) -> Tuple[np.ndarray, float]:
     """Convert an RGB HWC array into one normalized CHW array.
 
@@ -57,7 +62,9 @@ def preprocess_numpy(
         if isinstance(img_rgb_hwc, Image.Image)
         else Image.fromarray(np.asarray(img_rgb_hwc).astype("uint8"))
     )
-    return build_eval_transform(input_size, crop_pct)(pil).numpy(), 1.0
+    return build_eval_transform(input_size, crop_pct, interpolation=interpolation)(
+        pil
+    ).numpy(), 1.0
 
 
 __all__ = [

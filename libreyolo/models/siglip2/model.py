@@ -444,6 +444,7 @@ class LibreSigLIP2(BaseModel):
                 "with LibreSigLIP2."
             )
 
+        self._restore_checkpoint_interpolation(loaded)
         state = self._extract_state(loaded)
         if (
             "logit_bias" not in state

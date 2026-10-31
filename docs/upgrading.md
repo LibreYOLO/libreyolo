@@ -7,6 +7,85 @@ The full list of changes for any release is in
 [CHANGELOG.md](../CHANGELOG.md); this page carries only the parts that require
 you to edit code or re-check numbers.
 
+## v1.6.0 to v1.7.0
+
+YOLOv9 checkpoints from 1.6.0 and earlier keep loading and keep the same
+float predict/val boxes. What changes is training behaviour, the names
+seen by code that reaches into the network, and a few validation and
+predict contracts.
+
+### What does not break
+
+- Float, quantized and training checkpoints written by earlier releases
+  load: legacy tensor names, and the module names stored in quantization
+  manifests (`keep_high_precision`, `fp8_tensorwise_weights`), are renamed
+  on load and on resume.
+- Model inputs, outputs and export output names are unchanged.
+
+### What does change
+
+- **PGI default.** A fine-tune from weights without `aux.*` tensors, which
+  includes the published `LibreYOLO9{t,s,m,c}.pt`, trains the main head
+  only, as in 1.5. 1.6.0 attached a randomly initialised PGI branch at
+  `aux_weight=0.25` to those runs. Weights that carry `aux.*` tensors and
+  from-scratch runs still train with PGI. Pass `aux_weight=0.25` to attach a
+  new branch anyway, or `aux_weight=0` to force it off.
+- **YOLO9-m/c PGI branch.** When PGI is attached, yolo9-m and yolo9-c build
+  the auxiliary branch of the MultimediaTechLab configs (`CBLinear` taps on
+  the backbone, a second backbone fed with the image, `CBFuse` sums) instead
+  of the yolo9-t/s top-down branch that 1.6.0 built for every size. Converted
+  v9-m / v9-c files keep their auxiliary tensors (`aux.cblinear*`,
+  `aux.conv*`, `aux.elan*`, `aux.down*`, `aux_head.*`), so fine-tunes from
+  them train with PGI. The branch adds 12.8M (m) and 25.7M (c) training-only
+  parameters at 80 classes, up from 7.5M and 10.2M, so PGI training of these
+  sizes needs more memory and time per step. A 1.6.0 m/c training checkpoint
+  (`aux.spp.*`, `aux.elan_a4.*`, `aux.elan_a3.*`) resumes and fine-tunes with
+  the branch it was trained with. yolo9-t/s and inference are unchanged.
+- **Gradient clipping.** YOLO9, YOLO9-E2E and YOLO9-P2 clip the gradient
+  L2 norm at 10. `clip_max_norm=0` restores the 1.6.0 behaviour.
+- **`perspective`.** A non-zero value now warps by corner displacement, so
+  the same number gives a different warp in every family that uses the
+  shared affine warp (YOLO9 and its E2E and P2 variants, YOLOX, YOLOv7,
+  YOLO-NAS, PP-YOLOE, RTMDet, PicoDet, RT-DETR and RT-DETRv2), including runs
+  resumed from a 1.6.0 checkpoint that set it; values of `0.002` and above
+  saturate at the same maximum, and negative values raise `ValueError`.
+  There is no setting that reproduces the 1.6.0 warp. `perspective=0`, the
+  default, is unchanged.
+- **Mixup ratio.** The YOLO9 mosaic pipeline draws the blend ratio from
+  Beta(1, 1) instead of Beta(32, 32). Default YOLOv7 training changes,
+  because YOLOv7 shares this pipeline and enables mixup by default. YOLO9,
+  YOLO9-E2E, YOLO9-P2, RT-DETR and RT-DETRv2 are affected only when mixup is
+  enabled. There is no setting for the old value.
+- **CLI run folders.** `libreyolo train` without `name=` writes EC, D-FINE,
+  SegFormer and LingBot-Vision runs to `runs/train/ec_exp`, `dfine_exp`,
+  `segformer_exp` and `lingbotvision_exp` instead of `runs/train/exp`,
+  V-JEPA 2 probes to `runs/train/train`, and YOLO9-P2 runs to
+  `runs/train/yolo9_exp` (was `yolo9_p2_exp`). Pass `name=exp` for the old
+  path, or `name=yolo9_p2_exp` for YOLO9-P2.
+- **Internal names.** `DDetect` is `YOLO9Head` (`anchor_convs` /
+  `class_convs`), `RepConvN` is `RepConv`, `RepNBottleneck` is `Bottleneck`,
+  `DFL` is `Anchor2Vec` (`anchor2vec`), `nc` is `num_classes`, and block
+  sublayers are `conv1`/`conv2`/`bottleneck`. In YOLO9-E2E, `YOLO9E2EDetect`
+  is `YOLO9E2EHead` and `one2one_cv2` / `one2one_cv3` are
+  `one_to_one_anchor_convs` / `one_to_one_class_convs`.
+  `LibreYOLO9Model.fuse()`, `RepConvN.fuse_convs()`,
+  `Conv.forward_without_bn()`, `Concat` and `yolo9.utils.decode_boxes` are
+  removed. There are no aliases; CHANGELOG.md has the full list. ONNX node
+  names follow the new module names; update Hailo end-node configs.
+- **Checkpoints saved by 1.7.0 do not load in 1.6.x.** YOLO9, YOLO9-E2E
+  and YOLO9-P2 checkpoints use the new tensor names; upgrade every
+  environment that reads them. ONNX exports are unaffected.
+- **`ConfusionMatrix`.** `libreyolo.validation.ConfusionMatrix` indexes
+  `matrix[predicted, true]` (was `[actual, predicted]`) and counts at
+  `conf_thres=0.25` (was 0.15); pass `conf_thres=0.15` for the old counts.
+  `plots=True` writes counts to `confusion_matrix.png` and the normalized
+  plot to `confusion_matrix_normalized.png`.
+- **Errors instead of warnings.** `predict(agnostic_nms=True)` raises on
+  tasks without boxes (`ValueError`) and on predict paths that do not
+  implement it (`NotImplementedError`). An unknown classifier
+  `interpolation` raises `ValueError`; use `bilinear`, `bicubic`, `nearest`
+  or `bilinear_no_antialias`.
+
 ## v1.5.x to v1.6.0
 
 Existing YOLOv9 checkpoints keep the same predict/val boxes after the
@@ -26,8 +105,11 @@ letterbox flip: there is none.
 ### What does change (new training / new converts only)
 
 - Newly converted official MultimediaTechLab weights stamp
-  `letterbox_pad: center` and keep the auxiliary PGI tensors. Fine-tunes
-  that start from those files train with center-pad and PGI.
+  `letterbox_pad: center`; v9-t and v9-s conversions also keep the auxiliary
+  PGI tensors (in 1.6.0 the v9-m and v9-c auxiliary branch, which has a
+  different topology, is not converted; later releases convert it, see
+  above). Fine-tunes that start from those files train with center-pad, and
+  with PGI for t and s.
 - New YOLOv9 training defaults: `max_labels=300`, SGD momentum warmup
   `0.8 → 0.937` over the existing 3-epoch LR warmup, and `aux_weight=0.25`
   on stock detect (not P2/E2E). Resume of a 1.5 checkpoint without `aux.*`

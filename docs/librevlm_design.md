@@ -42,6 +42,7 @@ size marked with `*`. The authoritative alias tables are in
 | `moondream`, `-2`*, `-3`                      | Moondream | Apache-2.0 (`-2`); BSL 1.1 (`-3`) | native detect/point skills; `-3` logs a notice; both mirrored |
 | `molmo2`, `-4b`*, `-8b`, `-o-7b` | Molmo2 | Apache-2.0 | point-only; pinned LibreYOLO mirrors; separate `molmo2` extra |
 | `sensenova-vision`, `-7b`*                    | SenseNova-Vision | Apache-2.0 code, CC BY-NC 4.0 weights | unified multimodal; 7 tasks, vendored port, heavy |
+| `wevisone-vl`, `-2b`*, `-4b`                  | WeVisOne-VL | Apache-2.0        | Qwen3-VL perception fine-tune; 5 tasks; ported pixel decoder |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
 
 Florence-2 and Kosmos-2 do not use a chat template: they are driven by task /
@@ -203,6 +204,7 @@ synthetic image with a known box and read back the numbers. Verified so far:
 | Gemma 4    | `box_2d`  | 0-1000 | yxyx   | official Gemini-style `[ymin, xmin, ymax, xmax]` |
 | Moondream  | named `x_min..y_max` | [0, 1] | xyxy | native `detect`/`point` skills; one call per class |
 | North Micro Vision | bare `[[x1,y1,x2,y2], ...]` | 0-1000 | xyxy | per-class grounding queries; labels assigned by the adapter |
+| WeVisOne-VL | `<ref>label</ref><box><x1><y1><x2><y2></box>` | 0-1000 | xyxy | tagged-text parser; `<point><x><y></point>`; `None` when absent |
 
 Three knobs cover the output variation without touching the parser:
 
@@ -306,6 +308,75 @@ checkpoint stays external and is never mirrored. The supported matrix,
 precision tiers, and terms distinction are documented in
 [`libremodus.md`](libremodus.md) and
 [`adr/0016-libremodus-analysis-contract.md`](adr/0016-libremodus-analysis-contract.md).
+
+### WeVisOne-VL
+
+WeVisOne-VL (Tencent, Apache-2.0 code and weights) is Qwen3-VL fine-tuned to
+answer perception requests as tagged text on a 0-1000 grid, with `None` for an
+absent target. An `<OBJ>` token after a box asks a separate pixel decoder
+(`mask_decoder.pt`, about 9.5M parameters for 2B and 9.6M for 4B) for that
+instance's alpha matte. The backbone loads through the native transformers
+Qwen3-VL classes (no remote code, pinned `HF_REVISIONS`). The decoder is a
+minimal Apache-2.0 port in `libreyolo/models/wevisone/` whose deformable
+cross-attention reuses the in-tree Deformable-DETR `MSDeformAttn`; see that
+package's `NOTICE`.
+
+```python
+model = LibreVLM("wevisone-vl", names=["person", "dog"])
+model.predict("image.jpg")                        # Results.boxes
+model.set_task("point").predict("image.jpg")      # Results.points
+model.set_classes(["dog"]).set_task("segment")    # Results.boxes + Results.masks
+model.set_task("matte").predict("image.jpg")      # Results.matte
+model.set_task("ocr").predict("image.jpg")        # Results.ocr
+LibreVLM("wevisone-vl", names=["the man in red"], referring=True)
+```
+
+| Task | Generations | Output |
+|---|---|---|
+| `detect` | one for the whole vocabulary; with `referring=True`, one per phrase using the referring instruction, which answers `None` for an absent target | `Results.boxes` |
+| `point` | one per label | `Results.points` |
+| `segment` | one per phrase, then one teacher-forced pass for the pixel decoder | `Results.boxes` and binary `Results.masks` (`alpha >= mask_threshold`) |
+| `matte` | as `segment` | `Results.matte`, the pixelwise max of the instance mattes |
+| `ocr` | one, with the released OCR instruction | `Results.ocr`, axis-aligned quads with transcripts |
+
+- `segment`, `matte` and `referring=True` treat each vocabulary entry as a
+  phrase, so they need an explicit `names=` or `set_classes()`.
+- Mask decoding reads four ViT levels before the spatial merge and the last
+  decoder layer's hidden state at each `<OBJ>`, then runs the decoder in FP32
+  on a 1024x1024 canvas. All instances of a response share one
+  query-transformer pass, whose self-attention mixes them. Only the
+  full-canvas refinement, about 2 GB of activations per instance, is chunked
+  by `decoder_batch_size` (default 1), so the batch size does not change
+  the masks.
+- Counting is `len(result.boxes)` or `len(result.points)`. Visual-prompt
+  detection and OCR grounding are not wrapped as tasks; use `chat()`.
+- `min_pixels` / `max_pixels` default to the upstream budget (16x32x32 to
+  2025x32x32 pixels). Lowering `max_pixels` trades accuracy for speed.
+- Confidence is a constant 1.0. `train()`, `val()` and `export()` are
+  unsupported, and the vLLM backend of the upstream engine is not ported.
+
+Upstream-reported results (README of `Tencent/WeVisOne-VL` at commit
+`9a6bcd85`, not reproduced in LibreYOLO). F1 Mean averages F1 over IoU
+0.5:0.95; greedy decoding with at most 1,960 visual tokens per image. The
+upstream detection benchmarks prompt one category per generation.
+
+| Benchmark (metric) | 2B | 4B |
+|---|---|---|
+| COCO detection (F1 Mean) | 55.2 | 57.1 |
+| LVIS detection (F1 Mean) | 53.3 | 55.3 |
+| RefCOCOg test referring (F1 Mean) | 78.2 | 81.8 |
+| WeRef-Bench rejection rate (%) | 92.9 | 96.4 |
+| PixMo-Count test counting (accuracy %) | 88.1 | 89.6 |
+| PointBench pointing (accuracy) | 62.9 | 71.9 |
+| TotalText OCR (F1 Mean) | 42.5 | 52.0 |
+| ReasonSeg val referring segmentation (gIoU) | 60.9 | 71.2 |
+| P3M-500-NP box-prompted matting (MAD x1000, lower is better) | 6.6 | 7.3 |
+
+Validation: the 2B checkpoint ran all five tasks through `predict()` on CPU in
+FP32, and the ported decoder loads the released sidecar strictly and matches
+the upstream module's logits to within 1e-4. The 4B decoder sidecar loads
+strictly against the 4B config and tokenizer, but the 4B backbone and CUDA
+were not run.
 
 ## Known limitations (v1)
 

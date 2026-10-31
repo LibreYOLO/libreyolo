@@ -154,11 +154,12 @@ NMS_CONFIG = "yolo9_nms_config.json"  # adapt from the Model Zoo config for the 
 # LibreYOLO ONNX export. NOTE: LibreYOLO graphs use a "/head/..." prefix, not the
 # "model.N" prefix seen in other libraries' docs — configs copied from elsewhere will
 # not match. If parsing fails, confirm the names in your own export (netron, or grep the
-# graph for "cv2.0.2/Conv").
+# graph for "anchor_convs.0.2/Conv"). Exports made before LibreYOLO renamed the YOLO9
+# head towers use "/head/cv2.N/cv2.N.2/Conv" (box) and "/head/cv3.N/cv3.N.2/Conv" (class).
 END_NODES = [
-    "/head/cv2.0/cv2.0.2/Conv", "/head/cv3.0/cv3.0.2/Conv",
-    "/head/cv2.1/cv2.1.2/Conv", "/head/cv3.1/cv3.1.2/Conv",
-    "/head/cv2.2/cv2.2.2/Conv", "/head/cv3.2/cv3.2.2/Conv",
+    "/head/anchor_convs.0/anchor_convs.0.2/Conv", "/head/class_convs.0/class_convs.0.2/Conv",
+    "/head/anchor_convs.1/anchor_convs.1.2/Conv", "/head/class_convs.1/class_convs.1.2/Conv",
+    "/head/anchor_convs.2/anchor_convs.2.2/Conv", "/head/class_convs.2/class_convs.2.2/Conv",
 ]
 
 runner = ClientRunner(hw_arch=HW_ARCH)

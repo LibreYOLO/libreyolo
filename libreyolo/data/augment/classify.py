@@ -50,14 +50,87 @@ DEFAULT_FLIP_PROB = 0.5
 ScaleSpec = float | tuple[float, float]
 
 
-def _interp_mode(interpolation) -> InterpolationMode:
+#: Resize filters a classification model's ``interpolation`` accepts.
+#: ``bilinear``, ``bicubic`` and ``nearest`` resize with Pillow, which filters
+#: (antialiases) when it downscales. ``bilinear_no_antialias`` is plain
+#: bilinear with half-pixel centers and no filtering, the resize of
+#: ``cv2.resize(INTER_LINEAR)`` and TFLite ``RESIZE_BILINEAR`` with
+#: ``half_pixel_centers``, so a model can be trained on the pixels such a
+#: runtime gives it; auto-augment's rotations and shears then use bilinear.
+INTERPOLATIONS = {
+    "bilinear": InterpolationMode.BILINEAR,
+    "bicubic": InterpolationMode.BICUBIC,
+    "nearest": InterpolationMode.NEAREST,
+    "bilinear_no_antialias": InterpolationMode.BILINEAR,
+}
+NO_ANTIALIAS = "bilinear_no_antialias"
+
+
+def normalize_interpolation(interpolation) -> str:
+    """Return ``interpolation`` as one of :data:`INTERPOLATIONS`, or raise.
+
+    An unknown filter name is an error rather than a silent bilinear, so a
+    model never trains or predicts with a resize it was not configured for.
+    """
     if isinstance(interpolation, InterpolationMode):
-        return interpolation
-    return {
-        "bilinear": InterpolationMode.BILINEAR,
-        "bicubic": InterpolationMode.BICUBIC,
-        "nearest": InterpolationMode.NEAREST,
-    }.get(str(interpolation).lower(), InterpolationMode.BILINEAR)
+        interpolation = interpolation.value
+    key = str(interpolation).lower()
+    if key not in INTERPOLATIONS:
+        raise ValueError(
+            f"Unknown interpolation {interpolation!r}. Valid values are "
+            f"{', '.join(INTERPOLATIONS)}."
+        )
+    return key
+
+
+def _interp_mode(interpolation) -> InterpolationMode:
+    return INTERPOLATIONS[normalize_interpolation(interpolation)]
+
+
+def _resize_no_antialias(img, size):
+    """Bilinear resize of a PIL image without antialiasing, back to uint8 PIL.
+
+    torchvision's tensor resize: ``F.interpolate(mode="bilinear",
+    align_corners=False)`` on the uint8 pixels, rounded back to uint8, with the
+    same output size rule as :class:`transforms.Resize`.
+    """
+    from torchvision.transforms import functional as F
+
+    tensor = F.pil_to_tensor(img)
+    resized = F.resize(tensor, size, InterpolationMode.BILINEAR, antialias=False)
+    return F.to_pil_image(resized)
+
+
+class ResizeNoAntialias(transforms.Resize):
+    """:class:`transforms.Resize` with bilinear and no antialiasing (#936)."""
+
+    def __init__(self, size):
+        super().__init__(
+            size, interpolation=InterpolationMode.BILINEAR, antialias=False
+        )
+
+    def forward(self, img):
+        return _resize_no_antialias(img, self.size)
+
+
+class RandomResizedCropNoAntialias(transforms.RandomResizedCrop):
+    """:class:`transforms.RandomResizedCrop` that resizes without antialiasing."""
+
+    def __init__(self, size, scale):
+        super().__init__(
+            size, scale=scale, interpolation=InterpolationMode.BILINEAR, antialias=False
+        )
+
+    def forward(self, img):
+        top, left, height, width = self.get_params(img, self.scale, self.ratio)
+        crop = img.crop((left, top, left + width, top + height))
+        return _resize_no_antialias(crop, self.size)
+
+
+def _resize(size, interpolation):
+    if normalize_interpolation(interpolation) == NO_ANTIALIAS:
+        return ResizeNoAntialias(size)
+    return transforms.Resize(size, interpolation=_interp_mode(interpolation))
 
 
 def _build_auto_augment(name: str, mode: InterpolationMode):
@@ -201,11 +274,14 @@ def build_classify_transforms(
         flip_p = _probability(flip_prob, "flip_prob")
         flipud_p = _probability(flipud, "flipud")
         erasing_p = _probability(erasing, "erasing", exclusive_upper=True)
-        ops: list = [
-            transforms.RandomResizedCrop(
-                imgsz, scale=normalize_crop_scale(scale), interpolation=mode
-            ),
-        ]
+        crop_scale = normalize_crop_scale(scale)
+        if normalize_interpolation(interpolation) == NO_ANTIALIAS:
+            crop = RandomResizedCropNoAntialias(imgsz, scale=crop_scale)
+        else:
+            crop = transforms.RandomResizedCrop(
+                imgsz, scale=crop_scale, interpolation=mode
+            )
+        ops: list = [crop]
         if flip_p > 0:
             ops.append(transforms.RandomHorizontalFlip(p=flip_p))
         if flipud_p > 0:
@@ -229,7 +305,7 @@ def build_classify_transforms(
         # SigLIP's native eval pipeline resizes directly to (imgsz, imgsz).
         return transforms.Compose(
             [
-                transforms.Resize((imgsz, imgsz), interpolation=mode),
+                _resize((imgsz, imgsz), interpolation),
                 transforms.ToTensor(),
                 normalize,
             ]
@@ -239,7 +315,7 @@ def build_classify_transforms(
     resize = math.floor(imgsz / crop_pct)
     return transforms.Compose(
         [
-            transforms.Resize(resize, interpolation=mode),
+            _resize(resize, interpolation),
             transforms.CenterCrop(imgsz),
             transforms.ToTensor(),
             normalize,

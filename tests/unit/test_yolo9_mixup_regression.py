@@ -14,9 +14,12 @@ platform): after mixup, labels from *both* images must be present.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pytest
 
+from libreyolo.data.augment import yolo9 as yolo9_augment
 from libreyolo.data.augment.yolo9 import (
     YOLO9MosaicMixupDataset,
     YOLO9TrainTransform,
@@ -88,6 +91,28 @@ def test_mixup_keeps_labels_from_both_images():
     )
 
 
+def test_mixup_keeps_float_images_float():
+    """``YOLO9TrainTransform`` hands mixup float32 images in [0, 1]. The blend
+    must stay float32: a uint8 cast would truncate nearly every pixel to 0
+    and silently wreck every mixup sample (yolo7 enables mixup by default)."""
+    ds = _make_dataset()
+
+    labels = np.zeros((50, 5), dtype=np.float32)
+    labels[:, 0] = -1
+    labels[0] = [3.0, 0.10, 0.10, 0.50, 0.50]
+    img = np.ones((3, 64, 64), dtype=np.float32)
+
+    mixed, _out = ds._mixup(img, labels)
+
+    assert mixed.dtype == np.float32
+    assert mixed.shape == img.shape
+    # Both inputs are uniform (1.0 and the stub partner's 120/255), so the
+    # blend is uniform and lies strictly between them.
+    value = float(mixed.flat[0])
+    assert np.allclose(mixed, value)
+    assert 120.0 / 255.0 < value < 1.0
+
+
 def test_mixup_output_is_padded_to_max_labels():
     """The result must still be a ``(max_labels, 5)`` block with class = -1
     padding, so the collate/loss path is unchanged."""
@@ -104,3 +129,26 @@ def test_mixup_output_is_padded_to_max_labels():
     # Exactly two real objects (one per image); the rest padding class = -1.
     assert int((out[:, 0] >= 0).sum()) == 2
     assert np.all(out[out[:, 0] < 0][:, 0] == -1)
+
+
+def test_mixup_warns_once_when_the_merged_labels_exceed_max_labels(
+    monkeypatch, caplog
+):
+    """Each image fits in ``max_labels`` but the mix does not: the extra box
+    is dropped with one warning that gives the merged count (#935)."""
+    monkeypatch.setattr(yolo9_augment, "_dropped_labels_warned", False)
+    ds = _make_dataset()
+    labels = np.zeros((50, 5), dtype=np.float32)
+    labels[:] = [3.0, 0.10, 0.10, 0.50, 0.50]
+    img = np.zeros((3, 64, 64), dtype=np.float32)
+
+    with caplog.at_level(logging.WARNING, logger=yolo9_augment.__name__):
+        _mixed_img, out = ds._mixup(img, labels)
+        ds._mixup(img, labels)
+
+    assert (out[:, 0] >= 0).sum() == 50
+    warnings = [
+        r.getMessage() for r in caplog.records if "max_labels=50" in r.getMessage()
+    ]
+    assert len(warnings) == 1
+    assert "51 labels" in warnings[0]

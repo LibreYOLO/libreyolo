@@ -395,6 +395,7 @@ class LibreCLIP(BaseModel):
                 "with LibreCLIP."
             )
 
+        self._restore_checkpoint_interpolation(loaded)
         state = self._extract_state(loaded)
         if "logit_scale" not in state or "text_projection" not in state:
             raise RuntimeError(

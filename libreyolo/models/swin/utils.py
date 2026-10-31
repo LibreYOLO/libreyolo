@@ -15,7 +15,9 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
-def build_eval_transform(input_size: int, crop_pct: float = 0.9):
+def build_eval_transform(
+    input_size: int, crop_pct: float = 0.9, interpolation: str = "bicubic"
+):
     """Build the released Swin V1 resize, center-crop, and normalization path."""
     return build_classify_transforms(
         imgsz=input_size,
@@ -23,7 +25,7 @@ def build_eval_transform(input_size: int, crop_pct: float = 0.9):
         mean=IMAGENET_MEAN,
         std=IMAGENET_STD,
         crop_pct=crop_pct,
-        interpolation="bicubic",
+        interpolation=interpolation,
     )
 
 
@@ -32,16 +34,22 @@ def preprocess_image(
     input_size: int,
     crop_pct: float = 0.9,
     color_format: str = "auto",
+    interpolation: str = "bicubic",
 ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
     """Load one image and return the standard classification predict tuple."""
     pil = ImageLoader.load(image, color_format=color_format)
     orig_w, orig_h = pil.size
-    tensor = build_eval_transform(input_size, crop_pct)(pil).unsqueeze(0)
+    tensor = build_eval_transform(input_size, crop_pct, interpolation=interpolation)(
+        pil
+    ).unsqueeze(0)
     return tensor, pil, (orig_w, orig_h), 1.0
 
 
 def preprocess_numpy(
-    image_rgb_hwc, input_size: int, crop_pct: float = 0.9
+    image_rgb_hwc,
+    input_size: int,
+    crop_pct: float = 0.9,
+    interpolation: str = "bicubic",
 ) -> Tuple[np.ndarray, float]:
     """Convert an RGB HWC array or PIL image into normalized CHW array.
 
@@ -52,7 +60,9 @@ def preprocess_numpy(
         if isinstance(image_rgb_hwc, Image.Image)
         else Image.fromarray(np.asarray(image_rgb_hwc).astype("uint8"))
     )
-    return build_eval_transform(input_size, crop_pct)(pil).numpy(), 1.0
+    return build_eval_transform(input_size, crop_pct, interpolation=interpolation)(
+        pil
+    ).numpy(), 1.0
 
 
 __all__ = [

@@ -3732,6 +3732,14 @@ _TASK_BLOCKS = {
         "Action-chunk export is blocked until the policy sampling loop has an "
         "exportable graph and backend runtime contract (ADR 0028)."
     ),
+    "generate": (
+        "Image generation export is blocked until a sampling loop over several "
+        "networks has an exportable graph and backend runtime contract (ADR 0030)."
+    ),
+    "generate3d": (
+        "3D generation export is blocked until a sampling loop over several "
+        "networks has an exportable graph and backend runtime contract (ADR 0031)."
+    ),
     "detect3d": (
         "3D detection export is blocked until its graph outputs, camera metadata, "
         "and backend runtime contract are defined."
@@ -3808,6 +3816,9 @@ _FAMILY_BLOCKS = {
     "northmicrovision": "Generative VLM export is out of scope for v1.",
     "gemma4": "Generative VLM export is out of scope for v1.",
     "moondream": "Generative VLM export is out of scope for v1.",
+    "sensenovavision": "Generative VLM export is out of scope for v1.",
+    "libremodus": "Generative VLM export is out of scope for v1.",
+    "wevisonevl": "Generative VLM export is out of scope for v1.",
 }
 
 _NCNN_BLOCKS = {
@@ -3917,6 +3928,32 @@ def iter_blocked() -> Iterator[tuple[tuple[str, str, str], SupportEntry]]:
     return iter_entries("blocked")
 
 
+#: Formats whose INT8 export is limited to these (family, task) pairs.
+INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
+    "onnx": frozenset({("yolo9", "detect")}),
+    # Full-integer TFLite export has been checked on real weights for these.
+    "tflite": frozenset({("yolox", "detect"), ("yolo9", "detect")}),
+}
+
+#: Families whose export accepts FP32 only.
+FP32_ONLY_FAMILIES = frozenset({"gtr"})
+
+
+def precision_support(family: str, task: str, fmt: str) -> tuple[bool, bool]:
+    """Return whether export() accepts ``(half=True, int8=True)`` for a combination.
+
+    The format's own ``supports_fp16`` / ``supports_int8`` flags still apply on
+    top of this.
+    """
+    family = str(family or "").lower()
+    task = str(task or "detect").lower()
+    fmt = str(fmt or "").lower()
+    if get_support(family, task, fmt).tier == "blocked" or family in FP32_ONLY_FAMILIES:
+        return False, False
+    int8_pairs = INT8_EXPORTS.get(fmt)
+    return True, int8_pairs is None or (family, task) in int8_pairs
+
+
 def validated_alternatives(family: str, task: str) -> tuple[str, ...]:
     """Return validated formats for a concrete family and task."""
     return tuple(
@@ -3928,12 +3965,15 @@ def validated_alternatives(family: str, task: str) -> tuple[str, ...]:
 
 __all__ = [
     "EXPORT_FORMATS",
+    "FP32_ONLY_FAMILIES",
+    "INT8_EXPORTS",
     "SUPPORT",
     "SupportEntry",
     "Tier",
     "get_support",
     "iter_blocked",
     "iter_entries",
+    "precision_support",
     "iter_validated",
     "validated_alternatives",
 ]

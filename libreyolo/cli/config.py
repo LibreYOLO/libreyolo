@@ -627,7 +627,12 @@ def build_family_train_kwargs(
             if cli_name not in provided:
                 kwargs.pop(internal_name, None)
         return kwargs
-    return build_train_kwargs(params, task=task)
+    kwargs = build_train_kwargs(params, task=task)
+    # Without --name, train() keeps its family run name (dfine_exp, ...)
+    # instead of the generic CLI default "exp".
+    if "name" not in (user_provided or set()):
+        kwargs.pop("name", None)
+    return kwargs
 
 
 # =========================================================================

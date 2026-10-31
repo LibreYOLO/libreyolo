@@ -286,6 +286,35 @@ def test_yolo9_adapter_reuses_raw_eval_outputs():
     assert set(values) == {"loss", "loss/box", "loss/cls", "loss/dfl"}
 
 
+def test_yolo9_e2e_adapter_rebuilds_one_to_many_branch_from_neck_features():
+    """Eval output carries only the one-to-one maps; the adapter rebuilds the
+    dense branch from the published x8/x16/x32 features and must report the
+    same two-branch loss the head computes from those features."""
+    from libreyolo.models.yolo9_e2e.nn import LibreYOLO9E2EModel
+    from libreyolo.models.yolo9_e2e.validation_loss import YOLO9E2EValidationLoss
+
+    torch.manual_seed(0)
+    model = LibreYOLO9E2EModel(config="t", nb_classes=2).eval()
+    adapter = YOLO9E2EValidationLoss(model, max_labels=10)
+    images = torch.rand(1, 3, 64, 64)
+    targets = torch.tensor([[[8.0, 8.0, 40.0, 48.0, 1.0], [0.0, 0.0, 0.0, 0.0, 0.0]]])
+
+    with torch.no_grad():
+        predictions = model(images)
+        values = adapter(predictions, targets, image_size=(64, 64))
+        features = [predictions[key]["features"] for key in ("x8", "x16", "x32")]
+        prepared = YOLO9ValidationLoss._prepare_targets(
+            targets, image_size=(64, 64), num_classes=2, device=torch.device("cpu")
+        )
+        expected = model.head(features, targets=prepared, img_size=(64, 64))
+
+    assert set(values) == {"loss", "loss/box", "loss/cls", "loss/dfl"}
+    torch.testing.assert_close(values["loss"], expected["total_loss"])
+    torch.testing.assert_close(values["loss/box"], expected["box_loss"])
+    torch.testing.assert_close(values["loss/cls"], expected["cls_loss"])
+    torch.testing.assert_close(values["loss/dfl"], expected["dfl_loss"])
+
+
 def test_yolo9_rank_local_normalizer_skips_collective(monkeypatch):
     def _unexpected_collective(value):
         del value

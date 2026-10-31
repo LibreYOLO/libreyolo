@@ -1,5 +1,6 @@
 """Train command: train a model on a dataset."""
 
+import math
 from pathlib import Path
 import time
 from typing import Optional
@@ -156,6 +157,36 @@ def _create_explicit_task_train_model(
                 device=device,
                 allow_detect_to_segment_transfer=True,
             )
+    if family == "rfdetr" and train_task == "segment":
+        # RF-DETR has no detect->segment transfer, so segment training starts
+        # from a segment checkpoint; falling through to the scratch path would
+        # silently train an untrained mask head. An existing file goes to the
+        # loader, whose metadata check rejects a detection checkpoint as a
+        # cross-task load. A missing detection name fails before downloading
+        # weights that could not be used.
+        if not _model_ref_exists(model_path) and filename_task != "segment":
+            raise ValueError(
+                "RF-DETR has no detect-to-segment transfer. Pass a segment "
+                f"checkpoint such as {model_cls.FILENAME_PREFIX}{size}-seg"
+                f"{model_cls.WEIGHT_EXT} to train --task segment."
+            )
+        if not _model_ref_exists(model_path):
+            url = model_cls.get_download_url(Path(model_path).name)
+            if url:
+                from libreyolo.utils.download import download_weights
+
+                dl_path = Path(model_path)
+                if dl_path.parent == Path("."):
+                    dl_path = Path("weights") / dl_path.name
+                download_weights(str(dl_path), size)
+                model_path = str(dl_path)
+        if _model_ref_exists(model_path):
+            return model_cls(
+                model_path,
+                size=size,
+                task=train_task,
+                device=device,
+            )
     if family == "rfdetr" and train_task == "obb" and _model_ref_exists(model_path):
         return model_cls(
             model_path,
@@ -287,6 +318,21 @@ def _resolve_train_task(
         return None
     from_name = model_cls.detect_task_from_filename(Path(model_path).name)
     return from_name or getattr(model_cls, "DEFAULT_TASK", None)
+
+
+def _family_config_has_field(family: str | None, field_name: str) -> bool:
+    """Whether ``family``'s training config declares ``field_name``.
+
+    Unknown families (not resolved before the model loads) pass; the loaded
+    family is checked again before training.
+    """
+    if family is None:
+        return True
+    from dataclasses import fields
+
+    from ..config import get_train_config_class
+
+    return any(f.name == field_name for f in fields(get_train_config_class(family)))
 
 
 def _should_use_yolo9_path_as_transfer(model_path: str, task: str | None) -> bool:
@@ -429,6 +475,11 @@ def train_cmd(
     momentum: float = typer.Option(0.937, help="SGD momentum / Adam beta1"),
     weight_decay: float = typer.Option(5e-4, help="L2 regularization"),
     nesterov: bool = typer.Option(True, help="Nesterov momentum"),
+    clip_max_norm: Optional[float] = typer.Option(
+        None,
+        help="Clip the gradient L2 norm to this value before each optimizer "
+        "step; 0 disables clipping (default: the family's value, 10 for YOLO9)",
+    ),
     # Scheduler
     scheduler: str = typer.Option("yoloxwarmcos", help="LR schedule type"),
     warmup_epochs: int = typer.Option(5, help="Warmup duration"),
@@ -650,11 +701,21 @@ def train_cmd(
                 f"task={selected_task!r}.",
             )
 
+    # A multi-GPU spec (device=0,1) is for train(), which launches the ranks;
+    # the model itself is built on the first of those devices.
+    from libreyolo.training.distributed import parse_device_arg
+
+    if isinstance(device, str) and device.strip().startswith("["):
+        # device=[0,1] means the same GPUs as device=0,1.
+        device = device.strip().strip("[]").replace(" ", "")
+    requested_gpus = parse_device_arg(device)
+    model_device = f"cuda:{requested_gpus[0]}" if len(requested_gpus) > 1 else device
+
     loaded_model = None
     train_pretrained = pretrained
     if family is None and not dry_run:
         loaded_model = load_model_or_exit(
-            out, model=model, model_path=model_path, device=device
+            out, model=model, model_path=model_path, device=model_device
         )
         family = get_loaded_model_family(loaded_model)
     if train_pretrained is False and resume_val:
@@ -667,15 +728,18 @@ def train_cmd(
                 "pretrained=false cannot be combined with resume.",
             )
     if loaded_model is None:
-        loaded_model = _create_explicit_task_train_model(
-            family=family,
-            model_path=model_path,
-            task=normalized_task,
-            resume=resume_val,
-            device=device,
-            pretrained=train_pretrained,
-            seed=seed,
-        )
+        try:
+            loaded_model = _create_explicit_task_train_model(
+                family=family,
+                model_path=model_path,
+                task=normalized_task,
+                resume=resume_val,
+                device=model_device,
+                pretrained=train_pretrained,
+                seed=seed,
+            )
+        except ValueError as exc:
+            exit_with_error(out, "config_unsupported", str(exc))
         if loaded_model is not None and train_pretrained is False:
             # The architecture was seeded and built through _from_scratch().
             # Do not rebuild it a second time in the public train wrapper.
@@ -694,25 +758,25 @@ def train_cmd(
             replacement = _create_yolo9_task_from_loaded_model(
                 loaded_model,
                 normalized_task,
-                device=device,
+                device=model_device,
             )
             if replacement is None and normalized_task == "obb":
                 replacement = _create_rfdetr_obb_from_loaded_detect_model(
                     loaded_model,
                     model_path=model_path,
-                    device=device,
+                    device=model_device,
                 )
             if replacement is None and normalized_task == "pose":
                 replacement = _create_rfdetr_pose_from_loaded_detect_model(
                     loaded_model,
                     model_path=model_path,
-                    device=device,
+                    device=model_device,
                 )
             if replacement is None and normalized_task == "segment":
                 replacement = _create_dfine_segment_from_loaded_detect_model(
                     loaded_model,
                     model_path=model_path,
-                    device=device,
+                    device=model_device,
                 )
             if replacement is None:
                 exit_with_error(
@@ -875,6 +939,20 @@ def train_cmd(
             ),
         )
 
+    if clip_max_norm is not None:
+        if not math.isfinite(clip_max_norm) or clip_max_norm < 0:
+            exit_with_error(
+                out,
+                "config_type_error",
+                f"clip_max_norm must be a finite number >= 0, got {clip_max_norm}.",
+            )
+        if not _family_config_has_field(family, "clip_max_norm"):
+            exit_with_error(
+                out,
+                "config_unsupported",
+                f"clip_max_norm is not supported for family={family!r}.",
+            )
+
     # Dry run: validate and show resolved config
     if dry_run:
         resolved_config = {
@@ -946,6 +1024,8 @@ def train_cmd(
                 resolved_config["task"] = normalized_task
         if params["eval_max_det"] is not None:
             resolved_config["eval_max_det"] = params["eval_max_det"]
+        if clip_max_norm is not None:
+            resolved_config["clip_max_norm"] = clip_max_norm
 
         data_out = {
             "valid": True,
@@ -974,7 +1054,7 @@ def train_cmd(
             "out": out,
             "model": model,
             "model_path": model_path,
-            "device": device,
+            "device": model_device,
         }
         if normalized_task is not None:
             load_kwargs["task"] = normalized_task
@@ -997,6 +1077,14 @@ def train_cmd(
                 f"aux_weight applies to YOLO9 only; got family={loaded_family!r}.",
             )
         train_kwargs["aux_weight"] = aux_weight
+    if clip_max_norm is not None:
+        if not _family_config_has_field(loaded_family, "clip_max_norm"):
+            exit_with_error(
+                out,
+                "config_unsupported",
+                f"clip_max_norm is not supported for family={loaded_family!r}.",
+            )
+        train_kwargs["clip_max_norm"] = clip_max_norm
     if histogram_input:
         train_kwargs.update(histogram_recipe_defaults(family))
     # pretrained picks initial weights for a new run; a resume continues its

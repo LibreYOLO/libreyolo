@@ -199,6 +199,12 @@ def _restore_pool_trainer(tmp_path, *, start_epoch, best_epoch, fill=1.0):
     trainer._snapshot_from_checkpoint = lambda path: (
         BaseTrainer._snapshot_from_checkpoint(trainer, path)
     )
+    trainer.upgrade_resume_checkpoint = lambda checkpoint: (
+        BaseTrainer.upgrade_resume_checkpoint(trainer, checkpoint)
+    )
+    trainer._upgrade_resume_state_dict = lambda state: (
+        BaseTrainer._upgrade_resume_state_dict(trainer, state)
+    )
     return trainer
 
 
@@ -232,6 +238,42 @@ def test_restore_average_pool_seeds_sibling_best_not_last(tmp_path):
     assert trainer._weight_averager.metrics() == [0.73]
     avg = trainer._weight_averager.average_state_dict()
     assert torch.allclose(avg["w"], torch.tensor([9.0, 9.0]))
+
+
+def test_restore_average_pool_upgrades_saved_states_through_resume_hook(tmp_path):
+    """Pooled and seeded snapshots get the family's resume key migration."""
+    from libreyolo.training.trainer import BaseTrainer
+
+    def _rename(checkpoint):
+        state = checkpoint.get("model")
+        if isinstance(state, dict):
+            checkpoint["model"] = {
+                ("w" if key == "legacy_w" else key): value for key, value in state.items()
+            }
+        return checkpoint
+
+    last = tmp_path / "last.pt"
+    last.write_bytes(b"")
+    legacy_pool = MetricGatedAverager(2)
+    legacy_pool.consider_state({"legacy_w": torch.full((2,), 3.0)}, 0.30)
+    legacy_pool.save(tmp_path / "average_pool.pt")
+
+    trainer = _restore_pool_trainer(tmp_path, start_epoch=5, best_epoch=2)
+    trainer.upgrade_resume_checkpoint = _rename
+    BaseTrainer._restore_average_pool(trainer, last)
+    trainer._weight_averager.consider(_Tiny(5.0), 0.50)
+    avg = trainer._weight_averager.average_state_dict()
+    assert torch.allclose(avg["w"], torch.tensor([4.0, 4.0]))
+
+    (tmp_path / "average_pool.pt").unlink()
+    torch.save(
+        {"model": {"legacy_w": torch.full((2,), 9.0)}, "best_metric_value": 0.73},
+        tmp_path / "best.pt",
+    )
+    trainer = _restore_pool_trainer(tmp_path, start_epoch=5, best_epoch=2)
+    trainer.upgrade_resume_checkpoint = _rename
+    BaseTrainer._restore_average_pool(trainer, last)
+    assert list(trainer._weight_averager.average_state_dict()) == ["w"]
 
 
 def test_restore_average_pool_does_not_mislabel_sibling_without_metric(tmp_path):

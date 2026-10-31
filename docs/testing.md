@@ -74,6 +74,11 @@ checkpoint, training/resume, and ONNX/TorchScript behavior.
 fine-tuning; it is not added to the detection-only nightly catalog.
 Evidence and limits: [ConvNeXt V2](provenance/convnextv2.md).
 
+YOLO9: `tests/unit/test_yolo9_parity.py` builds the pinned
+MultimediaTechLab/YOLO model (commit c4cb5f6f; set `YOLO9_UPSTREAM`, needs
+`omegaconf` and `einops`) with seeded random weights for t/s/m/c, converts its
+state and requires bit-identical main-path box and class logits.
+
 A ported architecture must have a pinned-reference tensor parity test in
 addition to ordinary shape and API tests. The reference checkout and any
 checkpoint remain external and the test is marked `external_data`; the PR gate

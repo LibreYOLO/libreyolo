@@ -102,9 +102,14 @@ class LibreAlexNet(BaseModel):
             "classifier": self.model.classifier,
         }
 
-    @staticmethod
-    def _get_preprocess_numpy():
-        return preprocess_numpy
+    def _get_preprocess_numpy(self):
+        from functools import partial
+
+        return partial(
+            preprocess_numpy,
+            crop_pct=self.crop_pct,
+            interpolation=self.interpolation,
+        )
 
     def _preprocess(
         self,
@@ -118,6 +123,7 @@ class LibreAlexNet(BaseModel):
             input_size=effective_size,
             crop_pct=self.crop_pct,
             color_format=color_format,
+            interpolation=self.interpolation,
         )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:

@@ -412,6 +412,7 @@ class LibrePE(BaseModel):
                 "with LibrePE."
             )
 
+        self._restore_checkpoint_interpolation(loaded)
         state = self._extract_state(loaded)
         if not self.can_load(state):
             raise RuntimeError(

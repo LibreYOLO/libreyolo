@@ -10,7 +10,7 @@ from torch import nn
 
 from ..yolo9.validation_loss import YOLO9ValidationLoss
 from .loss import YOLO9E2ELoss
-from .nn import LibreYOLO9E2EModel, YOLO9E2EDetect
+from .nn import LibreYOLO9E2EModel, YOLO9E2EHead
 
 # The neck feature maps LibreYOLO9Model publishes in its eval output, in
 # stride order. The one-to-many branch is rebuilt from these.
@@ -18,16 +18,17 @@ _FEATURE_KEYS = ("x8", "x16", "x32")
 
 
 class YOLO9E2EValidationLoss:
-    """Evaluate the dual-branch E2E loss from eval-mode raw head outputs.
+    """Evaluate the two-branch E2E loss from eval-mode raw head outputs.
 
     Inference runs the one-to-one branch only, so the one-to-many branch is
-    rebuilt here from the neck features the eval forward already published.
-    That is one extra head pass, not a second backbone/neck pass, and it keeps
-    the reported total covering the same two branches as training.
+    rebuilt here from the neck features the eval forward already published
+    (``head.branch_outputs``, the dense towers). That is one extra head pass,
+    not a second backbone/neck pass, and it keeps the reported total covering
+    the same two branches as training.
     """
 
     def __init__(self, model: nn.Module, *, max_labels: int) -> None:
-        head_is_dual = type(model.head) is YOLO9E2EDetect
+        head_is_dual = type(model.head) is YOLO9E2EHead
         if type(model) is not LibreYOLO9E2EModel or not head_is_dual:
             raise TypeError(
                 "YOLO9-E2E validation loss supports the standard detect model only"
@@ -37,12 +38,12 @@ class YOLO9E2EValidationLoss:
         if self.max_labels < 1:
             raise ValueError("YOLO9-E2E validation-loss max_labels must be at least 1")
         self.head = model.head
-        self.num_classes = int(model.head.nc)
+        self.num_classes = int(model.head.num_classes)
         self.device = next(model.parameters()).device
         self.loss = YOLO9E2ELoss(
             num_classes=self.num_classes,
             reg_max=int(model.head.reg_max),
-            strides=[int(value) for value in model.head.stride.detach().cpu().tolist()],
+            strides=list(model.head.strides),
             image_size=None,
             device=self.device,
             distributed_normalize=False,
@@ -65,7 +66,7 @@ class YOLO9E2EValidationLoss:
             raise ValueError("YOLO9-E2E raw_outputs must be a non-empty feature list")
 
         features = self._neck_features(predictions)
-        dense_outputs = self.head._forward_head(features, self.head.cv2, self.head.cv3)
+        dense_outputs = self.head.branch_outputs(features)
 
         height, width = image_size
         prepared = YOLO9ValidationLoss._prepare_targets(

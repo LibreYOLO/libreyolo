@@ -125,8 +125,10 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **OCR** | PP-OCR |
 | **Point detection** | FOMO, LocateAnything |
 | **Gaze** | L2CS |
-| **Open vocabulary and VLMs** | Grounding DINO, OWLv2, OmDet-Turbo, OV-DEIM, Florence-2, Kosmos-2, Qwen3-VL, InternVL3, LFM2-VL, North Micro Vision, SmolVLM2, Gemma 4, Moondream, Molmo2, MODUS |
+| **Open vocabulary and VLMs** | Grounding DINO, OWLv2, OmDet-Turbo, OV-DEIM, Florence-2, Kosmos-2, Qwen3-VL, InternVL3, LFM2-VL, North Micro Vision, SmolVLM2, Gemma 4, Moondream, Molmo2, WeVisOne-VL, MODUS |
 | **Robot actions (VLA)** | SmolVLA, ACT, Diffusion Policy |
+| **Image generation** | FLUX.2 klein, SANA-Sprint |
+| **3D generation** | Speridlabs Idol |
 
 Per-family sizes, checkpoints and parity evidence live in the
 [model reference](https://www.libreyolo.com/docs/models).

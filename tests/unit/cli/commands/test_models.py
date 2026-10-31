@@ -47,6 +47,27 @@ def test_python_only_families_advertise_no_cli_names(rows):
     assert sam2["python_class"].endswith(".LibreSAM2")
 
 
+@pytest.mark.parametrize(
+    ("family", "class_name", "extra", "tasks"),
+    [
+        (
+            "sensenovavision",
+            "LibreSenseNovaVision",
+            "sensenova",
+            ["detect", "segment", "panoptic", "pose", "point", "depth", "ocr"],
+        ),
+        ("libremodus", "LibreMODUS", "modus", ["detect", "depth", "normal", "edge"]),
+    ],
+)
+def test_lazy_multimodal_families_are_listed(rows, family, class_name, extra, tasks):
+    row = rows[family]
+    assert row["python_class"].endswith(f".{class_name}")
+    assert row["tasks"] == tasks
+    assert row["cli_names"] == []
+    assert row["optional_extra"] == extra
+    assert row["install_hint"] == f"pip install libreyolo[{extra}]"
+
+
 def test_command_families_keep_their_command(rows):
     assert rows["3dmood"]["cli_names"] == ["3dmood"]
     assert rows["3dmood"]["cli_command"] == "3dmood"

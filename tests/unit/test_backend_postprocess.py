@@ -1578,7 +1578,7 @@ def test_yolo9_backend_parse_detection_is_multilabel():
 
 
 def test_yolo9_backend_parse_caps_multilabel_candidates(monkeypatch):
-    monkeypatch.setattr(backend_base, "_YOLO9_MAX_NMS_CANDIDATES", 3)
+    monkeypatch.setattr(backend_base, "_YOLO9_NMS_PRE", 3)
     backend = _DummyBackend("yolo9")
     pred = np.zeros((1, 6, 4), dtype=np.float32)
     pred[0, :4] = np.array(

@@ -347,8 +347,7 @@ def _postprocess_segment(
     boxes = boxes.float()
     scores = scores.float()
     keep = torchvision.ops.batched_nms(boxes, scores, classes, iou_thres)
-    # The official RTMDet-Ins COCO recipe keeps at most 100 masks.
-    keep = keep[: min(max_det, 100)]
+    keep = keep[:max_det]
     boxes = boxes[keep]
     scores = scores[keep]
     classes = classes[keep]

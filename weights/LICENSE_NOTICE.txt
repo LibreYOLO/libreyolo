@@ -20,6 +20,11 @@ project the weights were derived from. Per-family summary:
     YOLO9    (LibreYOLO9{t,s,m,c})                     MIT
              upstream: MultimediaTechLab/YOLO
 
+    YOLO9-E2E (LibreYOLO9E2E{t,s,m,c})                 MIT
+             backbone, neck and one-to-many head from the LibreYOLO9
+             weights (upstream: MultimediaTechLab/YOLO); the NMS-free
+             one-to-one head was trained by LibreYOLO
+
     YOLOv1   (LibreYOLO1{t,b})                         public domain
     YOLOv2   (LibreYOLO2{t,b})                         public domain
     YOLOv3   (LibreYOLO3{t,b,spp})                     public domain
@@ -805,6 +810,24 @@ WildDet3D (LibreYOLO/LibreWildDet3D; byte-identical upstream mirror)
     Filename: wilddet3d_alldata_all_prompt_v1.0.pt
     SHA-256: f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57
 
+DINOv3 ViT-H+/16 encoder for Speridlabs Idol (LibreYOLO/LibreDINOv3vith16plus;
+bfloat16 mirror)
+    Source: https://huggingface.co/facebook/dinov3-vith16plus-pretrain-lvd1689m
+            revision c807c9eeea853df70aec4069e6f56b28ddc82acc
+    License: Meta's DINOv3 License, a custom non-OSI agreement. It permits
+    redistribution with a copy of the agreement and passes through
+    trade-control and end-use restrictions (military, weapons, espionage and
+    nuclear uses among them). These weights are not MIT. Mirrored ungated at
+    LibreYOLO/LibreDINOv3vith16plus revision
+    e849a3492905c6dabc89758042bf1402770fb4e6 with the complete agreement.
+    Change: float32 tensors cast to bfloat16, the precision Speridlabs Idol
+    runs the encoder in; all 615 tensors equal the upstream ones loaded in
+    bfloat16.
+    Upstream model.safetensors SHA-256:
+      3e1d4d18b9bfa9f28fad8e9de6a783f1313532d3460efa4cd0b12521d81d1a4d
+    Mirror model.safetensors SHA-256:
+      34252ee11eeebf00d50c528d53d725672f03ad88ff30cb724ddf3920bf67dc4c
+
 3D-MOOD (LibreYOLO/Libre3DMOODt and LibreYOLO/Libre3DMOODb)
     Source: https://huggingface.co/RoyYang0714/3D-MOOD revision
             3d1fab552189f1a62fdb60ebb606d20625a30b90
@@ -900,6 +923,77 @@ allenai/Molmo2-O-7B @ 784410650d12be9bc086118fdefa32d2c3bced86
 4B/8B use Qwen3 language backbones; O-7B uses OLMo 3. The released snapshots
 include the SigLIP vision backbone and their tokenizer assets. Upstream model
 cards declare Apache-2.0 for all three snapshots.
+
+
+WeVisOne-VL (LibreWeVisOneVL 2b / 4b)                Apache-2.0
+Qwen3-VL perception fine-tune plus mask_decoder.pt pixel decoder
+----------------------------------------------------------------
+
+Upstream: Tencent, https://github.com/Tencent/WeVisOne-VL
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright (C) 2026 Tencent. All rights reserved.
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+tencent/WeVisOne-VL-2B @ 798ffc7c87ad6104410812b589e240ba32d92315
+tencent/WeVisOne-VL-4B @ 4a7bed92750ac9d8b8a124cede14759036932dc2
+
+Each snapshot holds the transformers-format Qwen3-VL weights and the
+mask_decoder.pt sidecar. The weights are fine-tuned from Qwen3-VL-2B-Instruct
+and Qwen3-VL-4B-Instruct (Apache-2.0, Copyright 2024 Alibaba Cloud), as stated
+in each repository's LICENSE. Ported inference code: see
+libreyolo/models/wevisone/NOTICE.
+
+
+Speridlabs Idol (LibreSperidlabsIdol 0.6b)              Apache-2.0
+Image-to-3D Gaussian splats
+---------------------------
+
+Upstream: Speridlabs, https://github.com/speridlabs/idol-sdk
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+speridlabs/idol @ 2731c2291fc65a797c5cb627a5e5526fc1490902
+
+The FLUX.2 VAE it encodes with comes from black-forest-labs/FLUX.2-klein-4B
+(see the FLUX.2 klein entry below). The DINOv3 encoder comes from LibreYOLO's
+bfloat16 mirror LibreYOLO/LibreDINOv3vith16plus under Meta's DINOv3 License
+(see its entry above). Ported inference code: see
+libreyolo/models/gen/speridlabs_idol/NOTICE.
+
+
+FLUX.2 klein (LibreFlux2Klein 4b)                       Apache-2.0
+Text-to-image pipeline, also the VAE source for Speridlabs Idol
+---------------------------------------------------------------
+
+Upstream: Black Forest Labs, https://huggingface.co/black-forest-labs/FLUX.2-klein-4B
+License: Apache-2.0, as declared by the official model repository.
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+black-forest-labs/FLUX.2-klein-4B @ e7b7dc27f91deacad38e78976d1f2b499d76a294
+
+The pipeline runs from diffusers (Apache-2.0); LibreYOLO ships only its own
+adapter code.
+
+
+SANA-Sprint (LibreSanaSprint 0.6b)                      Apache-2.0 + Gemma
+Text-to-image pipeline; Gemma 2 text encoder under the Gemma Terms of Use
+-------------------------------------------------------------------------
+
+Upstream: NVIDIA, https://huggingface.co/Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers
+License: the SANA-Sprint weights are Apache-2.0, as declared by the official
+model repository. The bundled Gemma 2 2B text encoder stays under Google's
+Gemma Terms of Use (https://ai.google.dev/gemma/terms) and the Gemma
+Prohibited Use Policy; the loader logs this notice once. These terms are not MIT.
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers @ aa76e7f4f4928f378716b6716a2130fba3caf5b1
+
+The pipeline runs from diffusers (Apache-2.0); LibreYOLO ships only its own
+adapter code.
 
 
 EdgeCrafter original COCO defaults (detection, segmentation and pose)

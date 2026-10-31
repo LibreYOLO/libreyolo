@@ -147,7 +147,11 @@ class LibreEfficientNetV2(BaseModel):
 
         from .utils import preprocess_numpy
 
-        return partial(preprocess_numpy, crop_pct=self.crop_pct)
+        return partial(
+            preprocess_numpy,
+            crop_pct=self.crop_pct,
+            interpolation=self.interpolation,
+        )
 
     def _preprocess(
         self,
@@ -157,7 +161,11 @@ class LibreEfficientNetV2(BaseModel):
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
         eff = input_size if input_size is not None else self.input_size
         return _effv2_preprocess(
-            image, input_size=eff, crop_pct=self.crop_pct, color_format=color_format
+            image,
+            input_size=eff,
+            crop_pct=self.crop_pct,
+            color_format=color_format,
+            interpolation=self.interpolation,
         )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:

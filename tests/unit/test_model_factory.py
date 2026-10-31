@@ -99,7 +99,7 @@ def test_factory_loads_yolo9_t_metadata_checkpoint_with_coco_class_width(tmp_pat
     # Mimic a fine-tuned checkpoint saved from a COCO-width YOLO9-t model:
     # only the final class conv is rebuilt to 2 classes, while the class
     # branch hidden width stays at 80.
-    for seq in model.head.cv3:
+    for seq in model.head.class_convs:
         in_channels = seq[-1].weight.shape[1]
         seq[-1] = torch.nn.Conv2d(in_channels, 2, 1)
 
@@ -121,7 +121,7 @@ def test_factory_loads_yolo9_t_metadata_checkpoint_with_coco_class_width(tmp_pat
 
     assert loaded.nb_classes == 2
     assert loaded.names == {0: "red", 1: "white"}
-    assert loaded.model.head.cv3[0][0].conv.weight.shape[0] == 80
+    assert loaded.model.head.class_convs[0][0].conv.weight.shape[0] == 80
 
 
 def test_factory_warns_for_legacy_libreyolo_metadata_checkpoint(tmp_path, caplog):

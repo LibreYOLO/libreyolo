@@ -32,6 +32,7 @@ from PIL import Image
 
 from ...tasks import normalize_task
 from ...training.callbacks import TrainCallbacks
+from ...training.config import SegformerConfig
 from ...training.ddp_spawn import ddp_aware
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
@@ -90,6 +91,7 @@ class LibreSegformer(BaseModel):
     REQUIRE_TASK_SUFFIX: ClassVar[bool] = True
     # b0-b4 are fine-tuned on ADE20K at 512; b5 is the one trained at 640.
     INPUT_SIZES: ClassVar[Dict[str, int]] = {**{size: 512 for size in SIZE_CONFIGS}, "b5": 640}
+    TRAIN_CONFIG: ClassVar[type[SegformerConfig]] = SegformerConfig
 
     # Fine-tune recipe (SegFormer paper / mmsegmentation ADE20K config):
     #  - resize_crop: training resizes the short side to imgsz*ratio and random-

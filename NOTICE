@@ -3,6 +3,20 @@ Copyright (c) The LibreYOLO contributors.
 
 LibreYOLO is licensed under the MIT License (see LICENSE).
 
+NOTE ON WEIGHTS: No pretrained weight files are shipped with this source
+repository. Pretrained LibreYOLO weights are published separately on
+Hugging Face under https://huggingface.co/LibreYOLO and carry their own
+per-family licenses, reflecting each upstream. Those licenses vary and
+are not all permissive: some published weights are non-commercial or
+otherwise restricted, and this MIT License does not extend to them.
+Choosing a model means choosing its license. See
+`weights/LICENSE_NOTICE.txt` and the LICENSE / NOTICE files on each
+Hugging Face model card for the authoritative terms.
+
+NOTE ON THIRD-PARTY CODE: Portions of this repository are derived from
+other open-source projects. See `THIRD_PARTY_NOTICES.txt` for the list
+of upstream projects and their licenses.
+
 This product bundles third-party source code under non-MIT licenses. The
 bundled files retain their original copyright headers. A copy of each
 upstream license accompanies the corresponding code.
@@ -765,6 +779,43 @@ ViTMatte / ViTDet inference graph (Apache License 2.0 and MIT)
     Composition-1k checkpoint is separately restricted to non-commercial use
     and distribution by Adobe's dataset agreement; see the family NOTICE and
     weights/LICENSE_NOTICE.txt.
+
+Speridlabs Idol (Apache License 2.0)
+    Path:    libreyolo/models/gen/speridlabs_idol/
+    License: libreyolo/models/gen/speridlabs_idol/NOTICE
+    Source:  https://github.com/speridlabs/idol-sdk
+             (commit 4702a7f00850e34b6e83a2170cc123c3e9570744)
+             Copyright Speridlabs.
+
+    The Idol denoiser, octree and Gaussian decoders, preprocessing, encoder
+    tokenization, flow sampler and camera decoding are ported from the
+    Apache-2.0 Idol SDK, which builds on TripoSplat (MIT,
+    https://github.com/VAST-AI-Research/TripoSplat) and adapts its denoiser
+    from diffusers' transformer_wan.py (Apache-2.0, Copyright 2025 The Wan
+    Team and The HuggingFace Team). Background removal reuses LibreYOLO's
+    BiRefNet network. The port is parity-gated against the SDK on CUDA,
+    bitwise at every stage (weights/parity_speridlabs_idol.py). Weights:
+    speridlabs/idol (Apache-2.0) and the FLUX.2 VAE from FLUX.2-klein-4B
+    (Apache-2.0) download from their publishers; the DINOv3 encoder (Meta
+    DINOv3 License) downloads from LibreYOLO's bf16 mirror
+    LibreYOLO/LibreDINOv3vith16plus, which ships the agreement. All at
+    pinned revisions.
+
+WeVisOne-VL (Apache License 2.0)
+    Path:    libreyolo/models/wevisone/
+    License: libreyolo/models/wevisone/NOTICE
+    Source:  https://github.com/Tencent/WeVisOne-VL
+             (commit 9a6bcd85404505df0d05cfb5d97512ccacf35dee)
+             Copyright (C) 2026 Tencent.
+
+    The pixel (alpha-matte) decoder, feature bridge, prompts and response
+    parsing are ported from the Apache-2.0 WeVisOne-VL repository for
+    inference only; the decoder's deformable attention reuses LibreYOLO's
+    Apache-2.0 Deformable-DETR port. The Qwen3-VL backbone runs from
+    Transformers (Apache-2.0); no Qwen code is copied. Weights
+    tencent/WeVisOne-VL-2B and -4B (Apache-2.0, fine-tuned from
+    Qwen3-VL-2B/4B-Instruct, Apache-2.0) download from Tencent at pinned
+    revisions.
 
 ------------------------------------------------------------------------
 Pretrained model weights

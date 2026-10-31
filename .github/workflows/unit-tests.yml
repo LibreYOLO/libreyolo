@@ -34,6 +34,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Ubuntu 26.04 mounts /tmp as a RAM-backed tmpfs with a ~6 GB per-user
+      # quota (actions/runner-images#14777). The export tests overflow it and
+      # torch.jit.save aborts the xdist worker, so keep temp files on disk.
+      - name: Keep temp files on disk
+        if: runner.os == 'Linux'
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -76,9 +83,14 @@ jobs:
   # opencv-python-headless, which overwrites the cv2 the rest of the suite
   # expects to be GUI-capable. The tests here use synthetic data, so nothing is
   # downloaded.
+  #
+  # Pinned to ubuntu-24.04: fiftyone-db picks its mongod download from a table
+  # of Ubuntu releases that stops at 24.04, so on 26.04 it installs without
+  # mongod and every test fails. Back to ubuntu-latest once
+  # voxel51/fiftyone#8275 lands.
   fiftyone-integration:
     name: fiftyone integration (linux)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4

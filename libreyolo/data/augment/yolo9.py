@@ -10,8 +10,10 @@ Key difference from YOLOX: outputs normalized xyxy format for loss computation.
 The mosaic wrapper stays separate from :class:`~.yolox.MosaicMixupDataset`
 on purpose: the two differ in tile scaling (yolo9 caps at 1.0), canvas
 allocation, mixup style and RNG draw order, and post-affine box filtering.
-Only the quadrant placement math (:func:`~.mosaic.get_mosaic_coordinate`)
-is provably identical and shared.
+Only the quadrant placement math is shared: both wrappers place their tiles
+with :func:`~.mosaic.get_mosaic_coordinate`. The mixup blend follows the
+MixUp formula of MultimediaTechLab/YOLO (MIT): ``lam ~ Beta(alpha, alpha)``,
+``lam * image1 + (1 - lam) * image2``.
 """
 
 import logging
@@ -29,6 +31,7 @@ from .geometry import (  # noqa: F401
     random_affine,
     rot90_image_boxes,
 )
+from .mosaic import get_mosaic_coordinate
 from .segments import (
     copy_segments as _copy_segments,
     filter_segments as _filter_segments,
@@ -39,6 +42,29 @@ from .segments import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Concentration of the symmetric Beta(alpha, alpha) that draws the mixup ratio
+# Value and formula follow ``MixUp(prob=0.5, alpha=1.0)`` in
+# yolo/tools/data_augmentation.py of MultimediaTechLab/YOLO (MIT): with
+# alpha = 1 the ratio is uniform on [0, 1].
+_MIXUP_BETA_ALPHA = 1.0
+
+_dropped_labels_warned = False
+
+
+def _warn_dropped_labels(count: int, max_labels: int) -> None:
+    """Warn once per process when an image holds more boxes than ``max_labels``."""
+    global _dropped_labels_warned
+    if count <= max_labels or _dropped_labels_warned:
+        return
+    _dropped_labels_warned = True
+    logger.warning(
+        "An image has %d labels, more than max_labels=%d: the extra %d are "
+        "dropped and trained as background. Raise max_labels to keep them.",
+        count,
+        max_labels,
+        count - max_labels,
+    )
 
 
 def preproc(img, input_size, swap=(2, 0, 1), letterbox_pad=None):
@@ -289,6 +315,7 @@ class YOLO9TrainTransform:
         # Fill class with -1 to indicate padding
         padded_labels[:, 0] = -1
 
+        _warn_dropped_labels(len(targets_t), self.max_labels)
         n = min(len(targets_t), self.max_labels)
         padded_labels[:n] = targets_t[:n]
 
@@ -552,28 +579,14 @@ class YOLO9MosaicMixupDataset:
             img = cv2.resize(img, (int(w0 * scale), int(h0 * scale)))
             h, w = img.shape[:2]
 
-            # Get placement coordinates
-            if i == 0:  # top left
-                x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc
-                x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h
-            elif i == 1:  # top right
-                x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, input_w * 2), yc
-                x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
-            elif i == 2:  # bottom left
-                x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(yc + h, input_h * 2)
-                x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
-            else:  # bottom right
-                x1a, y1a, x2a, y2a = (
-                    xc,
-                    yc,
-                    min(xc + w, input_w * 2),
-                    min(yc + h, input_h * 2),
-                )
-                x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
-
-            mosaic_img[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]
-            padw = x1a - x1b
-            padh = y1a - y1b
+            # Paste the tile into its quadrant of the 2x canvas (shared placement
+            # math, see get_mosaic_coordinate); padw/padh is the tile's pixel
+            # offset on the canvas, applied to its labels and segments below.
+            (l_x1, l_y1, l_x2, l_y2), (s_x1, s_y1, s_x2, s_y2) = get_mosaic_coordinate(
+                mosaic_img, i, xc, yc, w, h, input_h, input_w
+            )
+            mosaic_img[l_y1:l_y2, l_x1:l_x2] = img[s_y1:s_y2, s_x1:s_x2]
+            padw, padh = l_x1 - s_x1, l_y1 - s_y1
 
             # Adjust labels
             labels = _labels.copy()
@@ -692,10 +705,13 @@ class YOLO9MosaicMixupDataset:
         idx2 = self._rand_partner_index()
         img2, labels2, *_ = self._get_normal_item(idx2)
 
-        # Mix images (beta(32, 32) ≈ 0.5, so both images are ~equally visible
-        # and both label sets must be kept).
-        r = np.random.beta(32.0, 32.0)
-        img = (img * r + img2 * (1 - r)).astype(img.dtype)
+        # MixUp blend, formula from MultimediaTechLab/YOLO's MixUp (MIT): one
+        # Beta(alpha, alpha) draw for the ratio, weighted sum of the two images,
+        # cast back to the mosaic image's dtype (the float32 0-1 images from
+        # YOLO9TrainTransform stay float32; uint8 inputs are truncated).
+        alpha = _MIXUP_BETA_ALPHA
+        lam = np.random.beta(alpha, alpha) if alpha > 0 else 0.5
+        img = (lam * img + (1 - lam) * img2).astype(img.dtype)
 
         max_labels = getattr(self.preproc, "max_labels", 300)
         label_dim = labels.shape[1]
@@ -706,7 +722,9 @@ class YOLO9MosaicMixupDataset:
             real2 = labels2[labels2[:, 0] >= 0]
         else:
             real2 = np.zeros((0, label_dim), dtype=labels.dtype)
-        merged = np.vstack([real1, real2])[:max_labels]
+        merged = np.vstack([real1, real2])
+        _warn_dropped_labels(len(merged), max_labels)
+        merged = merged[:max_labels]
 
         # Re-pad to max_labels with class = -1 (matches YOLO9TrainTransform).
         padded = np.zeros((max_labels, label_dim), dtype=labels.dtype)

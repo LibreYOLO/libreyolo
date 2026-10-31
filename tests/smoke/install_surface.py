@@ -99,6 +99,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         "libreyolo.models.teed",
         "libreyolo.models.dexined",
         "libreyolo.models.modus",
+        "libreyolo.models.wevisone",
     ):
         notice = importlib.resources.files(package_name).joinpath("NOTICE")
         if not notice.is_file():
@@ -117,6 +118,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreQwen3VL,
         LibreSmolVLM2,
         LibreVLM,
+        LibreWeVisOneVL,
     )
 
     from libreyolo import (
@@ -147,6 +149,23 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         raise AssertionError("LibreVLA import did not resolve to a callable")
     if not all(isinstance(cls, type) for cls in (LibreSmolVLA, LibreACT, LibreDiffusionPolicy, Actions)):
         raise AssertionError("LibreVLA family/payload exports did not resolve to classes")
+    # The LibreGen tier is importable without the gen extra (diffusers loads lazily).
+    from libreyolo import (
+        Gaussians,
+        GeneratedImage,
+        LibreFlux2Klein,
+        LibreGen,
+        LibreSanaSprint,
+        LibreSperidlabsIdol,
+    )
+
+    if not callable(LibreGen):
+        raise AssertionError("LibreGen import did not resolve to a callable")
+    if not all(
+        isinstance(cls, type)
+        for cls in (LibreFlux2Klein, LibreSanaSprint, LibreSperidlabsIdol, GeneratedImage, Gaussians)
+    ):
+        raise AssertionError("LibreGen family/payload exports did not resolve to classes")
     for family in (
         LibreQwen3VL,
         LibreLFM2VL,
@@ -156,6 +175,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreKosmos2,
         LibreMODUS,
         LibreMolmo2,
+        LibreWeVisOneVL,
     ):
         if not isinstance(family, type):
             raise AssertionError(

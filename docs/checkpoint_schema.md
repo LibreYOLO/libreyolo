@@ -35,7 +35,8 @@ Required field meanings:
   `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `albedo`, `restore`,
   `matte`, `ocr`, `embed`, `mesh`, or `detect3d`. The `act` task has no
   schema-v1 `.pt` form; its checkpoints are directories (see "Optional
-  LibreVLA runtime").
+  LibreVLA runtime"). The `generate` and `generate3d` tasks have none
+  either (see "Optional LibreGen runtime").
 - `nc`: positive integer class count.
 - `names`: `dict[int, str]` with keys in `0..nc-1`. Official checkpoints
   should write every key. Readers may pad missing keys with `class_i` labels for
@@ -73,6 +74,20 @@ identification. Absent metadata retains the existing RGB checkpoint contract.
 Training, validation and resume require matching dataset metadata. ONNX stores
 `input_profile` as JSON and the other fields as strings. The ONNX reader checks
 the graph channel count and rejects a two-channel graph without the profile.
+
+Optional classification preprocessing:
+
+- `interpolation`: the model's resize filter, `"bilinear"`, `"bicubic"`,
+  `"nearest"` or `"bilinear_no_antialias"`. `save()`, `best.pt` and `last.pt` write the model's
+  `interpolation`, and loading restores it, so training, `val()`,
+  `predict()`, INT8 calibration and export all keep the filter the checkpoint
+  was saved with. Checkpoints without the key keep the family default. Any
+  other value is invalid. The first three resize with Pillow, which filters
+  (antialiases) when it downscales; `"bilinear_no_antialias"` is plain
+  bilinear with half-pixel centers and no antialiasing (torch
+  `F.interpolate(..., align_corners=False, antialias=False)` on the uint8
+  pixels, rounded back to uint8). See
+  [classification augmentation](classification_augmentation.md#resize-filter).
 
 ConvNeXt V2 published classifiers also carry the optional flat
 `weight_license`, `weight_license_url`, `weight_dataset`,
@@ -267,8 +282,10 @@ model's preprocessing and the logits stay bit-identical:
 
 - `crop_pct`: float center-crop ratio. The pre-crop resize target is
   `floor(imgsz / crop_pct)`. Readers default to `0.875` when the key is absent.
-- `interpolation`: resize filter, `"bilinear"` or `"bicubic"`. Readers default
-  to `"bilinear"` when the key is absent.
+- `interpolation`: the model's resize filter, as in the checkpoint key above
+  (`"bilinear"`, `"bicubic"`, `"nearest"` or `"bilinear_no_antialias"`).
+  Readers default to `"bilinear"` when the key is absent and reject other
+  values.
 - `norm_mean`, `norm_std`: optional JSON-encoded RGB lists in `[0, 1]` scale,
   written by families whose normalization is not ImageNet (CLIP, SigLIP2, PE,
   ViT). Readers default to the ImageNet statistics.
@@ -475,6 +492,22 @@ wrap_libreyolo_checkpoint(...)
 unwrap_libreyolo_checkpoint(...)
 validate_checkpoint_metadata(...)
 ```
+
+### Optional LibreGen runtime
+
+The `generate` task reserves the suffix `-generate`. `LibreGen` weights are
+pipeline directories, not schema-v1 `.pt` files: the upstream `diffusers`
+folder with `model_index.json`, pinned to a Hub commit and never converted.
+A local directory loads when the pipeline class in its `model_index.json`
+matches a registered family. A LibreYOLO contract file for fine-tunes is not
+defined yet. See `docs/libregen.md` and ADR 0030.
+
+The `generate3d` task reserves the suffix `-generate3d`. Its first family,
+Speridlabs Idol, loads the upstream snapshot directory unchanged:
+`config.json` (with `image_encoders`, `denoiser`, `decoder` and
+`decoder_gs`) next to `denoiser.safetensors`, `decoder.safetensors`,
+`decoder_gs.safetensors` and `birefnet.safetensors`, pinned to a Hub commit.
+See ADR 0031.
 
 ### Optional LibreVLA runtime
 

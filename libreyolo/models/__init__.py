@@ -43,7 +43,9 @@ _METADATA_CONVERSION_HELP = (
 # prefix (skill landmine §9.3).
 # NOTE: LibreYOLO9E2E *must* be imported before LibreYOLO9.  E2E checkpoints
 # contain all the same backbone/neck key patterns that LibreYOLO9.can_load
-# matches, so the E2E discriminator (one2one_cv2 / one2one_cv3) must win first.
+# matches, so the E2E discriminator (the one-to-one head towers: legacy
+# one2one_cv2 / one2one_cv3, current one_to_one_anchor_convs /
+# one_to_one_class_convs) must win first.
 from .ec.model import LibreEC  # noqa: E402
 from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402
@@ -200,6 +202,18 @@ def _ensure_rfdetr():
 
     # LibreDINOv2 shares the same transformers dependency (DINOv2 backbone).
     from .dinov2.model import LibreDINOv2  # noqa: F401  (import triggers registration)
+
+
+# Weight-name prefixes and family ids of the families _ensure_rfdetr()
+# registers, spelled out because their modules cannot be imported to read
+# FILENAME_PREFIX / FAMILY without the extra installed.
+_RFDETR_EXTRA_PREFIXES = ("librerfdetr", "libredinov2")
+_RFDETR_EXTRA_FAMILIES = ("rfdetr", "dinov2")
+
+
+def _needs_rfdetr_extra(filename: str) -> bool:
+    """True when ``filename`` names RF-DETR or DINOv2 weights."""
+    return Path(filename).name.lower().startswith(_RFDETR_EXTRA_PREFIXES)
 
 
 def try_ensure_rfdetr():
@@ -507,7 +521,10 @@ def LibreYOLO(
                             logger.debug("Detected size '%s' from filename", size)
                             break
                 except ModuleNotFoundError:
-                    pass
+                    # The install hint beats "unable to determine size" for
+                    # weights that only resolve once the extra is installed.
+                    if _needs_rfdetr_extra(model_path):
+                        raise
             if size is None:
                 from ..utils.hf_hub import looks_like_repo_id
 

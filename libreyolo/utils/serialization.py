@@ -333,6 +333,13 @@ def validate_checkpoint_metadata(
                     "callback fitness requires best_metric_key='fitness/custom'."
                 )
 
+    if isinstance(checkpoint, dict) and "interpolation" in checkpoint:
+        from ..data.augment.classify import normalize_interpolation
+
+        try:
+            normalize_interpolation(checkpoint["interpolation"])
+        except ValueError as exc:
+            errors.append(str(exc))
     if isinstance(checkpoint, dict) and "input_profile" in checkpoint:
         from .event_histogram import validate_input_profile
         try:

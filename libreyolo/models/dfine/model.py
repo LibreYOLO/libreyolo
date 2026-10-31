@@ -44,6 +44,7 @@ class LibreDFINE(BaseModel):
     FAMILY = "dfine"
     RESUME_RESTORES_TRAIN_ARGS = True
     FILENAME_PREFIX = "LibreDFINE"
+    TRAIN_CONFIG = DFINEConfig
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     SUPPORTED_TASKS = ("detect", "segment")
     # Forward is pure tensor work with no host sync, verified to capture and

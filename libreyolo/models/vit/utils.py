@@ -15,7 +15,9 @@ VIT_MEAN = (0.5, 0.5, 0.5)
 VIT_STD = (0.5, 0.5, 0.5)
 
 
-def build_eval_transform(input_size: int, crop_pct: float = 0.9):
+def build_eval_transform(
+    input_size: int, crop_pct: float = 0.9, interpolation: str = "bicubic"
+):
     """Return the exact timm AugReg evaluation transform."""
     return build_classify_transforms(
         imgsz=input_size,
@@ -23,7 +25,7 @@ def build_eval_transform(input_size: int, crop_pct: float = 0.9):
         mean=VIT_MEAN,
         std=VIT_STD,
         crop_pct=crop_pct,
-        interpolation="bicubic",
+        interpolation=interpolation,
     )
 
 
@@ -32,16 +34,22 @@ def preprocess_image(
     input_size: int,
     crop_pct: float = 0.9,
     color_format: str = "auto",
+    interpolation: str = "bicubic",
 ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
     """Load one image and return the shared classification predict tuple."""
     pil = ImageLoader.load(image, color_format=color_format)
     orig_w, orig_h = pil.size
-    tensor = build_eval_transform(input_size, crop_pct)(pil).unsqueeze(0)
+    tensor = build_eval_transform(input_size, crop_pct, interpolation=interpolation)(
+        pil
+    ).unsqueeze(0)
     return tensor, pil, (orig_w, orig_h), 1.0
 
 
 def preprocess_numpy(
-    img_rgb_hwc, input_size: int, crop_pct: float = 0.9
+    img_rgb_hwc,
+    input_size: int,
+    crop_pct: float = 0.9,
+    interpolation: str = "bicubic",
 ) -> Tuple[np.ndarray, float]:
     """Convert an RGB HWC array (or PIL image) to normalized CHW array.
 
@@ -52,4 +60,6 @@ def preprocess_numpy(
         if isinstance(img_rgb_hwc, Image.Image)
         else Image.fromarray(np.asarray(img_rgb_hwc).astype("uint8"))
     )
-    return build_eval_transform(input_size, crop_pct)(pil).numpy(), 1.0
+    return build_eval_transform(input_size, crop_pct, interpolation=interpolation)(
+        pil
+    ).numpy(), 1.0

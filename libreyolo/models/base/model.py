@@ -48,6 +48,7 @@ from ...training.config import TrainConfig, apply_train_aliases, load_train_cfg
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.logging import ensure_default_logging
+from ...utils.main_guard import exit_if_reimporting_main, guard_main_reimport
 from ...utils.model_info import build_model_info, format_model_info
 from ...utils.results import Results
 from ...utils.serialization import (
@@ -103,6 +104,22 @@ def _drop_disabled_eval_interval(saved: dict[str, Any], requested_val: Any) -> N
         saved.pop("eval_interval", None)
 
 
+def _requested_workers(model, sig, pos_names, args, merged):
+    """The DataLoader worker count a ``train()`` call asks for, or None if unknown."""
+    if "workers" in merged:
+        return merged["workers"]
+    if "workers" in pos_names[: len(args)]:
+        return args[pos_names.index("workers")]
+    param = sig.parameters.get("workers")
+    if param is not None and param.default is not inspect.Parameter.empty:
+        return param.default
+    config_cls = getattr(model, "TRAIN_CONFIG", None) or TrainConfig
+    return next(
+        (f.default for f in dataclasses.fields(config_cls) if f.name == "workers"),
+        None,
+    )
+
+
 def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
     """Add shared config-file and scratch-initialization handling to ``train()``.
 
@@ -133,8 +150,15 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
             consumed = set(pos_names[: len(args)]) | _WRAPPER_OWNED_CFG_KEYS
             merged = {k: v for k, v in cfg_kwargs.items() if k not in consumed}
             merged.update(user_kwargs)
+        exit_if_reimporting_main(
+            "train()", _requested_workers(self, sig, pos_names, args, merged)
+        )
 
         resume = merged.get("resume", False)
+        if isinstance(resume, (str, Path)) and not isinstance(resume, bool):
+            # The trainer builds its datasets before it loads the checkpoint, so
+            # a resumed classifier takes the checkpoint's resize filter here.
+            self._restore_resume_interpolation(resume)
         resumes_optimizer = "optimizer" in sig.parameters and "optimizer" not in merged
         if resume and (
             not merged.get("single_cls", False)
@@ -329,6 +353,8 @@ class BaseModel(ABC):
             cls.train, "_libreyolo_cfg_wrapped", False
         ):
             cls.train = _wrap_train_with_cfg(cls.train)
+        if "val" in cls.__dict__:
+            cls.val = guard_main_reimport("val()")(cls.val)
 
     # =========================================================================
     # Initialization
@@ -1134,6 +1160,14 @@ class BaseModel(ABC):
             result[i] = sanitized.get(i, f"class_{i}")
         return result
 
+    def _upgrade_quant_manifest(self, manifest: dict) -> dict:
+        """Family hook: migrate module names in a saved quantization manifest.
+
+        Runs before the quantized structure is rebuilt. The default returns
+        the manifest unchanged.
+        """
+        return manifest
+
     def _load_weights(self, model_path: str):
         """Load model weights from file.
 
@@ -1243,6 +1277,7 @@ class BaseModel(ABC):
                 if ckpt_names is not None:
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
                 self._restore_checkpoint_input_size(loaded)
+                self._restore_checkpoint_interpolation(loaded)
                 self._validate_loaded_state_dict_for_task(state_dict, loaded)
             else:
                 state_dict = self._prepare_state_dict(loaded)
@@ -1253,6 +1288,7 @@ class BaseModel(ABC):
             if quant_manifest:
                 from ...quant import apply_quant_structure
 
+                quant_manifest = self._upgrade_quant_manifest(quant_manifest)
                 apply_quant_structure(self, quant_manifest)
 
             self._prepare_model_for_state_dict(state_dict)
@@ -1262,6 +1298,40 @@ class BaseModel(ABC):
             raise RuntimeError(
                 f"Failed to load model weights from {model_path}: {e}"
             ) from e
+
+    def _interpolation_metadata(self) -> dict:
+        """The classification resize filter, for checkpoint metadata (#936).
+
+        Empty for models without one. The filter is part of the model: train,
+        ``val()``, ``predict()``, INT8 calibration and export all read it.
+        """
+        interpolation = getattr(self, "interpolation", None)
+        if interpolation is None:
+            return {}
+        from ...data.augment.classify import normalize_interpolation
+
+        return {"interpolation": normalize_interpolation(interpolation)}
+
+    def _restore_checkpoint_interpolation(self, loaded: dict) -> None:
+        """Adopt the resize filter a classification checkpoint was saved with.
+
+        Checkpoints written before the key existed keep the family default.
+        """
+        if "interpolation" not in loaded or not hasattr(self, "interpolation"):
+            return
+        from ...data.augment.classify import normalize_interpolation
+
+        self.interpolation = normalize_interpolation(loaded["interpolation"])
+
+    def _restore_resume_interpolation(self, resume: str | Path) -> None:
+        """Adopt the resize filter of the checkpoint ``train(resume=path)`` continues."""
+        if not hasattr(self, "interpolation") or not Path(resume).is_file():
+            return
+        checkpoint = load_untrusted_torch_file(
+            resume, map_location="cpu", context="resume interpolation probe"
+        )
+        if isinstance(checkpoint, dict):
+            self._restore_checkpoint_interpolation(checkpoint)
 
     def _restore_checkpoint_input_size(self, loaded: dict) -> None:
         """Adopt the rectangular input size a checkpoint was saved at (#899).
@@ -1469,6 +1539,7 @@ class BaseModel(ABC):
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         color_format: str = "auto",
+        agnostic_nms: bool = False,
         **kwargs,
     ) -> Results:
         """Run TTA inference and merge via per-class NMS.
@@ -1581,7 +1652,7 @@ class BaseModel(ABC):
                     conf,
                     iou,
                     orig_size,
-                    max_det=postprocess_max_det(max_det, classes),
+                    max_det=postprocess_max_det(max_det, classes, agnostic_nms),
                     ratio=ratio,
                     **kwargs,
                 )
@@ -1591,7 +1662,13 @@ class BaseModel(ABC):
             result = self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
         else:
             result = self._merge_tta(
-                aug_dets, iou, image_path, (orig_w, orig_h), classes, max_det
+                aug_dets,
+                iou,
+                image_path,
+                (orig_w, orig_h),
+                classes,
+                max_det,
+                agnostic_nms=agnostic_nms,
             )
         # Keep the decoded source so plot()/save never fetch the input again.
         return keep_source(result, img_pil, image_path)
@@ -1723,10 +1800,12 @@ class BaseModel(ABC):
         original_size: Tuple[int, int],
         classes: Optional[List[int]] = None,
         max_det: Optional[int] = None,
+        agnostic_nms: bool = False,
     ) -> Results:
         """Merge TTA detections from multiple augmented views via per-class NMS.
 
-        ``classes`` filters the merged boxes, then ``max_det`` keeps the
+        ``classes`` filters the merged boxes, ``agnostic_nms`` then suppresses
+        overlapping boxes across classes, and ``max_det`` keeps the
         highest-scoring ones.
         """
         from ...utils.results import Boxes, Masks, Results
@@ -1837,6 +1916,15 @@ class BaseModel(ABC):
             final_scores = final_scores[cls_mask]
             final_classes = final_classes[cls_mask]
             keep = keep[cls_mask]
+        if agnostic_nms and len(keep) > 1:
+            from ...ops.agnostic_nms import agnostic_nms_keep
+
+            # Input order (descending score) is preserved.
+            survivors = agnostic_nms_keep(final_boxes, final_scores, iou_thres)
+            final_boxes = final_boxes[survivors]
+            final_scores = final_scores[survivors]
+            final_classes = final_classes[survivors]
+            keep = keep[survivors]
         if max_det is not None and 0 <= max_det < len(keep):
             # batched_nms returns indices in descending score order.
             final_boxes = final_boxes[:max_det]
@@ -2472,6 +2560,7 @@ class BaseModel(ABC):
         save_extra = getattr(self, "_save_extra_metadata", None)
         if callable(save_extra):
             extra_metadata = dict(save_extra() or {})
+        extra_metadata.update(self._interpolation_metadata())
         from ...utils.event_histogram import input_metadata
         extra_metadata.update(input_metadata(self))
         checkpoint = wrap_libreyolo_checkpoint(
@@ -2572,6 +2661,7 @@ class BaseModel(ABC):
 
         return BaseExporter.create(format, self)(**kwargs)
 
+    @guard_main_reimport("val()")
     def val(
         self,
         data: str | None = None,
@@ -2628,6 +2718,13 @@ class BaseModel(ABC):
                 segment and classify only. Default False.
             show_labels: (kwarg) Class names on ``visualize`` images.
             show_conf: (kwarg) Confidence scores on ``visualize`` images.
+            agnostic_nms: (kwarg) Class-agnostic NMS: among boxes that
+                overlap above ``iou``, keep only the highest-scoring one,
+                whatever their classes. Applied to the family's finished
+                detections (after ``classes``), so it behaves the same for
+                every detection family, NMS-free ones included, and every
+                metric of the run sees the same boxes. Detect and segment
+                only. Default False.
             faster_coco_eval: (kwarg) Use the faster-coco-eval C++ backend
                 for COCO metrics. Default True; falls back to pycocotools
                 if the package is unavailable. Pass False (or set
@@ -2656,11 +2753,30 @@ class BaseModel(ABC):
             confidence (0.25, or ``conf`` if higher). Filter it on ``fp`` or
             ``fn`` to list the images the model got wrong.
 
+            They also carry each class's precision, recall and F1 across
+            confidence thresholds (IoU 0.5 matching): ``box.px`` (1000
+            confidences over [0, 1]) with ``box.p_curve``, ``box.r_curve``
+            and ``box.f1_curve`` of shape ``(classes, 1000)``, one row per
+            class index in ``box.ap_class_index`` (the classes with ground
+            truth). ``box.p``, ``box.r`` and ``box.f1`` are the per-class
+            values at the confidence that maximizes the mean F1.
+
+            ``confusion_matrix`` (detect, segment and classify) counts
+            predicted class against true class: ``matrix[predicted, true]``,
+            with a ``background`` row (missed ground truth) and column
+            (unmatched prediction) for detection, where predictions are
+            paired with ground truth of any class at IoU 0.5 and the
+            ``visualize`` confidence. It offers ``summary()``, ``to_df()``,
+            ``to_csv()``, ``to_json()``, ``tp_fp()``, ``nonzero()``, ``plot()`` and
+            ``class_accuracy()`` (how often a found object of each class is
+            given that class).
+
             For ``task="classify"``, the dictionary instead holds
             ``metrics/accuracy_top1``, ``metrics/accuracy_top5``,
             macro-averaged ``metrics/precision``, ``metrics/recall`` and
             ``metrics/f1`` (the mean over classes present in the validation
-            targets), and ``fitness`` (top-1 accuracy).
+            targets), and ``fitness`` (top-1 accuracy). The result also has
+            ``top1``, ``top5`` and ``confusion_matrix``.
         """
         from libreyolo.validation import (
             ClassifyValidator,
@@ -2697,6 +2813,13 @@ class BaseModel(ABC):
             raise ValueError(
                 f"visualize=True is not supported for task '{self.task}'; "
                 f"it covers {', '.join(VISUALIZE_TASKS)}"
+            )
+        from libreyolo.validation.config import AGNOSTIC_NMS_VAL_TASKS
+
+        if kwargs.get("agnostic_nms") and self.task not in AGNOSTIC_NMS_VAL_TASKS:
+            raise ValueError(
+                f"agnostic_nms=True is not supported for task '{self.task}' "
+                f"validation; it covers {', '.join(AGNOSTIC_NMS_VAL_TASKS)}"
             )
         if augment and self.task == "obb":
             raise ValueError(

@@ -795,6 +795,50 @@ def test_coco_evaluator_uses_mask_area_for_segmentation(tmp_path):
     assert evaluator.results[0]["area"] == 3.0
 
 
+def _perfect_mask_map50(tmp_path, label_rows):
+    """Mask mAP50 of predictions that copy the ground truth box and mask."""
+    from libreyolo.data import YOLOCocoAPI
+    from libreyolo.validation import COCOEvaluator
+
+    images_dir = tmp_path / "images"
+    labels_dir = tmp_path / "labels"
+    images_dir.mkdir()
+    labels_dir.mkdir()
+    for i, row in enumerate(label_rows):
+        Image.new("RGB", (100, 100)).save(images_dir / f"img{i}.jpg")
+        (labels_dir / f"img{i}.txt").write_text(row + "\n")
+
+    coco_api = YOLOCocoAPI(images_dir, labels_dir, ["cat"], load_segments=True)
+    evaluator = COCOEvaluator(coco_api, iou_type="segm")
+    for img_id in coco_api.getImgIds():
+        ann = coco_api.loadAnns(coco_api.getAnnIds(imgIds=[img_id]))[0]
+        x, y, w, h = ann["bbox"]
+        evaluator.update(
+            {
+                "boxes": [[x, y, x + w, y + h]],
+                "scores": [0.9],
+                "classes": [0],
+                "masks": [coco_api.annToMask(ann)],
+            },
+            image_id=img_id,
+        )
+    return evaluator.compute()["mAP50"]
+
+
+@pytest.mark.unit
+def test_segmentation_eval_scores_box_only_rows_as_rectangular_masks(tmp_path):
+    rows = ["0 0.5 0.5 0.4 0.4", "0 0.3 0.6 0.2 0.3"]
+
+    assert _perfect_mask_map50(tmp_path, rows) == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_segmentation_eval_scores_mixed_polygon_and_box_only_rows(tmp_path):
+    rows = ["0 0.3 0.3 0.7 0.3 0.5 0.7", "0 0.5 0.5 0.4 0.4"]
+
+    assert _perfect_mask_map50(tmp_path, rows) == pytest.approx(1.0)
+
+
 @pytest.mark.unit
 def test_detection_validator_emits_bbox_alias_metrics():
     from libreyolo.validation.detection_validator import DetectionValidator

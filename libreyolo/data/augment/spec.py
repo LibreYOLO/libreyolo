@@ -59,7 +59,10 @@ AUG_KNOBS: Dict[str, str] = {
     "mosaic_scale": "Random-scale range for the affine warp.",
     "mixup_scale": "Jitter-scale range applied to the MixUp partner image.",
     "shear": "Random-shear range for the affine warp, in degrees.",
-    "perspective": "Projective (perspective) warp magnitude for the affine warp.",
+    "perspective": (
+        "Projective warp strength added to the affine warp: canvas corners move "
+        "inward by up to perspective * 100 * half the canvas side (0 disables)."
+    ),
     "flipud": "Vertical-flip probability.",
     "no_aug_epochs": "Final epochs trained with strong augmentation disabled.",
     # Classification-only pack (ImageFolder pipeline; detection families
@@ -103,6 +106,7 @@ FAMILY_DISPLAY_NAMES: Dict[str, str] = {
     "dinov2": "DINOv2",
     "segformer": "SegFormer",
     "unet": "U-Net",
+    "lingbotvision": "LingBot-Vision",
     "nafnet": "NAFNet",
 }
 
@@ -187,6 +191,25 @@ _CLASSIFY_STYLE = {
     "cutmix": _u(),
     "scale": _u("RandomResizedCrop area range."),
     "crop_pct": _u("Eval resize ratio; None keeps the family's native value."),
+}
+
+# Semantic-only pipeline: the family class attributes (semantic_scale_jitter,
+# semantic_hsv_prob) drive the augmentation, not the config knobs; the
+# horizontal flip is a fixed 0.5.
+_SEMANTIC_STYLE = {
+    "mosaic_prob": _i("Semantic pipeline has no mosaic."),
+    "mixup_prob": _i("Semantic pipeline has no MixUp."),
+    "hsv_prob": _i("Semantic HSV comes from the family's semantic_hsv_prob class attribute."),
+    "flip_prob": _i("Semantic flip is a fixed 0.5."),
+    "degrees": _i("Semantic pipeline has no affine warp."),
+    "translate": _i("Semantic pipeline has no affine warp."),
+    "mosaic_scale": _i("Semantic scale jitter comes from the family's semantic_scale_jitter class attribute."),
+    "mixup_scale": _i("Semantic pipeline has no MixUp."),
+    "shear": _i("Semantic pipeline has no affine warp."),
+    "perspective": _i("Semantic pipeline has no affine warp."),
+    "flipud": _i("Semantic pipeline has no vertical flip."),
+    "no_aug_epochs": _u("Shapes the scheduler's tail."),
+    **_CLS_KNOBS_IGNORED,
 }
 
 FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
@@ -316,36 +339,9 @@ FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
     # --- Semantic-only: the semantic pipeline reads family class
     # attributes (semantic_scale_jitter / semantic_hsv_prob), not config
     # knobs; horizontal flip is a fixed 0.5.
-    "segformer": {
-        "mosaic_prob": _i("Semantic pipeline has no mosaic."),
-        "mixup_prob": _i("Semantic pipeline has no MixUp."),
-        "hsv_prob": _i("Semantic HSV comes from the family's semantic_hsv_prob class attribute."),
-        "flip_prob": _i("Semantic flip is a fixed 0.5."),
-        "degrees": _i("Semantic pipeline has no affine warp."),
-        "translate": _i("Semantic pipeline has no affine warp."),
-        "mosaic_scale": _i("Semantic scale jitter comes from the family's semantic_scale_jitter class attribute."),
-        "mixup_scale": _i("Semantic pipeline has no MixUp."),
-        "shear": _i("Semantic pipeline has no affine warp."),
-        "perspective": _i("Semantic pipeline has no affine warp."),
-        "flipud": _i("Semantic pipeline has no vertical flip."),
-        "no_aug_epochs": _u("Shapes the scheduler's tail."),
-        **_CLS_KNOBS_IGNORED,
-    },
-    "unet": {
-        "mosaic_prob": _i("Semantic pipeline has no mosaic."),
-        "mixup_prob": _i("Semantic pipeline has no MixUp."),
-        "hsv_prob": _i("Semantic HSV comes from the family's semantic_hsv_prob class attribute."),
-        "flip_prob": _i("Semantic flip is a fixed 0.5."),
-        "degrees": _i("Semantic pipeline has no affine warp."),
-        "translate": _i("Semantic pipeline has no affine warp."),
-        "mosaic_scale": _i("Semantic scale jitter comes from the family's semantic_scale_jitter class attribute."),
-        "mixup_scale": _i("Semantic pipeline has no MixUp."),
-        "shear": _i("Semantic pipeline has no affine warp."),
-        "perspective": _i("Semantic pipeline has no affine warp."),
-        "flipud": _i("Semantic pipeline has no vertical flip."),
-        "no_aug_epochs": _u("Shapes the scheduler's tail."),
-        **_CLS_KNOBS_IGNORED,
-    },
+    "segformer": dict(_SEMANTIC_STYLE),
+    "unet": dict(_SEMANTIC_STYLE),
+    "lingbotvision": dict(_SEMANTIC_STYLE),
     # --- Restoration: coupled crop/flip/rot90 with fixed probabilities --
     "nafnet": {
         "mosaic_prob": _i("Restore pipeline has no mosaic."),

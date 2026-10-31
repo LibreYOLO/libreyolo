@@ -173,3 +173,27 @@ def test_rtmdet_ins_postprocess_clamps_boxes_to_both_frames():
     # the ratio inverse gives (0, 0, 24, 24), and the original-frame clamp
     # caps y2 at the 12-pixel image height.
     assert result["boxes"].tolist() == [[0.0, 0.0, 24.0, 12.0]]
+
+
+def test_rtmdet_ins_postprocess_respects_max_det_above_100():
+    # 150 classes on one location: class-aware NMS keeps every candidate, so
+    # the only cap is ``max_det``.
+    num_classes = 150
+    cls = tuple(torch.full((1, num_classes, size, size), -20.0) for size in (2, 1, 1))
+    reg = tuple(torch.full((1, 4, size, size), 4.0) for size in (2, 1, 1))
+    kernels = tuple(torch.zeros(1, 169, size, size) for size in (2, 1, 1))
+    cls[0][0, :, 1, 1] = 10.0
+    mask_feat = torch.zeros(1, 8, 2, 2)
+
+    def run(max_det):
+        return postprocess(
+            (cls, reg, kernels, mask_feat),
+            conf_thres=0.25,
+            iou_thres=0.6,
+            input_size=16,
+            original_size=(16, 16),
+            max_det=max_det,
+        )
+
+    assert run(1000)["num_detections"] == num_classes
+    assert run(20)["num_detections"] == 20

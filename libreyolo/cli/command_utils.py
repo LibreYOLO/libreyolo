@@ -208,6 +208,22 @@ def resolve_model_or_exit(out: OutputHandler, model: str) -> str:
     ):
         return model_path
 
+    from libreyolo.models import (
+        _RFDETR_EXTRA_FAMILIES,
+        _needs_rfdetr_extra,
+        try_ensure_rfdetr,
+    )
+
+    # RF-DETR and DINOv2 names only become known once their extra is installed.
+    cli_alias = model.lower().startswith(tuple(f"{f}-" for f in _RFDETR_EXTRA_FAMILIES))
+    if (_needs_rfdetr_extra(model) or cli_alias) and try_ensure_rfdetr() is None:
+        exit_with_error(
+            out,
+            "model_load_failed",
+            f"'{model}' needs RF-DETR support, which requires extra dependencies.",
+            suggestion="pip install libreyolo[rfdetr]",
+        )
+
     all_names = get_all_cli_names()
     suggestion = suggest_key(model, all_names)
     hint = f" Did you mean '{suggestion}'?" if suggestion else ""

@@ -295,8 +295,11 @@ def export_tensorrt(
     trt_logger = trt.Logger(log_level)
 
     builder = trt.Builder(trt_logger)
-    # Explicit batch mode (required for modern TensorRT)
-    network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+    # Explicit batch mode. TensorRT 11 removed the flag: explicit batch is its
+    # only mode, so the network is created without flags there.
+    flag_enum = getattr(trt, "NetworkDefinitionCreationFlag", None)
+    explicit_batch = getattr(flag_enum, "EXPLICIT_BATCH", None)
+    network_flags = 0 if explicit_batch is None else 1 << int(explicit_batch)
     network = builder.create_network(network_flags)
     parser = trt.OnnxParser(network, trt_logger)
 

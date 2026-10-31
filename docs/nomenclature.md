@@ -165,7 +165,7 @@ exceptions being lowercase version suffixes (`DEIMv2`, `RTDETRv2`,
 The VLM and promptable SAM tiers are separate categories and do not follow this
 rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreLFM2VL`,
 `LibreSmolVLM2`, `LibreInternVL3`, `LibreFlorence2`, `LibreKosmos2`,
-`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreMODUS`, `LibreSAM`,
+`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreMODUS`, `LibreSAM`,
 `LibreSAM2`, `LibreSAM3`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
 are not registered
 into the detector factory and do not emit `Libre<FAMILY><size>.pt` detector
@@ -291,6 +291,7 @@ VLM snapshot families use model-specific size names:
 | Family | Size codes |
 |---|---|
 | `molmo2` | `4b` (default), `8b`, `o-7b`; single-image point task |
+| `wevisonevl` | `2b` (default), `4b`; Qwen3-VL backbone plus the `mask_decoder.pt` pixel decoder |
 | `libremodus` | `14b-a7b` (14B total parameters, approximately 7B active; external MODUS snapshot) |
 
 Promptable SAM tier size aliases:
@@ -347,6 +348,8 @@ From `libreyolo/tasks.py`:
 | `mesh`        | `-mesh` |
 | `detect3d`    | `-detect3d` |
 | `act`         | `-act` |
+| `generate`    | `-generate` |
+| `generate3d`  | `-generate3d` |
 
 The factory accepts selected upstream-style aliases (`detection`, `det`,
 `segmentation`, `keypoints`, `cls`, …) at the API boundary; only the canonical
@@ -1024,6 +1027,37 @@ before download. The existing bare COCO filenames and defaults are unchanged.
 The suffix does not denote the raw 365-class pretraining checkpoints.
 See [EdgeCrafter provenance](provenance/edgecrafter.md) for the earlier
 Apache-2.0 defaults and the upstream license-change history.
+
+## Generative image models
+
+`LibreFlux2Klein` (`flux2_klein`, size `4b`, aliases `flux2-klein` and
+`flux2-klein-4b`) and `LibreSanaSprint` (`sana_sprint`, size `0.6b`, aliases
+`sana-sprint` and `sana-sprint-0.6b`) are a sibling API behind the
+`LibreGen(...)` factory, wrapping `diffusers` pipelines through the optional
+`libreyolo[gen]` runtime. They use `generate`, with aliases `generation`,
+`image-generation`, `text-to-image`, `text2image`, `txt2img` and `t2i`, and
+coverage group `s`. Base weights are pinned Hub snapshots downloaded into
+`weights/LibreFlux2Klein4b/` and `weights/LibreSanaSprint0.6b/` as pipeline
+directories; they are not `.pt` files and are not registered in the
+`LibreYOLO(...)` state-dict factory.
+
+`Results.generated` stores the `(H, W, 3)` uint8 RGB image with its prompt,
+seed and call parameters. `LibreGen(path)` loads a local pipeline directory
+of a supported family. The CLI verb is `libreyolo generate`. See ADR 0030
+for the call contract, the family-knob rule and the reserved surface.
+
+`LibreSperidlabsIdol` (`speridlabs_idol`, size `0.6b`, aliases
+`speridlabs-idol` and `speridlabs-idol-0.6b`) is the first image-to-3D
+family behind the same `LibreGen(...)` factory. The name keeps its maker:
+the model is Speridlabs Idol, and there is no bare `idol` alias. It uses
+`generate3d`, with aliases `generation3d`, `3d-generation`, `image-to-3d`,
+`image23d`, `img2-3d`, `img-to-3d` and `i23d`, and coverage group `s`. Its
+own weights are the pinned `speridlabs/idol` snapshot in
+`weights/LibreSperidlabsIdol0.6b/`; the FLUX.2 VAE loads from
+`FLUX.2-klein-4B` and the DINOv3 encoder from LibreYOLO's bf16 mirror
+`LibreYOLO/LibreDINOv3vith16plus`, both at pinned revisions. `Results.gaussians` stores the
+object as a `Gaussians` payload; `libreyolo generate source=...` is the CLI.
+See ADR 0031.
 
 ## Vision-language-action policies
 

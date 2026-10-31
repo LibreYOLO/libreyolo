@@ -487,6 +487,71 @@ def test_validator_warns_once_before_single_cls_clip(caplog):
     assert caplog.text.count("non-zero ground-truth class ids") == 1
 
 
+class _RecordingEvaluator:
+    def __init__(self):
+        self.classes = []
+
+    def update(self, pred, img_id):
+        self.classes.append(pred["classes"].tolist())
+
+
+def _scoring_validator(nb_classes, evaluator, **cfg):
+    model = SimpleNamespace(nb_classes=nb_classes, _checkpoint_train_config=lambda: {})
+    config = ValidationConfig(
+        data="unused.yaml", device="cpu", single_cls=True, save_plots=False, **cfg
+    )
+    validator = DetectionValidator(model, config)
+    validator.coco_evaluator = evaluator
+    return validator
+
+
+def _preds(classes):
+    n = len(classes)
+    boxes = torch.tensor([[4.0, 4.0, 16.0, 16.0], [32.0, 24.0, 44.0, 36.0], [50, 50, 60, 60]])
+    return [
+        {
+            "boxes": boxes[:n],
+            "scores": torch.linspace(0.99, 0.9, n),
+            "classes": torch.tensor(classes),
+        }
+    ]
+
+
+def test_single_cls_scores_a_multiclass_model_as_one_class(tmp_path):
+    pytest.importorskip("pycocotools")
+    from pycocotools.coco import COCO
+
+    from libreyolo.validation import COCOEvaluator
+
+    _write_coco_sample(tmp_path)
+    original = COCO(str(tmp_path / "annotations" / "train.json"))
+    collapsed = _collapse_coco_ground_truth(original, category_id=3)
+    evaluator = COCOEvaluator(collapsed, label_to_category_id={0: 3})
+    validator = _scoring_validator(80, evaluator)
+
+    validator._update_metrics(_preds([1, 2]), None, [(64, 64)], [1])
+
+    assert evaluator.compute()["mAP"] == pytest.approx(1.0)
+
+
+def test_single_cls_keeps_classes_in_the_model_label_space_first():
+    evaluator = _RecordingEvaluator()
+    validator = _scoring_validator(80, evaluator, classes=[3, 16])
+
+    validator._update_metrics(_preds([3, 5, 16]), None, [(64, 64)], [1])
+
+    assert evaluator.classes == [[0, 0]]
+
+
+def test_single_cls_one_class_model_is_unchanged():
+    evaluator = _RecordingEvaluator()
+    validator = _scoring_validator(1, evaluator, classes=[16])
+
+    validator._update_metrics(_preds([0, 0]), None, [(64, 64)], [1])
+
+    assert evaluator.classes == [[0, 0]]
+
+
 def test_python_gate_accepts_every_g0_g1_detection_family():
     def train(self, data, **kwargs):
         return kwargs

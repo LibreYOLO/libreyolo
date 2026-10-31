@@ -1,9 +1,10 @@
 """YOLOv9 E2E (NMS-free) postprocessing.
 
-Moved verbatim from ``libreyolo/models/yolo9_e2e/utils.py``, which re-exports
-everything here for backward compatibility.
+``libreyolo/models/yolo9_e2e/utils.py`` re-exports everything here for
+backward compatibility.
 """
 
+from collections.abc import Mapping
 from typing import Dict, Tuple, Union
 
 import torch
@@ -43,55 +44,55 @@ def _scale_and_clip_boxes(
 
 
 def postprocess(
-    output: Dict,
+    output,
     conf_thres: float = 0.25,
     iou_thres: float = 0.45,
-    input_size: int = 640,
+    input_size: Union[int, Tuple[int, int]] = 640,
     original_size: Tuple[int, int] | None = None,
     max_det: int = 300,
     letterbox: bool = True,
     letterbox_pad: str | None = None,
 ) -> Dict:
-    """Postprocess YOLOv9 E2E outputs with top-K selection (no NMS).
+    """Detections from the one-to-one branch: top-K selection, no NMS.
 
-    The one-to-one head produces at most one prediction per object, so NMS
-    is not required. Detections are filtered by confidence and ranked by
-    per-anchor max score before applying the user's max_det cap.
+    A one-to-one head is trained to fire once per object, so the K best
+    ``(anchor, class)`` pairs are kept as they are (sort-and-keep-top-k, as
+    in DATE, github.com/YiqunChen1999/date, Apache-2.0).
+
+    Args:
+        output: Eval output dict (its ``"predictions"``) or the bare
+            ``(B, 4 + nc, N)`` predictions tensor: xyxy boxes in input
+            pixels, then per-class sigmoid scores.
+        conf_thres: Keep selections scoring strictly above this.
+        iou_thres: Unused; accepted for signature compatibility.
+        input_size: Model input size, int or ``(height, width)``.
+        original_size: Source image ``(width, height)``; boxes are mapped
+            back to it and clipped when given.
+        max_det: Maximum number of ``(anchor, class)`` selections.
+        letterbox: Whether the input was letterboxed (else plainly resized).
+        letterbox_pad: Letterbox pad placement used by preprocessing.
+
+    Returns:
+        ``{"boxes", "scores", "classes", "num_detections"}`` for the first
+        image of the batch, in descending score order.
     """
-    del iou_thres  # not used — no NMS
-
-    predictions = output["predictions"]
+    del iou_thres
+    predictions = output["predictions"] if isinstance(output, Mapping) else output
     if predictions.dim() == 2:
         predictions = predictions.unsqueeze(0)
 
-    preds = predictions.transpose(1, 2)  # (B, N, 4+nc)
-    boxes = preds[..., :4]
-    scores = preds[..., 4:]
-
-    batch_size, num_anchors, num_classes = scores.shape
-    topk_anchors = min(max_det, num_anchors)
-    if topk_anchors == 0 or num_classes == 0:
+    # Flatten each image's (N, nc) score matrix (index = anchor * nc + class)
+    # and keep its K best entries, highest first.
+    boxes_all = predictions[:, :4, :].transpose(1, 2)  # (B, N, 4)
+    scores_all = predictions[:, 4:, :].transpose(1, 2)  # (B, N, nc)
+    batch, num_anchors, num_classes = scores_all.shape
+    k = min(int(max_det), num_anchors * num_classes)
+    if k <= 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
-
-    # Stage 1: select top-K anchors by their best class score
-    anchor_scores = scores.amax(dim=-1)
-    anchor_scores, anchor_indices = torch.topk(anchor_scores, topk_anchors, dim=-1)
-    del anchor_scores
-
-    gather_box_idx = anchor_indices.unsqueeze(-1).expand(-1, -1, boxes.shape[-1])
-    gather_score_idx = anchor_indices.unsqueeze(-1).expand(-1, -1, num_classes)
-    boxes = torch.gather(boxes, dim=1, index=gather_box_idx)
-    scores = torch.gather(scores, dim=1, index=gather_score_idx)
-
-    # Stage 2: rank by individual (anchor, class) score pairs up to max_det
-    flat_scores = scores.flatten(1)
-    topk_scores = min(max_det, flat_scores.shape[1])
-    scores, flat_indices = torch.topk(flat_scores, topk_scores, dim=-1)
-    class_ids = flat_indices % num_classes
-    box_indices = flat_indices // num_classes
-    boxes = boxes.gather(
-        dim=1, index=box_indices.unsqueeze(-1).expand(-1, -1, boxes.shape[-1])
-    )
+    scores, flat_idx = scores_all.reshape(batch, -1).topk(k, dim=1)
+    class_ids = flat_idx % num_classes
+    anchor_idx = flat_idx // num_classes
+    boxes = boxes_all.gather(1, anchor_idx.unsqueeze(-1).expand(-1, -1, 4))
 
     # Batch dim 0 only (single image inference)
     scores = scores[0]
@@ -101,10 +102,10 @@ def postprocess(
     keep = scores > conf_thres
     if not keep.any():
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
-
     boxes = boxes[keep]
     scores = scores[keep]
     class_ids = class_ids[keep]
+
     boxes = _scale_and_clip_boxes(
         boxes, input_size, original_size, letterbox, letterbox_pad
     )
@@ -118,6 +119,7 @@ def postprocess(
     boxes = boxes[valid].cpu()
     scores = scores[valid].cpu()
     class_ids = class_ids[valid].cpu()
+
     return {
         "boxes": boxes,
         "scores": scores,

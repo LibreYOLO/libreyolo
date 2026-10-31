@@ -6,6 +6,8 @@ from dataclasses import fields as dc_fields
 
 import libreyolo.cli.config as cli_config
 from libreyolo.cli.config import (
+    apply_family_defaults,
+    build_family_train_kwargs,
     build_train_kwargs,
     detect_family_from_name,
     detect_family_from_model_ref,
@@ -16,7 +18,15 @@ from libreyolo.cli.config import (
     is_known_weight_filename,
     resolve_model_name,
 )
-from libreyolo.training.config import TrainConfig, YOLOXConfig, YOLO9Config
+from libreyolo.training.config import (
+    DFINEConfig,
+    ECConfig,
+    LingBotVisionConfig,
+    SegformerConfig,
+    TrainConfig,
+    YOLOXConfig,
+    YOLO9Config,
+)
 from libreyolo.models.rtdetr.config import RTDETRConfig
 
 pytestmark = pytest.mark.unit
@@ -258,6 +268,39 @@ class TestGetFamilyDefaults:
         assert diffs["mosaic_prob"] == 0.0
         assert diffs["hsv_prob"] == 0.5
         assert "lr_backbone" not in diffs
+
+
+class TestFamilyTrainKwargsRunName:
+    """The CLI forwards a run name only when the user set --name."""
+
+    FAMILY_RUN_NAMES = (
+        ("dfine", DFINEConfig, "dfine_exp"),
+        ("ec", ECConfig, "ec_exp"),
+        ("segformer", SegformerConfig, "segformer_exp"),
+        ("lingbotvision", LingBotVisionConfig, "lingbotvision_exp"),
+        ("yolo9", YOLO9Config, "yolo9_exp"),
+    )
+
+    @staticmethod
+    def _train_kwargs(family, name, user_provided):
+        params = apply_family_defaults(
+            {"name": name, "epochs": 3}, family, "train", user_provided=user_provided
+        )
+        return build_family_train_kwargs(params, family, user_provided=user_provided)
+
+    @pytest.mark.parametrize(("family", "config_cls", "run_name"), FAMILY_RUN_NAMES)
+    def test_default_name_is_left_to_the_family(self, family, config_cls, run_name):
+        kwargs = self._train_kwargs(family, "exp", user_provided=set())
+
+        assert "name" not in kwargs
+        assert config_cls.from_kwargs(**kwargs).name == run_name
+
+    @pytest.mark.parametrize(("family", "config_cls", "run_name"), FAMILY_RUN_NAMES)
+    def test_explicit_name_is_forwarded(self, family, config_cls, run_name):
+        kwargs = self._train_kwargs(family, "myrun", user_provided={"name"})
+
+        assert kwargs["name"] == "myrun"
+        assert config_cls.from_kwargs(**kwargs).name == "myrun"
 
 
 class TestBuildTrainKwargs:
@@ -505,3 +548,67 @@ class TestGetCfgDefaults:
         assert "size" not in cfg["train_defaults"]
         assert "num_classes" not in cfg["train_defaults"]
         assert "device" not in cfg["train_defaults"]
+
+
+class TestSegmentationFamilyDefaults:
+    """Segmentation families train with their own recipe, not the detection CLI defaults.
+
+    The CLI's global defaults (sgd / 0.01 / 5e-4 / yoloxwarmcos) are tuned for
+    detection. A segmentation family that does not publish its TrainConfig
+    would inherit them, and its trainer would then either reject the
+    scheduler or train with the wrong optimizer and learning rate.
+    """
+
+    FAMILIES = (
+        ("segformer", SegformerConfig),
+        ("lingbotvision", LingBotVisionConfig),
+        ("dfine", DFINEConfig),
+    )
+
+    CLI_DEFAULTS = {
+        "optimizer": "sgd",
+        "lr0": 0.01,
+        "weight_decay": 5e-4,
+        "scheduler": "yoloxwarmcos",
+        "imgsz": 640,
+        "batch": 16,
+        "epochs": 300,
+    }
+
+    @pytest.mark.parametrize(("family", "config_cls"), FAMILIES)
+    def test_config_class_is_discovered(self, family, config_cls):
+        assert get_train_config_class(family) is config_cls
+
+    @pytest.mark.parametrize(("family", "config_cls"), FAMILIES)
+    def test_cli_defaults_do_not_reach_the_family_config(self, family, config_cls):
+        params = apply_family_defaults(
+            dict(self.CLI_DEFAULTS), family, "train", user_provided=set()
+        )
+        kwargs = build_family_train_kwargs(params, family, user_provided=set())
+        config = config_cls.from_kwargs(**kwargs)
+        expected = config_cls()
+
+        assert config.optimizer == expected.optimizer
+        assert config.lr0 == expected.lr0
+        assert config.weight_decay == expected.weight_decay
+        assert config.scheduler == expected.scheduler
+        assert config.imgsz == expected.imgsz
+        assert config.batch == expected.batch
+        assert config.epochs == expected.epochs
+
+    @pytest.mark.parametrize(("family", "config_cls"), FAMILIES)
+    def test_explicit_cli_values_win(self, family, config_cls):
+        params = apply_family_defaults(
+            dict(self.CLI_DEFAULTS),
+            family,
+            "train",
+            user_provided={"optimizer", "lr0", "scheduler"},
+        )
+        kwargs = build_family_train_kwargs(
+            params, family, user_provided={"optimizer", "lr0", "scheduler"}
+        )
+        config = config_cls.from_kwargs(**kwargs)
+
+        assert config.optimizer == "sgd"
+        assert config.lr0 == 0.01
+        assert config.scheduler == "yoloxwarmcos"

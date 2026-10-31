@@ -141,26 +141,36 @@ def test_trainer_handles_empty_targets():
     assert torch.isfinite(out["total_loss"])
 
 
-def test_trainer_one2one_branch_blocks_backbone_gradients():
-    """The one-to-one branch detaches backbone features (per the YOLOv9-E2E
-    paper), so its gradients must not flow back into the shared neck."""
+def test_trainer_one_to_one_branch_blocks_backbone_gradients():
+    """The one-to-one towers read detached features, so their outputs must
+    not send gradients back into the shared neck; the one-to-many branch
+    still does, and the one-to-one towers still train."""
     wrapper = LibreYOLO9E2E(None, size="t", device="cpu")
     wrapper.model.train()
     head = wrapper.model.head
 
-    feats = [
-        torch.randn(2, head.cv2[0][0].conv.in_channels, 80, 80, requires_grad=True),
-        torch.randn(2, head.cv2[1][0].conv.in_channels, 40, 40, requires_grad=True),
-        torch.randn(2, head.cv2[2][0].conv.in_channels, 20, 20, requires_grad=True),
-    ]
-    targets = torch.zeros(2, 5, 5)
-    targets[0, 0] = torch.tensor([3.0, 320.0, 240.0, 100.0, 80.0])
+    def make_feats():
+        return [
+            torch.randn(2, tower[0].conv.in_channels, size, size, requires_grad=True)
+            for tower, size in zip(head.anchor_convs, (80, 40, 20))
+        ]
 
-    # Run the head with only the one-to-one branch active by zero-ing the
-    # one-to-many side post-hoc. Easier: rely on the documented detach() at
-    # nn.py:82 by inspecting the feature graph.
+    feats = make_feats()
+    branches = head(feats)
+    sum(t.sum() for t in branches["one_to_one"]).backward()
+    assert all(f.grad is None for f in feats)
+    assert head.one_to_one_class_convs[0][-1].weight.grad is not None
+
+    head.zero_grad(set_to_none=True)
+    feats = make_feats()
+    branches = head(feats)
+    sum(t.sum() for t in branches["one_to_many"]).backward()
+    assert all(f.grad is not None and f.grad.abs().sum() > 0 for f in feats)
+
+    # The summed training loss still reaches the features (one-to-many part).
+    feats = make_feats()
+    targets = torch.zeros(2, 5, 5)
+    targets[0, 0] = torch.tensor([3.0, 0.3, 0.2, 0.6, 0.5])
     head_out = head(feats, targets=targets, img_size=[640, 640])
     head_out["total_loss"].backward()
-
-    # All inputs must have a grad set (one-to-many branch flows into them).
     assert all(f.grad is not None for f in feats)
