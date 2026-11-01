@@ -808,3 +808,21 @@ def test_tflite_int8_reports_missing_tensorflow(monkeypatch):
 
     with pytest.raises(ImportError, match=r"onnx2tf\[tensorflow\]"):
         tflite_module.check_tflite_int8_available()
+
+
+@pytest.mark.parametrize(
+    ("installed", "refused"), [("2.6.7", True), ("2.6.9", False), ("2.7.0", False)]
+)
+def test_yolo9_e2e_tflite_needs_a_validated_converter(monkeypatch, installed, refused):
+    import importlib.metadata
+
+    from libreyolo.export import tflite
+
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: installed)
+    if refused:
+        with pytest.raises(ImportError, match="onnx2tf >=2.6.9"):
+            tflite.check_tflite_converter_version("yolo9_e2e", "detect")
+    else:
+        tflite.check_tflite_converter_version("yolo9_e2e", "detect")
+    tflite.check_tflite_converter_version("yolo9", "detect")  # no minimum
+

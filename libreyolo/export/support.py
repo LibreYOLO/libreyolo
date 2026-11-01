@@ -843,7 +843,7 @@ _add(
         "2026-11-01 on Linux)."
     ),
     since="1.7",
-    constraint="onnx2tf 2.6.9, LiteRT 2.1.2, fixed export canvas",
+    constraint="onnx2tf 2.6.9 or newer, LiteRT 2.1.2, fixed 128x128 export canvas",
 )
 _add(
     "blocked",
