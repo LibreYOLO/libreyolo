@@ -321,6 +321,27 @@ def test_unguarded_train_passes_workers_zero_explicitly(monkeypatch, caplog):
     assert _ResumingTrain().train(data="d.yaml", resume="last.pt") == 2
 
 
+class _KwargsTrain:
+    task = None
+    TRAIN_CONFIG = None
+
+    @staticmethod
+    def _raw_train(self, data=None, **kwargs):
+        return kwargs.get("workers"), kwargs.get("num_workers")
+
+
+_KwargsTrain.train = _wrap_train_with_cfg(_KwargsTrain._raw_train)
+
+
+def test_unguarded_train_zeroes_both_worker_spellings(monkeypatch):
+    import libreyolo.models.base.model as base_model
+
+    monkeypatch.setattr(main_guard, "_warned", set())
+    monkeypatch.setattr(base_model, "runs_unguarded", lambda: True)
+    assert _KwargsTrain().train(data="d.yaml", num_workers=4) == (0, 0)
+    assert _KwargsTrain().train(data="d.yaml", workers=4) == (0, None)
+
+
 def test_an_unguarded_line_drops_the_workers(monkeypatch, tmp_path, caplog):
     script = tmp_path / "script.py"
     script.write_text(GUARDED, encoding="utf-8")

@@ -246,12 +246,13 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
             if "workers" in pos_names[: len(args)]:
                 args = list(args)
                 args[pos_names.index("workers")] = 0
-            elif "num_workers" in merged:
-                merged["num_workers"] = 0
             elif "workers" in sig.parameters or any(
                 p.kind == p.VAR_KEYWORD for p in sig.parameters.values()
             ):
                 merged["workers"] = 0
+            # The RF-DETR spelling, which that family maps onto workers.
+            if "num_workers" in merged:
+                merged["num_workers"] = 0
         return train_fn(self, *args, **merged)
 
     wrapper._libreyolo_cfg_wrapped = True  # type: ignore[attr-defined]
