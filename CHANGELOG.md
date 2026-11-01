@@ -9,10 +9,10 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
-- **A missing image directory says so.**
+- **A missing image directory says so. (#979)**
   A data yaml whose `train`/`val` folder does not exist (a dataset that was never downloaded, a typo) raised `ValueError: Unsupported path format`; it now raises `FileNotFoundError: Image directory not found`. TensorRT INT8 calibration without its dataset now skips in the e2e suite as intended.
 
-- **RF-DETR ExecuTorch programs load on Linux.**
+- **RF-DETR ExecuTorch programs load on Linux. (#979)**
   The Linux ExecuTorch 1.2 runtime has no `aten::grid_sampler_2d` kernel (the macOS one does), so RF-DETR detect, segment, pose and OBB `.pte` files exported there failed to load with "Missing operator" (error 0x14). The exporter now decomposes grid sampling into primitives every runtime registers, as the Core AI exporter already does.
 
 - **TorchScript exports of YOLO9, YOLO9-E2E and YOLO9-P2 run on any device. (#974)**
