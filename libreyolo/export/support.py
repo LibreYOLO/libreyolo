@@ -842,7 +842,7 @@ _add(
         "predict parity in tests/e2e/test_tflite_round13.py (measured "
         "2026-11-01 on Linux)."
     ),
-    since="1.7.1",
+    since="1.7",
     constraint="onnx2tf 2.6.9, LiteRT 2.1.2, fixed export canvas",
 )
 _add(

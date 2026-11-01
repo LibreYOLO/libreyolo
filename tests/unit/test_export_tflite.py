@@ -125,7 +125,7 @@ def test_tflite_rejects_fp16_export():
         exporter(output_path="unused.tflite", half=True)
 
 
-@pytest.mark.parametrize("family", ["yolo9_e2e", "dfine"])
+@pytest.mark.parametrize("family", ["yolo9_p2", "dfine"])
 def test_tflite_blocks_unvalidated_families_before_onnx_export(family):
     exporter = TFLiteExporter(_make_wrapper(model_name=family))
 
