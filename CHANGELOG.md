@@ -12,10 +12,10 @@ before 1.4.0 are documented in the
 - **Unguarded `train()` and `val()` scripts run on macOS and Windows. (#971)**
   A call at the top level of a script, outside `if __name__ == "__main__":`, now runs with `workers=0` and logs one line on how to get parallel data loading back, instead of stopping with an error (#954). This applies under the `spawn` and `forkserver` start methods; guarded scripts, notebooks, the CLI and Linux `fork` keep their workers.
 
-- **OpenVINO FP32 and INT8 exports keep full-precision weights.**
+- **OpenVINO FP32 and INT8 exports keep full-precision weights. (#975)**
   `openvino.save_model` compresses weights to FP16 unless told otherwise, so `half=False` exports wrote FP16 weights. FP16 exports are unchanged.
 
-- **A failed Paddle export raises an error instead of ending the script.**
+- **A failed Paddle export raises an error instead of ending the script. (#975)**
   X2Paddle calls `exit(0)` when its static-graph conversion fails, which ended the calling process as a success with no model written.
 
 ## [1.7.0] - 2026-10-31
