@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **TorchScript exports of YOLO9, YOLO9-E2E and YOLO9-P2 run on any device.**
+  An export traced on CPU, the TorchScript default, failed on CUDA with "Expected all tensors to be on the same device": the head built its anchor grid inside the traced graph, which kept the trace device. The exporter now pins the grid as constants for the fixed export canvas, and `torch.jit.load(map_location=...)` moves them with the weights.
+
 - **Unguarded `train()` and `val()` scripts run on macOS and Windows. (#971)**
   A call at the top level of a script, outside `if __name__ == "__main__":`, now runs with `workers=0` and logs one line on how to get parallel data loading back, instead of stopping with an error (#954). This applies under the `spawn` and `forkserver` start methods; guarded scripts, notebooks, the CLI and Linux `fork` keep their workers.
 
