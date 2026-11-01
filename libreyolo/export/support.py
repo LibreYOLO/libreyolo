@@ -140,7 +140,7 @@ _add(
     ),
     since="1.5",
     constraint=(
-        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, "
+        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, "
         "batch 1, fixed square input; WSL2 Ubuntu 22.04"
     ),
 )
@@ -166,7 +166,7 @@ _add(
     ),
     since="1.5",
     constraint=(
-        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, "
+        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, "
         "batch 1, fixed square input; WSL2 Ubuntu 22.04"
     ),
 )
@@ -182,7 +182,7 @@ _add(
     ),
     since="1.5",
     constraint=(
-        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, "
+        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, "
         "batch 1, fixed square input; WSL2 Ubuntu 22.04"
     ),
 )
@@ -198,7 +198,7 @@ _add(
     ),
     since="1.5",
     constraint=(
-        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, "
+        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, "
         "batch 1, fixed square input; WSL2 Ubuntu 22.04"
     ),
 )
@@ -214,7 +214,7 @@ _add(
     ),
     since="1.5",
     constraint=(
-        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, "
+        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, "
         "batch 1, fixed square input; WSL2 Ubuntu 22.04"
     ),
 )

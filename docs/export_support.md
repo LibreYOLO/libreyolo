@@ -219,10 +219,10 @@ A check mark applies only under any constraint listed here.
 - `deeplabv3` / `semantic` / `openvino`: OpenVINO 2026.2 FP32 IR, CPU default inference precision, batch 1, fixed 520x520 input
 - `deformable_detr` / `detect` / `onnx`: FP32, fixed square input, ONNX opset 17
 - `deim` / `detect` / `onnx`: DETR query rows are aligned as an unordered set for parity
-- `deim` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `deim` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `deim` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
 - `deim` / `detect` / `coreai`: fixed export canvas; a representative published trained checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; RT-DETRv2 permits one shared whole-query permutation across its box and logit outputs because DETR query rows are an unordered set
-- `deimv2` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `deimv2` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `deimv2` / `detect` / `coreai`: fixed export canvas; a representative published trained checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; RT-DETRv2 permits one shared whole-query permutation across its box and logit outputs because DETR query rows are an unordered set
 - `deit` / `classify` / `onnx`: CPU FP32, fixed 224x224 input; ONNX uses opset 17
 - `deit` / `classify` / `torchscript`: CPU FP32 with fixed 224x224 input
@@ -250,7 +250,7 @@ A check mark applies only under any constraint listed here.
 - `dexined` / `edge` / `openvino`: OpenVINO 2026.2 CPU FP32, batch 1, fixed input shape
 - `dexined` / `edge` / `tflite`: LiteRT 2.1.2 CPU FP32, batch 1, fixed input shape
 - `dfine` / `detect` / `openvino`: fixed export canvas
-- `dfine` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `dfine` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `dfine` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
 - `dfine` / `detect` / `coreai`: fixed export canvas; trained LibreDFINEn weights are covered on macOS 27 by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
 - `dfine` / `segment` / `openvino`: fixed export canvas
@@ -269,18 +269,18 @@ A check mark applies only under any constraint listed here.
 - `dinov2` / `embed` / `tflite`: onnx2tf 2.6.7, LiteRT 2.1.2 CPU FP32, batch 1, fixed square input
 - `ec` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `ec` / `detect` / `openvino`: fixed export canvas
-- `ec` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `ec` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `ec` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
 - `ec` / `detect` / `coreai`: fixed export canvas; a representative published trained checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; RT-DETRv2 permits one shared whole-query permutation across its box and logit outputs because DETR query rows are an unordered set
 - `ec` / `pose` / `onnx`: fixed 640x640 input
 - `ec` / `pose` / `torchscript`: fixed 640x640 input
 - `ec` / `pose` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
-- `ec` / `pose` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `ec` / `pose` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `ec` / `segment` / `onnx`: fixed 640x640 input
 - `ec` / `segment` / `torchscript`: fixed 640x640 input
 - `ec` / `segment` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1; fixed input shape large enough for the top-300 query selection
 - `ec` / `segment` / `openvino`: fixed 640x640 input
-- `ec` / `segment` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `ec` / `segment` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `efficientdet` / `detect` / `onnx`: FP32, batch 1, fixed per-variant square input
 - `efficientdet` / `detect` / `torchscript`: FP32, batch 1, fixed per-variant square input
 - `efficientdet` / `detect` / `tensorrt`: TensorRT 10.16, FP32, batch 1, fixed per-variant square input; TensorRT's ITopK limit uses 3840 candidates instead of the native 5000-candidate budget
@@ -408,7 +408,7 @@ A check mark applies only under any constraint listed here.
 - `rtdetrv4` / `detect` / `onnx`: fixed export canvas; same-device CPU raw parity after one shared unordered-query permutation; published Apache-2.0 trained checkpoint covered by non-square public predict parity
 - `rtdetrv4` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `rtdetrv4` / `detect` / `openvino`: fixed export canvas
-- `rtdetrv4` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `rtdetrv4` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `rtdetrv4` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
 - `rtdetrv4` / `detect` / `coreai`: fixed export canvas; a representative published trained checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; RT-DETRv2 permits one shared whole-query permutation across its box and logit outputs because DETR query rows are an unordered set
 - `rtmdet` / `detect` / `tensorrt`: TensorRT 10.16 FP32 with a fixed canvas; YOLO1 requires 448x448
@@ -479,31 +479,31 @@ A check mark applies only under any constraint listed here.
 - `yolo7` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with a permissively licensed trained checkpoint; two-input raw parity, factory reload, metadata, and public predict parity
 - `yolo7` / `detect` / `coreai`: fixed 640x640 export canvas; trained LibreYOLO7b weights are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; the export decoder uses direct arange grids because Core AI 0.4.1 mislowers the equivalent cumulative-sum expression
 - `yolo9` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
-- `yolo9` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `yolo9` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolo9` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
 - `yolo9` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with a fixed export canvas; trained MIT checkpoint covered by two-input raw parity, factory reload, metadata, and non-square public predict parity
 - `yolo9` / `detect` / `coreai`: fixed export canvas; trained LibreYOLO9t weights are covered on macOS 27 by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
 - `yolo9_e2e` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolo9_e2e` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
-- `yolo9_e2e` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `yolo9_e2e` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolo9_e2e` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
 - `yolo9_e2e` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with permissively licensed trained checkpoints; two-input raw parity, factory reload, metadata, and public predict parity
 - `yolo9_e2e` / `detect` / `coreai`: fixed export canvas; a representative published trained checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; RT-DETRv2 permits one shared whole-query permutation across its box and logit outputs because DETR query rows are an unordered set
 - `yolo9_p2` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolo9_p2` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
-- `yolo9_p2` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `yolo9_p2` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolo9_p2` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
 - `yolo9_p2` / `detect` / `coreai`: fixed 640x640 export canvas; a deterministic YOLO9-P2-T model initialized from the SHA-256-pinned, permissively licensed trained LibreYOLO9t checkpoint is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; this validates conversion, not P2 task accuracy, and does not depend on the restricted VisDrone research-preview checkpoint
 - `yolonas` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolonas` / `detect` / `openvino`: fixed export canvas
-- `yolonas` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `yolonas` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolonas` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
 - `yolonas` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with deterministic synthetic trained fixtures; two-input raw parity, factory reload, metadata, and public predict parity; pose additionally validates matched keypoints; this validates conversion, not task accuracy
 - `yolonas` / `detect` / `tflite`: fixed export canvas
 - `yolonas` / `detect` / `coreai`: fixed 96x96 export canvas with pre-shaped canonical RGB tensors; a deterministic, license-clean synthetic YOLO-NAS-S state is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; the state receives 12 native training steps and a 20x regression-head scale to make both exported outputs non-degenerate; this validates conversion, not detection accuracy, raw-image preprocessing, or native-640 behavior, and does not convert restricted official weights
 - `yolonas` / `pose` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolonas` / `pose` / `openvino`: fixed export canvas
-- `yolonas` / `pose` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
+- `yolonas` / `pose` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolonas` / `pose` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with deterministic synthetic trained fixtures; two-input raw parity, factory reload, metadata, and public predict parity; pose additionally validates matched keypoints; this validates conversion, not task accuracy
 - `yolonas` / `obb` / `onnx`: fixed 1024x1024 export canvas, batch 1, FP32; the official YOLO-NAS-R-S DOTA2 checkpoint exports, reloads through the factory, and its public OBB results match native inference on the same image (max xywhr delta 6e-08 px TorchScript, 0.06 px ONNX, 0.04 px OpenVINO, 0.18 px TensorRT; max score delta 0.0, 1.0e-03, 1.5e-03 and 1.6e-03 respectively). Rotated NMS is not embedded in the graph
 - `yolonas` / `obb` / `torchscript`: fixed 1024x1024 export canvas, batch 1, FP32; the official YOLO-NAS-R-S DOTA2 checkpoint exports, reloads through the factory, and its public OBB results match native inference on the same image (max xywhr delta 6e-08 px TorchScript, 0.06 px ONNX, 0.04 px OpenVINO, 0.18 px TensorRT; max score delta 0.0, 1.0e-03, 1.5e-03 and 1.6e-03 respectively). Rotated NMS is not embedded in the graph

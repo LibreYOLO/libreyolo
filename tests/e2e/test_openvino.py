@@ -235,10 +235,11 @@ class TestOpenVINOModelLoading:
         assert len(compiled.inputs) >= 1
         assert len(compiled.outputs) >= 1
 
-        # Verify input shape is correct
-        input_shape = model.inputs[0].shape
-        assert len(input_shape) == 4  # (B, C, H, W)
-        assert input_shape[1] == 3  # RGB channels
+        # Verify input shape is correct. Exports are dynamic by default, so
+        # read the partial shape: .shape raises on dynamic dimensions.
+        input_shape = model.inputs[0].partial_shape
+        assert input_shape.rank.get_length() == 4  # (B, C, H, W)
+        assert input_shape[1].get_length() == 3  # RGB channels
 
         del pt_model
 

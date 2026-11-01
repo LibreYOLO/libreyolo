@@ -590,3 +590,36 @@ def test_factory_routes_paddle_artifact(monkeypatch, tmp_path):
     factory.assert_called_once_with(
         str(artifact), nb_classes=None, device="cpu", task=None
     )
+
+
+def test_export_paddle_turns_x2paddle_exit_into_an_error(monkeypatch, tmp_path):
+    from libreyolo.export import paddle as paddle_export
+
+    def fake_convert(model_path, save_dir, **kwargs):
+        raise SystemExit(0)  # what X2Paddle does when dygraph2static fails
+
+    package = types.ModuleType("x2paddle")
+    convert = types.ModuleType("x2paddle.convert")
+    convert.onnx2paddle = fake_convert
+    package.convert = convert
+    monkeypatch.setitem(sys.modules, "x2paddle", package)
+    monkeypatch.setitem(sys.modules, "x2paddle.convert", convert)
+    monkeypatch.setattr(paddle_export, "check_paddle_export_available", lambda: None)
+    monkeypatch.setattr(
+        paddle_export, "_normalize_onnx_for_x2paddle", lambda path: None
+    )
+    onnx_path = tmp_path / "model.onnx"
+    onnx_path.write_bytes(b"onnx")
+
+    with pytest.raises(RuntimeError, match="X2Paddle aborted the conversion"):
+        paddle_export.export_paddle(str(onnx_path), str(tmp_path / "model_paddle"))
+    assert not (tmp_path / "model_paddle").exists()
+
+
+def test_paddle_export_names_the_python_limit(monkeypatch):
+    from libreyolo.export import paddle as paddle_export
+
+    monkeypatch.setattr(paddle_export.sys, "version_info", (3, 12, 0))
+    with pytest.raises(ImportError, match="needs Python 3.11 or earlier"):
+        paddle_export.check_paddle_export_available()
+
