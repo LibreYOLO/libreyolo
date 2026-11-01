@@ -7,7 +7,7 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
-## [1.7.1] - 2026-11-01
+## [1.7.1] - 2026-11-02
 
 ### Changed
 
