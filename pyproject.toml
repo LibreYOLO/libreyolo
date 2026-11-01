@@ -1,6 +1,6 @@
 [project]
 name = "libreyolo"
-version = "1.7.0"
+version = "1.7.1"
 description = "MIT-licensed computer vision library: one Python API for YOLO, RF-DETR, RT-DETR and dozens more model families, with training and export where a family supports them."
 keywords = [
     "yolo",
@@ -97,7 +97,9 @@ triton = [
 executorch = [
     # Fixed-shape FP32 .pte export and Python runtime validation. Kept out of
     # aggregate extras because ExecuTorch constrains the compatible Torch pair.
-    "executorch",
+    # Pinned to the validated minor: an unpinned install can resolve
+    # ExecuTorch 1.0 with an older Torch instead.
+    "executorch>=1.2,<1.3",
 ]
 coreai = [
     # Core AI (.aimodel) export, macOS only: the toolchain neither converts

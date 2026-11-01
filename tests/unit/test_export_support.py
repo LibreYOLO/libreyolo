@@ -273,7 +273,6 @@ def test_observed_cpu_toolchain_blocks_are_explicit():
     ("family", "task", "reason_fragment"),
     [
         ("yolo1", "detect", "ONNX_EINSUM"),
-        ("yolo9_e2e", "detect", "top-k"),
         ("yolo9_p2", "detect", "top-k"),
         ("yolonas", "pose", "CONCATENATION"),
         ("rtmdet", "detect", "0.911 IoU"),
@@ -287,6 +286,12 @@ def test_round6_tflite_blocks_are_measured(family, task, reason_fragment):
     entry = get_support(family, task, "tflite")
     assert entry.tier == "blocked"
     assert reason_fragment in entry.reason
+
+
+def test_yolo9_e2e_detect_tflite_is_validated():
+    entry = get_support("yolo9_e2e", "detect", "tflite")
+    assert entry.tier == "validated"
+    assert "onnx2tf 2.6.9" in entry.constraint
 
 
 def test_yolonas_detect_tflite_is_validated():
@@ -600,10 +605,10 @@ def test_midas_trained_export_cells_are_validated():
         assert "fixed square" in entry.constraint
 
 
-def test_round13_records_ten_measured_tflite_holds():
+def test_round13_records_measured_tflite_holds():
+    # YOLO9-E2E left this list on 2026-11-01: it passes on onnx2tf 2.6.9.
     measured_holds = {
         ("yolo1", "detect"): "ONNX_EINSUM",
-        ("yolo9_e2e", "detect"): "top-k class membership",
         ("yolo9_p2", "detect"): "top-k class membership",
         ("rtmdet", "detect"): "0.911 IoU",
         ("picodet", "detect"): "19,200",

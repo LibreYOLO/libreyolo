@@ -329,6 +329,29 @@ def test_concurrent_first_calls_load_once(model, monkeypatch):
     assert len(model.calls) == 4
 
 
+def test_different_models_load_in_parallel(monkeypatch):
+    import threading
+
+    first, second = FakeGen("s", device="cpu"), FakeGen("s", device="cpu")
+    first_loading, second_loaded = threading.Event(), threading.Event()
+
+    def slow_load(snapshot_dir):
+        first_loading.set()
+        # Only returns once the other model has loaded, which a lock shared
+        # by every model would never allow.
+        assert second_loaded.wait(timeout=10)
+        first._pipeline = object()
+
+    monkeypatch.setattr(first, "_load", slow_load)
+    thread = threading.Thread(target=first._ensure_loaded)
+    thread.start()
+    assert first_loading.wait(timeout=10)
+    second._ensure_loaded()
+    second_loaded.set()
+    thread.join(timeout=10)
+    assert first._pipeline is not None and second._pipeline is not None
+
+
 def test_save_writes_one_run_directory_per_call(model, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     results = model(["A red fox!", "a blue jay"], seed=1, save=True)
@@ -565,3 +588,70 @@ def test_snapshot_download_is_pinned_and_marked(tmp_path, monkeypatch):
     # A complete snapshot is not downloaded again.
     assert _posix(model._ensure_weights()) == "weights/LibreSanaSprint0.6b"
     assert len(downloads) == 1
+
+
+def test_two_instances_prepare_one_snapshot(tmp_path, monkeypatch):
+    """Two instances of one model share a weights directory; their first loads must not race."""
+    import threading
+    import time
+
+    import huggingface_hub
+
+    monkeypatch.chdir(tmp_path)
+    downloads = []
+    barrier = threading.Barrier(2)
+
+    def fake_snapshot_download(repo, local_dir, **kwargs):
+        downloads.append(repo)
+        target = tmp_path / local_dir
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "model_index.json").write_text(
+            json.dumps({"_class_name": "SanaSprintPipeline"})
+        )
+        time.sleep(0.05)  # widen the window in which the other thread would interfere
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_snapshot_download)
+    models = [LibreSanaSprint("0.6b", device="cpu") for _ in range(2)]
+    results, errors = [], []
+
+    def first_load(model):
+        barrier.wait()
+        try:
+            results.append(_posix(model._ensure_weights()))
+        except Exception as exc:  # noqa: BLE001 - the test reports any failure
+            errors.append(exc)
+
+    threads = [threading.Thread(target=first_load, args=(m,)) for m in models]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert results == ["weights/LibreSanaSprint0.6b"] * 2
+    assert len(downloads) == 1
+    assert not list((tmp_path / "weights" / "LibreSanaSprint0.6b").glob("*.tmp"))
+
+
+def test_marker_is_never_seen_half_written(tmp_path, monkeypatch):
+    """Until the new marker is moved into place, readers see the previous complete one."""
+    import os
+
+    from libreyolo.models.gen import base
+
+    marker = tmp_path / base._SNAPSHOT_COMPLETE_MARKER
+    marker.write_text('{"repo": "old", "revision": null}\n', encoding="utf-8")
+    seen_before_publish = []
+    real_replace = os.replace
+
+    def paused_replace(src, dst):
+        # The new content is fully written, but not yet published.
+        seen_before_publish.append(Path(dst).read_text(encoding="utf-8"))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(base.os, "replace", paused_replace)
+    base._write_marker(marker, '{"repo": "new", "revision": null}\n')
+
+    assert seen_before_publish == ['{"repo": "old", "revision": null}\n']
+    assert json.loads(marker.read_text(encoding="utf-8"))["repo"] == "new"
+    assert not list(tmp_path.glob("*.tmp"))

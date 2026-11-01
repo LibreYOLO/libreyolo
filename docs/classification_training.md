@@ -112,6 +112,15 @@ subset split. `fitness` and best-checkpoint selection remain top-1 accuracy.
 `libreyolo val --json` reports the same values as `precision`, `recall` and
 `f1`.
 
+`val()` returns a `ClassifyMetrics`, a `dict` subclass with the keys above.
+`results.top1` and `results.top5` read `metrics/accuracy_top1` and
+`metrics/accuracy_top5`; top-5 is top-`min(5, nc)`, so it is 1.0 for heads
+with 5 classes or fewer. `results.confusion_matrix` counts each image at
+`[top-1 class, label]` on every run. `plots=True` writes
+`confusion_matrix.png` (counts) and `confusion_matrix_normalized.png`; heads
+with more than 2,000 classes skip both. See [validation.md](validation.md) for
+the matrix methods.
+
 Targets outside the model's class-index range raise a dataset/model mismatch
 error instead of being silently excluded from the metrics. Validation on a
 subset of a wider classifier remains supported when all target indices are valid.

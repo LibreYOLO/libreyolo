@@ -140,7 +140,7 @@ _add(
     ),
     since="1.5",
     constraint=(
-        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, "
+        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, "
         "batch 1, fixed square input; WSL2 Ubuntu 22.04"
     ),
 )
@@ -166,7 +166,7 @@ _add(
     ),
     since="1.5",
     constraint=(
-        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, "
+        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, "
         "batch 1, fixed square input; WSL2 Ubuntu 22.04"
     ),
 )
@@ -182,7 +182,7 @@ _add(
     ),
     since="1.5",
     constraint=(
-        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, "
+        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, "
         "batch 1, fixed square input; WSL2 Ubuntu 22.04"
     ),
 )
@@ -198,7 +198,7 @@ _add(
     ),
     since="1.5",
     constraint=(
-        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, "
+        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, "
         "batch 1, fixed square input; WSL2 Ubuntu 22.04"
     ),
 )
@@ -214,7 +214,7 @@ _add(
     ),
     since="1.5",
     constraint=(
-        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU, ONNX 1.17/opset 15, FP32, "
+        "X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, "
         "batch 1, fixed square input; WSL2 Ubuntu 22.04"
     ),
 )
@@ -833,12 +833,25 @@ _add(
     ),
 )
 _add(
-    "blocked",
-    ("yolo9_e2e", "yolo9_p2"),
+    "validated",
+    ("yolo9_e2e",),
     ("detect",),
     ("tflite",),
     reason=(
-        "onnx2tf 2.6.7 exports a runnable artifact, but public top-k class "
+        "The trained LibreYOLO9E2Et checkpoint has raw-output and public "
+        "predict parity in tests/e2e/test_tflite_round13.py (measured "
+        "2026-11-01 on Linux)."
+    ),
+    since="1.7",
+    constraint="onnx2tf 2.6.9 or newer, LiteRT 2.1.2, fixed 128x128 export canvas",
+)
+_add(
+    "blocked",
+    ("yolo9_p2",),
+    ("detect",),
+    ("tflite",),
+    reason=(
+        "onnx2tf 2.6.9 exports a runnable artifact, but public top-k class "
         "membership changes after LiteRT 2.1.2 conversion."
     ),
 )

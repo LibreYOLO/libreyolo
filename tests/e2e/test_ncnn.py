@@ -90,6 +90,10 @@ NCNN_FULL_TEST_MODELS = [
     for mt, sz in FULL_TEST_MODELS
 ]
 
+# The FP16 refusal happens before any NCNN conversion, so it applies to every
+# family, including those whose NCNN inference is an expected failure.
+NCNN_FP16_REFUSAL_MODELS = [_ncnn_case(mt, sz) for mt, sz in QUICK_TEST_MODELS]
+
 
 # ---------------------------------------------------------------------------
 # Test classes
@@ -187,47 +191,18 @@ class TestNCNNYOLONAS:
 
 
 class TestNCNNExportFP16:
-    """Test ncnn FP16 export + inference for all models."""
+    """NCNN export is FP32 only; the NCNN runtime picks FP16 storage itself."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
-    def test_fp16_export_quick(self, model_type, size, sample_image, tmp_path):
-        """Quick test with smallest models (for CI)."""
-        self._run_fp16_test(model_type, size, sample_image, tmp_path)
-
-    @requires_ncnn
-    @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", NCNN_FULL_TEST_MODELS)
-    def test_fp16_export_full(self, model_type, size, sample_image, tmp_path):
-        """Full test with all YOLOX and YOLOv9 models."""
-        self._run_fp16_test(model_type, size, sample_image, tmp_path)
-
-    @requires_ncnn
-    @requires_rfdetr
-    @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", RFDETR_ACCURACY_PARAMS)
-    def test_fp16_export_rfdetr(self, model_type, size, sample_image, tmp_path):
-        """Test RF-DETR models (requires extra dependencies)."""
-        self._run_fp16_test(model_type, size, sample_image, tmp_path)
-
-    def _run_fp16_test(self, model_type, size, sample_image, tmp_path):
-        """Common FP16 test implementation."""
-        exported_path, _, _ = run_export_compare_test(
-            model_type,
-            size,
-            sample_image,
-            tmp_path,
-            format="ncnn",
-            export_kwargs={"half": True},
-            device="cpu",
-        )
-
-        # ncnn-specific: verify directory structure
-        exported_dir = Path(exported_path)
-        assert (exported_dir / "model.ncnn.param").exists(), (
-            "model.ncnn.param not found"
-        )
-        assert (exported_dir / "model.ncnn.bin").exists(), "model.ncnn.bin not found"
+    @pytest.mark.parametrize("model_type,size", NCNN_FP16_REFUSAL_MODELS)
+    def test_fp16_export_is_refused(self, model_type, size, tmp_path):
+        pt_model = load_model(model_type, size, device="cpu")
+        with pytest.raises(NotImplementedError, match="NCNN FP16 export is not supported"):
+            pt_model.export(
+                format="ncnn",
+                output_path=str(tmp_path / f"{model_type}_{size}_ncnn"),
+                half=True,
+            )
 
 
 class TestNCNNMetadata:

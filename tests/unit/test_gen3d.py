@@ -328,8 +328,10 @@ def test_real_alpha_reaches_the_family(model, tmp_path):
 def test_knobs_and_rejected_arguments(model, chair):
     model(chair, gaussians=8)
     assert model.calls[-1][3] == {"steps": 2, "gaussians": 8}
-    with pytest.raises(TypeError, match="does not accept 'guidance'"):
+    with pytest.raises(TypeError, match="does not accept 'guidance'") as excinfo:
         model(chair, guidance=3.0)
+    assert "Supported: seed, n, " in str(excinfo.value)
+    assert "imgsz" not in str(excinfo.value)
     with pytest.raises(TypeError, match="no text input"):
         model(chair, prompt="a chair")
     with pytest.raises(TypeError, match="fixed input size"):

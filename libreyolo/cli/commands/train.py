@@ -359,7 +359,7 @@ def train_cmd(
     ),
     # Training
     epochs: int = typer.Option(300, help="Training epochs"),
-    batch: int = typer.Option(16, help="Batch size per device"),
+    batch: int = typer.Option(16, help="Global batch size, split across GPUs under DDP"),
     imgsz: str = typer.Option("640", help="Training image size: 640 (square) or 480x640 (HxW)"),
     device: str = typer.Option("auto", help="Device: 0, cpu, mps, auto"),
     workers: int = typer.Option(4, help="Dataloader workers"),
@@ -419,8 +419,10 @@ def train_cmd(
     ),
     aux_weight: Optional[float] = typer.Option(
         None,
-        help="YOLO9 only: PGI auxiliary-branch loss weight for fine-tuning "
-        "(default 0.25; 0 trains the main head only)",
+        help="YOLO9 only: PGI auxiliary-branch loss weight. Unset: 0.25 when "
+        "the weights carry PGI tensors or training starts from scratch, "
+        "otherwise no branch. A positive value attaches a branch; 0 trains "
+        "the main head only. Resumed runs keep their checkpoint's PGI setup",
     ),
     seed: int = typer.Option(0, help="Random seed"),
     resume: str = typer.Option("", help="Resume training: true, or path to checkpoint"),

@@ -597,9 +597,14 @@ class YOLO9Head(nn.Module):
                     f"YOLO9Head anchor grid is frozen for level sizes {frozen_sizes}, "
                     f"got {live_sizes}; call unfreeze_anchor_grid() first"
                 )
-            if anchors.dtype != like.dtype or anchors.device != like.device:
-                anchors = anchors.to(device=like.device, dtype=like.dtype)
-                strides = strides.to(device=like.device, dtype=like.dtype)
+            # Device and dtype move separately: a traced dtype-only cast keeps
+            # no device, so an FP16 TorchScript export stays device-portable.
+            if anchors.device != like.device:
+                anchors = anchors.to(like.device)
+                strides = strides.to(like.device)
+            if anchors.dtype != like.dtype:
+                anchors = anchors.to(like.dtype)
+                strides = strides.to(like.dtype)
             return anchors, strides
 
         if self.export or torch.jit.is_tracing() or _is_compiling():

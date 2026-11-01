@@ -178,7 +178,8 @@ def postprocess(
     1. Apply sigmoid to logits
     2. Select top-K scores across all (queries × classes)
     3. Convert boxes from cxcywh to xyxy
-    4. Scale boxes to original image coordinates
+    4. Scale boxes to original image coordinates and clip them to the image
+       (upstream since rf-detr#1168, and every exported backend)
 
     No NMS is applied - just top-K selection (same as original).
 
@@ -235,6 +236,10 @@ def postprocess(
     img_h, img_w = target_sizes.unbind(1)
     scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
     boxes = boxes * scale_fct[:, None, :]
+    # Clip to the image, as every exported backend does and upstream RF-DETR
+    # does since rf-detr#1168: a box may not extend past the picture.
+    zero = torch.zeros_like(scale_fct)
+    boxes = torch.maximum(torch.minimum(boxes, scale_fct[:, None, :]), zero[:, None, :])
     if out_angles is not None:
         obb_rel = torch.cat((obb_cxcywh, obb_angles.unsqueeze(-1)), dim=-1)
         obb_rows = []

@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import platform
 import random
 import re
 import threading
 import time
+import weakref
 from numbers import Integral
 from pathlib import Path
 from typing import (
@@ -40,8 +42,40 @@ from ...utils.results import GeneratedImage, Results
 
 logger = logging.getLogger(__name__)
 
-# Threads that first call a model at the same time load it once.
-_LOAD_LOCK = threading.RLock()
+# One load lock per model, so threads that first call the same model at the
+# same time load it once while other models load in parallel. Kept off the
+# instance so models still copy and pickle.
+_LOAD_LOCKS: "weakref.WeakKeyDictionary[Any, threading.RLock]" = weakref.WeakKeyDictionary()
+_LOAD_LOCKS_GUARD = threading.Lock()
+
+
+def _load_lock(model: Any) -> threading.RLock:
+    with _LOAD_LOCKS_GUARD:
+        lock = _LOAD_LOCKS.get(model)
+        if lock is None:
+            lock = _LOAD_LOCKS[model] = threading.RLock()
+        return lock
+
+
+# Instances of the same model share one weights directory, so snapshot
+# preparation is serialized per destination, not per instance.
+_SNAPSHOT_LOCKS: Dict[str, threading.Lock] = {}
+
+
+def _snapshot_lock(local_dir: Path) -> threading.Lock:
+    key = str(local_dir.resolve())
+    with _LOAD_LOCKS_GUARD:
+        lock = _SNAPSHOT_LOCKS.get(key)
+        if lock is None:
+            lock = _SNAPSHOT_LOCKS[key] = threading.Lock()
+        return lock
+
+
+def _write_marker(marker: Path, payload: str) -> None:
+    """Write the completion marker atomically, so a reader never sees it half written."""
+    tmp = marker.with_name(f"{marker.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, marker)
 
 _INSTALL_HINT = (
     "LibreGen models require the 'gen' extra. Install with:\n"
@@ -75,6 +109,8 @@ class LibreGenModel:
     # ``negative`` for a negative prompt.
     KNOBS: ClassVar[Tuple[str, ...]] = ()
     DEFAULTS: ClassVar[Dict[str, Any]] = {}
+    # Shared arguments the unknown-knob error lists before the family knobs.
+    SHARED_ARGS: ClassVar[Tuple[str, ...]] = ("imgsz", "seed", "n")
     SNAPSHOT_ALLOW_PATTERNS: ClassVar[Tuple[str, ...]] = ()
     TRAINABLE: ClassVar[bool] = False
     # `libreyolo models` points at the dedicated verb instead of `model=` names.
@@ -182,7 +218,7 @@ class LibreGenModel:
 
     def _ensure_loaded(self) -> None:
         if self._pipeline is None:
-            with _LOAD_LOCK:
+            with _load_lock(self):
                 if self._pipeline is None:
                     self._check_runtime()
                     self._load(self._ensure_weights())
@@ -311,6 +347,15 @@ class LibreGenModel:
         self._notify_license_once()
         if self._snapshot_complete(local_dir, repo=repo, revision=revision):
             return str(local_dir)
+        with _snapshot_lock(local_dir):
+            return self._download_snapshot(local_dir, repo=repo, revision=revision)
+
+    def _download_snapshot(
+        self, local_dir: Path, *, repo: str, revision: Optional[str]
+    ) -> str:
+        # Another instance may have finished while this one waited for the lock.
+        if self._snapshot_complete(local_dir, repo=repo, revision=revision):
+            return str(local_dir)
         try:
             from huggingface_hub import snapshot_download
         except ImportError as exc:
@@ -326,9 +371,7 @@ class LibreGenModel:
             download_kwargs["allow_patterns"] = list(self.SNAPSHOT_ALLOW_PATTERNS)
         snapshot_download(repo, local_dir=str(local_dir), **download_kwargs)
         marker = local_dir / _SNAPSHOT_COMPLETE_MARKER
-        marker.write_text(
-            json.dumps({"repo": repo, "revision": revision}) + "\n", encoding="utf-8"
-        )
+        _write_marker(marker, json.dumps({"repo": repo, "revision": revision}) + "\n")
         if not self._snapshot_complete(local_dir, repo=repo, revision=revision):
             marker.unlink(missing_ok=True)
             raise FileNotFoundError(
@@ -392,7 +435,7 @@ class LibreGenModel:
         """Merge family defaults with the call's knobs; reject unknown names."""
         unknown = sorted(set(knobs) - set(self.KNOBS))
         if unknown:
-            supported = ["imgsz", "seed", "n", *self.KNOBS]
+            supported = [*self.SHARED_ARGS, *self.KNOBS]
             raise TypeError(
                 f"{type(self).__name__} does not accept {', '.join(map(repr, unknown))}. "
                 f"Supported: {', '.join(supported)}."

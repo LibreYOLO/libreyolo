@@ -2060,9 +2060,20 @@ class TorchScriptExporter(BaseExporter):
         return meta
 
     def _export(self, nn_model, dummy, *, output_path, metadata, **kwargs):
-        return export_torchscript(
-            nn_model, dummy, output_path=output_path, metadata=metadata
-        )
+        from .coreai import _freeze_anchor_grid
+
+        # A traced graph keeps the device of every tensor it creates, so a head
+        # that builds its anchor grid in forward (YOLO9) would make that grid on
+        # the trace device (CPU by default) after loading on CUDA. The graph is
+        # fixed-shape anyway: pin the grid as constants, which
+        # torch.jit.load(map_location=...) moves with the weights.
+        restore = _freeze_anchor_grid(nn_model, dummy)
+        try:
+            return export_torchscript(
+                nn_model, dummy, output_path=output_path, metadata=metadata
+            )
+        finally:
+            restore()
 
 
 class ExecuTorchExporter(BaseExporter):
@@ -2674,6 +2685,7 @@ class TFLiteExporter(BaseExporter):
     def _preflight(self, **kwargs):
         from .tflite import (
             TFLITE_INT8_EXPORTS,
+            check_tflite_converter_version,
             check_tflite_export_available,
             check_tflite_int8_available,
         )
@@ -2691,6 +2703,7 @@ class TFLiteExporter(BaseExporter):
             self._split_outputs = True
         super()._preflight(**kwargs)
         check_tflite_export_available()
+        check_tflite_converter_version(family, task)
         if kwargs.get("int8"):
             check_tflite_int8_available()
 

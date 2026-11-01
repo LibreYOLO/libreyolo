@@ -239,7 +239,7 @@ class YOLO9Trainer(BaseTrainer):
         ``assemble`` replays exactly the loss path ``LibreYOLO9Model.
         forward`` takes with targets (anchors tracking the input size,
         then the head's loss over the raw maps). With the PGI auxiliary
-        branch (the fine-tuning default) the graphed network also returns
+        branch attached the graphed network also returns
         the auxiliary head maps, and ``assemble`` adds that head's loss via
         :meth:`LibreYOLO9Model.combine_aux_losses`. Restricted to the plain
         detect head: subclasses with derived heads (e2e dual assignment)

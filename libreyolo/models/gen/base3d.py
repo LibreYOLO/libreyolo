@@ -38,6 +38,8 @@ class LibreGen3DModel(LibreGenModel):
 
     SUPPORTED_TASKS: ClassVar[Tuple[str, ...]] = ("generate3d",)
     DEFAULT_TASK: ClassVar[str] = "generate3d"
+    # The input size is fixed, so ``imgsz`` is not a shared argument here.
+    SHARED_ARGS: ClassVar[Tuple[str, ...]] = ("seed", "n")
 
     def __init__(
         self,
