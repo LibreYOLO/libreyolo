@@ -241,3 +241,14 @@ def test_get_img_files_txt_keeps_existing_and_unmaterialized_entries(tmp_path):
     txt_path.write_text(f"{image_path.name}\n{missing_path.name}\nnotes.txt\n")
 
     assert get_img_files(txt_path) == [missing_path, image_path]
+
+
+def test_get_img_files_names_a_missing_directory(tmp_path):
+    from libreyolo.data.utils import get_img_files
+
+    with pytest.raises(FileNotFoundError, match="Image directory not found"):
+        get_img_files(tmp_path / "datasets" / "coco5000" / "images" / "train")
+    with pytest.raises(ValueError, match="Unsupported path format"):
+        (tmp_path / "notes.md").write_text("x")
+        get_img_files(tmp_path / "notes.md")
+
