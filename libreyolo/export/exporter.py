@@ -2685,6 +2685,7 @@ class TFLiteExporter(BaseExporter):
     def _preflight(self, **kwargs):
         from .tflite import (
             TFLITE_INT8_EXPORTS,
+            check_tflite_converter_version,
             check_tflite_export_available,
             check_tflite_int8_available,
         )
@@ -2702,6 +2703,7 @@ class TFLiteExporter(BaseExporter):
             self._split_outputs = True
         super()._preflight(**kwargs)
         check_tflite_export_available()
+        check_tflite_converter_version(family, task)
         if kwargs.get("int8"):
             check_tflite_int8_available()
 

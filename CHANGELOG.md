@@ -33,6 +33,9 @@ before 1.4.0 are documented in the
 - **`LibreYOLO("LibreRFDETRn-sem.pt")` loads by name.**
   The only published DINOv2 semantic weight keeps its pre-split RF-DETR name; it loaded from a path but auto-download stopped with "unable to determine size from filename". It now downloads and loads as `LibreDINOv2` semantic.
 
+- **YOLO9-E2E TFLite export is validated; the `executorch` extra pins ExecuTorch 1.2.**
+  With onnx2tf 2.6.9 and LiteRT 2.1.2 the trained LibreYOLO9E2Et checkpoint passes raw and public predict parity, so its TFLite tier moves from blocked to validated (YOLO9-P2 stays blocked). `pip install libreyolo[executorch]` could resolve ExecuTorch 1.0 with an older Torch; it now installs the validated 1.2 line.
+
 ## [1.7.0] - 2026-10-31
 
 Two new tasks arrive with the `LibreGen` factory: `generate` (text to image) and `generate3d` (one image to 3D Gaussian splats). The release also adds the WeVisOne-VL VLM family, a confusion matrix on detect, segment and classify validation, per-class precision/recall/F1 curves on detect and segment validation, class-agnostic NMS, and YOLO9 training fixes; checkpoints written by earlier releases load and give bit-identical float outputs. 116 commits, 27 merged pull requests. Several changes move training results, metrics or output paths you may be comparing against v1.6.0 (YOLO9-family and YOLOv7 training recipes, `perspective` warps, D-FINE CLI defaults, some CLI run folders, confusion-matrix counts, `single_cls` validation, segmentation masks for box-only label rows, RTMDet-Ins detection counts): read **Changed** and **Breaking changes** before upgrading.

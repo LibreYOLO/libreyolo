@@ -101,6 +101,32 @@ def check_tflite_export_available() -> None:
         ) from e
 
 
+
+# Families whose TFLite parity was only measured on a newer onnx2tf; older
+# converters export a runnable model with wrong public classes.
+TFLITE_MIN_ONNX2TF: dict[tuple[str, str], tuple[int, int, int]] = {
+    ("yolo9_e2e", "detect"): (2, 6, 9),
+}
+
+
+def check_tflite_converter_version(family: str, task: str) -> None:
+    """Refuse a converter older than the one this family was validated on."""
+    minimum = TFLITE_MIN_ONNX2TF.get((family, task))
+    if minimum is None:
+        return
+    import importlib.metadata
+    import re
+
+    installed = importlib.metadata.version("onnx2tf")
+    found = tuple(int(part) for part in re.findall(r"\d+", installed)[:3])
+    if found < minimum:
+        wanted = ".".join(map(str, minimum))
+        raise ImportError(
+            f"TFLite export of {family} {task} is validated with onnx2tf "
+            f">={wanted}; onnx2tf {installed} changes its predicted classes. "
+            f"Upgrade with: pip install 'onnx2tf>={wanted}'"
+        )
+
 # ── RF-DETR GridSample ONNX rewrite ───────────────────────────────────────────
 # RF-DETR's deformable cross-attention emits one GridSample node per decoder
 # layer (6 total). onnx2tf's default lowering maps GridSample to
