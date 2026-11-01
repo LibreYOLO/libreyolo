@@ -119,7 +119,8 @@ def export_openvino(
     if int8:
         ov_model = _quantize_int8(ov_model, calibration_data, verbose)
         logger.info("Saving OpenVINO INT8 model: %s", model_path)
-        ov.save_model(ov_model, str(model_path))
+        # save_model compresses weights to FP16 unless told not to.
+        ov.save_model(ov_model, str(model_path), compress_to_fp16=False)
     elif half:
         logger.info("Saving OpenVINO FP16 model: %s", model_path)
         ov.save_model(
@@ -127,7 +128,7 @@ def export_openvino(
         )  # weight compression
     else:
         logger.info("Saving OpenVINO FP32 model: %s", model_path)
-        ov.save_model(ov_model, str(model_path))
+        ov.save_model(ov_model, str(model_path), compress_to_fp16=False)
 
     if metadata:
         _save_metadata(output_dir, metadata)

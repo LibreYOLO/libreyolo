@@ -500,13 +500,22 @@ def export_paddle(
         conversion_dir = temporary_root / "conversion"
         artifact_dir = temporary_root / "artifact"
         with _x2paddle_conversion_compatibility(), _paddle_unique_name_guard():
-            onnx2paddle(
-                onnx_path,
-                str(conversion_dir),
-                enable_optim=False,
-                disable_feedback=True,
-                enable_onnx_checker=True,
-            )
+            try:
+                onnx2paddle(
+                    onnx_path,
+                    str(conversion_dir),
+                    enable_optim=False,
+                    disable_feedback=True,
+                    enable_onnx_checker=True,
+                )
+            except SystemExit as exc:
+                # X2Paddle calls exit(0) when its dynamic-to-static step
+                # fails, which would end the caller's process as a success.
+                raise RuntimeError(
+                    "X2Paddle aborted the conversion (it printed the cause "
+                    f"above and called exit({exc.code})); no Paddle model "
+                    "was written."
+                ) from exc
 
         generated = conversion_dir / "inference_model"
         required = (generated / "model.pdmodel", generated / "model.pdiparams")

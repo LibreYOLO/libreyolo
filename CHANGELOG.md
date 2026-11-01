@@ -12,6 +12,12 @@ before 1.4.0 are documented in the
 - **Unguarded `train()` and `val()` scripts run on macOS and Windows. (#971)**
   A call at the top level of a script, outside `if __name__ == "__main__":`, now runs with `workers=0` and logs one line on how to get parallel data loading back, instead of stopping with an error (#954). This applies under the `spawn` and `forkserver` start methods; guarded scripts, notebooks, the CLI and Linux `fork` keep their workers.
 
+- **OpenVINO FP32 and INT8 exports keep full-precision weights.**
+  `openvino.save_model` compresses weights to FP16 unless told otherwise, so `half=False` exports wrote FP16 weights. FP16 exports are unchanged.
+
+- **A failed Paddle export raises an error instead of ending the script.**
+  X2Paddle calls `exit(0)` when its static-graph conversion fails, which ended the calling process as a success with no model written.
+
 ## [1.7.0] - 2026-10-31
 
 Two new tasks arrive with the `LibreGen` factory: `generate` (text to image) and `generate3d` (one image to 3D Gaussian splats). The release also adds the WeVisOne-VL VLM family, a confusion matrix on detect, segment and classify validation, per-class precision/recall/F1 curves on detect and segment validation, class-agnostic NMS, and YOLO9 training fixes; checkpoints written by earlier releases load and give bit-identical float outputs. 116 commits, 27 merged pull requests. Several changes move training results, metrics or output paths you may be comparing against v1.6.0 (YOLO9-family and YOLOv7 training recipes, `perspective` warps, D-FINE CLI defaults, some CLI run folders, confusion-matrix counts, `single_cls` validation, segmentation masks for box-only label rows, RTMDet-Ins detection counts): read **Changed** and **Breaking changes** before upgrading.
