@@ -43,6 +43,9 @@ before 1.4.0 are documented in the
 - **`LibreYOLO("LibreRFDETRn-sem.pt")` loads by name. (#981)**
   The only published DINOv2 semantic weight keeps its pre-split RF-DETR name; it loaded from a path, but auto-download stopped with "unable to determine size from filename". It now downloads and loads as `LibreDINOv2` semantic.
 
+- **Two instances of one LibreGen model can load at the same time. (#986)**
+  They share one weights directory, and the first loads could race on the download's completion marker: one instance read it half written, removed it and raised `FileNotFoundError` although the download had succeeded. Snapshot preparation is now serialized per directory and the marker is written atomically.
+
 - **The 3D generation knob error no longer lists `imgsz`. (#970)**
   Speridlabs Idol has a fixed input size, so an unknown-knob error listed an argument it does not accept.
 
