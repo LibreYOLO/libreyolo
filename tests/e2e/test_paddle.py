@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,9 @@ from .conftest import load_model, run_export_compare_test
 
 
 def _has_validated_paddle_stack() -> bool:
+    if sys.version_info >= (3, 12):
+        # paddlepaddle 2.6.2 cannot build X2Paddle's static graph on 3.12+.
+        return False
     try:
         return (
             importlib.metadata.version("paddlepaddle") == "2.6.2"
@@ -31,7 +35,7 @@ def _has_validated_paddle_stack() -> bool:
 
 requires_paddle = pytest.mark.skipif(
     not _has_validated_paddle_stack(),
-    reason="validated Paddle export stack is not installed",
+    reason="validated Paddle export stack (Python 3.11 or earlier) is not installed",
 )
 
 pytestmark = [
