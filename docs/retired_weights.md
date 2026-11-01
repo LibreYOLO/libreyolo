@@ -22,8 +22,8 @@ Kept on purpose:
 
 - `face-rfdetr-nano`: an ONNX face detector for the blur-faces use case and the
   libreyolo-web browser demo, not a LibreYOLO checkpoint.
-- `LibreRFDETRn-sem`: a trained semantic-segmentation model that loads from a
-  file path; loading it by name does not resolve yet.
+- `LibreRFDETRn-sem`: a trained semantic-segmentation model that loads by name
+  (`LibreYOLO("LibreRFDETRn-sem.pt")`) or from a file path.
 
 To retire another repository: add the card note first, then make it private
 (or delete it), and add a row here.
