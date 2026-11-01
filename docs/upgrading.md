@@ -7,6 +7,30 @@ The full list of changes for any release is in
 [CHANGELOG.md](../CHANGELOG.md); this page carries only the parts that require
 you to edit code or re-check numbers.
 
+## v1.7.0 to v1.7.1
+
+No code changes are required. Three behaviours change:
+
+- **A `train()` or `val()` call at the top level of a script runs instead of
+  stopping.** On macOS and Windows, and with the `spawn` or `forkserver` start
+  method anywhere, DataLoader workers re-run your script. In 1.7.0 a call
+  outside `if __name__ == "__main__":` exited with one error line. In 1.7.1 it
+  runs with `workers=0` and logs once:
+
+  ```
+  train() is called at the top level of your script, and DataLoader workers re-run that script on this platform, so it runs with workers=0. Put the call under `if __name__ == "__main__":` to load data in parallel.
+  ```
+
+  This overrides any `workers=` you pass, because a worker would re-run the
+  call. Data then loads in the main process, which is slower; put the call
+  under the guard to get parallel workers back. Guarded scripts, notebooks,
+  the CLI and Linux `fork` are unchanged.
+- **RF-DETR PyTorch boxes are clipped to the image**, as the exported backends
+  already did. COCO mAP moves by under 0.0001; boxes on the image border move
+  inside it.
+- **YOLO9-E2E TFLite export needs onnx2tf 2.6.9 or newer**, and is refused with
+  an upgrade hint on older versions, which change its predicted classes.
+
 ## v1.6.0 to v1.7.0
 
 YOLOv9 checkpoints from 1.6.0 and earlier keep loading and keep the same
