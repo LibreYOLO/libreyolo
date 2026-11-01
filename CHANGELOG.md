@@ -9,7 +9,7 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
-- **TorchScript exports of YOLO9, YOLO9-E2E and YOLO9-P2 run on any device.**
+- **TorchScript exports of YOLO9, YOLO9-E2E and YOLO9-P2 run on any device. (#974)**
   An export traced on CPU, the TorchScript default, failed on CUDA with "Expected all tensors to be on the same device": the head built its anchor grid inside the traced graph, which kept the trace device. The exporter now pins the grid as constants for the fixed export canvas, and `torch.jit.load(map_location=...)` moves them with the weights.
 
 - **Unguarded `train()` and `val()` scripts run on macOS and Windows. (#971)**
