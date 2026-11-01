@@ -308,6 +308,50 @@ def test_stream_is_lazy(model):
     assert [r.generated.prompt for r in stream] == ["b"]
 
 
+def test_concurrent_first_calls_load_once(model, monkeypatch):
+    import threading
+    import time
+
+    loads = []
+
+    def slow_load(snapshot_dir):
+        loads.append(snapshot_dir)
+        time.sleep(0.05)
+        model._pipeline = object()
+
+    monkeypatch.setattr(model, "_load", slow_load)
+    threads = [threading.Thread(target=model, args=("a",)) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(loads) == 1
+    assert len(model.calls) == 4
+
+
+def test_different_models_load_in_parallel(monkeypatch):
+    import threading
+
+    first, second = FakeGen("s", device="cpu"), FakeGen("s", device="cpu")
+    first_loading, second_loaded = threading.Event(), threading.Event()
+
+    def slow_load(snapshot_dir):
+        first_loading.set()
+        # Only returns once the other model has loaded, which a lock shared
+        # by every model would never allow.
+        assert second_loaded.wait(timeout=10)
+        first._pipeline = object()
+
+    monkeypatch.setattr(first, "_load", slow_load)
+    thread = threading.Thread(target=first._ensure_loaded)
+    thread.start()
+    assert first_loading.wait(timeout=10)
+    second._ensure_loaded()
+    second_loaded.set()
+    thread.join(timeout=10)
+    assert first._pipeline is not None and second._pipeline is not None
+
+
 def test_save_writes_one_run_directory_per_call(model, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     results = model(["A red fox!", "a blue jay"], seed=1, save=True)
