@@ -14,12 +14,13 @@
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-LibreYOLO-blue?logo=linkedin)](https://www.linkedin.com/company/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LibreYOLO/libreyolo/blob/release/notebooks/quickstart.ipynb)
 
 **一个采用 MIT 许可证的计算机视觉库。** 检测、分割、姿态、深度、OCR
 等十几种任务共用一套精简 API，训练和导出内置提供，而非单独收费。
 支持读取常见的 YOLO 格式数据集，因此现有工作流只需少量改动即可迁移。
 
-![LibreYOLO 检测示例](libreyolo/assets/parkour_result.jpg)
+![LibreYOLO 检测示例](libreyolo/assets/guggenheim-bilbao_result.jpg)
 
 ## 安装
 
@@ -47,7 +48,7 @@ result = model(SAMPLE_IMAGE, save=True)
 | --- | --- |
 | 导出 | `onnx`、`tensorrt`、`openvino`、`coreml`、`coreai`、`tflite`（别名 `litert`）、`ncnn`、`mnn`、`paddle`、`executorch` |
 | 服务 | `triton` |
-| 模型 | `rfdetr`、`vlm`、`sam`、`openvocab`、`clip`、`siglip2`、`eomt`、`midas`、`modus`、`sensenova`、`gaze` |
+| 模型 | `rfdetr`、`vlm`、`sam`、`openvocab`、`clip`、`siglip2`、`eomt`、`midas`、`modus`、`sensenova`、`gaze`、`gen` |
 | 训练 | `lora`、`plots`、`tensorboard`、`mlflow`、`wandb`、`comet`、`clearml`、`neptune`、`dvclive` |
 | 提速 | `fast-eval`、`hub-kernels` |
 | 输入源 | `stream` |
@@ -75,7 +76,7 @@ pip install -e .
 
 </details>
 
-## 一套 API，二十种任务
+## 一套 API，二十二种任务
 
 每种任务都是同样的三行代码，只有权重文件不同。
 
