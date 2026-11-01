@@ -30,6 +30,9 @@ before 1.4.0 are documented in the
 - **RF-DETR PyTorch boxes are clipped to the image. (#980)**
   Every exported backend (ONNX, TensorRT, OpenVINO, ExecuTorch, ...) clips RF-DETR boxes to the image and upstream RF-DETR does since rf-detr#1168; PyTorch predict and val did not, so a box could extend past the picture and backend parity tests disagreed on edge boxes. COCO val2017 mAP50-95 moves by +0.00003 to +0.00008 (n/s/m/l). Item A5 of the 2026-09-26 RF-DETR audit.
 
+- **`LibreYOLO("LibreRFDETRn-sem.pt")` loads by name.**
+  The only published DINOv2 semantic weight keeps its pre-split RF-DETR name; it loaded from a path but auto-download stopped with "unable to determine size from filename". It now downloads and loads as `LibreDINOv2` semantic.
+
 ## [1.7.0] - 2026-10-31
 
 Two new tasks arrive with the `LibreGen` factory: `generate` (text to image) and `generate3d` (one image to 3D Gaussian splats). The release also adds the WeVisOne-VL VLM family, a confusion matrix on detect, segment and classify validation, per-class precision/recall/F1 curves on detect and segment validation, class-agnostic NMS, and YOLO9 training fixes; checkpoints written by earlier releases load and give bit-identical float outputs. 116 commits, 27 merged pull requests. Several changes move training results, metrics or output paths you may be comparing against v1.6.0 (YOLO9-family and YOLOv7 training recipes, `perspective` warps, D-FINE CLI defaults, some CLI run folders, confusion-matrix counts, `single_cls` validation, segmentation masks for box-only label rows, RTMDet-Ins detection counts): read **Changed** and **Breaking changes** before upgrading.

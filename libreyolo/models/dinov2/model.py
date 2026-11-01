@@ -293,6 +293,32 @@ class LibreDINOv2(BaseModel):
     # Registry classmethods
     # =========================================================================
 
+    # The only published trained DINOv2 semantic weight predates the
+    # RF-DETR/DINOv2 split and keeps its RF-DETR name; can_load() accepts it.
+    LEGACY_SEMANTIC_WEIGHTS: ClassVar[Dict[str, str]] = {
+        "librerfdetrn-sem.pt": "n",
+    }
+
+    @classmethod
+    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
+        legacy = cls.LEGACY_SEMANTIC_WEIGHTS.get(Path(filename).name.lower())
+        if legacy is not None:
+            return legacy
+        return super().detect_size_from_filename(filename)
+
+    @classmethod
+    def detect_task_from_filename(cls, filename: str) -> Optional[str]:
+        if Path(filename).name.lower() in cls.LEGACY_SEMANTIC_WEIGHTS:
+            return "semantic"
+        return super().detect_task_from_filename(filename)
+
+    @classmethod
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        if Path(filename).name.lower() in cls.LEGACY_SEMANTIC_WEIGHTS:
+            name = "LibreRFDETRn-sem"
+            return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}.pt"
+        return super().get_download_url(filename)
+
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
         """Match LibreDINOv2 checkpoints: backbone + dense head (semantic) or

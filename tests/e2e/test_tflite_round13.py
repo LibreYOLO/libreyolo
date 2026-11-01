@@ -62,7 +62,6 @@ _CASES = (
 
 _HOLD_REASONS = {
     "yolo1-detect": "LiteRT cannot prepare ONNX_EINSUM.",
-    "yolo9_e2e-detect": "Public top-k class membership changes.",
     "yolo9_p2-detect": "Public top-k class membership changes.",
     "rtmdet-detect": "Native-canvas public boxes fall to 0.911 IoU.",
     "picodet-detect": "LiteRT rejects a 19,200-to-9,600 RESHAPE.",
@@ -73,13 +72,17 @@ _HOLD_REASONS = {
     "dfine-segment": "onnx2tf crashes while lowering GatherElements.",
 }
 
+# Cases without a hold reason pass on the current toolchain and run as
+# ordinary tests (YOLO9-E2E since 2026-11-01).
 ROUND13_CASES = tuple(
     pytest.param(
         case,
         marks=pytest.mark.xfail(
             strict=True,
             reason=_HOLD_REASONS[f"{case.family}-{case.task}"],
-        ),
+        )
+        if f"{case.family}-{case.task}" in _HOLD_REASONS
+        else (),
     )
     for case in _CASES
 )
