@@ -186,6 +186,11 @@ def get_img_files(path: Union[str, Path, List], prefix: str = "", *, formats=Non
             raise FileNotFoundError(f"Image file not found: {path}")
         return [path]
 
+    elif not path.exists():
+        # A missing image directory (a dataset that was never downloaded, or
+        # a typo in the data yaml) used to fall through to the error below.
+        raise FileNotFoundError(f"Image directory not found: {path}")
+
     else:
         raise ValueError(f"Unsupported path format: {path}")
 
