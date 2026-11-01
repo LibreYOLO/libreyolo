@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **RF-DETR ExecuTorch programs load.**
+  The ExecuTorch runtime has no `aten::grid_sampler_2d` kernel, so RF-DETR detect, segment, pose and OBB `.pte` files failed to load with "Missing operator" (error 0x14). The exporter now decomposes that op into primitives the runtime registers, as the Core AI exporter already does.
+
 - **TorchScript exports of YOLO9, YOLO9-E2E and YOLO9-P2 run on any device. (#974)**
   An export traced on CPU, the TorchScript default, failed on CUDA with "Expected all tensors to be on the same device": the head built its anchor grid inside the traced graph, which kept the trace device. The exporter now pins the grid as constants for the fixed export canvas, and `torch.jit.load(map_location=...)` moves them with the weights.
 

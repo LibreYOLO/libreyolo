@@ -157,6 +157,16 @@ def export_executorch(
 
     with _capture_compatibility(metadata):
         exported = torch.export.export(model, (example_input,), strict=True)
+    # The ExecuTorch runtime registers no aten::grid_sampler_2d kernel (seen
+    # with 1.2.0) and XNNPACK does not delegate it, so a program that keeps
+    # the op fails to load with "Missing operator". PyTorch's reference
+    # decomposition lowers it to primitives the runtime has, as the Core AI
+    # exporter does for the same deformable-attention sampler (RF-DETR).
+    from torch._decomp import get_decompositions
+
+    exported = exported.run_decompositions(
+        get_decompositions([torch.ops.aten.grid_sampler_2d])
+    )
     try:
         edge_program = to_edge_transform_and_lower(
             exported,
