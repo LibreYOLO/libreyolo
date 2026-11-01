@@ -631,3 +631,27 @@ def test_two_instances_prepare_one_snapshot(tmp_path, monkeypatch):
     assert results == ["weights/LibreSanaSprint0.6b"] * 2
     assert len(downloads) == 1
     assert not list((tmp_path / "weights" / "LibreSanaSprint0.6b").glob("*.tmp"))
+
+
+def test_marker_is_never_seen_half_written(tmp_path, monkeypatch):
+    """Until the new marker is moved into place, readers see the previous complete one."""
+    import os
+
+    from libreyolo.models.gen import base
+
+    marker = tmp_path / base._SNAPSHOT_COMPLETE_MARKER
+    marker.write_text('{"repo": "old", "revision": null}\n', encoding="utf-8")
+    seen_before_publish = []
+    real_replace = os.replace
+
+    def paused_replace(src, dst):
+        # The new content is fully written, but not yet published.
+        seen_before_publish.append(Path(dst).read_text(encoding="utf-8"))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(base.os, "replace", paused_replace)
+    base._write_marker(marker, '{"repo": "new", "revision": null}\n')
+
+    assert seen_before_publish == ['{"repo": "old", "revision": null}\n']
+    assert json.loads(marker.read_text(encoding="utf-8"))["repo"] == "new"
+    assert not list(tmp_path.glob("*.tmp"))
