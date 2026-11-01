@@ -19,11 +19,15 @@ import libreyolo
 pytestmark = pytest.mark.unit
 
 
+@pytest.mark.parametrize("half", [False, True], ids=["fp32", "fp16"])
 @pytest.mark.parametrize("cls_name", ["LibreYOLO9", "LibreYOLO9E2E", "LibreYOLO9P2"])
-def test_traced_graph_bakes_no_device(cls_name, tmp_path):
+def test_traced_graph_bakes_no_device(cls_name, half, tmp_path):
     model = getattr(libreyolo, cls_name)(None, size="t", device="cpu")
     path = model.export(
-        format="torchscript", output_path=str(tmp_path / "m.torchscript"), imgsz=320
+        format="torchscript",
+        output_path=str(tmp_path / "m.torchscript"),
+        imgsz=320,
+        half=half,
     )
 
     graph = str(torch.jit.load(path, map_location="cpu").inlined_graph)
