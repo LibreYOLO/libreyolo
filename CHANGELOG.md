@@ -21,7 +21,7 @@ before 1.4.0 are documented in the
 - **A failed Paddle export raises an error instead of ending the script. (#975)**
   X2Paddle calls `exit(0)` when its static-graph conversion fails, which ended the calling process as a success with no model written. On Python 3.12 and later, where paddlepaddle 2.6.2 cannot build that static graph, Paddle export now says so before converting.
 
-- **RF-DETR PyTorch boxes are clipped to the image.**
+- **RF-DETR PyTorch boxes are clipped to the image. (#980)**
   Every exported backend (ONNX, TensorRT, OpenVINO, ExecuTorch, ...) clips RF-DETR boxes to the image and upstream RF-DETR does since rf-detr#1168; PyTorch predict and val did not, so a box could extend past the picture and backend parity tests disagreed on edge boxes. COCO val2017 mAP50-95 moves by +0.00003 to +0.00008 (n/s/m/l). Item A5 of the 2026-09-26 RF-DETR audit.
 
 ## [1.7.0] - 2026-10-31
