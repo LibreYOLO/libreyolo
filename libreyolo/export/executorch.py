@@ -140,6 +140,27 @@ def _commit_artifact_pair(
                     backup_path.unlink()
 
 
+
+def _decompose_grid_sampler(exported):
+    """Lower grid sampling into primitives every ExecuTorch runtime has.
+
+    The Linux ExecuTorch 1.2 runtime registers no ``aten::grid_sampler_2d``
+    kernel (the macOS one does) and XNNPACK does not delegate it, so a program
+    that keeps the op fails to load there with "Missing operator" (RF-DETR's
+    deformable attention). ``torch.export`` emits ``aten.grid_sampler``, which
+    ``to_edge`` would turn into ``grid_sampler_2d``; decompose both here,
+    leaving every other op for the XNNPACK partitioner.
+    """
+    from torch._decomp import get_decompositions
+
+    aten = torch.ops.aten
+    table = get_decompositions([aten.grid_sampler_2d])
+    table[aten.grid_sampler.default] = torch.export.default_decompositions()[
+        aten.grid_sampler.default
+    ]
+    return exported.run_decompositions(table)
+
+
 def export_executorch(
     model: torch.nn.Module,
     example_input: torch.Tensor,
@@ -157,16 +178,7 @@ def export_executorch(
 
     with _capture_compatibility(metadata):
         exported = torch.export.export(model, (example_input,), strict=True)
-    # The ExecuTorch runtime registers no aten::grid_sampler_2d kernel (seen
-    # with 1.2.0) and XNNPACK does not delegate it, so a program that keeps
-    # the op fails to load with "Missing operator". PyTorch's reference
-    # decomposition lowers it to primitives the runtime has, as the Core AI
-    # exporter does for the same deformable-attention sampler (RF-DETR).
-    from torch._decomp import get_decompositions
-
-    exported = exported.run_decompositions(
-        get_decompositions([torch.ops.aten.grid_sampler_2d])
-    )
+    exported = _decompose_grid_sampler(exported)
     try:
         edge_program = to_edge_transform_and_lower(
             exported,
