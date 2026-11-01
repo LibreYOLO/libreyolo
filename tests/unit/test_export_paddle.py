@@ -614,3 +614,12 @@ def test_export_paddle_turns_x2paddle_exit_into_an_error(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="X2Paddle aborted the conversion"):
         paddle_export.export_paddle(str(onnx_path), str(tmp_path / "model_paddle"))
     assert not (tmp_path / "model_paddle").exists()
+
+
+def test_paddle_export_names_the_python_limit(monkeypatch):
+    from libreyolo.export import paddle as paddle_export
+
+    monkeypatch.setattr(paddle_export.sys, "version_info", (3, 12, 0))
+    with pytest.raises(ImportError, match="needs Python 3.11 or earlier"):
+        paddle_export.check_paddle_export_available()
+

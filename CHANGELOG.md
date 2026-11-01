@@ -16,7 +16,7 @@ before 1.4.0 are documented in the
   `openvino.save_model` compresses weights to FP16 unless told otherwise, so `half=False` exports wrote FP16 weights. FP16 exports are unchanged.
 
 - **A failed Paddle export raises an error instead of ending the script. (#975)**
-  X2Paddle calls `exit(0)` when its static-graph conversion fails, which ended the calling process as a success with no model written.
+  X2Paddle calls `exit(0)` when its static-graph conversion fails, which ended the calling process as a success with no model written. On Python 3.12 and later, where paddlepaddle 2.6.2 cannot build that static graph, Paddle export now says so before converting.
 
 ## [1.7.0] - 2026-10-31
 

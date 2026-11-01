@@ -6,6 +6,7 @@ import importlib.util
 import logging
 import os
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -44,6 +45,14 @@ def _major_minor(value: str) -> tuple[int, int]:
 
 def check_paddle_export_available() -> None:
     """Validate the narrow converter stack covered by Paddle parity tests."""
+    if sys.version_info >= (3, 12):
+        # Measured 2026-11-01: paddle.jit forces full_graph=True on 3.12+,
+        # the static-graph step fails, and X2Paddle aborts the conversion.
+        raise ImportError(
+            "Paddle export needs Python 3.11 or earlier: paddlepaddle 2.6.2 "
+            "cannot build the static graph X2Paddle writes on Python "
+            f"{sys.version_info[0]}.{sys.version_info[1]}."
+        )
     missing = [
         module
         for module in ("onnx", "paddle", "six", "x2paddle")
