@@ -42,7 +42,13 @@ predict contracts.
   (`aux.spp.*`, `aux.elan_a4.*`, `aux.elan_a3.*`) resumes and fine-tunes with
   the branch it was trained with. yolo9-t/s and inference are unchanged.
 - **Gradient clipping.** YOLO9, YOLO9-E2E and YOLO9-P2 clip the gradient
-  L2 norm at 10. `clip_max_norm=0` restores the 1.6.0 behaviour.
+  L2 norm at 10. `clip_max_norm=0` restores the 1.6.0 behaviour; on the
+  CLI, `libreyolo train clip_max_norm=0` (or `--clip-max-norm 0`). The CLI
+  key applies to families whose training config declares `clip_max_norm`:
+  YOLO9, YOLO9-E2E and YOLO9-P2 (default 10), and D-FINE, DEIM, DEIMv2,
+  DINOv2, DOME-DETR, GTR, RF-DETR, RT-DETR, RT-DETRv2, RT-DETRv4 and
+  TinyFormer (default 0.1). Other families exit with `config_unsupported`,
+  and a negative or non-finite value with `config_type_error`.
 - **`perspective`.** A non-zero value now warps by corner displacement, so
   the same number gives a different warp in every family that uses the
   shared affine warp (YOLO9 and its E2E and P2 variants, YOLOX, YOLOv7,
