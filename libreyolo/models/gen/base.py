@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import platform
 import random
 import re
@@ -54,6 +55,27 @@ def _load_lock(model: Any) -> threading.RLock:
         if lock is None:
             lock = _LOAD_LOCKS[model] = threading.RLock()
         return lock
+
+
+# Instances of the same model share one weights directory, so snapshot
+# preparation is serialized per destination, not per instance.
+_SNAPSHOT_LOCKS: Dict[str, threading.Lock] = {}
+
+
+def _snapshot_lock(local_dir: Path) -> threading.Lock:
+    key = str(local_dir.resolve())
+    with _LOAD_LOCKS_GUARD:
+        lock = _SNAPSHOT_LOCKS.get(key)
+        if lock is None:
+            lock = _SNAPSHOT_LOCKS[key] = threading.Lock()
+        return lock
+
+
+def _write_marker(marker: Path, payload: str) -> None:
+    """Write the completion marker atomically, so a reader never sees it half written."""
+    tmp = marker.with_name(f"{marker.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, marker)
 
 _INSTALL_HINT = (
     "LibreGen models require the 'gen' extra. Install with:\n"
@@ -325,6 +347,15 @@ class LibreGenModel:
         self._notify_license_once()
         if self._snapshot_complete(local_dir, repo=repo, revision=revision):
             return str(local_dir)
+        with _snapshot_lock(local_dir):
+            return self._download_snapshot(local_dir, repo=repo, revision=revision)
+
+    def _download_snapshot(
+        self, local_dir: Path, *, repo: str, revision: Optional[str]
+    ) -> str:
+        # Another instance may have finished while this one waited for the lock.
+        if self._snapshot_complete(local_dir, repo=repo, revision=revision):
+            return str(local_dir)
         try:
             from huggingface_hub import snapshot_download
         except ImportError as exc:
@@ -340,9 +371,7 @@ class LibreGenModel:
             download_kwargs["allow_patterns"] = list(self.SNAPSHOT_ALLOW_PATTERNS)
         snapshot_download(repo, local_dir=str(local_dir), **download_kwargs)
         marker = local_dir / _SNAPSHOT_COMPLETE_MARKER
-        marker.write_text(
-            json.dumps({"repo": repo, "revision": revision}) + "\n", encoding="utf-8"
-        )
+        _write_marker(marker, json.dumps({"repo": repo, "revision": revision}) + "\n")
         if not self._snapshot_complete(local_dir, repo=repo, revision=revision):
             marker.unlink(missing_ok=True)
             raise FileNotFoundError(

@@ -9,6 +9,11 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Two instances of one LibreGen model can load at the same time. (#986)**
+  They share one weights directory, and the first loads could race on the download's completion marker: one instance read it half written, removed it and raised `FileNotFoundError` although the download had succeeded. Snapshot preparation is now serialized per directory and the marker is written atomically.
+
+### Fixed
+
 - **A missing image directory says so. (#979)**
   A data yaml whose `train`/`val` folder does not exist (a dataset that was never downloaded, a typo) raised `ValueError: Unsupported path format`; it now raises `FileNotFoundError: Image directory not found`. TensorRT INT8 calibration without its dataset now skips in the e2e suite as intended.
 
