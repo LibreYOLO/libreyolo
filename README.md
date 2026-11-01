@@ -12,13 +12,14 @@
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-LibreYOLO-blue?logo=linkedin)](https://www.linkedin.com/company/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LibreYOLO/libreyolo/blob/release/notebooks/quickstart.ipynb)
 
 **An MIT-licensed computer vision library.** Detection, segmentation, pose,
 depth, OCR and a dozen more tasks behind one small API, with training and
 export included rather than sold separately. Reads common YOLO-format
 datasets, so existing workflows port over with minimal changes.
 
-![LibreYOLO Detection Example](libreyolo/assets/parkour_result.jpg)
+![LibreYOLO Detection Example](libreyolo/assets/guggenheim-bilbao_result.jpg)
 
 ## Install
 
@@ -46,7 +47,7 @@ Comma-separate to combine, for example `pip install "libreyolo[rfdetr,hub-kernel
 | --- | --- |
 | Export | `onnx`, `tensorrt`, `openvino`, `coreml`, `coreai`, `tflite` (alias `litert`), `ncnn`, `mnn`, `paddle`, `executorch` |
 | Serving | `triton` |
-| Models | `rfdetr`, `vlm`, `sam`, `openvocab`, `clip`, `siglip2`, `eomt`, `midas`, `modus`, `sensenova`, `gaze` |
+| Models | `rfdetr`, `vlm`, `sam`, `openvocab`, `clip`, `siglip2`, `eomt`, `midas`, `modus`, `sensenova`, `gaze`, `gen` |
 | Training | `lora`, `plots`, `tensorboard`, `mlflow`, `wandb`, `comet`, `clearml`, `neptune`, `dvclive` |
 | Speed | `fast-eval`, `hub-kernels` |
 | Sources | `stream` |
@@ -75,7 +76,7 @@ package. For unreleased work, `git checkout dev`.
 
 </details>
 
-## One API, twenty tasks
+## One API, twenty-two tasks
 
 The same three lines run every task. Only the checkpoint changes.
 
