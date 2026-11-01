@@ -90,6 +90,10 @@ NCNN_FULL_TEST_MODELS = [
     for mt, sz in FULL_TEST_MODELS
 ]
 
+# The FP16 refusal happens before any NCNN conversion, so it applies to every
+# family, including those whose NCNN inference is an expected failure.
+NCNN_FP16_REFUSAL_MODELS = [_ncnn_case(mt, sz) for mt, sz in QUICK_TEST_MODELS]
+
 
 # ---------------------------------------------------------------------------
 # Test classes
@@ -190,7 +194,7 @@ class TestNCNNExportFP16:
     """NCNN export is FP32 only; the NCNN runtime picks FP16 storage itself."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_FP16_REFUSAL_MODELS)
     def test_fp16_export_is_refused(self, model_type, size, tmp_path):
         pt_model = load_model(model_type, size, device="cpu")
         with pytest.raises(NotImplementedError, match="NCNN FP16 export is not supported"):
