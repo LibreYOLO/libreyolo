@@ -164,7 +164,7 @@ in preflight.
 | yolo4 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
 | yolo7 | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ |  |  | ✓ |
 | yolo9 | detect | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | available | ✓ | ✓ | available | ✓ |
-| yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ |  |  | ✓ |
+| yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ |  | ✓ |
 | yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | available |  |  | ✓ |
 | yolonas | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ |  | ✓ |
 | yolonas | pose | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  | ✓ |  |  |  |
@@ -488,6 +488,7 @@ A check mark applies only under any constraint listed here.
 - `yolo9_e2e` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolo9_e2e` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
 - `yolo9_e2e` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with permissively licensed trained checkpoints; two-input raw parity, factory reload, metadata, and public predict parity
+- `yolo9_e2e` / `detect` / `tflite`: onnx2tf 2.6.9, LiteRT 2.1.2, fixed export canvas
 - `yolo9_e2e` / `detect` / `coreai`: fixed export canvas; a representative published trained checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; RT-DETRv2 permits one shared whole-query permutation across its box and logit outputs because DETR query rows are an unordered set
 - `yolo9_p2` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolo9_p2` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
@@ -2046,10 +2047,9 @@ These converter paths are callable with the recorded validation context.
 - `yolo7` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo7` / `detect` / `tflite`: The converted LiteRT graph changes decoded box coordinates beyond the detector parity tolerance.
 - `yolo7` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
-- `yolo9_e2e` / `detect` / `tflite`: onnx2tf 2.6.7 exports a runnable artifact, but public top-k class membership changes after LiteRT 2.1.2 conversion.
 - `yolo9_e2e` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo9_p2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo9_p2` / `detect` / `tflite`: onnx2tf 2.6.7 exports a runnable artifact, but public top-k class membership changes after LiteRT 2.1.2 conversion.
+- `yolo9_p2` / `detect` / `tflite`: onnx2tf 2.6.9 exports a runnable artifact, but public top-k class membership changes after LiteRT 2.1.2 conversion.
 - `yolo9_p2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolonas` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolonas` / `pose` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
