@@ -12,7 +12,10 @@ model code are downloaded from Hugging Face at runtime after a license notice.
 
 from __future__ import annotations
 
+import importlib.util
+import platform
 import re
+import sys
 from collections.abc import MutableMapping
 from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
@@ -152,6 +155,27 @@ def build_point_dict(
     return {"points": points, "num_detections": len(points)}
 
 
+def _require_decord() -> None:
+    """Fail early when decord, which the upstream remote code imports, is absent.
+
+    decord publishes wheels for Linux x86_64 and Windows x64 only, so the vlm
+    extra skips it elsewhere. There, ``pip install decord`` cannot succeed
+    either, and the message says so instead of pointing at the extra.
+    """
+    if importlib.util.find_spec("decord") is not None:
+        return
+    machine = platform.machine().lower()
+    if (sys.platform == "linux" and machine == "x86_64") or (
+        sys.platform == "win32" and machine == "amd64"
+    ):
+        raise ImportError(_INSTALL_HINT)
+    raise ImportError(
+        "LocateAnything's model code imports decord, which is published only "
+        "for Linux x86_64 and Windows x64, so `libreyolo[vlm]` does not "
+        "install it on this platform. Run LocateAnything on one of those."
+    )
+
+
 class LibreLocateAnything(LibreVLMModel):
     """LocateAnything used as an open-vocabulary detector and pointer."""
 
@@ -212,6 +236,11 @@ class LibreLocateAnything(LibreVLMModel):
         self.verbose = verbose
         self.tokenizer = None
         super().__init__(size=size, **kwargs)
+
+    def _init_model(self):
+        # Before the multi-GB weight download, not after it.
+        _require_decord()
+        return super()._init_model()
 
     def _load_pretrained(self, snapshot_dir: str):
         try:

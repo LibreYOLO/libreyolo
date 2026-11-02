@@ -1,0 +1,52 @@
+name: Dependency resolution
+
+# Resolves `uv lock` and every `pip install "libreyolo[<extra>]"` for each
+# supported Python and platform, without installing anything (#989). Runs on
+# changes to the dependency declarations, and nightly against dev and release
+# because a new upstream release can break resolution with no change here.
+
+on:
+  push:
+    branches: [dev, release]
+    paths:
+      - pyproject.toml
+      - tools/ci/check_dependency_resolution.py
+      - .github/workflows/dependency-resolution.yml
+  pull_request:
+    branches: [dev, release]
+    paths:
+      - pyproject.toml
+      - tools/ci/check_dependency_resolution.py
+      - .github/workflows/dependency-resolution.yml
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  resolve:
+    name: Resolve extras${{ matrix.ref && format(' ({0})', matrix.ref) || '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Scheduled runs check both branches; everything else checks the
+        # triggering ref (an empty ref means the event's own commit).
+        ref: ${{ github.event_name == 'schedule' && fromJSON('["dev", "release"]') || fromJSON('[""]') }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Resolve every extra
+        run: uv run --no-project --python 3.12 python tools/ci/check_dependency_resolution.py

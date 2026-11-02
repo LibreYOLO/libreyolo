@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
@@ -367,6 +368,16 @@ def _replace_adaptive_avg_pool(nn_model: nn.Module):
 
 def _require_coreai():
     """Import the Core AI toolchain with an actionable message if absent."""
+    if sys.version_info < (3, 11):
+        # The coreai extra's marker skips coreai-torch here, so the usual
+        # install hint below would send the user in a circle.
+        raise ImportError(
+            "Core AI export requires Python 3.11 or newer: coreai-torch is not "
+            "published for Python "
+            f"{sys.version_info[0]}.{sys.version_info[1]}, so "
+            "`pip install libreyolo[coreai]` installs nothing here. Use a "
+            "Python 3.11+ environment on macOS."
+        )
     try:
         from coreai_torch import TorchConverter, get_decomp_table
     except ImportError as exc:  # pragma: no cover - environment dependent

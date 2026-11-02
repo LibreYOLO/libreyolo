@@ -7,6 +7,19 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+### Changed
+
+- **`libreyolo[all]` no longer includes `paddle`. (#989)**
+  X2Paddle needs ONNX 1.17 or earlier while the TFLite exporter in `all` needs ONNX 1.20, so the two cannot share an environment. Install `libreyolo[paddle]` on its own (Python 3.10 to 3.12).
+
+### Fixed
+
+- **`pip install "libreyolo[all]"` works on Python 3.12 and 3.13, Apple Silicon and Linux ARM. (#989)**
+  On Python 3.12 and newer the `paddle` and `tflite` extras in `all` pinned incompatible ONNX versions, so pip failed or fell back to an older LibreYOLO release. On macOS and Linux ARM, `vlm`, `vlm-train`, `ground` and `all` failed on `decord`, which ships wheels for Linux x86_64 and Windows only; it is now installed only there, the platforms where LocateAnything can run. `tensorrt-cu12`, which has no ARM wheels, is skipped on Linux ARM, where JetPack provides TensorRT. Loading LocateAnything where decord is not available now says so before downloading its weights, and Core AI export on Python 3.10 says it needs Python 3.11 instead of repeating the install command. Thanks @gboeer.
+
+- **`uv sync` resolves from a source checkout. (#989)**
+  The dev group asked for pytest 9 while ExecuTorch 1.2 requires pytest below 9, `coreai-torch` was requested on Python 3.10 although it needs 3.11, and extras that cannot share an environment (`vla` with `molmo2` or `marigold`, `executorch` or `paddle` with `tflite`) were not declared as conflicts. A new `Dependency resolution` workflow resolves `uv lock` and every extra on Python 3.10 to 3.13 for Linux x86_64, Linux ARM, Windows and Apple Silicon, on dependency changes and nightly. Thanks @gboeer.
+
 ## [1.7.1] - 2026-11-02
 
 ### Changed

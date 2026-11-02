@@ -359,3 +359,11 @@ def test_rtdetr_snapshot_preserves_existing_none_buffer():
     restore()
     assert "anchors" in model.decoder._buffers
     assert model.decoder.anchors is None
+
+
+def test_require_coreai_explains_the_python_floor(monkeypatch):
+    # On Python 3.10 the coreai extra installs nothing (coreai-torch needs
+    # 3.11+), so repeating `pip install libreyolo[coreai]` cannot help (#989).
+    monkeypatch.setattr(coreai.sys, "version_info", (3, 10, 14, "final", 0))
+    with pytest.raises(ImportError, match=r"Python 3\.11 or newer.*Python 3\.10"):
+        coreai._require_coreai()
