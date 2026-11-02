@@ -7,24 +7,26 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-11-02
+
+### Changed
+
+- **RF-DETR PyTorch boxes are clipped to the image. (#980)**
+  Every exported backend (ONNX, TensorRT, OpenVINO, ExecuTorch, ...) clips RF-DETR boxes to the image, and upstream RF-DETR does since rf-detr#1168; PyTorch predict and val did not, so a box could extend past the picture. COCO val2017 mAP50-95 moves by +0.00003 to +0.00008 (n/s/m/l).
+
+- **YOLO9-E2E TFLite export is validated. (#983)**
+  With onnx2tf 2.6.9 or newer and LiteRT 2.1.2, the trained LibreYOLO9E2Et checkpoint passes raw and public predict parity at a 128x128 canvas, so its tier moves from blocked to validated. Older onnx2tf versions, which change its predicted classes, are refused with an upgrade hint. YOLO9-P2 TFLite stays blocked.
+
+- **The `executorch` extra installs ExecuTorch 1.2. (#983)**
+  `pip install libreyolo[executorch]` could resolve ExecuTorch 1.0 with an older Torch; it now pins the validated `executorch>=1.2,<1.3`.
+
 ### Fixed
-
-- **Two instances of one LibreGen model can load at the same time. (#986)**
-  They share one weights directory, and the first loads could race on the download's completion marker: one instance read it half written, removed it and raised `FileNotFoundError` although the download had succeeded. Snapshot preparation is now serialized per directory and the marker is written atomically.
-
-### Fixed
-
-- **A missing image directory says so. (#979)**
-  A data yaml whose `train`/`val` folder does not exist (a dataset that was never downloaded, a typo) raised `ValueError: Unsupported path format`; it now raises `FileNotFoundError: Image directory not found`. TensorRT INT8 calibration without its dataset now skips in the e2e suite as intended.
-
-- **RF-DETR ExecuTorch programs load on Linux. (#979)**
-  The Linux ExecuTorch 1.2 runtime has no `aten::grid_sampler_2d` kernel (the macOS one does), so RF-DETR detect, segment, pose and OBB `.pte` files exported there failed to load with "Missing operator" (error 0x14). The exporter now decomposes grid sampling into primitives every runtime registers, as the Core AI exporter already does.
-
-- **TorchScript exports of YOLO9, YOLO9-E2E and YOLO9-P2 run on any device. (#974)**
-  An export traced on CPU, the TorchScript default, failed on CUDA with "Expected all tensors to be on the same device": the head built its anchor grid inside the traced graph, which kept the trace device. The exporter now pins the grid as constants for the fixed export canvas, and `torch.jit.load(map_location=...)` moves them with the weights.
 
 - **Unguarded `train()` and `val()` scripts run on macOS and Windows. (#971)**
   A call at the top level of a script, outside `if __name__ == "__main__":`, now runs with `workers=0` and logs one line on how to get parallel data loading back, instead of stopping with an error (#954). This applies under the `spawn` and `forkserver` start methods; guarded scripts, notebooks, the CLI and Linux `fork` keep their workers.
+
+- **TorchScript exports of YOLO9, YOLO9-E2E and YOLO9-P2 run on any device. (#974)**
+  An export traced on CPU, the TorchScript default, failed on CUDA with "Expected all tensors to be on the same device": the head built its anchor grid inside the traced graph, which kept the trace device. The exporter now pins the grid as constants for the fixed export canvas, and `torch.jit.load(map_location=...)` moves them with the weights. FP16 exports included.
 
 - **OpenVINO FP32 and INT8 exports keep full-precision weights. (#975)**
   `openvino.save_model` compresses weights to FP16 unless told otherwise, so `half=False` exports wrote FP16 weights. FP16 exports are unchanged.
@@ -32,14 +34,30 @@ before 1.4.0 are documented in the
 - **A failed Paddle export raises an error instead of ending the script. (#975)**
   X2Paddle calls `exit(0)` when its static-graph conversion fails, which ended the calling process as a success with no model written. On Python 3.12 and later, where paddlepaddle 2.6.2 cannot build that static graph, Paddle export now says so before converting.
 
-- **RF-DETR PyTorch boxes are clipped to the image. (#980)**
-  Every exported backend (ONNX, TensorRT, OpenVINO, ExecuTorch, ...) clips RF-DETR boxes to the image and upstream RF-DETR does since rf-detr#1168; PyTorch predict and val did not, so a box could extend past the picture and backend parity tests disagreed on edge boxes. COCO val2017 mAP50-95 moves by +0.00003 to +0.00008 (n/s/m/l). Item A5 of the 2026-09-26 RF-DETR audit.
+- **RF-DETR ExecuTorch programs load on Linux. (#979)**
+  The Linux ExecuTorch 1.2 runtime has no `aten::grid_sampler_2d` kernel (the macOS one does), so RF-DETR detect, segment, pose and OBB `.pte` files failed to load with "Missing operator" (error 0x14). The exporter now decomposes grid sampling into primitives every runtime registers, as the Core AI exporter already does.
 
-- **`LibreYOLO("LibreRFDETRn-sem.pt")` loads by name.**
-  The only published DINOv2 semantic weight keeps its pre-split RF-DETR name; it loaded from a path but auto-download stopped with "unable to determine size from filename". It now downloads and loads as `LibreDINOv2` semantic.
+- **A missing image directory says so. (#979)**
+  A data yaml whose `train`/`val` folder does not exist (a dataset that was never downloaded, a typo) raised `ValueError: Unsupported path format`; it now raises `FileNotFoundError: Image directory not found`.
 
-- **YOLO9-E2E TFLite export is validated; the `executorch` extra pins ExecuTorch 1.2.**
-  With onnx2tf 2.6.9 and LiteRT 2.1.2 the trained LibreYOLO9E2Et checkpoint passes raw and public predict parity, so its TFLite tier moves from blocked to validated (YOLO9-P2 stays blocked). `pip install libreyolo[executorch]` could resolve ExecuTorch 1.0 with an older Torch; it now installs the validated 1.2 line.
+- **`LibreYOLO("LibreRFDETRn-sem.pt")` loads by name. (#981)**
+  The only published DINOv2 semantic weight keeps its pre-split RF-DETR name; it loaded from a path, but auto-download stopped with "unable to determine size from filename". It now downloads and loads as `LibreDINOv2` semantic.
+
+- **Two instances of one LibreGen model can load at the same time. (#986)**
+  They share one weights directory, and the first loads could race on the download's completion marker: one instance read it half written, removed it and raised `FileNotFoundError` although the download had succeeded. Snapshot preparation is now serialized per directory and the marker is written atomically.
+
+- **The 3D generation knob error no longer lists `imgsz`. (#970)**
+  Speridlabs Idol has a fixed input size, so an unknown-knob error listed an argument it does not accept.
+
+### Documentation
+
+- **Validation results, class-agnostic NMS and `clip_max_norm` are documented, and the CLI help for `batch` and `aux_weight` describes what they do. (#970)**
+- **The upgrade guide covers 1.7.0 to 1.7.1. (#984)**
+  What an unguarded top-level `train()` / `val()` does now, the RF-DETR box clip, and the onnx2tf floor for YOLO9-E2E TFLite.
+
+- **A Colab quickstart notebook. (#977)**
+- **Retired weight repositories are listed with the reason. (#976, #982)**
+  15 YOLO9 and RF-DETR Hugging Face repositories that LibreYOLO cannot load (YOLO9 classification and pose, legacy RF-DETR classification, RF-DETR pose n/s/m/l) are private; `docs/retired_weights.md` explains why.
 
 ## [1.7.0] - 2026-10-31
 
