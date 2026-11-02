@@ -64,7 +64,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
+    # Below 9 so the dev group resolves next to the executorch extra:
+    # ExecuTorch 1.2 requires pytest<9 at runtime.
+    "pytest>=8.3",
     "pytest-timeout>=2.3.1",
     "pytest-xdist>=3.6",
     "ruff>=0.14.10",
@@ -105,8 +107,8 @@ coreai = [
     # Core AI (.aimodel) export, macOS only: the toolchain neither converts
     # nor runs elsewhere. Kept out of every aggregate extra on purpose,
     # because coreai-torch pins torch to 2.11.x and would drag the whole
-    # environment onto that version.
-    "coreai-torch>=0.4.1; sys_platform == 'darwin'",
+    # environment onto that version. coreai-torch requires Python 3.11+.
+    "coreai-torch>=0.4.1; sys_platform == 'darwin' and python_version >= '3.11'",
 ]
 rfdetr = [
     "transformers>=5.1.0",
@@ -175,7 +177,9 @@ vlm = [
     # SmolVLM2's processor requires num2words.
     "num2words>=0.5.0",
     # LocateAnything's HF remote-code processor/model imports these at load time.
-    "decord==0.6.0",
+    # decord 0.6.0 has no sdist and wheels only for Linux x86_64 and Windows
+    # x64, so LocateAnything is unavailable elsewhere; the rest of vlm installs.
+    "decord==0.6.0; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'win32' and platform_machine == 'AMD64')",
     "lmdb>=1.7.0",
     "peft>=0.12.0",
 ]
@@ -233,8 +237,9 @@ label = [
 ]
 tensorrt = [
     # No CUDA on macOS; marker drops these. Version pin must match the
-    # [[tool.uv.dependency-metadata]] blocks below.
-    "tensorrt-cu12==10.16.1.11; sys_platform != 'darwin'",
+    # [[tool.uv.dependency-metadata]] blocks below. No aarch64 wheels on PyPI:
+    # Jetson gets TensorRT from JetPack.
+    "tensorrt-cu12==10.16.1.11; sys_platform != 'darwin' and platform_machine != 'aarch64'",
     "pycuda>=2022.1; sys_platform != 'darwin'",
 ]
 openvino = [
@@ -366,7 +371,9 @@ all = [
     "libreyolo[tensorrt]",
     "libreyolo[tflite]",
     "libreyolo[openvino]",
-    "libreyolo[paddle]",
+    # paddle is left out: X2Paddle needs onnx<1.18 while onnx2tf (tflite)
+    # pins onnx 1.20.1 on Python 3.12+, and paddlepaddle 2.6.2 has no Python
+    # 3.13 wheels. Install libreyolo[paddle] on its own.
     "libreyolo[mnn]",
     "libreyolo[ncnn]",
     "libreyolo[tracking]",
@@ -458,10 +465,28 @@ conflicts = [
     [{ extra = "molmo2" }, { extra = "siglip2-convert" }],
     [{ extra = "molmo2" }, { extra = "vlm" }],
     [{ extra = "molmo2" }, { extra = "vlm-train" }],
+    # lerobot (vla) needs huggingface-hub>=1.6; transformers 4.57.1 needs <1.0.
+    [{ extra = "molmo2" }, { extra = "vla" }],
 
     [{ extra = "neptune" }, { extra = "tflite" }],
     [{ extra = "neptune" }, { extra = "litert" }],
     [{ extra = "neptune" }, { extra = "all" }],
+
+    # lerobot (vla) needs accelerate>=1.14; marigold pins accelerate 1.13.0.
+    [{ extra = "marigold" }, { extra = "vla" }],
+
+    # X2Paddle needs onnx<1.18; onnx2tf (tflite, in all) pins onnx 1.20.1 and
+    # protobuf 7, which paddlepaddle 2.6.2 rejects on Windows.
+    [{ extra = "paddle" }, { extra = "tflite" }],
+    [{ extra = "paddle" }, { extra = "litert" }],
+    [{ extra = "paddle" }, { extra = "all" }],
+
+    # ExecuTorch 1.2 requires pytest<9 at runtime; onnx2tf (tflite, in all)
+    # pins pytest 9.0.2. ExecuTorch 1.3+ drops the pin but needs torch 2.12,
+    # which the cu128 index does not ship.
+    [{ extra = "executorch" }, { extra = "tflite" }],
+    [{ extra = "executorch" }, { extra = "litert" }],
+    [{ extra = "executorch" }, { extra = "all" }],
 ]
 
 [tool.uv.sources]
