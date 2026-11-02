@@ -7,7 +7,9 @@ exported directory can be loaded through the same factory as other runtimes.
 
 ## Install
 
-Use Python 3.10-3.12. WSL2 with Ubuntu 22.04 is the validated Windows path.
+Export needs Python 3.10 or 3.11: on 3.12 and newer, PaddlePaddle 2.6.2 cannot
+build the static graph X2Paddle writes, and LibreYOLO stops with that message.
+WSL2 with Ubuntu 22.04 is the validated Windows path.
 
 ```bash
 pip install "libreyolo[paddle]"

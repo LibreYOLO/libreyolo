@@ -62,3 +62,24 @@ def test_openvocab_extra_covers_clip_tokenizer_runtime():
     names = {dep.split(">=")[0].split("==")[0].strip() for dep in deps}
     assert "ftfy" in names
     assert "regex" in names
+
+
+def _extra(name):
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+    return pyproject["project"]["optional-dependencies"][name]
+
+
+def test_extras_avoid_packages_that_compile_on_install():
+    # #989: pip compiled these from source and failed without a toolchain.
+    assert not any(dep.startswith("pycuda") for dep in _extra("tensorrt"))
+    assert any(dep.startswith("cuda-python") for dep in _extra("tensorrt"))
+    assert not any(dep.startswith("onnx-simplifier") for dep in _extra("tflite"))
+    (coremltools,) = [d for d in _extra("coreml") if d.startswith("coremltools")]
+    assert "sys_platform == 'darwin'" in coremltools
+
+
+def test_executorch_extra_pins_the_torch_its_runtime_was_built_for():
+    # ExecuTorch 1.2's runtime fails to load next to a newer torch (#989).
+    deps = _extra("executorch")
+    assert "executorch>=1.2,<1.3" in deps
+    assert "torch>=2.11,<2.12" in deps
