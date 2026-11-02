@@ -1,6 +1,6 @@
-"""Check that every extra in pyproject.toml can be resolved (#989).
+"""Check that every extra in pyproject.toml can be installed from wheels (#989).
 
-Two checks, both resolution only (nothing is downloaded beyond metadata,
+Three checks, all resolution only (nothing is downloaded beyond metadata,
 nothing is installed):
 
 1. ``uv lock --dry-run``: the universal lock a contributor gets from
@@ -10,8 +10,14 @@ nothing is installed):
    so this is what ``pip install "libreyolo[<extra>]"`` sees. Resolving the
    local pyproject (not the PyPI name) means a broken extra fails here instead
    of making pip fall back to an older libreyolo release.
+3. For each of those resolutions, whether every pinned version has a wheel for
+   that platform. pip takes the newest matching version even when it only has
+   an sdist and then compiles it, which fails on machines without the right
+   toolchain (pycuda needed the CUDA toolkit headers, onnx-simplifier a C++
+   build). Packages that are fine to build from source are listed in
+   KNOWN_SOURCE_BUILDS with the reason.
 
-Both checks read live PyPI, so a new upstream release can break them without
+All checks read live PyPI, so a new upstream release can break them without
 any change on our side. That is the point: the scheduled run catches it.
 
 Usage (from the repo root, needs uv on PATH):
@@ -27,6 +33,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -65,10 +72,52 @@ KNOWN_UNRESOLVABLE: dict[tuple[str, str, str], str] = {
     ),
 }
 
+# (package, platform, python) -> reason. Source builds we accept: either no
+# compiler is involved, or an upstream package pins a version without wheels
+# and we cannot avoid it. The reason says which. "*" is a wildcard.
+_GEVENT = (
+    "gevent publishes no wheels for this Python and platform "
+    "(tritonclient[http]); builds with a C compiler"
+)
+_ONNX2TF_PIN = (
+    "pinned exactly by onnx2tf (tflite), no aarch64 wheel for that version on "
+    "Python 3.12+; TFLite on Linux ARM needs a C/C++ toolchain"
+)
+_FIFTYONE_DB = (
+    "the Linux build of fiftyone-db downloads MongoDB at install; no compiler "
+    "(the fiftyone unit-test job installs it)"
+)
+KNOWN_SOURCE_BUILDS: dict[tuple[str, str, str], str] = {
+    ("tensorrt-cu12", "*", "*"): (
+        "pure-Python installer that downloads NVIDIA's wheels; no compiler"
+    ),
+    ("tensorrt-cu12-libs", "*", "*"): (
+        "pure-Python installer that downloads NVIDIA's wheels; no compiler"
+    ),
+    ("docopt", "*", "*"): "pure Python, published as an sdist only (lerobot)",
+    ("antlr4-python3-runtime", "*", "*"): "pure Python, published as an sdist only",
+    ("glob2", "*", "*"): "pure Python, published as an sdist only (fiftyone)",
+    ("fiftyone-db", "linux-x86_64", "*"): _FIFTYONE_DB,
+    ("fiftyone-db", "linux-aarch64", "*"): _FIFTYONE_DB,
+    ("gevent", "macos-arm64", "3.10"): _GEVENT,
+    ("gevent", "macos-arm64", "3.11"): _GEVENT,
+    ("gevent", "linux-aarch64", "3.10"): _GEVENT,
+    ("onnxoptimizer", "linux-aarch64", "*"): _ONNX2TF_PIN,
+    ("psutil", "linux-aarch64", "*"): _ONNX2TF_PIN,
+    ("coremltools", "linux-aarch64", "*"): (
+        "ExecuTorch 1.2 itself requires coremltools on Linux, which has no "
+        "aarch64 wheels"
+    ),
+}
 
-def _known(extra: str, platform: str, python: str) -> str | None:
-    for (e, p, v), reason in KNOWN_UNRESOLVABLE.items():
-        if e in ("*", extra) and p in ("*", platform) and v in ("*", python):
+_NO_WHEEL = re.compile(
+    r"Because ([A-Za-z0-9_.\-]+)(?:\{[^}]*\})?(?:[<>=!~][^ ]*)? has no usable wheels"
+)
+
+
+def _known(table: dict, *key: str) -> str | None:
+    for pattern, reason in table.items():
+        if all(p in ("*", k) for p, k in zip(pattern, key)):
             return reason
     return None
 
@@ -96,24 +145,27 @@ def check_lock() -> str | None:
     return _reason(proc.stdout + proc.stderr)
 
 
-def compile_extra(extra: str, platform: str, python: str) -> str | None:
+def _compile(extra: str, platform: str, python: str, *options: str):
     target, extra_env = PLATFORMS[platform]
     if platform.startswith("macos") and extra in MACOS_TARGET_OVERRIDES:
         extra_env = {
             **extra_env,
             "MACOSX_DEPLOYMENT_TARGET": MACOS_TARGET_OVERRIDES[extra],
         }
-    proc = subprocess.run(
+    return subprocess.run(
         [
             "uv",
             "pip",
             "compile",
             "--no-sources",
             "--quiet",
+            "--no-header",
+            "--no-annotate",
             "--python-version",
             python,
             "--python-platform",
             target,
+            *options,
             "pyproject.toml",
             "--extra",
             extra,
@@ -124,9 +176,41 @@ def compile_extra(extra: str, platform: str, python: str) -> str | None:
         text=True,
         env={**os.environ, **extra_env},
     )
-    if proc.returncode == 0:
-        return None
-    return _reason(proc.stdout + proc.stderr)
+
+
+def _source_builds(extra: str, platform: str, python: str, pins: str) -> list[str]:
+    """Pinned packages without a wheel for this target, found one at a time."""
+    found: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        constraints = Path(tmp) / "pins.txt"
+        constraints.write_text(pins)
+        for _ in range(20):
+            allowed = [arg for pkg in found for arg in ("--no-binary", pkg)]
+            proc = _compile(
+                extra,
+                platform,
+                python,
+                "--only-binary",
+                ":all:",
+                *allowed,
+                "--constraint",
+                str(constraints),
+            )
+            if proc.returncode == 0:
+                return found
+            match = _NO_WHEEL.search(proc.stderr)
+            if match is None:
+                return found + [f"<unparsed: {_reason(proc.stderr)}>"]
+            found.append(match.group(1).lower())
+    return found
+
+
+def check_extra(extra: str, platform: str, python: str):
+    """Return (resolution error or None, packages that would build from source)."""
+    proc = _compile(extra, platform, python)
+    if proc.returncode != 0:
+        return _reason(proc.stdout + proc.stderr), []
+    return None, _source_builds(extra, platform, python, proc.stdout)
 
 
 def main() -> int:
@@ -146,7 +230,7 @@ def main() -> int:
         parser.error(f"unknown extras: {', '.join(unknown)}")
 
     failures: list[str] = []
-    stale: list[str] = []
+    notes: list[str] = []
 
     if not args.skip_lock:
         lock_error = check_lock()
@@ -161,20 +245,36 @@ def main() -> int:
         for python in args.python
     ]
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        results = list(pool.map(lambda c: compile_extra(*c), combos))
+        results = list(pool.map(lambda c: check_extra(*c), combos))
 
     unresolved = 0
-    for (extra, platform, python), error in zip(combos, results):
+    from_source = 0
+    for (extra, platform, python), (error, builds) in zip(combos, results):
         label = f"libreyolo[{extra}] / {platform} / Python {python}"
-        known = _known(extra, platform, python)
+        known = _known(KNOWN_UNRESOLVABLE, extra, platform, python)
         unresolved += error is not None
         if error is None and known is not None:
-            stale.append(f"{label}: resolves now, drop it from KNOWN_UNRESOLVABLE")
+            notes.append(f"{label}: resolves now, drop it from KNOWN_UNRESOLVABLE")
         elif error is not None and known is None:
             failures.append(f"{label}: {error}")
+        unexpected = [
+            pkg
+            for pkg in builds
+            if _known(KNOWN_SOURCE_BUILDS, pkg, platform, python) is None
+        ]
+        from_source += bool(unexpected)
+        if unexpected:
+            failures.append(
+                f"{label}: no wheel, pip would build from source: "
+                + ", ".join(unexpected)
+            )
 
     print(f"pip resolution: {len(combos) - unresolved}/{len(combos)} resolve")
-    for line in stale:
+    print(
+        f"wheels: {len(combos) - unresolved - from_source}/{len(combos) - unresolved}"
+        " resolved installs need no unexpected source build"
+    )
+    for line in notes:
         print(f"note: {line}")
     for line in failures:
         print(f"FAIL {line}")
