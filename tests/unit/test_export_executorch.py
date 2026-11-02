@@ -138,3 +138,31 @@ def test_artifact_pair_restores_preexisting_files_on_commit_failure(
     assert sidecar.read_text(encoding="utf-8") == '{"old": true}'
     assert not list(tmp_path.glob(".*.tmp"))
     assert not list(tmp_path.glob(".*.backup"))
+
+
+def test_flatc_from_an_unactivated_venv_is_handed_to_executorch(tmp_path, monkeypatch):
+    # The executorch wheel installs flatc beside the venv's python, which is
+    # not on PATH when the venv is not activated (IDE, Jupyter kernel).
+    import libreyolo.export.executorch as executorch_export
+
+    flatc = tmp_path / "flatc"
+    flatc.write_text("")
+    monkeypatch.delenv("FLATC_EXECUTABLE", raising=False)
+    monkeypatch.setattr(executorch_export, "environment_script", lambda name: flatc)
+    with executorch_export._environment_flatc():
+        assert os.environ["FLATC_EXECUTABLE"] == str(flatc)
+    assert "FLATC_EXECUTABLE" not in os.environ
+
+
+def test_user_flatc_executable_is_left_alone(monkeypatch):
+    import libreyolo.export.executorch as executorch_export
+
+    monkeypatch.setenv("FLATC_EXECUTABLE", "/opt/flatc")
+    monkeypatch.setattr(
+        executorch_export,
+        "environment_script",
+        lambda name: pytest.fail("looked up flatc despite FLATC_EXECUTABLE"),
+    )
+    with executorch_export._environment_flatc():
+        assert os.environ["FLATC_EXECUTABLE"] == "/opt/flatc"
+    assert os.environ["FLATC_EXECUTABLE"] == "/opt/flatc"

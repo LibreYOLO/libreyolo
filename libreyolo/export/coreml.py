@@ -14,6 +14,8 @@ Family conventions, mapped by the wrapper:
 from __future__ import annotations
 
 import json
+import platform
+import sys
 from typing import Any
 
 import torch
@@ -213,6 +215,27 @@ def _stringify_metadata(metadata: dict) -> dict:
     return out
 
 
+def _require_coremltools():
+    """Import coremltools with an install hint that fits this platform."""
+    try:
+        import coremltools
+    except ImportError as exc:
+        machine = platform.machine().lower()
+        if sys.platform == "darwin" or (
+            sys.platform.startswith("linux") and machine == "x86_64"
+        ):
+            hint = "Install it with `pip install libreyolo[coreml]`."
+        else:
+            # The coreml extra's marker skips coremltools here (#989).
+            hint = (
+                "coremltools publishes wheels for macOS and Linux x86_64 only, "
+                "so `libreyolo[coreml]` does not install it on this platform. "
+                "Export CoreML models on one of those."
+            )
+        raise ImportError(f"CoreML export requires coremltools. {hint}") from exc
+    return coremltools
+
+
 def _to_compute_unit(compute_units: str):
     """Map a string compute_units value to a coremltools.ComputeUnit enum.
 
@@ -272,7 +295,7 @@ def export_coreml(
     Returns:
         ``output_path`` on success.
     """
-    import coremltools as ct
+    ct = _require_coremltools()
 
     family = (model_family or "").lower()
     if family not in _SUPPORTED_FAMILIES:

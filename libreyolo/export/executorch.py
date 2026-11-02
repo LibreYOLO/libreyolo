@@ -15,6 +15,8 @@ from pathlib import Path
 
 import torch
 
+from ._scripts import environment_script
+
 
 @contextmanager
 def _capture_compatibility(metadata: dict):
@@ -46,6 +48,25 @@ def check_executorch_available() -> None:
             "ExecuTorch export requires the optional ExecuTorch toolchain. "
             "Install it with: pip install libreyolo[executorch]"
         ) from exc
+
+
+@contextmanager
+def _environment_flatc():
+    """Point ExecuTorch at the ``flatc`` installed into this environment.
+
+    ExecuTorch runs ``flatc`` from PATH unless ``FLATC_EXECUTABLE`` is set. The
+    executorch wheel installs it beside the environment's python, which is not
+    on PATH when the virtualenv is not activated (IDE run buttons, Jupyter
+    kernels, ``venv/bin/python script.py``).
+    """
+    flatc = None if os.environ.get("FLATC_EXECUTABLE") else environment_script("flatc")
+    if flatc is not None:
+        os.environ["FLATC_EXECUTABLE"] = str(flatc)
+    try:
+        yield
+    finally:
+        if flatc is not None:
+            os.environ.pop("FLATC_EXECUTABLE", None)
 
 
 def _delegate_partition_count(edge_program) -> int:
@@ -140,7 +161,6 @@ def _commit_artifact_pair(
                     backup_path.unlink()
 
 
-
 def _decompose_grid_sampler(exported):
     """Lower grid sampling into primitives every ExecuTorch runtime has.
 
@@ -180,10 +200,11 @@ def export_executorch(
         exported = torch.export.export(model, (example_input,), strict=True)
     exported = _decompose_grid_sampler(exported)
     try:
-        edge_program = to_edge_transform_and_lower(
-            exported,
-            partitioner=[XnnpackPartitioner()],
-        )
+        with _environment_flatc():
+            edge_program = to_edge_transform_and_lower(
+                exported,
+                partitioner=[XnnpackPartitioner()],
+            )
     except FileNotFoundError as exc:
         raise RuntimeError(
             "ExecuTorch XNNPACK lowering could not start a required host tool. "

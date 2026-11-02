@@ -10,12 +10,12 @@ import importlib.metadata
 import json
 import logging
 import os
-import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any, cast
+
+from ._scripts import environment_script
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +31,10 @@ _WINDOWS_POST_SUCCESS_EXIT_CODES = {
 
 
 def _find_mnnconvert() -> Path:
-    """Return the converter installed beside the active Python executable."""
-    executable_name = "mnnconvert.exe" if os.name == "nt" else "mnnconvert"
-    environment_candidate = Path(sys.executable).resolve().with_name(executable_name)
-    if environment_candidate.is_file():
-        return environment_candidate
-
-    discovered = shutil.which("mnnconvert")
-    if discovered:
-        return Path(discovered).resolve()
+    """Return the converter installed into the active Python environment."""
+    found = environment_script("mnnconvert")
+    if found is not None:
+        return found.resolve()
     raise ImportError(
         "MNN export requires the mnnconvert tool shipped by the MNN package. "
         "Install with: pip install libreyolo[mnn]"
