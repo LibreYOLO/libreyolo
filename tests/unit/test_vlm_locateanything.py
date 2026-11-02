@@ -1,8 +1,11 @@
 """Offline tests for the LocateAnything VLM adapter."""
 
-import pytest
+import re
 from inspect import signature
 
+import pytest
+
+from libreyolo.models.vlm import locateanything as la
 from libreyolo.models.vlm.locateanything import (
     LibreLocateAnything,
     _parse_locateanything_boxes,
@@ -192,3 +195,41 @@ class TestLocateAnythingLicenseNotice:
         assert "hugging face remote code" in notice
         assert "nvidia" in notice
         assert "https://huggingface.co/nvidia/locateanything-3b" in notice
+
+
+class TestDecordGuard:
+    """decord ships wheels for Linux x86_64 and Windows x64 only (#989)."""
+
+    def test_installed_decord_passes(self, monkeypatch):
+        monkeypatch.setattr(la.importlib.util, "find_spec", lambda name: object())
+        la._require_decord()
+
+    @pytest.mark.parametrize(
+        ("plat", "machine", "expected"),
+        [
+            ("linux", "x86_64", "pip install 'libreyolo[vlm]'"),
+            ("win32", "AMD64", "pip install 'libreyolo[vlm]'"),
+            ("darwin", "arm64", "published only for Linux x86_64 and Windows x64"),
+            ("linux", "aarch64", "published only for Linux x86_64 and Windows x64"),
+        ],
+    )
+    def test_missing_decord_message_fits_the_platform(
+        self, monkeypatch, plat, machine, expected
+    ):
+        monkeypatch.setattr(la.importlib.util, "find_spec", lambda name: None)
+        monkeypatch.setattr(la.sys, "platform", plat)
+        monkeypatch.setattr(la.platform, "machine", lambda: machine)
+        with pytest.raises(ImportError, match=re.escape(expected)):
+            la._require_decord()
+
+    def test_guard_runs_before_any_weight_download(self, monkeypatch):
+        def no_decord():
+            raise ImportError("no decord")
+
+        def must_not_download(self):
+            raise AssertionError("weights downloaded before the decord check")
+
+        monkeypatch.setattr(la, "_require_decord", no_decord)
+        monkeypatch.setattr(LibreLocateAnything, "_ensure_weights", must_not_download)
+        with pytest.raises(ImportError, match="no decord"):
+            _bare()._init_model()
