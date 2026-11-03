@@ -1414,6 +1414,24 @@
     "available": true,
     "group": "g3"
   },
+  "memfof": {
+    "class": "libreyolo.models.memfof.model.LibreMEMFOF",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "m": 1920
+    },
+    "default_imgsz": {
+      "m": 1920
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "midas": {
     "class": "libreyolo.models.midas.model.LibreMiDaS",
     "tasks": [

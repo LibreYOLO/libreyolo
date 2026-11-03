@@ -112,6 +112,7 @@ from .depth_anything.model import (  # noqa: E402,F401  (import registers family
 from .zipdepth.model import LibreZipDepth  # noqa: E402,F401  (depth-only; can_load keyed on encoder.stem_half + decoder.convex_up)
 from .moge2.model import LibreMoGe2  # noqa: E402,F401  (normal-only; official Microsoft MIT checkpoint)
 from .marigold_v2.model import LibreMarigoldV2  # noqa: E402,F401 (heavy dependencies load only at construction)
+from .memfof.model import LibreMEMFOF  # noqa: E402,F401  (flow-only; can_load keyed on 9-channel cnet conv1 + att.to_qk)
 from .teed.model import LibreTEED  # noqa: E402,F401  (edge-only; MIT source)
 from .dexined.model import LibreDexiNed  # noqa: E402,F401  (edge-only; MIT source)
 from .depth_anything3.model import (  # noqa: E402,F401  (import registers family)
@@ -909,6 +910,7 @@ __all__ = [
     "LibreDepthAnythingV2",
     "LibreMoGe2",
     "LibreMarigoldV2",
+    "LibreMEMFOF",
     "LibreTEED",
     "LibreDexiNed",
     "LibreDepthAnything3",
