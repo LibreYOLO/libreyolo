@@ -1414,6 +1414,39 @@ Conversion: weights/convert_depth_anything3_weights.py removes only the
             CC-BY-NC-4.0 Large/Giant/Nested weights are excluded.
 
 --------------------------------------------------------------------
+DPFlow (ptlflow, Henrique Morimitsu)
+--------------------------------------------------------------------
+Source: https://github.com/hmorimitsu/ptlflow (ptlflow/models/dpflow)
+Pinned commit: 43cdc2b5fc7228e7090009a66e8e28e0b48e31ba
+License: Apache License 2.0
+Copyright 2025 Henrique Morimitsu.
+Citation: Morimitsu, H., Zhu, X., Cesar Jr, R. M., Ji, X., and Yin, X.-C.
+          "DPFlow: Adaptive Optical Flow Estimation with a Dual-Pyramid
+          Framework." CVPR 2025.
+Used for: DPFlow optical flow family vendored under
+          libreyolo/models/dpflow/_vendor/ (cgu, cgu_bidir_dual_encoder,
+          conv, corr, norm, pwc_modules, res_stem, update, utils,
+          local_timm/ from timm by Ross Wightman, Apache-2.0, and
+          correlation.py from ptlflow/utils, Apache-2.0). padder.py is
+          ptlflow's input padder adapted from princeton-vl/RAFT
+          (BSD-3-Clause, Copyright (c) 2020, princeton-vl; license text
+          kept in the file header). dpflow.py is an inference-only rewrite
+          of the upstream module on torch.nn.Module; einops reshapes are
+          replaced by equivalent torch ops. Learned parameters are
+          unchanged.
+
+Weight source: https://github.com/hmorimitsu/ptlflow/releases/tag/weights1
+               (dpflow-things-2012b5d6.ckpt, dpflow-sintel-b44b072c.ckpt,
+               dpflow-kitti-4e97eac6.ckpt, dpflow-spring-69bac7fa.ckpt)
+Weight license: CC BY-NC-SA 4.0 (ptlflow README: weights trained within
+                the project). Non-commercial and share-alike; mirrored with
+                the license verbatim at huggingface.co/LibreYOLO/
+                LibreDPFlowm-flow[-sintel|-kitti|-spring].
+Conversion: weights/convert_dpflow_weights.py wraps the 498 unchanged
+            tensors of the Lightning state_dict in the LibreYOLO
+            checkpoint schema.
+
+--------------------------------------------------------------------
 ZipDepth (University of Bologna)
 --------------------------------------------------------------------
 Source: https://github.com/fabiotosi92/ZipDepth

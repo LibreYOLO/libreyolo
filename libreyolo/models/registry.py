@@ -82,6 +82,7 @@ MODEL_GROUPS: dict[str, str] = {
     "flowseek": "g3",
     "depth_anything3": "g3",
     "waft": "g3",
+    "dpflow": "g3",
     "zipdepth": "g3",
     "neuflowv2": "g3",
     "midas": "g3",
