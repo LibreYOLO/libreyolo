@@ -1114,18 +1114,20 @@ class OctreeGaussianDecoder(nn.Module):
         scale_bias = inverse(torch.tensor(config["scaling_bias"])).to(device)
         opacity_bias = inverse_sigmoid(torch.tensor(config["opacity_bias"])).to(device)
         rotation_bias = torch.tensor([1.0, 0.0, 0.0, 0.0], device=device)
-        scaling = activation(raw["_scaling"].float() + scale_bias)
+        # The activations run in the features' precision (fp16 on GPU), as
+        # upstream's Gaussian holder does; the payload is float32.
+        scaling = activation(raw["_scaling"] + scale_bias)
         kernel = config["filter_kernel_size_3d"]
         return {
             "xyz": raw_xyz.float() * aabb[None, 3:] + aabb[None, :3],
             "features_dc": raw["_features_dc"].float(),
-            "scaling": torch.sqrt(torch.square(scaling) + kernel**2),
+            "scaling": torch.sqrt(torch.square(scaling) + kernel**2).float(),
             # upstream writes the raw biased quaternion; viewers normalise it,
             # and the Gaussians payload asks for unit quaternions
             "rotation": F.normalize(
                 raw["_rotation"].float() + rotation_bias[None, :], dim=-1
             ),
-            "opacity": torch.sigmoid(raw["_opacity"].float() + opacity_bias),
+            "opacity": torch.sigmoid(raw["_opacity"] + opacity_bias).float(),
         }
 
 
@@ -1218,10 +1220,13 @@ class LatentSeqMMFlowModel(nn.Module):
             else None
         )
 
-        sobol = torch.quasirandom.SobolEngine(
-            dimension=3, scramble=True, seed=123
-        ).draw(q_token_length)
-        self.register_buffer("pos_pe", sobol.unsqueeze(0), persistent=False)
+        # A plain attribute, as upstream: a buffer would be cast to fp16 with
+        # the weights, and the position embedding needs the fp32 positions.
+        self.pos_pe = (
+            torch.quasirandom.SobolEngine(dimension=3, scramble=True, seed=123)
+            .draw(q_token_length)
+            .unsqueeze(0)
+        )
         self.pos_embedder = PcdAbsolutePositionEmbedder(model_channels)
 
         def rope_layers(count):
@@ -1322,7 +1327,8 @@ class LatentSeqMMFlowModel(nn.Module):
         t_emb = self.t_embedder(t)
         t_mod = self.adaLN_modulation(t_emb) if self.share_mod else t_emb
 
-        h_x = h_x + self.pos_embedder(self.pos_pe.to(z.device)).to(d)
+        self.pos_pe = self.pos_pe.to(z.device)
+        h_x = h_x + self.pos_embedder(self.pos_pe).to(d)
 
         for i, block in enumerate(self.noise_refiner):
             h_x = block(h_x, mod=t_mod, rotary_emb=self.noise_repo_layers[i](h_x))

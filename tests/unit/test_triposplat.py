@@ -208,11 +208,16 @@ def _tiny_networks():
     return denoiser, decoder
 
 
-def test_sobol_positions_are_deterministic():
+def test_sobol_positions_are_deterministic_and_stay_fp32():
     a = LatentSeqMMFlowModel(**TINY_FLOW).pos_pe
     b = LatentSeqMMFlowModel(**TINY_FLOW).pos_pe
     assert a.shape == (1, 16, 3) and torch.equal(a, b)
     assert a.min() >= 0 and a.max() <= 1
+    # Casting the weights to fp16 must not round the positions: the embedding
+    # multiplies them by up to 2**15, so fp16 positions change every token.
+    denoiser = LatentSeqMMFlowModel(**TINY_FLOW).to(torch.float16)
+    assert denoiser.pos_pe.dtype == torch.float32 and torch.equal(denoiser.pos_pe, a)
+    assert "pos_pe" not in denoiser.state_dict()
 
 
 def test_sample_probs_keeps_every_point():
