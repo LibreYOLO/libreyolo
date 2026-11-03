@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gc
 import sys
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -31,10 +33,48 @@ _NETS = {
 _UPSTREAM_KEYS = {"t": 521, "s": 508, "m": 604, "l": 699}
 
 
+def _meta_state_dict(build) -> dict:
+    """Keys and shapes of a net without allocating its weights.
+
+    The four WAFT graphs hold about 314 M parameters; building them for real
+    inside the fast unit gate costs 1.25 GB. Recognition and size detection
+    only look at key names, so the nets are constructed on the meta device.
+    The vendored DINOv2 derives its drop-path schedule from ``torch.linspace``
+    with ``.item()``, which meta tensors refuse, so that one factory call is
+    pinned to the CPU while the net is built.
+    """
+    real_linspace = torch.linspace
+
+    def cpu_linspace(*args, **kwargs):
+        kwargs.setdefault("device", "cpu")
+        return real_linspace(*args, **kwargs)
+
+    with torch.device("meta"), mock.patch("torch.linspace", cpu_linspace):
+        return build().state_dict()
+
+
 @pytest.fixture(scope="module")
 def state_dicts():
+    return {size: _meta_state_dict(build) for size, build in _NETS.items()}
+
+
+def _small_model() -> LibreWAFT:
+    """A real size-s model (57 M parameters, 230 MB); built per test and freed."""
     torch.manual_seed(0)
-    return {size: build().state_dict() for size, build in _NETS.items()}
+    return LibreWAFT(None, size="s", device="cpu")
+
+
+def _fingerprint(state_dict: dict) -> dict:
+    """Shape, dtype and float64 sum per tensor, plus full copies of the small ones.
+
+    Lets the round-trip test compare the loaded weights against the source
+    after the source model has been freed, so only one 230 MB model is alive.
+    """
+    out = {}
+    for key, value in state_dict.items():
+        small = value.clone() if value.numel() <= 1024 else None
+        out[key] = (tuple(value.shape), value.dtype, float(value.double().sum()), small)
+    return out
 
 
 @pytest.mark.parametrize("size", sorted(_NETS))
@@ -47,7 +87,8 @@ def test_can_load_and_detect_size(state_dicts, size):
 
 
 def test_rejects_foreign_state_dicts():
-    assert not LibreWAFT.can_load(DepthAnythingV2("vits", 64, [48, 96, 192, 384]).state_dict())
+    dav2 = _meta_state_dict(lambda: DepthAnythingV2("vits", 64, [48, 96, 192, 384]))
+    assert not LibreWAFT.can_load(dav2)
     assert not LibreWAFT.can_load({"warp_linear.weight": torch.zeros(1)})
     assert not LibreWAFT.can_load({})
 
@@ -82,7 +123,10 @@ def test_unpublished_combinations_raise(filename):
 
 
 def test_conversion_metadata_and_load(state_dicts, tmp_path):
-    ckpt = convert_waft_weights.convert_state_dict(state_dicts["s"])
+    source_model = _small_model()
+    source = source_model.model.state_dict()
+    assert source.keys() == state_dicts["s"].keys()
+    ckpt = convert_waft_weights.convert_state_dict(source)
     assert validate_checkpoint_metadata(ckpt, strict=True) == []
     assert (ckpt["model_family"], ckpt["size"], ckpt["task"]) == ("waft", "s", "flow")
     assert ckpt["nc"] == 1 and ckpt["names"] == {0: "flow"}
@@ -91,11 +135,22 @@ def test_conversion_metadata_and_load(state_dicts, tmp_path):
 
     path = tmp_path / "LibreWAFTs-flow-dav2.pt"
     torch.save(ckpt, path)
+    expected = _fingerprint(source)
+    del source_model, source, ckpt
+    gc.collect()
+
     model = LibreYOLO(str(path), device="cpu")
+    path.unlink()
     assert isinstance(model, LibreWAFT)
     assert (model.size, model.task, model.names) == ("s", "flow", {0: "flow"})
-    for key, value in model.model.state_dict().items():
-        assert torch.equal(value, state_dicts["s"][key]), key
+    loaded = model.model.state_dict()
+    assert loaded.keys() == expected.keys()
+    for key, value in loaded.items():
+        shape, dtype, total, small = expected[key]
+        assert (tuple(value.shape), value.dtype) == (shape, dtype), key
+        assert float(value.double().sum()) == total, key
+        if small is not None:
+            assert torch.equal(value, small), key
 
 
 def test_conversion_rejects_size_mismatch(state_dicts):
@@ -106,7 +161,7 @@ def test_conversion_rejects_size_mismatch(state_dicts):
 
 
 def test_pair_predict_shapes_and_single_image_error():
-    model = LibreWAFT(None, size="s", device="cpu")
+    model = _small_model()
     rng = np.random.default_rng(0)
     frame = (rng.random((70, 90, 3)) * 255).astype(np.uint8)
     results = model([frame, np.roll(frame, 2, axis=1), np.roll(frame, 4, axis=1)])
@@ -120,4 +175,4 @@ def test_pair_predict_shapes_and_single_image_error():
 
 def test_train_is_rejected():
     with pytest.raises(NotImplementedError):
-        LibreWAFT(None, size="s", device="cpu").train(data="x.yaml")
+        _small_model().train(data="x.yaml")
