@@ -103,6 +103,13 @@ _WEVISONE_ALIASES: Dict[str, str] = {
     "wevisone-vl-4b": "4b",
 }
 
+# DeepSeek-OCR lives in ``models/deepseekocr`` (vendored architecture) and
+# resolves lazily for the same reason as SenseNova.
+_DEEPSEEKOCR_ALIASES: Dict[str, str] = {
+    "deepseek-ocr": "1",
+    "deepseekocr": "1",
+}
+
 _DEFAULT_MODEL = "qwen3-vl-4b"
 
 
@@ -157,10 +164,14 @@ def LibreVLM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreVLMModel:
         from ..wevisone import LibreWeVisOneVL
 
         return LibreWeVisOneVL(size=_WEVISONE_ALIASES[key], **kwargs)
+    if key in _DEEPSEEKOCR_ALIASES:
+        from ..deepseekocr import LibreDeepSeekOCR
+
+        return LibreDeepSeekOCR(size=_DEEPSEEKOCR_ALIASES[key], **kwargs)
     match = _ALIASES.get(key)
     if match is None:
         known = set(_ALIASES) | set(_LAZY_ALIASES) | set(_MODUS_ALIASES)
-        known |= set(_WEVISONE_ALIASES)
+        known |= set(_WEVISONE_ALIASES) | set(_DEEPSEEKOCR_ALIASES)
         raise ValueError(
             f"Unknown VLM model {model!r}. Known aliases: {', '.join(sorted(known))}."
         )
@@ -181,6 +192,10 @@ def __getattr__(name: str):
         from ..wevisone import LibreWeVisOneVL
 
         return LibreWeVisOneVL
+    if name == "LibreDeepSeekOCR":
+        from ..deepseekocr import LibreDeepSeekOCR
+
+        return LibreDeepSeekOCR
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -200,6 +215,7 @@ __all__ = [
     "LibreNorthMicroVision",
     "LibreSenseNovaVision",
     "LibreWeVisOneVL",
+    "LibreDeepSeekOCR",
     "LibreMODUS",
     "LibreModus",
 ]
