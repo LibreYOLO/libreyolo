@@ -2223,6 +2223,28 @@
     "group": "s",
     "cli_command": "generate"
   },
+  "searaft": {
+    "class": "libreyolo.models.searaft.model.LibreSEARAFT",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "s": 960,
+      "m": 960,
+      "l": 960
+    },
+    "default_imgsz": {
+      "s": 960,
+      "m": 960,
+      "l": 960
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "segformer": {
     "class": "libreyolo.models.segformer.model.LibreSegformer",
     "tasks": [
