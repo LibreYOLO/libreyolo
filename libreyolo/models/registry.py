@@ -90,6 +90,7 @@ MODEL_GROUPS: dict[str, str] = {
     "dexined": "g3",
     "searaft": "g3",
     "teed": "g3",
+    "unimatch": "g3",
     "swinir": "g3",
     "realesrgan": "g3",
     "quicksrnet": "g3",

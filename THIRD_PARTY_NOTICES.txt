@@ -3156,3 +3156,32 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+--------------------------------------------------------------------
+UniMatch / GMFlow (autonomousvision)
+--------------------------------------------------------------------
+Source: https://github.com/autonomousvision/unimatch
+Pinned commit: 943a99006950ab6c84ea72a72beb147fdd03c19a
+License: MIT
+Copyright (c) 2022 autonomousvision.
+Citation: Xu, H., Zhang, J., Cai, J., Rezatofighi, H., Yu, F., Tao, D.,
+          and Geiger, A. "Unifying Flow, Stereo and Depth Estimation."
+          IEEE TPAMI 2023.
+Used for: UniMatch optical flow family (LibreUniMatch). The upstream
+          unimatch/ package (unimatch, backbone, trident_conv,
+          transformer, attention, matching, geometry, reg_refine, utils,
+          position) is vendored verbatim under
+          libreyolo/models/unimatch/_vendor/ with its LICENSE. Training,
+          dataloaders and the DepthSplat modules are not vendored. The
+          LibreYOLO wrapper (libreyolo/models/unimatch/{model,utils}.py)
+          adds the flow-task preprocessing and postprocessing.
+
+Weight source: upstream MODEL_ZOO.md (gmflow-scale1-things,
+               gmflow-scale2-regrefine6-{mixdata,sintelft,kitti15}).
+Weight license: upstream publishes no separate weight licence; LibreYOLO
+                hosts the converted checkpoints on its Hugging Face org
+                under the releasing project's MIT licence. The grant is
+                implied by the releasing project and is LibreYOLO's
+                disclosed interpretation, not publisher-confirmed.
+Conversion: weights/convert_unimatch_weights.py wraps the unchanged
+            upstream tensors in the LibreYOLO checkpoint schema.

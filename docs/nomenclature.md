@@ -138,6 +138,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `teed`      | `LibreTEED` | All-caps acronym (`TEED`); edge-only tiny CNN specialist |
 | `dexined`   | `LibreDexiNed` | Upstream brand casing preserved (`DexiNed`); edge-only base CNN specialist |
 | `flowseek`  | `LibreFlowSeek` | Upstream brand casing (`FlowSeek`); flow-only, SEA-RAFT style recurrent optical flow with a frozen Depth Anything V2 encoder |
+| `unimatch`  | `LibreUniMatch` | Upstream brand casing preserved (`UniMatch`); flow-only GMFlow optical flow family |
 | `birefnet`  | `LibreBiRefNet` | CamelCase preserved (Bilateral Reference); matte-only background-removal family |
 | `feynobg`   | `LibreFeyNobg` | CamelCase preserved (FeyNobg); matte-only background-removal family built on the BiRefNet architecture |
 | `ben2`      | `LibreBEN2` | All-caps acronym plus version digit; matte-only BEN2 Base background-removal family |
@@ -287,6 +288,7 @@ ships:
 | `teed`      | `t` (tiny, 58,910 parameters; fixed 352 square) |
 | `dexined`   | `b` (base, 35.2M parameters; fixed 352 square) |
 | `flowseek`  | `t`, `s`, `m`, `l` (upstream FlowSeek-T/S/M/L: t and s share the ResNet-18 + DAv2 ViT-S weights at 4 and 12 iterations, m and l share the ResNet-34 + DAv2 ViT-B weights at 4 and 12; native resolution padded to a multiple of 8) |
+| `unimatch`  | `s` (GMFlow scale1, FlyingThings), `l` (GMFlow+ scale2 with 6 refinement steps, mixed data; quality default). Weight variants `-sintel` and `-kitti` select the `l` finetunes: `LibreUniMatchl-flow-sintel.pt`, `LibreUniMatchl-flow-kitti.pt` |
 | `birefnet`  | `t` (BiRefNet_lite, Swin-T tier), `l` (BiRefNet general, Swin-L tier); both at fixed 1024 |
 | `feynobg`   | `l` (single released variant: Swin-L tier with stage 3 deepened to 24 blocks, 263M params) at fixed 1024 |
 | `ben2`      | `b` (the single public BEN2 Base checkpoint, 94M parameters) at fixed 1024 |
@@ -596,6 +598,7 @@ Detector-factory family support follows:
 | `flowseek`  | `("flow",)`                         | flow   | FlowSeek (ICCV 2025) optical flow; `FLOW_CONTEXT = (0, 0)`; predict + `val`; Apache-2.0 code; m/l embed the CC BY-NC 4.0 DAv2 Base encoder (non-commercial); not trainable in LibreYOLO |
 | `moge2`     | `("normal",)`                       | normal | MoGe-2 ViT-S/B/L-14 normal models; sizes `s`/`b`/`l` at native short-side 518 (`l` quality default); OpenCV camera-frame unit normals; predict + zero-shot `val` + fixed-resolution ONNX export; official code and checkpoints are MIT; not trainable in LibreYOLO |
 | `teed`      | `("edge",)`                         | edge   | TEED tiny edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
+| `unimatch`  | `("flow",)`                         | flow   | UniMatch / GMFlow optical flow; sizes `s` (scale1) and `l` (scale2 + 6 refinement steps) at native geometry rounded up to 16 / 32; MIT code, weights hosted under the implied MIT grant; predict only, not trainable in LibreYOLO |
 | `dexined`   | `("edge",)`                         | edge   | DexiNed base edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
 | `nafnet`    | `("restore",)`                      | restore | NAFNet RGB restoration; sizes `s`/`l`; native predict runs at original resolution with reflect padding; paired PSNR/SSIM train+val; fixed-resolution ONNX v1. Published denoise weights: `LibreNAFNetl-restore-sidd.pt` (SIDD width-64, bit-exact conversion, upstream PSNR 40.3045 dB) |
 | `raft`      | `("flow",)`                         | flow   | RAFT optical flow, inference-only; sizes `s`/`l`; native predict pads to a multiple of 8 (upstream InputPadder) with 20 refinement iterations; `FLOW_CONTEXT = (0, 0)`; variants `-sintel`, `-kitti` of `l` |
@@ -800,6 +803,11 @@ LibreRAFTs-flow.pt               # raft-small
 LibreRAFTl-flow.pt               # raft-things (canonical)
 LibreRAFTl-flow-sintel.pt        # raft-sintel
 LibreRAFTl-flow-kitti.pt         # raft-kitti
+# unimatch: UniMatch / GMFlow optical flow (flow-only)
+LibreUniMatchs-flow.pt           # GMFlow scale1, FlyingThings
+LibreUniMatchl-flow.pt           # GMFlow+ scale2 regrefine6, mixed data (default)
+LibreUniMatchl-flow-sintel.pt    # Sintel finetune of l
+LibreUniMatchl-flow-kitti.pt     # KITTI 2015 finetune of l
 
 # moge2 — MoGe-2 surface normals (normal-only, MIT weights)
 LibreMoGe2s-normal.pt            # ViT-S/14, native short side 518
