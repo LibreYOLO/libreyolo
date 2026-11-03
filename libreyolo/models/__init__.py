@@ -182,6 +182,9 @@ from .vjepa2.model import LibreVJEPA2  # noqa: E402,F401  (import registers fami
 # CLS token and fused qkv weights, so it cannot collide with V-JEPA 2.
 from .levjepa.model import LibreLeVJEPA  # noqa: E402,F401  (import registers family)
 
+# Optical flow families (task ``flow``), kept in alphabetical order.
+from .raft.model import LibreRAFT  # noqa: E402,F401  (flow-only; can_load needs the closed fnet/cnet/update_block key set)
+
 
 def _ensure_rfdetr():
     """Lazily register RF-DETR and LibreDINOv2 if their dependencies are installed."""
@@ -927,6 +930,7 @@ __all__ = [
     "LibreEoMT",
     "LibreDeepLabv3",
     "LibrePIDNet",
+    "LibreRAFT",
     "LibreUNet",
     "LibreSegformer",
     "LibreLingBotVision",

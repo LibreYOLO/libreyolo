@@ -77,6 +77,7 @@ MODEL_GROUPS: dict[str, str] = {
     "efficientdet": "g3",
     "eomt": "g3",
     "pidnet": "g3",
+    "raft": "g3",
     "depth_anything": "g3",
     "depth_anything3": "g3",
     "zipdepth": "g3",
