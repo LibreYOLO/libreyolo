@@ -2532,7 +2532,7 @@ for _fmt, _constraint in (
             "exported-backend predict returns the same regions, labels and "
             "reading order."
         ),
-        since="1.8",
+        since="1.7",
         constraint=_constraint,
     )
 del _fmt, _constraint

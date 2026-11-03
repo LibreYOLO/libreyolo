@@ -76,8 +76,10 @@ def test_siblings_accept_their_own_layout_only():
 
 
 def test_no_other_registered_family_claims_our_checkpoints():
-    import libreyolo.models  # noqa: F401  (populates the registry)
+    from libreyolo.models import try_ensure_rfdetr
     from libreyolo.models.base import BaseModel
+
+    try_ensure_rfdetr()  # registers RF-DETR (broad can_load) when available
     from libreyolo.models.ppdoclayoutv3.model import LibrePPDocLayoutV3
 
     native, upstream = _native_state(), _upstream_state()
