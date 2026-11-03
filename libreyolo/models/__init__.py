@@ -118,6 +118,7 @@ from .depth_anything3.model import (  # noqa: E402,F401  (import registers famil
     LibreDepthAnything3,
 )
 from .nafnet.model import LibreNAFNet  # noqa: E402,F401  (restore-only)
+from .neuflowv2.model import LibreNeuFlowv2  # noqa: E402,F401  (flow-only; can_load keyed on cross_attn_s16 + refine_s8 + upsample_s8)
 from .ddcolor.model import LibreDDColor  # noqa: E402,F401  (restore-only colorization)
 from .hvi_cidnet.model import LibreHVICIDNet  # noqa: E402,F401  (restore-only low-light enhancement)
 from .lama.model import LibreLaMa  # noqa: E402,F401  (mask-guided restore/inpainting)
@@ -913,6 +914,7 @@ __all__ = [
     "LibreDexiNed",
     "LibreDepthAnything3",
     "LibreNAFNet",
+    "LibreNeuFlowv2",
     "LibreDDColor",
     "LibreHVICIDNet",
     "LibreLaMa",
