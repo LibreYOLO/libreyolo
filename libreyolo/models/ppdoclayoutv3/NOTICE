@@ -11,12 +11,12 @@ Copyright:   Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team.
 
 Ported components:
 - src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
-      -> libreyolo/models/ppdoclayoutv3/nn.py (HGNetV2 backbone)
+      ported to libreyolo/models/ppdoclayoutv3/nn.py (HGNetV2 backbone)
 - src/transformers/models/pp_doclayout_v3/modeling_pp_doclayout_v3.py
-      -> libreyolo/models/ppdoclayoutv3/nn.py (hybrid encoder, mask branch,
+      ported to libreyolo/models/ppdoclayoutv3/nn.py (hybrid encoder, mask branch,
          deformable decoder, global pointer, mask-to-box initialisation)
 - src/transformers/models/pp_doclayout_v3/image_processing_pp_doclayout_v3.py
-      -> libreyolo/postprocess/ppdoclayoutv3.py (decode, reading-order ranking)
+      ported to libreyolo/postprocess/ppdoclayoutv3.py (decode, reading-order ranking)
 
 LibreYOLO changes: no transformers runtime, module names mirror the official
 safetensors keys, eager attention, tied heads shared by reference, auxiliary
