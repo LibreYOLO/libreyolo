@@ -173,10 +173,16 @@ class LibreTRELLIS(LibreGen3DModel):
             **modules,
         )
 
-    def _move_loaded(self, device) -> None:
-        raise ValueError(
-            "LibreTRELLIS picks its precision per device at load; construct it with device=... instead of to()."
-        )
+    def to(self, device) -> "LibreTRELLIS":
+        """Move before loading; a loaded model keeps its device, whose precision it was built for."""
+        target = self._resolve_device(device)
+        if self._pipeline is not None and target != self.device:
+            raise ValueError(
+                "LibreTRELLIS picks its precision per device at load; construct it "
+                "with device=... instead of to() after it has loaded."
+            )
+        self.device = target
+        return self
 
     # ------------------------------------------------------------------
     # Generate

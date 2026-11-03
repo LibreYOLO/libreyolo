@@ -88,7 +88,9 @@ def check(row):
     failures += [
         k
         for k, limit in LIMITS.items()
-        if "mean" not in row[k] or row[k]["mean"] > limit
+        if "mean" not in row[k]
+        or not np.isfinite(row[k]["mean"])
+        or row[k]["mean"] > limit
     ]
     if not row["voxels"]["same"]:
         failures.append("voxels")

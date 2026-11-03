@@ -84,6 +84,17 @@ def test_constructor_rejects_unsupported_options():
         LibreTRELLIS(device="cpu", dtype="fp16")
 
 
+def test_to_moves_before_loading_and_refuses_after():
+    model = LibreTRELLIS(device="cpu")
+    assert model.to("cpu") is model and model.device.type == "cpu"
+    model._pipeline = object()
+    if torch.backends.mps.is_available():
+        with pytest.raises(ValueError, match="device=..."):
+            model.to("mps")
+        assert model.device.type == "cpu"  # unchanged after the refusal
+    assert model.to("cpu").device.type == "cpu"
+
+
 def test_matches_its_snapshot_directory(tmp_path):
     from libreyolo.models.gen.trellis.model import _UPSTREAM_FILES, _WEIGHT_FILES
 
