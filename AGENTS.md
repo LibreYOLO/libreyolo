@@ -141,12 +141,14 @@
   diff, never a placeholder, or the `provenance-check` CI gate fails.
 - An agent that opens a PR says so in one line, and states what it verified and
   what it did not. It never implies review or approval it does not have.
-- **One green OS is enough for a development PR.** The unit gate runs on
-  Linux, macOS, and Windows. For PRs into `dev`, a passing gate on any one of
-  those platforms is sufficient to consider the PR fine; a failure on another
-  platform is noted in the PR, not chased before merge. Release PRs are the
-  exception: cutting a version requires the full matrix green (see the
-  `libreyolo-release` skill).
+- **One green OS is enough for a development PR.** The unit gate's shared
+  job runs on Linux, macOS, and Windows. For PRs into `dev`, that job passing
+  on any one of the three platforms is sufficient; a failure of the same job
+  on another platform is noted in the PR, not chased before merge. The rule
+  covers only that three-platform job. Jobs that run on a single platform
+  (the Linux-only `distributed` tests, provenance, install smoke, Greptile)
+  have no fallback and must pass. Release PRs are the exception: cutting a
+  version requires the full matrix green (see the `libreyolo-release` skill).
 
 ## General library constraints
 - User-facing workflows must be directly callable. Document validation evidence
