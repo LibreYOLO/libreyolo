@@ -668,6 +668,7 @@ markers = [
     "siglip2: tests covering the LibreSigLIP2 zero-shot open-vocabulary classifier family",
     "pe: tests covering the LibrePE Perception Encoder Core zero-shot / embedding family",
     "midas: tests covering the MiDaS relative-depth family",
+    "raft: tests covering the RAFT optical flow family",
     "quicksrnet: tests covering the QuickSRNet super-resolution family",
     "ddcolor: tests covering the DDColor automatic-colorization family",
     "hvi_cidnet: tests covering the HVI-CIDNet low-light restoration family",

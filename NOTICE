@@ -271,6 +271,21 @@ Depth Anything 3 (Apache License 2.0)
     Platforms Apache-2.0 headers. Package-relative imports and dependency-free
     tensor reshapes do not alter learned parameters or monocular outputs.
 
+RAFT (BSD 3-Clause License)
+    Path:    libreyolo/models/raft/_vendor/
+    License: libreyolo/models/raft/_vendor/LICENSE  (BSD-3-Clause)
+    Source:  https://github.com/princeton-vl/RAFT
+    Commit:  2888e15
+
+    The RAFT optical flow network (feature and context encoders, correlation
+    pyramid, recurrent update block) is vendored from princeton-vl's RAFT
+    (Copyright (c) 2020, princeton-vl). Changes are package-relative imports,
+    removal of the optional alt_cuda_corr extension and the scipy training
+    helper, and warning-free torch API calls; the computation is unchanged.
+    The released raft-things, raft-small, raft-sintel and raft-kitti
+    checkpoints are distributed in the same BSD-3-Clause repository and are
+    mirrored on the LibreYOLO Hugging Face org with that licence.
+
 NAFNet (MIT License)
     Path:    libreyolo/models/nafnet/
     License: libreyolo/models/nafnet/NOTICE  (MIT)
