@@ -229,6 +229,7 @@ def __getattr__(name):
         "LibreNorthMicroVision": (".models.vlm", "LibreNorthMicroVision"),
         "LibreSenseNovaVision": (".models.sensenova", "LibreSenseNovaVision"),
         "LibreWeVisOneVL": (".models.wevisone", "LibreWeVisOneVL"),
+        "LibreDeepSeekOCR": (".models.deepseekocr", "LibreDeepSeekOCR"),
         "LibreMODUS": (".models.modus", "LibreMODUS"),
         "LibreModus": (".models.modus", "LibreModus"),
         "LibreDetAny3D": (".models.detany3d", "LibreDetAny3D"),
@@ -381,6 +382,7 @@ __all__ = [
     "LibreMolmo2",
     "LibreNorthMicroVision",
     "LibreWeVisOneVL",
+    "LibreDeepSeekOCR",
     "LibreMODUS",
     "LibreModus",
     # OpenAI-compatible LLM client (optional, requires libreyolo[llm])

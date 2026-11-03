@@ -817,6 +817,22 @@ WeVisOne-VL (Apache License 2.0)
     Qwen3-VL-2B/4B-Instruct, Apache-2.0) download from Tencent at pinned
     revisions.
 
+DeepSeek-OCR (MIT License; Apache-2.0 sub-components)
+    Path:    libreyolo/models/deepseekocr/
+    License: libreyolo/models/deepseekocr/NOTICE
+    Source:  https://huggingface.co/deepseek-ai/DeepSeek-OCR
+             (commit 9f30c71f441d010e5429c532364a86705536c53a)
+             Copyright (c) 2023 DeepSeek.
+
+    The DeepEncoder (SAM ViT-B plus CLIP-L/14), the DeepSeek-V2 style MoE
+    decoder and the input/grounding handling are ported from the MIT
+    release for inference only. The decoder file carries an Apache-2.0
+    header (DeepSeek-AI and the HuggingFace team), and its attention path
+    is the transformers 4.46.3 Llama attention (Apache-2.0); the SAM encoder
+    is adapted upstream from detectron2 ViTDet (Apache-2.0). Weights (MIT)
+    download from the byte-identical LibreYOLO/LibreDeepSeekOCR1 mirror at
+    a pinned revision.
+
 ------------------------------------------------------------------------
 Pretrained model weights
 ------------------------------------------------------------------------

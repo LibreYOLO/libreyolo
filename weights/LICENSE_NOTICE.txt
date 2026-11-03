@@ -945,6 +945,24 @@ in each repository's LICENSE. Ported inference code: see
 libreyolo/models/wevisone/NOTICE.
 
 
+DeepSeek-OCR (LibreDeepSeekOCR 1)                    MIT
+3B MoE document OCR vision-language model
+-----------------------------------------
+
+Upstream: DeepSeek, https://huggingface.co/deepseek-ai/DeepSeek-OCR
+License: MIT (model card YAML and repository LICENSE)
+Copyright (c) 2023 DeepSeek
+
+Hosted by LibreYOLO as a byte-identical snapshot mirror (safetensors, config,
+tokenizer; the upstream remote-code Python files are not included):
+
+LibreYOLO/LibreDeepSeekOCR1 @ a47622e3fb7279eaed206ab5d656158b71976b5b
+  mirrored from deepseek-ai/DeepSeek-OCR @ 9f30c71f441d010e5429c532364a86705536c53a
+
+No learned parameters were changed. Ported inference code: see
+libreyolo/models/deepseekocr/NOTICE.
+
+
 Speridlabs Idol (LibreSperidlabsIdol 0.6b)              Apache-2.0
 Image-to-3D Gaussian splats
 ---------------------------
