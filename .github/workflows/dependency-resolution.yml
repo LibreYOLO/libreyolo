@@ -91,7 +91,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install --progress-bar off ".[all]"
-          python -m pip check
+
+      # decord 0.6.0's Linux wheel is named py3-none but its WHEEL file
+      # declares cp36-cp36m, so pip check flags it on every other Python
+      # although it installs and imports fine (upstream packaging bug).
+      - name: pip check
+        shell: bash
+        run: |
+          out=$(python -m pip check 2>&1) || true
+          echo "$out"
+          ! echo "$out" | grep -v -e '^decord 0.6.0 is not supported on this platform$' -e '^No broken requirements found.$' | grep -q .
 
       - name: Smoke test the environment
         shell: bash
