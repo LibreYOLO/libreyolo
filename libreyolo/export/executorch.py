@@ -57,16 +57,15 @@ def _environment_flatc():
     ExecuTorch runs ``flatc`` from PATH unless ``FLATC_EXECUTABLE`` is set. The
     executorch wheel installs it beside the environment's python, which is not
     on PATH when the virtualenv is not activated (IDE run buttons, Jupyter
-    kernels, ``venv/bin/python script.py``).
+    kernels, ``venv/bin/python script.py``). The variable is set once and left
+    in place: it names this environment's own ``flatc``, and removing it after
+    one export could pull it from under a concurrent one.
     """
-    flatc = None if os.environ.get("FLATC_EXECUTABLE") else environment_script("flatc")
-    if flatc is not None:
-        os.environ["FLATC_EXECUTABLE"] = str(flatc)
-    try:
-        yield
-    finally:
+    if not os.environ.get("FLATC_EXECUTABLE"):
+        flatc = environment_script("flatc")
         if flatc is not None:
-            os.environ.pop("FLATC_EXECUTABLE", None)
+            os.environ["FLATC_EXECUTABLE"] = str(flatc)
+    yield
 
 
 def _delegate_partition_count(edge_program) -> int:

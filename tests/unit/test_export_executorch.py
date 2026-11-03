@@ -151,7 +151,10 @@ def test_flatc_from_an_unactivated_venv_is_handed_to_executorch(tmp_path, monkey
     monkeypatch.setattr(executorch_export, "environment_script", lambda name: flatc)
     with executorch_export._environment_flatc():
         assert os.environ["FLATC_EXECUTABLE"] == str(flatc)
-    assert "FLATC_EXECUTABLE" not in os.environ
+        # A concurrent export must still find it after another one finishes.
+        with executorch_export._environment_flatc():
+            pass
+        assert os.environ["FLATC_EXECUTABLE"] == str(flatc)
 
 
 def test_user_flatc_executable_is_left_alone(monkeypatch):

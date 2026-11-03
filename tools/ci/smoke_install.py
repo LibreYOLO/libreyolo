@@ -16,6 +16,8 @@ import sys
 import time
 import traceback
 
+import numpy as np
+
 import libreyolo
 from libreyolo import SAMPLE_IMAGE, LibreYOLO
 
@@ -63,11 +65,40 @@ if sys.platform != "darwin" and platform.machine().lower() in ("x86_64", "amd64"
 state: dict = {}
 
 
+def _detections(result):
+    def as_array(value):
+        return value.cpu().numpy() if hasattr(value, "cpu") else np.asarray(value)
+
+    boxes = result.boxes
+    return as_array(boxes.xyxy).reshape(-1, 4), as_array(boxes.cls).astype(int)
+
+
+def _iou(a, b):
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _unmatched(source, target):
+    """Boxes in source with no same-class box in target at IoU >= 0.9."""
+    (boxes, classes), (other_boxes, other_classes) = source, target
+    return sum(
+        not any(
+            c == oc and _iou(box, other) >= 0.9
+            for other, oc in zip(other_boxes, other_classes)
+        )
+        for box, c in zip(boxes, classes)
+    )
+
+
 def predict_torch():
     state["model"] = LibreYOLO("LibreYOLO9t.pt")
-    state["n"] = len(state["model"](SAMPLE_IMAGE))
-    assert state["n"] > 0, "no detections on the sample image"
-    return f"{state['n']} detections"
+    state["ref"] = _detections(state["model"](SAMPLE_IMAGE))
+    n = len(state["ref"][1])
+    assert n > 0, "no detections on the sample image"
+    return f"{n} detections"
 
 
 check("predict yolo9 pytorch", predict_torch)
@@ -81,12 +112,18 @@ if sys.platform == "darwin":
 
 def export_and_predict(fmt):
     path = state["model"].export(format=fmt)
-    n = len(LibreYOLO(path)(SAMPLE_IMAGE))
-    assert abs(n - state["n"]) <= 1, f"{n} detections, PyTorch found {state['n']}"
-    return f"{n} detections"
+    got = _detections(LibreYOLO(path)(SAMPLE_IMAGE))
+    # Same classes and boxes as PyTorch; one borderline detection near the
+    # confidence threshold may appear on only one side.
+    missing, extra = _unmatched(state["ref"], got), _unmatched(got, state["ref"])
+    assert missing <= 1 and extra <= 1, (
+        f"{missing} PyTorch detections missing and {extra} unexpected "
+        f"(same class, IoU >= 0.9) out of {len(state['ref'][1])}"
+    )
+    return f"{len(got[1])} detections, {missing} missing, {extra} extra"
 
 
-if "model" in state:
+if "ref" in state:
     for fmt in FORMATS:
         check(f"export+predict {fmt}", lambda f=fmt: export_and_predict(f))
 
