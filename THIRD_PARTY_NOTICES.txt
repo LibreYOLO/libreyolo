@@ -1750,6 +1750,27 @@ Used for: the LibrePPOCR text detection + recognition family
           tiers.
 
 --------------------------------------------------------------------
+PP-DocLayoutV3 (PaddlePaddle; Hugging Face Transformers)
+--------------------------------------------------------------------
+Port source: https://github.com/huggingface/transformers
+Tag/commit: v5.22.1 / 446a570e62b04a89ea001604ada7366baac2ea67
+Files: src/transformers/models/pp_doclayout_v3/modeling_pp_doclayout_v3.py
+       src/transformers/models/pp_doclayout_v3/image_processing_pp_doclayout_v3.py
+       src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
+License: Apache License 2.0
+Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team.
+Model: PP-DocLayoutV3, PaddleOCR project
+       (https://github.com/PaddlePaddle/PaddleOCR, Apache License 2.0).
+Used for: the LibrePPDocLayoutV3 document layout family
+          (libreyolo/models/ppdoclayoutv3/): the HGNetV2-L backbone, hybrid
+          encoder, mask-enhanced deformable decoder and global-pointer
+          reading-order head are an inference-only PyTorch port; the decode
+          and reading-order ranking in libreyolo/postprocess/ppdoclayoutv3.py
+          follow the reference image processor. Parity verified: raw class
+          logits, boxes, reading-order logits and masks match the reference
+          with max_abs_diff == 0 on identical inputs.
+
+--------------------------------------------------------------------
 DeiT (Facebook Research)
 --------------------------------------------------------------------
 Source: https://github.com/facebookresearch/deit
