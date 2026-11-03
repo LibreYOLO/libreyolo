@@ -119,7 +119,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Surface normals** | MoGe-2 |
 | **Depth, normals and albedo** | Marigold V2 |
 | **Edges** | DexiNed, TEED |
-| **Optical flow** | SEA-RAFT, NeuFlow v2, RAFT, WAFT, FlowSeek, DPFlow, UniMatch, MEMFOF, UFM |
+| **Optical flow** | SEA-RAFT, NeuFlow v2, RAFT, WAFT, FlowSeek, DPFlow, UniMatch, MEMFOF |
 | **Embeddings** | LibreFaceEmbedder, CLIP, SigLIP2, Perception Encoder (image, text, whole-video; also zero-shot classify), DINOv2 |
 | **Video embeddings** | V-JEPA 2 (clip embedding and trainable classification probe), LeVJEPA (clip and patch embeddings; CC BY-NC 4.0 weights) |
 | **Body mesh** | SAM 3D Body |
