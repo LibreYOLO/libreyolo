@@ -101,6 +101,7 @@ file = name + ".pt"
 | DINOv2 | `LibreDINOv2` | `LibreDINOv2n.pt` (semantic default), `LibreDINOv2n-cls.pt` |
 | DepthAnythingV2 | `LibreDepthAnythingV2` | `LibreDepthAnythingV2s-depth.pt` (only `s` is Apache; b/l/g are CC-BY-NC, see below) |
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
+| WAFT | `LibreWAFT` | `LibreWAFTm-flow.pt` (canonical); `LibreWAFTt-flow-dinov3.pt`, `LibreWAFTs-flow-dav2.pt`, `LibreWAFTl-flow-twins.pt` (BSD-3-Clause plus the encoder licence; `t` carries the DINOv3 License) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
 | GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
 | FOMO | `LibreFOMO` | `LibreFOMOs-point.pt` (hosted s/m/l are randomly initialised MIT weights; upstream FOMO weights are cc-by-nc-4.0 and not mirrored) |
@@ -346,6 +347,9 @@ LibreDepthAnythingV2s-depth.pt, LibreDepthAnythingV2b-depth.pt,
 LibreDepthAnythingV2l-depth.pt, LibreDepthAnythingV2g-depth.pt,
 
 LibreDepthAnything3l-depth.pt,
+
+LibreWAFTt-flow-dinov3.pt, LibreWAFTs-flow-dav2.pt, LibreWAFTm-flow.pt,
+LibreWAFTl-flow-twins.pt,
 
 LibreMoGe2s-normal.pt, LibreMoGe2b-normal.pt, LibreMoGe2l-normal.pt,
 
