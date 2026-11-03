@@ -56,6 +56,7 @@ from ...utils.results import (
     DepthMap,
     Embeddings,
     EdgeMap,
+    FlowField,
     Keypoints,
     Masks,
     Matte,
@@ -74,13 +75,37 @@ from ...utils.screen import ScreenSource, grab_screen
 from ...utils.source import SourceKind, build_stream_source, classify_source
 from ...utils.video import (
     FrameSource,
+    VideoSource,
+    VideoWriter,
     collect_video_results,
+    resolve_video_save_path,
     run_video_inference,
     sample_clip_frames,
 )
 from .cuda_graph import forward_maybe_graphed, with_cuda_graph_scope
+from .flow_sequence import (
+    FLOW_MIN_FRAMES_MESSAGE,
+    iter_flow_windows,
+    validate_flow_context,
+)
 
 logger = logging.getLogger(__name__)
+
+class _FlowFrame:
+    """One frame of an optical flow sequence as the runner carries it.
+
+    ``image`` is any prediction input (path, PIL image, array); ``label`` is
+    the path or source name recorded on the result, ``None`` for in-memory
+    frames; ``frame_idx`` is the frame's position in its source.
+    """
+
+    __slots__ = ("image", "label", "frame_idx")
+
+    def __init__(self, image, label, frame_idx: int):
+        self.image = image
+        self.label = label
+        self.frame_idx = int(frame_idx)
+
 
 # Tasks whose result is one row for a whole clip rather than one per frame.
 # A family still has to opt in via ``VIDEO_EMBED_MODE = "clip"``.
@@ -428,6 +453,33 @@ class InferenceRunner:
 
         if source_spec is None:
             source_spec = classify_source(source)
+
+        # Optical flow reads every source as an ordered frame sequence and
+        # runs one window per consecutive pair (see _predict_flow), so none of
+        # the single-image routes below apply to it.
+        if getattr(self.model, "task", None) == "flow":
+            return self._predict_flow(
+                source_spec,
+                source,
+                stream=stream,
+                save=save,
+                show=show,
+                vid_stride=vid_stride,
+                stream_buffer=stream_buffer,
+                output_path=output_path,
+                output_file_format=output_file_format,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+                tiling=tiling,
+                augment=augment,
+                batch=batch,
+                predict_input_kwargs=predict_input_kwargs,
+                **kwargs,
+            )
 
         # Whole-clip inference. Opt-in per family: only when the family declares
         if getattr(self.model, "input_profile", None) is not None:
@@ -1010,6 +1062,363 @@ class InferenceRunner:
             self._save_annotated_image(result, frames[0], save_file)
         return [result]
 
+    # =====================================================================
+    # Optical flow: frame sequences, one window per consecutive pair
+    # =====================================================================
+
+    def _predict_flow(
+        self,
+        source_spec,
+        source,
+        *,
+        stream: bool,
+        save: bool,
+        show: bool,
+        vid_stride: int,
+        stream_buffer: bool,
+        output_path: Optional[str],
+        output_file_format: Optional[str],
+        conf: float,
+        iou: float,
+        imgsz,
+        classes: Optional[List[int]],
+        max_det: int,
+        color_format: str,
+        tiling: bool,
+        augment: bool,
+        batch: int,
+        predict_input_kwargs: Optional[Dict[str, object]],
+        **kwargs,
+    ) -> Union[List[Results], Generator[Results, None, None]]:
+        """Run a flow family over a frame sequence, one window per pair.
+
+        Optical flow is defined between two frames, so every source is read
+        as an ordered sequence: a list or tuple of images in the given order,
+        a directory sorted by file name, an iterator of frames, a video file,
+        a live stream or the screen. ``N`` frames yield ``N - 1`` results;
+        result ``t`` carries frame ``t`` as its image and ``Results.flow``
+        from frame ``t`` to frame ``t + 1`` (``t + vid_stride`` for video and
+        live sources, which apply the stride before pairing). The last frame
+        has no successor and yields nothing. A single image is an error.
+
+        The family declares ``FLOW_CONTEXT = (before, after)`` and receives
+        the window through ``_forward_flow`` (see ``BaseModel._forward_flow``).
+        ``stream=True`` yields each pair as soon as its window is complete.
+        """
+        if predict_input_kwargs:
+            keys = ", ".join(sorted(predict_input_kwargs))
+            raise ValueError(
+                f"Guided prediction input(s) {keys} are not supported for "
+                "optical flow."
+            )
+        if tiling:
+            raise ValueError(
+                "Tiled inference does not apply to optical flow: a window must "
+                "see whole frames. Use tiling=False."
+            )
+        if augment:
+            raise ValueError(
+                "Test-time augmentation does not support optical flow yet. "
+                "Use augment=False for flow models."
+            )
+        if batch != 1:
+            raise ValueError(
+                "batch > 1 is not supported for optical flow yet: frame windows "
+                "run one pair at a time. Use batch=1."
+            )
+        before, after = validate_flow_context(
+            getattr(self.model, "FLOW_CONTEXT", (0, 0))
+        )
+        effective_imgsz = imgsz if imgsz is not None else self.model._get_input_size()
+        kwargs["input_size"] = effective_imgsz
+        window_options = dict(
+            before=before,
+            after=after,
+            color_format=color_format,
+            input_size=effective_imgsz,
+            conf=conf,
+            iou=iou,
+            classes=classes,
+            max_det=max_det,
+            kwargs=kwargs,
+        )
+
+        kind = source_spec.kind
+        if kind == SourceKind.IMAGE:
+            raise ValueError(FLOW_MIN_FRAMES_MESSAGE)
+        if kind == SourceKind.STREAMS:
+            raise NotImplementedError(
+                "Optical flow runs one live source at a time: a list of streams "
+                "would need one frame window per camera. Pass a single stream."
+            )
+
+        if kind in (SourceKind.IMAGE_BATCH, SourceKind.DIRECTORY):
+            if kind == SourceKind.DIRECTORY:
+                images = ImageLoader.collect_images(source_spec.source)
+            else:
+                images = list(source_spec.items)
+            if len(images) < 2:
+                raise ValueError(FLOW_MIN_FRAMES_MESSAGE)
+            items = [
+                _FlowFrame(
+                    image=image,
+                    label=image if isinstance(image, (str, Path)) else None,
+                    frame_idx=index,
+                )
+                for index, image in enumerate(images)
+            ]
+            gen = self._flow_sequence_results(
+                items,
+                save=save,
+                output_path=output_path,
+                output_file_format=output_file_format,
+                **window_options,
+            )
+            return gen if stream else list(gen)
+
+        if kind == SourceKind.IMAGE_SEQUENCE:
+            items = (
+                _FlowFrame(image=image, label=None, frame_idx=index)
+                for index, image in enumerate(source_spec.source)
+            )
+            gen = self._flow_sequence_results(
+                items,
+                save=save,
+                output_path=output_path,
+                output_file_format=output_file_format,
+                **window_options,
+            )
+            return gen if stream else list(gen)
+
+        if kind == SourceKind.VIDEO:
+            gen = self._flow_video_results(
+                VideoSource(source_spec.source, vid_stride=vid_stride),
+                save_name=str(source_spec.source),
+                label=str(source_spec.source),
+                stride_divisor=max(1, int(vid_stride)),
+                save=save,
+                show=show,
+                output_path=output_path,
+                **window_options,
+            )
+            if stream:
+                return gen
+            return collect_video_results(gen, source_spec.source, vid_stride)
+
+        if source_spec.live:
+            if not stream:
+                raise ValueError(
+                    "Live stream sources require stream=True so results are "
+                    "consumed incrementally."
+                )
+            frame_source = build_stream_source(
+                source_spec, vid_stride=vid_stride, stream_buffer=stream_buffer
+            )
+            return self._flow_video_results(
+                frame_source,
+                save_name="stream",
+                label="stream",
+                stride_divisor=1,
+                save=save,
+                show=show,
+                output_path=output_path,
+                **window_options,
+            )
+
+        if kind == SourceKind.SCREEN:
+            if not stream:
+                raise ValueError(
+                    "Screen capture needs stream=True for optical flow: a single "
+                    "screenshot is one frame and flow needs two. Pass "
+                    "stream=True and consume the results as they arrive."
+                )
+            return self._flow_video_results(
+                ScreenSource(source_spec.source, vid_stride=vid_stride),
+                save_name=str(source_spec.source),
+                label=str(source_spec.source),
+                stride_divisor=1,
+                save=save,
+                show=show,
+                output_path=output_path,
+                **window_options,
+            )
+
+        raise TypeError(
+            f"Unsupported source kind for optical flow: {kind.value!r}."
+        )
+
+    def _predict_flow_window(
+        self,
+        window: Sequence["_FlowFrame"],
+        before: int,
+        *,
+        color_format: str,
+        input_size,
+        conf: float,
+        iou: float,
+        classes: Optional[List[int]],
+        max_det: int,
+        kwargs: Dict,
+    ) -> Tuple[Results, Image.Image]:
+        """Preprocess one window, run ``_forward_flow`` and wrap the result.
+
+        Returns the Results for frame ``t`` (``window[before]``) and that
+        frame's decoded image, so callers can draw on or keep it.
+        """
+        tensors = []
+        anchor = None
+        for index, item in enumerate(window):
+            tensor, original_img, original_size, ratio = self._preprocess_model_input(
+                item.image, color_format, input_size=input_size
+            )
+            if not isinstance(tensor, torch.Tensor) or tensor.dim() != 4:
+                raise TypeError(
+                    f"{type(self.model).__name__}._preprocess must return a "
+                    "(1, C, H, W) tensor per frame for optical flow windows, got "
+                    f"{type(tensor).__name__}"
+                    f"{' of shape ' + str(tuple(tensor.shape)) if isinstance(tensor, torch.Tensor) else ''}."
+                )
+            tensors.append(tensor)
+            if index == before:
+                anchor = (original_img, original_size, ratio)
+        shapes = {tuple(t.shape) for t in tensors}
+        if len(shapes) != 1:
+            raise ValueError(
+                "Frames of one optical flow window must share a size after "
+                f"preprocessing; got shapes {sorted(shapes)}."
+            )
+        assert anchor is not None
+        original_img, original_size, ratio = anchor
+
+        stacked = torch.cat(tensors, dim=0)
+        with torch.no_grad():
+            output = self.model._forward_flow(stacked.to(self.model.device))
+        detections = self.model._postprocess(
+            output,
+            conf,
+            iou,
+            original_size,
+            max_det=max_det,
+            ratio=ratio,
+            classes=classes,
+            **kwargs,
+        )
+        result = self._wrap_results(detections, original_size, window[before].label, classes)
+        if getattr(result, "flow", None) is None:
+            raise ValueError(
+                f"{type(self.model).__name__}._postprocess returned no 'flow' "
+                "entry for a frame window; a flow family must return "
+                '{"flow": (H, W, 2)} on the original canvas.'
+            )
+        return result, original_img
+
+    def _flow_sequence_results(
+        self,
+        items,
+        *,
+        save: bool,
+        output_path: Optional[str],
+        output_file_format: Optional[str],
+        before: int,
+        after: int,
+        **window_options,
+    ) -> Generator[Results, None, None]:
+        """Yield one Results per consecutive pair of an image sequence."""
+        for _, window in iter_flow_windows(items, before, after):
+            anchor = window[before]
+            result, original_img = self._predict_flow_window(
+                window, before, **window_options
+            )
+            keep_source(result, original_img, anchor.label)
+            if save:
+                ext = output_file_format or "jpg"
+                save_path = resolve_save_path(
+                    output_path,
+                    anchor.label
+                    if anchor.label is not None
+                    else f"image{anchor.frame_idx}",
+                    ext=ext,
+                )
+                self._save_annotated_image(result, original_img, save_path)
+            yield result
+
+    def _flow_video_results(
+        self,
+        frame_source: FrameSource,
+        *,
+        save_name: str,
+        label: str,
+        stride_divisor: int,
+        save: bool,
+        show: bool,
+        output_path: Optional[str],
+        before: int,
+        after: int,
+        **window_options,
+    ) -> Generator[Results, None, None]:
+        """Yield one Results per consecutive pair of a video-like source.
+
+        Mirrors ``run_video_inference`` (writer created lazily from the first
+        annotated frame, ``q`` closes the preview window) with a window per
+        pair instead of a prediction per frame. The source has already applied
+        its own stride; ``stride_divisor`` only scales the saved video's fps.
+        """
+        import cv2
+
+        with frame_source as video_src:
+            fps = float(getattr(video_src, "fps", 0.0) or 30.0) / max(1, stride_divisor)
+            writer = None
+            out_path = resolve_video_save_path(save_name, output_path) if save else None
+
+            def frames():
+                for frame_item in video_src:
+                    if hasattr(frame_item, "frame_bgr"):
+                        frame_bgr = frame_item.frame_bgr
+                        frame_idx = int(frame_item.frame_idx)
+                        item_label = (
+                            str(frame_item.source_label)
+                            if frame_item.source_label is not None
+                            else label
+                        )
+                    else:
+                        frame_bgr, frame_idx = frame_item
+                        item_label = label
+                    pil_img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+                    yield _FlowFrame(image=pil_img, label=item_label, frame_idx=int(frame_idx))
+
+            try:
+                for _, window in iter_flow_windows(frames(), before, after):
+                    anchor = window[before]
+                    result, original_img = self._predict_flow_window(
+                        window, before, **window_options
+                    )
+                    # Decoded frames have no path to reopen from: keep the
+                    # pixels so plot() and the writer can draw on frame t.
+                    result.orig_img = original_img
+                    result.frame_idx = anchor.frame_idx
+                    result.path = anchor.label
+                    if save or show:
+                        annotated_bgr = cv2.cvtColor(
+                            np.array(draw_results(result, original_img)),
+                            cv2.COLOR_RGB2BGR,
+                        )
+                        if save:
+                            if writer is None:
+                                frame_h, frame_w = annotated_bgr.shape[:2]
+                                writer = VideoWriter(out_path, fps, frame_w, frame_h)
+                            writer.write_frame(annotated_bgr)
+                        if show:
+                            cv2.imshow("LibreYOLO", annotated_bgr)
+                            if cv2.waitKey(1) & 0xFF == ord("q"):
+                                break
+                    yield result
+            finally:
+                if writer is not None:
+                    writer.release()
+                    logger.info("Video saved to %s", out_path)
+                if show:
+                    cv2.destroyAllWindows()
+
     def _save_annotated_image(
         self, result: Results, original_img, save_path: Path
     ) -> None:
@@ -1166,6 +1575,32 @@ class InferenceRunner:
                     panoptic_t.long(),
                     detections.get("segments_info") or [],
                     (orig_h, orig_w),
+                ),
+            )
+
+        # Optical flow: a dense (H, W, 2) displacement field on the original
+        # canvas of frame t, no boxes. An optional per-pixel confidence rides
+        # along under "flow_confidence".
+        flow_data = detections.get("flow")
+        if flow_data is not None:
+            orig_w, orig_h = original_size
+            flow_t = (
+                flow_data
+                if isinstance(flow_data, torch.Tensor)
+                else torch.as_tensor(np.asarray(flow_data))
+            )
+            confidence = detections.get("flow_confidence")
+            if confidence is not None and not isinstance(confidence, torch.Tensor):
+                confidence = torch.as_tensor(np.asarray(confidence))
+            return Results(
+                boxes=None,
+                orig_shape=(orig_h, orig_w),
+                path=str(image_path) if image_path else None,
+                names=self.model.names,
+                flow=FlowField(
+                    flow_t.float(),
+                    (orig_h, orig_w),
+                    confidence=None if confidence is None else confidence.float(),
                 ),
             )
 

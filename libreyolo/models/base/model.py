@@ -346,6 +346,12 @@ class BaseModel(ABC):
     # when the resolved task is "embed", the source is a finite video, and the
     # family declares clip support.
     VIDEO_EMBED_MODE: ClassVar[str] = "frames"
+    # Optical flow families: how many extra frames the runner hands
+    # ``_forward_flow`` on each side of the (t, t + 1) pair, as
+    # ``(before, after)``. A two-frame model keeps ``(0, 0)``; a three-frame
+    # model (MEMFOF) declares ``(1, 1)``. Windows are edge padded at sequence
+    # boundaries, so every source of N frames still yields N - 1 results.
+    FLOW_CONTEXT: ClassVar[tuple[int, int]] = (0, 0)
 
     # TTA policy — subclasses may override
     TTA_ENABLED: ClassVar[bool] = True
@@ -582,6 +588,31 @@ class BaseModel(ABC):
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         """Run model forward pass."""
         pass
+
+    def _forward_flow(self, window: torch.Tensor) -> Any:
+        """Run the optical flow forward on one frame window.
+
+        The runner reads every flow source as an ordered frame sequence and
+        calls this hook once per consecutive pair. ``window`` is a
+        ``(F, C, H, W)`` tensor on the model device: the frames returned by
+        ``_preprocess`` for ``before + 2 + after`` consecutive frames
+        (``FLOW_CONTEXT``), concatenated along the batch axis. ``window[before]``
+        is frame ``t`` and ``window[before + 1]`` is frame ``t + 1``; the
+        neighbours are edge padded at sequence boundaries. A two-frame family
+        receives ``(2, C, H, W)``.
+
+        Return the raw network output. The family's ``_postprocess`` then
+        receives it with the ``original_size`` and ``ratio`` of frame ``t``
+        and must return ``{"flow": (H, W, 2)}`` on the original canvas, in
+        pixels, ``(dx, dy)`` from frame ``t`` to frame ``t + 1``, with the
+        vectors scaled back by the same factor as the geometry (optionally
+        ``"flow_confidence": (H, W)`` in ``[0, 1]``). Padding or resizing done
+        in ``_preprocess`` is undone there, exactly as for a dense depth map.
+        """
+        raise NotImplementedError(
+            f"The '{self.family}' family does not implement _forward_flow(window); "
+            "optical flow needs a family that consumes a frame window."
+        )
 
     # =========================================================================
     # CUDA graph capture
@@ -2102,6 +2133,12 @@ class BaseModel(ABC):
                 "Tracking does not support depth maps yet. "
                 "Use predict() for depth models."
             )
+        if task == "flow":
+            raise NotImplementedError(
+                "Tracking does not apply to optical flow: a flow result is a "
+                "dense displacement field with no objects to associate. "
+                "Use predict() for flow models."
+            )
         if task == "normal":
             raise NotImplementedError(
                 "Tracking does not support surface-normal maps. "
@@ -2803,6 +2840,7 @@ class BaseModel(ABC):
             ClassifyValidator,
             DepthValidator,
             DetectionValidator,
+            FlowValidator,
             MatteValidator,
             NormalValidator,
             EdgeValidator,
@@ -2861,6 +2899,11 @@ class BaseModel(ABC):
             raise ValueError(
                 "Augmented validation does not support depth estimation yet. "
                 "Use augment=False for depth models."
+            )
+        if augment and self.task == "flow":
+            raise ValueError(
+                "Augmented validation does not support optical flow yet. "
+                "Use augment=False for flow models."
             )
         if augment and self.task == "normal":
             raise ValueError(
@@ -2959,6 +3002,8 @@ class BaseModel(ABC):
             validator_cls = PanopticValidator
         elif self.task == "depth":
             validator_cls = DepthValidator
+        elif self.task == "flow":
+            validator_cls = FlowValidator
         elif self.task == "normal":
             validator_cls = NormalValidator
         elif self.task == "albedo":
