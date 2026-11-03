@@ -265,6 +265,10 @@ class LibreUniMatch(BaseModel):
         )
         return out["flow_preds"][-1]
 
+    def _forward_flow(self, window: torch.Tensor) -> torch.Tensor:
+        """Runner hook: ``window`` is ``(2, 3, H_in, W_in)``, frames t and t+1."""
+        return self._forward_pair(window[0:1], window[1:2])
+
     def _forward(self, input_tensor: Any) -> Any:
         # A pair arrives either as a (image1, image2) sequence or as a
         # (B, 2, 3, H, W) stacked tensor.
