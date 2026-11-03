@@ -277,6 +277,21 @@ def test_rejects_tiling_and_too_small_inputs():
         model.model(torch.zeros(1, 3, 96, 96))
 
 
+def test_exported_backend_uses_family_val_preprocessor():
+    from libreyolo.backends.base import BaseBackend
+    from libreyolo.validation.preprocessors import PPDocLayoutV3ValPreprocessor
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "ppdoclayoutv3"
+    backend.task = "detect"
+    backend.imgsz = 800
+    assert isinstance(backend._get_val_preprocessor(800), PPDocLayoutV3ValPreprocessor)
+
+
 def test_train_is_rejected():
     from libreyolo import LibrePPDocLayoutV3
 
