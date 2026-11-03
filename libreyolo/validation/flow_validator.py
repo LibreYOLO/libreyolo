@@ -4,9 +4,13 @@ Scores a flow model on consecutive-frame pairs with dense ground truth
 (:class:`~libreyolo.data.flow_dataset.FlowDataset`), reusing the
 :class:`BaseValidator` template (setup, iterate, finalize).
 
-Each pair goes through the family's own ``predict`` so the prediction lands
-on the original frame canvas exactly as users see it, and is compared with
-the ground truth there. Metrics are averaged per pair, then over pairs:
+Predictions come from the family's own ``predict`` run over each whole
+frame sequence (``predict(frames, stream=True)``), so multi-frame families
+(``FLOW_CONTEXT`` other than ``(0, 0)``) see the real neighbouring frames
+exactly as they do in normal sequence inference, and the flow lands on the
+original frame canvas exactly as users see it. The requested ``imgsz`` is
+forwarded to ``predict`` when set; otherwise the family default applies, as in
+plain ``predict``. Metrics are averaged per pair, then over pairs:
 
 - ``metrics/epe``: mean end-point error, the Euclidean distance in pixels
   between predicted and true vectors over valid pixels (lower is better).
@@ -23,7 +27,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import torch
 from torch.utils.data import DataLoader
@@ -65,6 +70,26 @@ def flow_pair_metrics(
     }
 
 
+def group_sequence_frames(
+    pairs: Sequence[Tuple[Path, Path]],
+) -> Dict[str, List[str]]:
+    """Map each sequence directory to its ordered frame paths.
+
+    ``pairs`` are the dataset's consecutive ``(frame_t, frame_t+1)`` pairs,
+    sorted by path. Pair ``t`` of a sequence is the ``t``-th entry of that
+    sequence's frame list minus one, so a sequence of ``N`` frames holds
+    ``N - 1`` pairs.
+    """
+    frames: Dict[str, List[str]] = {}
+    for first, second in pairs:
+        key = str(Path(first).parent)
+        sequence = frames.setdefault(key, [])
+        if not sequence or sequence[-1] != str(first):
+            sequence.append(str(first))
+        sequence.append(str(second))
+    return frames
+
+
 class FlowValidator(BaseValidator):
     """EPE, px1, px3 and Fl-all validator for the flow task."""
 
@@ -78,6 +103,7 @@ class FlowValidator(BaseValidator):
             allow_scripts=getattr(self.config, "allow_download_scripts", False),
         )
         dataset = FlowDataset(data_config, split=self.config.split or "val")
+        self._sequence_frames = group_sequence_frames(dataset.pairs)
         return DataLoader(
             dataset,
             batch_size=self.config.batch_size,
@@ -94,20 +120,80 @@ class FlowValidator(BaseValidator):
     def _init_metrics(self) -> None:
         self._metric_sums = {key: 0.0 for key in _METRIC_KEYS}
         self._pair_count = 0
+        self._active_sequence: Optional[str] = None
+        self._active_results: Optional[Iterator[Any]] = None
+        self._active_emitted = 0
 
     def _preprocess_batch(self, batch: Any) -> tuple:
         imgs_a, imgs_b, flows, valids, infos, ids = batch
         return imgs_a, (flows, valids), infos, ids
 
+    def _predict_kwargs(self) -> Dict[str, Any]:
+        """Prediction kwargs that carry the user's explicit settings.
+
+        ``imgsz`` is forwarded only when the user set it: ``val()`` leaves it
+        ``None`` by default, and ``predict`` then applies the family default,
+        exactly as a plain ``predict`` call does.
+        """
+        kwargs: Dict[str, Any] = {}
+        if self.config.imgsz is not None:
+            kwargs["imgsz"] = self.config.imgsz
+        return kwargs
+
+    def _close_sequence(self) -> None:
+        results = self._active_results
+        self._active_results = None
+        self._active_sequence = None
+        self._active_emitted = 0
+        close = getattr(results, "close", None)
+        if callable(close):
+            close()
+
+    def _open_sequence(self, key: str) -> None:
+        """Start streaming predictions over one whole frame sequence."""
+        self._close_sequence()
+        frames = self._sequence_frames[key]
+        results = self.model.predict(frames, stream=True, **self._predict_kwargs())
+        self._active_sequence = key
+        self._active_results = iter(results)
+        self._active_emitted = 0
+
     def _predict_pair(self, info: Dict[str, Any]) -> torch.Tensor:
-        """Run the family on one pair and return its ``(H, W, 2)`` flow."""
-        results = self.model.predict([info["img_path"], info["img_path_next"]])
-        if not isinstance(results, (list, tuple)) or not results:
+        """Return the ``(H, W, 2)`` flow predicted for one dataset pair.
+
+        Pairs arrive in dataset order, sequence by sequence. Each sequence is
+        predicted once as a stream over all its frames, so the runner builds
+        the family's ``FLOW_CONTEXT`` windows from the real neighbouring
+        frames instead of edge padding every pair on its own.
+        """
+        img_path = str(info["img_path"])
+        key = str(Path(img_path).parent)
+        if key != self._active_sequence:
+            self._open_sequence(key)
+        frames = self._sequence_frames[key]
+        expected = frames[self._active_emitted] if self._active_emitted < len(frames) - 1 else None
+        if expected != img_path:
             raise ValueError(
-                "Flow validation expects predict([frame, next_frame]) to return "
-                "a one-element list of Results."
+                "Flow validation reads pairs in dataset order, one sequence at a "
+                f"time, but pair {img_path!r} arrived when frame {expected!r} of "
+                f"sequence {key!r} was expected."
             )
-        flow = getattr(results[0], "flow", None)
+        try:
+            result = next(self._active_results)
+        except StopIteration:
+            raise ValueError(
+                f"predict() yielded fewer results than sequence {key!r} has "
+                f"pairs ({len(frames) - 1}); a sequence of N frames must yield "
+                "N - 1 flow results."
+            ) from None
+        self._active_emitted += 1
+        path = getattr(result, "path", None)
+        if path is not None and str(path) != img_path:
+            raise ValueError(
+                f"predict() returned the flow of frame {str(path)!r} while "
+                f"validating pair {img_path!r}; results must follow frame order."
+            )
+        flow = getattr(result, "flow", None)
         if flow is None:
             raise ValueError(
                 f"{type(self.model).__name__} returned no Results.flow for a "
@@ -130,6 +216,7 @@ class FlowValidator(BaseValidator):
                 self.speed["inference"] += time.time() - t_inference
                 self._update_metrics(preds, targets, infos, ids)
                 self.seen += len(infos)
+        self._close_sequence()
         self.speed["total"] = time.time() - total_start
 
     def _postprocess_predictions(self, preds: Any, batch: Any) -> Any:
@@ -168,4 +255,4 @@ class FlowValidator(BaseValidator):
         logger.info("=" * 50)
 
 
-__all__ = ["FlowValidator", "flow_pair_metrics"]
+__all__ = ["FlowValidator", "flow_pair_metrics", "group_sequence_frames"]
