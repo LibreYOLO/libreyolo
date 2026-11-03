@@ -621,6 +621,24 @@
     "available": true,
     "group": "g2"
   },
+  "dpflow": {
+    "class": "libreyolo.models.dpflow.model.LibreDPFlow",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "m": 960
+    },
+    "default_imgsz": {
+      "m": 960
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "ec": {
     "class": "libreyolo.models.ec.model.LibreEC",
     "tasks": [

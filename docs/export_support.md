@@ -39,6 +39,7 @@ in preflight.
 | dinov2 | classify | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  | available |
 | dinov2 | embed | ✓ | ✓ | available | available | available |  |  |  |  | ✓ |  |  |
 | domedetr | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| dpflow | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | ec | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  | ✓ |
 | ec | pose | ✓ | ✓ | ✓ | available | available | ✓ |  |  |  |  |  |  |
 | ec | segment | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  |  |  |
@@ -901,6 +902,18 @@ These converter paths are callable with the recorded validation context.
 - `domedetr` / `detect` / `tflite`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `domedetr` / `detect` / `coreml`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `domedetr` / `detect` / `coreai`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
+- `dpflow` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `tensorrt`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `openvino`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `paddle`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `mnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `rknn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `ncnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `ec` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `ec` / `detect` / `ncnn`: NCNN export is not supported for EC: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ec` / `detect` / `tflite`: onnx2tf 2.6.7 emits an ONNX_LAYERNORMALIZATION custom operation that LiteRT 2.1.2 cannot prepare.
