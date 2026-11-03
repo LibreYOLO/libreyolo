@@ -1270,6 +1270,33 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+MEMFOF (MSU Graphics & Media Lab)
+--------------------------------------------------------------------
+Source: https://github.com/msu-video-group/memfof
+        (commit a51de9fc59c6fe20ba08e079372c7b583d58a712)
+License: BSD 3-Clause License
+Copyright (c) 2024, Princeton Vision & Learning Lab
+Copyright (c) 2025, MSU Graphics & Media Lab
+Citation: Bargatin, V., Chistov, E., Yakovenko, A., and Vatolin, D.
+          "MEMFOF: High-Resolution Training for Memory-Efficient
+          Multi-Frame Optical Flow Estimation." ICCV 2025.
+Used for: MEMFOF optical flow family, inference code vendored under
+          libreyolo/models/memfof/_vendor/ (model, corr, extractor, gma,
+          layer, update, and the InputPadder / bilinear_sampler /
+          coords_grid helpers from utils). The BSD-3-Clause text is in
+          libreyolo/models/memfof/_vendor/LICENSE. Changes: relative
+          imports, no Hugging Face hub mixin, no torchvision ImageNet
+          download at construction, einops.rearrange written as torch
+          reshape/permute. Upstream's gma.py names VideoFlow's GMA module
+          as its source.
+
+NOTE - weights: the upstream MEMFOF checkpoints (Hugging Face
+egorchistov/optical-flow-MEMFOF-*) are tagged bsd-3-clause in their card
+metadata but ship no licence file or separate weight-licence text.
+LibreYOLO mirrors the converted checkpoints (LibreYOLO/LibreMEMFOFm-flow
+and the LibreYOLO/LibreMEMFOFm-flow-<variant> repos for tartan,
+tartan-t, kitti, sintel and spring) under the BSD-3-Clause licence of the
+releasing code repository, from which the weight licence is inherited.
 
 --------------------------------------------------------------------
 Depth Anything V2 (DepthAnything / TikTok)
