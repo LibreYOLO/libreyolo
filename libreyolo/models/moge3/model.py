@@ -84,7 +84,24 @@ class LibreMoGe3(BaseModel):
     # Converted checkpoints mirrored on the LibreYOLO Hugging Face org, keyed
     # by (size, task). The mirror URL resolves `main`, so each file is
     # checksum-pinned; regenerate a value only on a deliberate re-upload.
-    _MIRROR_SHA256: ClassVar[Dict[Tuple[str, str], str]] = {}
+    _MIRROR_SHA256: ClassVar[Dict[Tuple[str, str], str]] = {
+        (
+            "l",
+            "depth",
+        ): "8f5bfe8a485fa58495f531fef1689267f9f6aa40302a57fc993bb0feeebcf420",
+        (
+            "l",
+            "normal",
+        ): "f45e912f3d4d6907dd4ab7c7ae76e2452e786c51ad552e32af58a90eb56776fc",
+        (
+            "g",
+            "depth",
+        ): "b414687e3f47a08ede6e7f6a1b9a061a6256c7d821f475ad2e283d07279dd9c6",
+        (
+            "g",
+            "normal",
+        ): "98e25939605e6b08805bf12c26a66ec99f7a8b05ef0b328d90950614cef7913b",
+    }
 
     # Official checkpoints at pinned revisions. One file per size serves both
     # tasks; the loader keeps the tensors the requested task needs.
