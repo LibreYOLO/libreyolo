@@ -19,6 +19,11 @@ from ...utils.image_loader import ImageInput, ImageLoader
 PAD_MULTIPLE = 8
 
 
+# Features are computed at 1/8 resolution and the correlation pyramid pools them
+# three more times, so each side must be at least 64 px (upstream fails the same way).
+MIN_SIDE = 64
+
+
 def pad_amounts(height: int, width: int, multiple: int = PAD_MULTIPLE) -> Tuple[int, int, int, int]:
     """Return ``(left, right, top, bottom)`` padding exactly as InputPadder."""
     pad_ht = (((height // multiple) + 1) * multiple - height) % multiple
@@ -48,6 +53,13 @@ def preprocess_image(
     """
     img = ImageLoader.load(image, color_format=color_format)
     original_size = img.size
+    width, height = original_size
+    if min(width, height) < MIN_SIDE:
+        raise ValueError(
+            f"RAFT needs frames of at least {MIN_SIDE}x{MIN_SIDE} pixels, got "
+            f"{width}x{height}: its correlation pyramid pools the 1/8 feature map "
+            "three more times, so smaller frames fail inside the network."
+        )
     arr = np.asarray(img, dtype=np.float32)
     tensor = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).contiguous()
     return pad_image(tensor), img, original_size, 1.0

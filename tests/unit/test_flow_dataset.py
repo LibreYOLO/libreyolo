@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+from pathlib import Path
+
 import pytest
 import torch
 import yaml
@@ -118,6 +120,15 @@ def test_pairs_stay_inside_a_sequence_directory(tmp_path):
         (tmp_path / "images/val/a/f1.png", tmp_path / "images/val/a/f2.png"),
         (tmp_path / "images/val/b/f1.png", tmp_path / "images/val/b/f2.png"),
     ]
+
+
+def test_img2flow_path_only_rewrites_the_images_directory():
+    frame = Path("/data/images_raw/images/val/seq/f.png")
+    assert img2flow_path(frame) == Path("/data/images_raw/flows/val/seq/f.flo")
+    nested = Path("/home/u/images/dataset/images/val/seq/f.png")
+    assert img2flow_path(nested) == Path("/home/u/images/dataset/flows/val/seq/f.flo")
+    plain = Path("/data/frames/val/seq/f.png")
+    assert img2flow_path(plain) == Path("/data/frames/val/seq/f.flo")
 
 
 def test_img2flow_path_mirrors_tree_and_extension(tmp_path):

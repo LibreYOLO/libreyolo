@@ -220,15 +220,19 @@ def img2flow_path(
 ) -> Path:
     """Map a frame path to its flow file (flow from this frame to the next).
 
-    Mirrors ``img2label_paths``: the ``images`` directory component becomes
-    ``flows_dir`` and the extension becomes the format's extension.
+    Mirrors ``img2label_paths``: the last directory component named exactly
+    ``images`` becomes ``flows_dir`` and the extension becomes the format's
+    extension. Only that component changes, so directories such as
+    ``images_raw`` or a sequence folder are left alone.
     """
     extension = FLOW_FORMAT_EXTENSIONS[normalize_flow_format(flow_format)]
-    path_str = str(img_path)
-    for sep in (os.sep, "/", "\\"):
-        path_str = path_str.replace(f"{sep}images{sep}", f"{sep}{flows_dir}{sep}")
-        path_str = path_str.replace(f"{sep}images", f"{sep}{flows_dir}")
-    return Path(path_str).with_suffix(extension)
+    path = Path(img_path)
+    parts = list(path.parts)
+    for index in range(len(parts) - 2, -1, -1):
+        if parts[index] == "images":
+            parts[index] = flows_dir
+            break
+    return Path(*parts).with_suffix(extension)
 
 
 def flow2valid_path(flow_path: Path, valid_suffix: str = DEFAULT_FLOW_VALID_SUFFIX) -> Optional[Path]:
