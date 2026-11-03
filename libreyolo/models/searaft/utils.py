@@ -50,8 +50,12 @@ def preprocess_numpy(
     if image.ndim != 3 or image.shape[2] != 3:
         raise ValueError(f"expected an (H, W, 3) RGB image, got {image.shape}")
     h, w = int(image.shape[0]), int(image.shape[1])
-    x = torch.from_numpy(np.array(image, dtype=np.uint8, copy=True)).permute(2, 0, 1)[None].float()
-    x = x / 255.0
+    # Multiply by the float32 reciprocal of 255: this is what upstream's
+    # ``image / 255.0`` computes on CUDA, so the network input matches it bit
+    # for bit (true division differs by one ulp on some pixels, and the
+    # iterative refinement amplifies that to ~1e-2 px on large motions).
+    arr = np.asarray(image, dtype=np.float32) * (np.float32(1.0) / np.float32(255.0))
+    x = torch.from_numpy(np.ascontiguousarray(arr.transpose(2, 0, 1)))[None]
     work_h, work_w = resized_hw(h, w, input_size)
     if (work_h, work_w) != (h, w):
         x = F.interpolate(x, size=(work_h, work_w), mode="bilinear", align_corners=False)

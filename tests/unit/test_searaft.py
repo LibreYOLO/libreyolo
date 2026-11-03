@@ -217,3 +217,14 @@ def test_single_image_and_training_are_rejected():
         model(a)
     with pytest.raises(NotImplementedError):
         model.train(data="x.yaml")
+
+
+def test_preprocess_matches_upstream_cuda_normalisation_bit_for_bit():
+    # Upstream divides by 255.0 on the GPU, which CUDA computes as a multiply
+    # by the float32 reciprocal; parity on the clip depends on matching it.
+    img = np.arange(256, dtype=np.uint8).repeat(3 * 128).reshape(128, 256, 3)
+    x, _ = preprocess_numpy(img, None)
+    ref = torch.from_numpy(img.astype(np.float32)).permute(2, 0, 1)[None] * (
+        torch.tensor(1.0, dtype=torch.float32) / torch.tensor(255.0, dtype=torch.float32)
+    )
+    assert torch.equal(x, ref)
