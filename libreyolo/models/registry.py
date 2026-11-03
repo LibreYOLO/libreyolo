@@ -96,6 +96,7 @@ MODEL_GROUPS: dict[str, str] = {
     "ben2": "g3",
     "vitmatte": "g3",
     "ppocr": "g3",
+    "ppdoclayoutv3": "g3",
     "l2cs": "g3",
     "vgg": "g3",
     "hrnet": "g3",
