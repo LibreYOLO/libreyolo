@@ -253,6 +253,8 @@ YAML adds two optional keys on top of the common contract:
 - `flows_dir`: flow directory name substituted for `images` in each frame
   path (default `flows`).
 - `flow_format`: `flo` (default), `kitti` or `npy`.
+- `flow_valid_suffix`: suffix of the optional validity mask stored next to
+  each flow file as `<stem><suffix>.png` (default `_valid`).
 
 Validation reports `metrics/epe` (mean end-point error), `metrics/px1` and
 `metrics/px3` (fraction of valid pixels under 1 and 3 px of error) and

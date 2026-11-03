@@ -70,6 +70,20 @@ def _exit_inference_error(
     exit_stage_error(out, stage="Inference", detail=exc)
 
 
+def _split_source_list(source: str) -> str | list[str]:
+    """Turn ``"a.jpg,b.jpg"`` into a list when every part is an existing file.
+
+    A lone path, a URL, a stream locator or a path that happens to contain a
+    comma but exists as given stays a plain string.
+    """
+    if not isinstance(source, str) or "," not in source or Path(source).exists():
+        return source
+    parts = [part.strip() for part in source.split(",")]
+    if len(parts) >= 2 and all(part and Path(part).is_file() for part in parts):
+        return parts
+    return source
+
+
 def _build_predict_kwargs(
     loaded_model,
     *,
@@ -244,6 +258,10 @@ def predict_cmd(
     # not fall through as nonexistent image files.
     from libreyolo.utils.source import SourceKind, classify_source
 
+    # "a.jpg,b.jpg": several existing image files form one ordered list
+    # source (a frame pair for optical flow, a batch for every other task).
+    source = _split_source_list(source)
+
     try:
         source_spec = classify_source(source)
     except FileNotFoundError as exc:
@@ -252,7 +270,9 @@ def predict_cmd(
         exit_with_error(out, "config_type_error", str(exc))
 
     remote_prefixes = ("http://", "https://", "s3://", "gs://")
-    if source_spec.kind in {SourceKind.IMAGE, SourceKind.VIDEO}:
+    if source_spec.kind in {SourceKind.IMAGE, SourceKind.VIDEO} and isinstance(
+        source, str
+    ):
         source_path = Path(source)
         if not source_path.exists() and not source.startswith(remote_prefixes):
             exit_with_error(out, "source_not_found", f"Source not found: {source}")
@@ -469,7 +489,9 @@ def predict_cmd(
         # Count detections per class
         class_counts: dict[str, int] = {}
         h, w = r.orig_shape
-        img_name = Path(r.path or source).name
+        img_name = Path(
+            r.path or (source if isinstance(source, str) else source[0])
+        ).name
         idx = len(human_lines) + 1
         elapsed_ms = elapsed * 1000 / max(len(results), 1)
 
@@ -545,6 +567,19 @@ def predict_cmd(
                     "color_space": "linear_rgb",
                 }
                 summary = "albedo"
+            elif getattr(r, "flow", None) is not None:
+                flow = r.flow
+                flow_h, flow_w = flow.orig_shape
+                result_data["flow"] = {
+                    "shape": [int(flow_h), int(flow_w), 2],
+                    "mean_magnitude": round(float(flow.mean_magnitude), 4),
+                    "max_magnitude": round(float(flow.max_magnitude), 4),
+                    "has_confidence": flow.confidence is not None,
+                }
+                summary = (
+                    f"flow mean={flow.mean_magnitude:.4g}px "
+                    f"max={flow.max_magnitude:.4g}px"
+                )
             elif getattr(r, "depth_map", None) is not None:
                 depth_map = r.depth_map
                 result_data["depth"] = {
