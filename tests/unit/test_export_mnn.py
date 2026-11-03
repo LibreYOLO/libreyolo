@@ -305,3 +305,31 @@ def test_artifact_pair_restores_previous_files_on_commit_failure(tmp_path, monke
 
     assert destination.read_bytes() == b"old-model"
     assert sidecar.read_bytes() == b"old-sidecar"
+
+
+def test_environment_script_finds_tools_of_an_unactivated_venv(tmp_path, monkeypatch):
+    # mnnconvert used to be looked up beside the resolved interpreter, which
+    # in a venv is the base Python, so MNN export failed unless the venv was
+    # activated (#989).
+    from libreyolo.export import _scripts
+
+    scripts = tmp_path / "venv" / "bin"
+    scripts.mkdir(parents=True)
+    tool = scripts / ("mnnconvert.exe" if os.name == "nt" else "mnnconvert")
+    tool.write_text("")
+    monkeypatch.setattr(_scripts.sysconfig, "get_path", lambda name: str(scripts))
+    monkeypatch.setattr(_scripts.sys, "executable", str(tmp_path / "base" / "python"))
+    monkeypatch.setattr(_scripts.shutil, "which", lambda name: None)
+    assert _scripts.environment_script("mnnconvert") == tool
+    assert mnn_export._find_mnnconvert() == tool.resolve()
+
+
+def test_environment_script_returns_none_when_absent(tmp_path, monkeypatch):
+    from libreyolo.export import _scripts
+
+    monkeypatch.setattr(_scripts.sysconfig, "get_path", lambda name: str(tmp_path))
+    monkeypatch.setattr(_scripts.sys, "executable", str(tmp_path / "python"))
+    monkeypatch.setattr(_scripts.shutil, "which", lambda name: None)
+    assert _scripts.environment_script("mnnconvert") is None
+    with pytest.raises(ImportError, match=r"pip install libreyolo\[mnn\]"):
+        mnn_export._find_mnnconvert()
