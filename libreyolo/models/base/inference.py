@@ -1169,7 +1169,8 @@ class InferenceRunner:
                 ),
             )
 
-        # Depth: a dense relative inverse-depth map, no boxes.
+        # Depth: a dense relative inverse-depth map, no boxes. Families that
+        # recover camera geometry also attach it to the same payload.
         depth_data = detections.get("depth")
         if depth_data is not None:
             orig_w, orig_h = original_size
@@ -1186,6 +1187,10 @@ class InferenceRunner:
                 depth_map=DepthMap(
                     depth_t.float(), (orig_h, orig_w),
                     encoding=detections.get("depth_encoding", "inverse_depth"),
+                    metric=bool(detections.get("depth_metric", False)),
+                    point_map=detections.get("point_map"),
+                    intrinsics=detections.get("intrinsics"),
+                    valid_mask=detections.get("depth_mask"),
                 ),
             )
 

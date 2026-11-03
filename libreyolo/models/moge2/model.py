@@ -101,8 +101,10 @@ class LibreMoGe2(BaseModel):
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
+        # MoGe-3 checkpoints share these keys; its sparse refiner marks them.
         return (
-            "encoder.backbone.cls_token" in weights_dict
+            "refiner.input_proj.weight" not in weights_dict
+            and "encoder.backbone.cls_token" in weights_dict
             and "neck.input_blocks.0.weight" in weights_dict
             and "normal_head.output_blocks.4.weight" in weights_dict
         )
