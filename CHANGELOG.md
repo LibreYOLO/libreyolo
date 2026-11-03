@@ -7,6 +7,8 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-11-03
+
 ### Changed
 
 - **`libreyolo[all]` no longer includes `paddle`. (#989)**
