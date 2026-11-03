@@ -236,7 +236,7 @@ class LibreUniMatch(BaseModel):
 
     def preprocess_array(self, rgb: np.ndarray) -> torch.Tensor:
         """Upstream geometry for an ``(H, W, 3)`` uint8 RGB array."""
-        tensor = torch.from_numpy(np.ascontiguousarray(rgb[..., :3])).permute(2, 0, 1)
+        tensor = torch.from_numpy(np.array(rgb[..., :3], dtype=np.uint8)).permute(2, 0, 1)
         tensor = tensor.float().unsqueeze(0)
         if tensor.shape[-2] > tensor.shape[-1]:
             tensor = tensor.transpose(-2, -1)
