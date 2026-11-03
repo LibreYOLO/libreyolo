@@ -409,6 +409,21 @@ a single image is an error. Families that need more than two frames declare
 `FLOW_CONTEXT = (before, after)`. Validation reports end-point error and the
 1 px, 3 px and KITTI Fl-all outlier rates. See ADR 0032.
 
+Views and saving: `plot()` draws the Middlebury colour wheel, `plot(arrows=True)`
+draws arrows on the frame, `plot(warp=True)` shows the next frame warped back
+onto the current one as a correctness check; `predict(save=True, arrows=...,
+warp=...)` writes the chosen view and `predict(save_flow=True)` writes each
+pair's raw field as a `.flo` file (`FlowField.save` writes `.flo` or `.npy`).
+
+```python
+m = LibreYOLO("LibreSEARAFTm-flow.pt")
+r = m(["a.jpg", "b.jpg"])[0]
+r.plot(arrows=True, save=True)          # frame with arrows
+r.plot(warp=True, save=True)            # frame t | frame t+1 warped onto t
+r.flow.save("a.flo")                    # raw (H, W, 2) field
+m("clip.mp4", save=True, warp=True, save_flow=True)   # video of the warp check plus one .flo per pair
+```
+
 `albedo` predicts `Results.albedo`, a float32 `(H,W,3)` linear-RGB reflectance
 map in `[0,1]`. Its preview uses sRGB while the numeric payload remains linear.
 The first checkpoint is `LibreMarigoldV2b-albedo.pt`; see ADR 0026.

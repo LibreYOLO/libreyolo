@@ -69,9 +69,19 @@ counts are baked into the graph. Exported backends stretch-resize both frames
 to the canvas, resize the field back to the original canvas and multiply the
 vectors by the resize ratio, matching native postprocess.
 
-Plotting renders the field with the Middlebury colour wheel (hue is direction,
-saturation is magnitude, zero motion is white) and may overlay a sparse grid
-of arrows. The stored vectors are never altered by rendering.
+Rendering has three views, all read-only over the stored vectors. The default
+is the Middlebury colour wheel (hue is direction, saturation is magnitude,
+zero motion is white). `plot(arrows=True)` draws the source frame with one
+yellow displacement arrow every `arrow_step` pixels, stretched by
+`arrow_scale`, skipping vectors under 1 px. `plot(warp=True)` is the
+correctness check: frame `t` on the left and frame `t + 1` warped back onto
+it with the flow on the right, so a correct field makes both panels match.
+For that, predict attaches the next frame to the payload as
+`FlowField.next_frame`, a uint8 `(H, W, 3)` RGB array on the canvas of frame
+`t`. `predict(save=True)` writes the chosen view (`arrows=`, `warp=`), and
+`predict(save_flow=True)` also writes the raw field of every pair as a
+Middlebury `.flo` file next to it; `FlowField.save(path)` writes `.flo` or
+`.npy` directly.
 
 ## Consequences
 

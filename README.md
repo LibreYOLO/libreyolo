@@ -89,6 +89,7 @@ LibreYOLO("LibreHRNetw32-pose.pt")("street.jpg", save=True)      # pose
 LibreYOLO("LibreMiDaSs-depth.pt")("street.jpg", save=True)       # depth
 LibreYOLO("LibreFeyNobgl-matte.pt")("portrait.jpg", save=True)   # background removal
 LibreYOLO("LibreRTDETRv2n-obb.pt")("aerial.jpg", save=True)      # oriented boxes
+LibreYOLO("LibreSEARAFTm-flow.pt")("clip.mp4", save=True)        # optical flow, one result per frame pair
 ```
 
 Sources are not just files. Point it at a webcam, an RTSP stream, a video, a
