@@ -10,7 +10,7 @@ before 1.4.0 are documented in the
 ### Added
 
 - **TripoSplat, a second image-to-3D family: `LibreGen("triposplat")`.**
-  TripoAI's MIT model that Speridlabs Idol builds on, behind the same call: one image in, up to 262,144 Gaussian splats out, `.ply` and `.splat` files, `libreyolo generate source=chair.jpg model=triposplat`. Knobs `steps`, `guidance`, `shift`, `gaussians`, `margin`. Weights download from the pinned `VAST-AI/TripoSplat` snapshot; the DINOv3 and FLUX.2 VAE encoders are the ones Idol uses. Runs on CUDA, Apple MPS and CPU.
+  TripoAI's MIT model that Speridlabs Idol builds on, behind the same call: one image in, up to 262,144 Gaussian splats out, `.ply` and `.splat` files, `libreyolo generate source=chair.jpg model=triposplat`. Knobs `steps`, `guidance`, `shift`, `gaussians`, `margin`. Weights download from LibreYOLO's mirror of the `VAST-AI/TripoSplat` snapshot; the DINOv3 and FLUX.2 VAE encoders are the ones Idol uses. Runs on CUDA, Apple MPS and CPU.
 
 ### Changed
 

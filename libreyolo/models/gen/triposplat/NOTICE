@@ -27,13 +27,15 @@ snapshot. Upstream's own DINOv3 ViT and FLUX.2 VAE encoder implementations
 are not ported; the encoders load through transformers and diffusers
 (Apache-2.0) as for Idol.
 
-Weights: VAST-AI/TripoSplat (MIT; the denoiser, the decoder and BiRefNet)
-and black-forest-labs/FLUX.2-klein-4B (Apache-2.0, VAE only) are downloaded
-from their publishers at pinned revisions. The DINOv3 encoder is Meta's
+Weights: the denoiser, the decoder and BiRefNet are redistributed by
+LibreYOLO as LibreYOLO/LibreTripoSplat0.6b (MIT), byte-identical to
+VAST-AI/TripoSplat at revision 56a96e603204ec410c4da60c13ea4fa09a2169a9;
+black-forest-labs/FLUX.2-klein-4B (Apache-2.0, VAE only) is downloaded from
+its publisher. All at pinned revisions. The DINOv3 encoder is Meta's
 facebook/dinov3-vith16plus-pretrain-lvd1689m (DINOv3 License), rehosted by
 LibreYOLO in bfloat16 as LibreYOLO/LibreDINOv3vith16plus together with the
 DINOv3 License Agreement. The DINOv3 and FLUX.2 VAE copies in the
-VAST-AI/TripoSplat repo are not downloaded.
+VAST-AI/TripoSplat repo are not mirrored.
 
 TripoSplat citation:
 Runjie Yan, Yan-Pei Cao, Peng Wang, Ding Liang, Yuan-Chen Guo. "Generative

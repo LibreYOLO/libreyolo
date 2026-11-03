@@ -152,8 +152,9 @@ Used for: the TripoSplat family (libreyolo/models/gen/triposplat/): the
           with Speridlabs Idol (libreyolo/models/gen/image3d.py).
 
 NOTE - code vs. weights: no weights are bundled in the package.
-VAST-AI/TripoSplat (MIT, revision 56a96e603204ec410c4da60c13ea4fa09a2169a9;
-the denoiser, the decoder and BiRefNet files only) and the FLUX.2 VAE from
+The denoiser, the decoder and BiRefNet are redistributed by LibreYOLO as
+LibreYOLO/LibreTripoSplat0.6b (MIT, revision dbef04688a6b3af979b735e20dbf09acbb941af7), byte-identical to
+VAST-AI/TripoSplat at revision 56a96e603204ec410c4da60c13ea4fa09a2169a9. The FLUX.2 VAE from
 black-forest-labs/FLUX.2-klein-4B (Apache-2.0, revision
 e7b7dc27f91deacad38e78976d1f2b499d76a294) download from their publishers.
 The DINOv3 ViT-H+/16 encoder (Meta DINOv3 License) is LibreYOLO's bfloat16

@@ -970,7 +970,8 @@ Image-to-3D Gaussian splats
 Upstream: VAST-AI-Research (TripoAI), https://github.com/VAST-AI-Research/TripoSplat
 License: MIT, as declared by the official model repository.
 
-Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreTripoSplat0.6b @
+dbef04688a6b3af979b735e20dbf09acbb941af7 (with LICENSE and NOTICE), mirrored from:
 
 VAST-AI/TripoSplat @ 56a96e603204ec410c4da60c13ea4fa09a2169a9
   diffusion_models/triposplat_fp16.safetensors

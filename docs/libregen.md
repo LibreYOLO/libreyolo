@@ -174,7 +174,8 @@ under Meta's DINOv3 License, which restricts some uses (military, weapons,
 sanctioned parties among them); read it before use.
 
 TripoSplat by [TripoAI](https://www.tripo3d.ai/research/triposplat) is the
-model Idol builds on, under MIT. Same call, same output, same encoders; its
+model Idol builds on, under MIT; its weights come from LibreYOLO's mirror
+[`LibreYOLO/LibreTripoSplat0.6b`](https://huggingface.co/LibreYOLO/LibreTripoSplat0.6b). Same call, same output, same encoders; its
 own knobs are `steps` (upstream recommends 10 to 20), `guidance` (1 or less
 turns it off), `shift`, `gaussians` (32,768 to 262,144) and `margin` (the
 crop, 1.2 as upstream). It runs in fp16 on CUDA and Apple MPS and in fp32 on

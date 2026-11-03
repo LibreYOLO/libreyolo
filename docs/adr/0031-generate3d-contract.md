@@ -150,7 +150,7 @@ SDK's behaviour.
 | Alias | Upstream | License | Knobs (defaults) |
 | --- | --- | --- | --- |
 | `speridlabs-idol` | `speridlabs/idol` (code `speridlabs/idol-sdk`) | Apache-2.0 code and weights | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"`), `margin` (`None`) |
-| `triposplat` | `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
+| `triposplat` | `LibreYOLO/LibreTripoSplat0.6b`, a mirror of `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
 
 Speridlabs Idol is a 0.66B rectified-flow transformer: DINOv3 ViT-H+ and
 FLUX.2 VAE tokens of the 1024px input condition a denoiser over an 8192-token
@@ -225,11 +225,11 @@ snapshot.
 (`config.json` with `image_encoders`, `denoiser.safetensors`,
 `decoder.safetensors`, `decoder_gs.safetensors`, `birefnet.safetensors`).
 
-TripoSplat's own weights are the denoiser, the decoder and BiRefNet of the
-pinned `VAST-AI/TripoSplat` snapshot (MIT), downloaded into
-`weights/LibreTripoSplat0.6b/` in their upstream folders; the repo's DINOv3
-and FLUX.2 VAE copies are not downloaded, the two encoders above are used
-instead. `LibreGen(path)` loads a directory holding those three files.
+TripoSplat's own weights (denoiser, decoder, BiRefNet) are redistributed
+under MIT as `LibreYOLO/LibreTripoSplat0.6b`, byte-identical to the pinned
+`VAST-AI/TripoSplat` snapshot and in its folder layout, downloaded into
+`weights/LibreTripoSplat0.6b/`; upstream's DINOv3 and FLUX.2 VAE copies are
+not mirrored, the two encoders above are used instead. `LibreGen(path)` loads a directory holding those three files.
 
 ## Reserved for later
 

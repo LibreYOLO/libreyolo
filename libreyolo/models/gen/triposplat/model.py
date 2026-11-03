@@ -14,8 +14,9 @@ model's device, so objects differ across devices. Upstream draws the octree
 sampling from the global generator; the port draws it from the seeded one,
 so a seed reproduces the whole object.
 
-Nothing is gated and no login is needed. TripoSplat's own files come from
-the pinned ``VAST-AI/TripoSplat`` snapshot (MIT); the FLUX.2 VAE from
+Nothing is gated and no login is needed. TripoSplat's own files (denoiser,
+decoder, BiRefNet) come from LibreYOLO's mirror ``LibreYOLO/LibreTripoSplat0.6b``,
+byte-identical to the pinned ``VAST-AI/TripoSplat`` snapshot (MIT); the FLUX.2 VAE from
 ``FLUX.2-klein-4B`` (Apache-2.0); the DINOv3 encoder from LibreYOLO's bf16
 mirror ``LibreYOLO/LibreDINOv3vith16plus`` (Meta's DINOv3 License). All at
 pinned revisions. Background removal runs on LibreYOLO's BiRefNet network
@@ -48,9 +49,9 @@ class LibreTripoSplat(LibreGen3DModel):
 
     FAMILY = "triposplat"
     FILENAME_PREFIX = "LibreTripoSplat"
-    HF_REPOS: ClassVar[Dict[str, str]] = {"0.6b": "VAST-AI/TripoSplat"}
+    HF_REPOS: ClassVar[Dict[str, str]] = {"0.6b": "LibreYOLO/LibreTripoSplat0.6b"}
     HF_REVISIONS: ClassVar[Dict[str, str]] = {
-        "0.6b": "56a96e603204ec410c4da60c13ea4fa09a2169a9"
+        "0.6b": "dbef04688a6b3af979b735e20dbf09acbb941af7"
     }
     INPUT_SIZES: ClassVar[Dict[str, int]] = {"0.6b": 1024}
     SNAPSHOT_ALLOW_PATTERNS: ClassVar[Tuple[str, ...]] = _WEIGHT_FILES

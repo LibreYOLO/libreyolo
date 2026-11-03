@@ -46,22 +46,22 @@ def test_alias_resolves_without_loading():
 def test_pins_every_download():
     from libreyolo.models.gen import image3d
 
-    assert LibreTripoSplat.HF_REPOS["0.6b"] == "VAST-AI/TripoSplat"
+    assert LibreTripoSplat.HF_REPOS["0.6b"] == "LibreYOLO/LibreTripoSplat0.6b"
     assert (
         LibreTripoSplat.HF_REVISIONS["0.6b"]
-        == "56a96e603204ec410c4da60c13ea4fa09a2169a9"
+        == "dbef04688a6b3af979b735e20dbf09acbb941af7"
     )
     for revision in (image3d.DINOV3_REVISION, image3d.FLUX2_VAE_REVISION):
         assert len(revision) == 40
-    # Only TripoSplat's own networks come from its repo: the DINOv3 and VAE
-    # copies there are not downloaded (the encoders are shared with Idol).
+    # The mirror holds TripoSplat's own networks only: upstream's DINOv3 and
+    # VAE copies are not mirrored (the encoders are shared with Idol).
     assert set(LibreTripoSplat.SNAPSHOT_ALLOW_PATTERNS) == {
         "diffusion_models/triposplat_fp16.safetensors",
         "vae/triposplat_vae_decoder_fp16.safetensors",
         "background_removal/birefnet.safetensors",
     }
     assert LibreTripoSplat.get_download_url("LibreTripoSplat0.6b") == (
-        "https://huggingface.co/VAST-AI/TripoSplat/tree/56a96e603204ec410c4da60c13ea4fa09a2169a9"
+        "https://huggingface.co/LibreYOLO/LibreTripoSplat0.6b/tree/dbef04688a6b3af979b735e20dbf09acbb941af7"
     )
 
 
