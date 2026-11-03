@@ -193,7 +193,15 @@ distribution, not the same draw.
 
 The shared steps (background removal, crop, the two encoders, the camera
 decoding) live in `libreyolo/models/gen/image3d.py`; each family keeps its
-own networks and sampler.
+own networks and sampler. TripoSplat upstream ships its own DINOv3 ViT and
+FLUX.2 VAE encoder implementations; the port reads the same weights (VAST's
+DINOv3 file equals LibreYOLO's mirror tensor for tensor) through
+transformers and diffusers, as Idol does. The VAE tokens are bitwise equal;
+the DINOv3 tokens differ at bf16 noise level (mean absolute difference 0.006
+after the layer norm, isolated tokens up to 1.0), because the two
+implementations order their bf16 arithmetic differently. The parity gate
+(`weights/parity_triposplat.py`) checks the encoders at that tolerance and
+the rest of the pipeline from upstream's own tokens.
 
 ## Weights
 

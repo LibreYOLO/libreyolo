@@ -25,7 +25,9 @@ LibreYOLO's BiRefNet network (libreyolo/models/birefnet, ported from
 ZhengPeng7/BiRefNet, MIT) with the BiRefNet weights from the TripoSplat
 snapshot. Upstream's own DINOv3 ViT and FLUX.2 VAE encoder implementations
 are not ported; the encoders load through transformers and diffusers
-(Apache-2.0) as for Idol.
+(Apache-2.0) as for Idol, from the same weights (VAST's DINOv3 file and the
+LibreYOLO mirror hold identical tensors). The VAE tokens equal upstream's
+bit for bit; the DINOv3 tokens differ at bf16 noise level (mean 0.006).
 
 Weights: the denoiser, the decoder and BiRefNet are redistributed by
 LibreYOLO as LibreYOLO/LibreTripoSplat0.6b (MIT), byte-identical to
