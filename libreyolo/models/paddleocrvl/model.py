@@ -170,7 +170,13 @@ class LibrePaddleOCRVL(LibreVLMModel):
         model = AutoModelForImageTextToText.from_pretrained(
             snapshot_dir, dtype=self._resolve_dtype()
         )
-        processor = AutoProcessor.from_pretrained(snapshot_dir)
+        # The PIL image backend reproduces upstream's resize bit for bit; the
+        # default torchvision backend shifts pixels by up to 0.1 and changes
+        # greedy outputs on some crops.
+        try:
+            processor = AutoProcessor.from_pretrained(snapshot_dir, backend="pil")
+        except (TypeError, ValueError):
+            processor = AutoProcessor.from_pretrained(snapshot_dir)
         layout_dir = Path(snapshot_dir) / LAYOUT_SUBDIR
         if not (layout_dir / "config.json").is_file():
             raise FileNotFoundError(

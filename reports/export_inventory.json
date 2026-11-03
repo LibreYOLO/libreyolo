@@ -1637,6 +1637,24 @@
     "available": true,
     "group": "s"
   },
+  "paddleocrvl": {
+    "class": "libreyolo.models.paddleocrvl.model.LibrePaddleOCRVL",
+    "tasks": [
+      "ocr"
+    ],
+    "default_task": "ocr",
+    "sizes": {
+      "0.9b": 800
+    },
+    "default_imgsz": {
+      "0.9b": 800
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "pe": {
     "class": "libreyolo.models.pe.model.LibrePE",
     "tasks": [
