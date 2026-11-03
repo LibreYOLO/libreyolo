@@ -10,7 +10,7 @@ Run in two environments (ptlflow is not a LibreYOLO dependency):
 
 Upstream reads frames with OpenCV (BGR in [0, 1]), as ptlflow's own inference
 script does; LibreYOLO goes through ``model.predict`` on the PNG paths. Both
-run fp32 on the same device with TF32 disabled.
+run fp32 on the same device with TF32 disabled and deterministic cuDNN.
 """
 
 from __future__ import annotations
@@ -31,8 +31,14 @@ def _frames(directory: str) -> list[Path]:
 
 
 def _no_tf32() -> None:
+    # fp32 everywhere and a fixed cuDNN algorithm choice: with autotuned
+    # algorithms the two processes pick different convolution kernels, and
+    # the recurrent refinement amplifies those last-bit differences to
+    # tenths of a pixel at a few ambiguous pixels.
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
 
 def run_upstream(frames: list[Path], ckpt: str, out: str) -> None:
