@@ -386,3 +386,15 @@ def test_val_runs_the_ocr_validator(harness, tmp_path):
     assert metrics["metrics/det_recall"] == pytest.approx(0.5)
     assert metrics["metrics/e2e_recall"] == pytest.approx(0.5)
     assert metrics["metrics/e2e_precision"] == pytest.approx(1 / 3)
+
+
+def test_vision_position_grid_matches_upstream():
+    from libreyolo.models.paddleocrvl.model import _match_upstream_position_grid
+
+    class _Emb(nn.Module):
+        interpolation_align_corners = True
+
+    net = nn.Sequential(nn.Linear(1, 1), _Emb(), nn.Sequential(_Emb()))
+    assert _match_upstream_position_grid(net) == 2
+    assert all(not m.interpolation_align_corners for m in net.modules() if isinstance(m, _Emb))
+    assert _match_upstream_position_grid(nn.Linear(1, 1)) == 0

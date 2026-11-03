@@ -73,6 +73,27 @@ def _check_transformers() -> None:
         )
 
 
+def _match_upstream_position_grid(model: nn.Module) -> int:
+    """Resample the vision position grid the way the released model does.
+
+    Upstream interpolates the learned 27x27 position embeddings bilinearly with
+    ``align_corners=False``; the native transformers port defaults to
+    ``True``, which shifts every visual token and changes greedy outputs.
+    Returns the number of embedding modules updated.
+    """
+    updated = 0
+    for module in model.modules():
+        if hasattr(module, "interpolation_align_corners"):
+            module.interpolation_align_corners = False
+            updated += 1
+    if not updated:
+        logger.warning(
+            "PaddleOCR-VL: no vision position-grid setting found in this "
+            "transformers version; outputs may differ from upstream."
+        )
+    return updated
+
+
 class _PageRequest:
     """One predict call: the page image. The runner calls ``to``."""
 
@@ -170,6 +191,7 @@ class LibrePaddleOCRVL(LibreVLMModel):
         model = AutoModelForImageTextToText.from_pretrained(
             snapshot_dir, dtype=self._resolve_dtype()
         )
+        _match_upstream_position_grid(model)
         # The PIL image backend reproduces upstream's resize bit for bit; the
         # default torchvision backend shifts pixels by up to 0.1 and changes
         # greedy outputs on some crops.
