@@ -2,7 +2,9 @@
 
 Follows ``DeepseekOCRForCausalLM.infer`` and its helpers in the DeepSeek-OCR
 Hugging Face release (deepseek-ai/DeepSeek-OCR @
-9f30c71f441d010e5429c532364a86705536c53a, MIT): the same PIL resize and pad
+9f30c71f441d010e5429c532364a86705536c53a, MIT) and its DeepSeek-OCR-2
+counterpart (deepseek-ai/DeepSeek-OCR-2 @
+aaa02f3811945a91062062994c5c4a3f4c0af2b0, Apache-2.0): the same PIL resize and pad
 calls, the same crop-grid search, the same placeholder token layout. Two
 deliberate differences from the release:
 
@@ -43,14 +45,34 @@ RESOLUTIONS: Dict[str, Tuple[int, int, bool]] = {
 }
 
 
-def resolve_resolution(name: str) -> Tuple[int, int, bool]:
+@dataclass(frozen=True)
+class VisionSpec:
+    """Per-version view tiling and placeholder layout."""
+
+    resolutions: Dict[str, Tuple[int, int, bool]]
+    crop_size: int  # local crop side, also the "small enough, no crops" bound
+    max_crops: int
+    newline_tokens: bool  # v1 adds one newline token per grid row
+
+
+V1 = VisionSpec(RESOLUTIONS, crop_size=640, max_crops=9, newline_tokens=True)
+# DeepSeek-OCR-2 has learned queries for 768 and 1024 px views only.
+V2 = VisionSpec(
+    {"base": (1024, 1024, False), "gundam": (1024, 768, True)},
+    crop_size=768,
+    max_crops=6,
+    newline_tokens=False,
+)
+
+
+def resolve_resolution(name: str, spec: "VisionSpec" = V1) -> Tuple[int, int, bool]:
     key = str(name).strip().lower()
-    if key not in RESOLUTIONS:
+    if key not in spec.resolutions:
         raise ValueError(
             f"Unknown DeepSeek-OCR resolution {name!r}. "
-            f"Choose one of: {', '.join(RESOLUTIONS)}."
+            f"Choose one of: {', '.join(spec.resolutions)}."
         )
-    return RESOLUTIONS[key]
+    return spec.resolutions[key]
 
 
 def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, image_size):
@@ -84,9 +106,11 @@ def crop_grid(width: int, height: int, min_num=2, max_num=9, image_size=CROP_SIZ
     )
 
 
-def dynamic_preprocess(image: Image.Image, image_size: int = CROP_SIZE):
+def dynamic_preprocess(image: Image.Image, image_size: int = CROP_SIZE, max_num: int = 9):
     """Resize to the best grid and cut it into ``image_size`` tiles (row-major)."""
-    cols, rows = crop_grid(image.size[0], image.size[1], image_size=image_size)
+    cols, rows = crop_grid(
+        image.size[0], image.size[1], max_num=max_num, image_size=image_size
+    )
     target_width, target_height = image_size * cols, image_size * rows
     resized = image.resize((target_width, target_height))
     tiles = []
@@ -119,18 +143,23 @@ def num_queries(size: int) -> int:
 
 
 def image_token_count(
-    base_size: int, image_size: int, crop_mode: bool, grid: Tuple[int, int] = (1, 1)
+    base_size: int,
+    image_size: int,
+    crop_mode: bool,
+    grid: Tuple[int, int] = (1, 1),
+    newline_tokens: bool = True,
 ) -> int:
     """Number of ``<image>`` placeholders the release lays out for one image."""
+    nl = 1 if newline_tokens else 0
     if not crop_mode:
         n = num_queries(image_size)
-        return (n + 1) * n + 1
+        return (n + nl) * n + 1
     nb = num_queries(base_size)
-    count = (nb + 1) * nb + 1
+    count = (nb + nl) * nb + 1
     cols, rows = grid
     if cols > 1 or rows > 1:
         n = num_queries(image_size)
-        count += (n * cols + 1) * (n * rows)
+        count += (n * cols + nl) * (n * rows)
     return count
 
 
@@ -144,29 +173,34 @@ class ImageViews:
     num_tokens: int
 
 
-def prepare_views(image: Image.Image, resolution: str) -> ImageViews:
-    base_size, image_size, crop_mode = resolve_resolution(resolution)
+def prepare_views(image: Image.Image, resolution: str, spec: VisionSpec = V1) -> ImageViews:
+    base_size, image_size, crop_mode = resolve_resolution(resolution, spec)
     image = image.convert("RGB")
     color = _pad_color()
+    bound = spec.crop_size
     if crop_mode:
         crops = None
         grid = (1, 1)
-        if not (image.size[0] <= CROP_SIZE and image.size[1] <= CROP_SIZE):
-            tiles, grid = dynamic_preprocess(image)
+        if not (image.size[0] <= bound and image.size[1] <= bound):
+            tiles, grid = dynamic_preprocess(
+                image, image_size=spec.crop_size, max_num=spec.max_crops
+            )
             if grid[0] > 1 or grid[1] > 1:
                 crops = torch.stack([to_tensor(t) for t in tiles], dim=0)
         global_view = ImageOps.pad(image, (base_size, base_size), color=color)
     else:
         grid = (1, 1)
         crops = None
-        if image_size <= CROP_SIZE:
+        if image_size <= bound:
             image = image.resize((image_size, image_size))
         global_view = ImageOps.pad(image, (image_size, image_size), color=color)
     return ImageViews(
         global_view=to_tensor(global_view).unsqueeze(0),
         crops=crops,
         grid=grid,
-        num_tokens=image_token_count(base_size, image_size, crop_mode, grid),
+        num_tokens=image_token_count(
+            base_size, image_size, crop_mode, grid, spec.newline_tokens
+        ),
     )
 
 

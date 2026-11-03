@@ -444,6 +444,7 @@ class ImageEncoderViT(nn.Module):
         use_rel_pos: bool = True,
         window_size: int = 14,
         global_attn_indexes: Tuple[int, ...] = (2, 5, 8, 11),
+        final_chans: int = 1024,
     ) -> None:
         super().__init__()
         self.img_size = img_size
@@ -478,7 +479,7 @@ class ImageEncoderViT(nn.Module):
         )
         self.net_2 = nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1, bias=False)
         self.net_3 = nn.Conv2d(
-            512, 1024, kernel_size=3, stride=2, padding=1, bias=False
+            512, final_chans, kernel_size=3, stride=2, padding=1, bias=False
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -491,8 +492,10 @@ class ImageEncoderViT(nn.Module):
         return self.net_3(x2.clone())
 
 
-def build_sam_vit_b() -> ImageEncoderViT:
+def build_sam_vit_b(final_chans: int = 1024) -> ImageEncoderViT:
+    """SAM ViT-B; DeepSeek-OCR-2 narrows the last conv to 896 channels."""
     return ImageEncoderViT(
+        final_chans=final_chans,
         depth=12,
         embed_dim=768,
         img_size=1024,

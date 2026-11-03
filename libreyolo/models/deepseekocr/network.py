@@ -2,7 +2,9 @@
 
 Ported from ``DeepseekOCRModel`` / ``DeepseekOCRForCausalLM`` of the
 DeepSeek-OCR Hugging Face release (deepseek-ai/DeepSeek-OCR @
-9f30c71f441d010e5429c532364a86705536c53a, MIT). The image-feature layout
+9f30c71f441d010e5429c532364a86705536c53a, MIT) and their DeepSeek-OCR-2
+counterparts (deepseek-ai/DeepSeek-OCR-2 @
+aaa02f3811945a91062062994c5c4a3f4c0af2b0, Apache-2.0). The image-feature layout
 (local crops row-major with a newline column, then the global view with a
 newline column, then a view separator) and the greedy decode with
 ``no_repeat_ngram_size`` follow the release; device placement no longer
@@ -18,25 +20,41 @@ import torch
 import torch.nn as nn
 
 from .deepencoder import MlpProjector, build_clip_l, build_sam_vit_b
+from .encoder2 import Qwen2Decoder2Encoder
 from .language import DeepSeekOCRTextConfig, DeepSeekV2TextModel, NoRepeatNGram
 
 
 class DeepSeekOCRBackbone(DeepSeekV2TextModel):
-    """Decoder plus the vision tower, under the checkpoint's ``model.`` prefix."""
+    """Decoder plus the vision tower, under the checkpoint's ``model.`` prefix.
 
-    def __init__(self, config: DeepSeekOCRTextConfig):
+    ``version`` 1 is DeepSeek-OCR (SAM into CLIP-L, newline tokens); version 2
+    is DeepSeek-OCR-2 (SAM into a Qwen2 encoder with learned queries, no
+    newline tokens).
+    """
+
+    def __init__(self, config: DeepSeekOCRTextConfig, version: int = 1):
         super().__init__(config)
+        self.version = int(version)
         n_embed = config.hidden_size
-        self.sam_model = build_sam_vit_b()
-        self.vision_model = build_clip_l()
-        self.projector = MlpProjector(input_dim=2048, n_embed=n_embed)
         embed_std = 1 / torch.sqrt(torch.tensor(n_embed, dtype=torch.float32))
-        self.image_newline = nn.Parameter(torch.randn(n_embed) * embed_std)
+        if self.version == 1:
+            self.sam_model = build_sam_vit_b()
+            self.vision_model = build_clip_l()
+            self.projector = MlpProjector(input_dim=2048, n_embed=n_embed)
+            self.image_newline = nn.Parameter(torch.randn(n_embed) * embed_std)
+        elif self.version == 2:
+            self.sam_model = build_sam_vit_b(final_chans=896)
+            self.qwen2_model = Qwen2Decoder2Encoder(hidden_size=896)
+            self.projector = MlpProjector(input_dim=896, n_embed=n_embed)
+        else:
+            raise ValueError(f"Unknown DeepSeek-OCR version {version!r}")
         # Spelling kept from the checkpoint key.
         self.view_seperator = nn.Parameter(torch.randn(n_embed) * embed_std)
 
     def _features(self, pixels: torch.Tensor) -> torch.Tensor:
         sam = self.sam_model(pixels)
+        if self.version == 2:
+            return self.projector(self.qwen2_model(sam))
         clip = self.vision_model(pixels, sam)
         feats = torch.cat((clip[:, 1:], sam.flatten(2).permute(0, 2, 1)), dim=-1)
         return self.projector(feats)
@@ -59,6 +77,15 @@ class DeepSeekOCRBackbone(DeepSeekV2TextModel):
         the global view (same newline layout), then the view separator. The
         release encodes the crops before the global view; so does this.
         """
+        if self.version == 2:
+            # No newline tokens: crops in batch order, then the global view.
+            parts = []
+            if crops is not None:
+                local = self._features(crops)
+                parts.append(local.reshape(-1, local.shape[-1]))
+            glob = self._features(global_view)
+            parts += [glob.reshape(-1, glob.shape[-1]), self.view_seperator[None, :]]
+            return torch.cat(parts, dim=0)
         local_features = None
         if crops is not None:
             local = self._features(crops)
@@ -84,10 +111,10 @@ class DeepSeekOCRBackbone(DeepSeekV2TextModel):
 class DeepSeekOCRNetwork(nn.Module):
     """Checkpoint-shaped root module: ``model`` plus ``lm_head``."""
 
-    def __init__(self, config: DeepSeekOCRTextConfig):
+    def __init__(self, config: DeepSeekOCRTextConfig, version: int = 1):
         super().__init__()
         self.config = config
-        self.model = DeepSeekOCRBackbone(config)
+        self.model = DeepSeekOCRBackbone(config, version)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
     def _logits(self, hidden_states: torch.Tensor) -> torch.Tensor:

@@ -55,6 +55,8 @@ from .language import DeepSeekOCRTextConfig, RotaryEmbedding
 from .network import DeepSeekOCRNetwork
 from .processing import (
     RESOLUTIONS,
+    V1,
+    V2,
     DeepSeekOCRTokenizer,
     build_input_ids,
     normalize_prompt,
@@ -97,12 +99,12 @@ def _load_safetensors(snapshot_dir: Path) -> Dict[str, torch.Tensor]:
     return state
 
 
-def build_network(snapshot_dir: str | Path) -> DeepSeekOCRNetwork:
+def build_network(snapshot_dir: str | Path, version: int = 1) -> DeepSeekOCRNetwork:
     """Build the network on the meta device and load the snapshot strictly."""
     snapshot_dir = Path(snapshot_dir)
     config = DeepSeekOCRTextConfig.from_json(snapshot_dir / "config.json")
     with torch.device("meta"):
-        net = DeepSeekOCRNetwork(config)
+        net = DeepSeekOCRNetwork(config, version)
     state = _load_safetensors(snapshot_dir)
     net.load_state_dict(state, strict=True, assign=True)
     # Non-persistent buffers are not in the checkpoint: rebuild them on CPU.
@@ -110,12 +112,16 @@ def build_network(snapshot_dir: str | Path) -> DeepSeekOCRNetwork:
     backbone.rotary_emb = RotaryEmbedding(
         config.hidden_size // config.num_attention_heads, config.rope_theta
     )
-    emb = backbone.vision_model.embeddings
-    emb.register_buffer(
-        "position_ids",
-        torch.arange(emb.num_positions).expand((1, -1)),
-        persistent=False,
-    )
+    if version == 1:
+        emb = backbone.vision_model.embeddings
+        emb.register_buffer(
+            "position_ids",
+            torch.arange(emb.num_positions).expand((1, -1)),
+            persistent=False,
+        )
+    else:
+        stack = backbone.qwen2_model.model.model
+        stack.rotary_emb = RotaryEmbedding(896 // 14, 1000000.0)
     leftover = [n for n, b in net.named_buffers() if b.is_meta]
     leftover += [n for n, p in net.named_parameters() if p.is_meta]
     if leftover:
@@ -130,11 +136,15 @@ class LibreDeepSeekOCR(LibreVLMModel):
     FILENAME_PREFIX = "LibreDeepSeekOCR"
     # Byte-identical mirror of deepseek-ai/DeepSeek-OCR @ 9f30c71f (weights,
     # config, tokenizer; no remote code), pinned.
-    HF_REPOS: ClassVar[Dict[str, str]] = {"1": "LibreYOLO/LibreDeepSeekOCR1"}
-    HF_REVISIONS: ClassVar[Dict[str, str]] = {
-        "1": "a47622e3fb7279eaed206ab5d656158b71976b5b"
+    HF_REPOS: ClassVar[Dict[str, str]] = {
+        "1": "LibreYOLO/LibreDeepSeekOCR1",
+        "2": "deepseek-ai/DeepSeek-OCR-2",
     }
-    INPUT_SIZES: ClassVar[Dict[str, int]] = {"1": 1024}
+    HF_REVISIONS: ClassVar[Dict[str, str]] = {
+        "1": "a47622e3fb7279eaed206ab5d656158b71976b5b",
+        "2": "aaa02f3811945a91062062994c5c4a3f4c0af2b0",
+    }
+    INPUT_SIZES: ClassVar[Dict[str, int]] = {"1": 1024, "2": 1024}
     SUPPORTED_TASKS = ("ocr",)
     DEFAULT_TASK = "ocr"
     # Release defaults for ``infer`` (outside its benchmark ``eval_mode``).
@@ -167,9 +177,11 @@ class LibreDeepSeekOCR(LibreVLMModel):
     ):
         """
         Args:
-            size: Model version; ``"1"`` is DeepSeek-OCR.
+            size: Model version: ``"1"`` is DeepSeek-OCR, ``"2"`` is
+                DeepSeek-OCR-2.
             resolution: ``tiny``, ``small``, ``base``, ``large`` or ``gundam``
-                (default).
+                (default) for version 1; ``base`` or ``gundam`` (default) for
+                version 2.
             no_repeat_ngram_size: Ban repeated n-grams of this length while
                 decoding (release default 20; 0 disables).
             **kwargs: ``prompt`` (``"ocr"``, ``"markdown"``, ``"free"`` or a
@@ -179,6 +191,8 @@ class LibreDeepSeekOCR(LibreVLMModel):
         kwargs.setdefault("nb_classes", 1)
         kwargs.pop("names", None)
         prompt = kwargs.pop("prompt", None)
+        self._version = 2 if str(size) == "2" else 1
+        self._spec = V2 if self._version == 2 else V1
         self.resolution = resolution or self.DEFAULT_RESOLUTION
         self.no_repeat_ngram_size = (
             self.NO_REPEAT_NGRAM_SIZE
@@ -199,7 +213,7 @@ class LibreDeepSeekOCR(LibreVLMModel):
 
     @resolution.setter
     def resolution(self, value: str) -> None:
-        resolve_resolution(value)
+        resolve_resolution(value, self._spec)
         self._resolution = str(value).strip().lower()
 
     def set_prompt(self, prompt: Optional[str]) -> "LibreDeepSeekOCR":
@@ -222,7 +236,7 @@ class LibreDeepSeekOCR(LibreVLMModel):
     # ------------------------------------------------------------------ loading
 
     def _load_pretrained(self, snapshot_dir: str):
-        net = build_network(snapshot_dir)
+        net = build_network(snapshot_dir, self._version)
         dtype = self._resolve_dtype()
         net = net.to(dtype=dtype).to(self.device).eval()
         tokenizer = DeepSeekOCRTokenizer(snapshot_dir)
@@ -237,7 +251,7 @@ class LibreDeepSeekOCR(LibreVLMModel):
     # ---------------------------------------------------------------- inference
 
     def _generate(self, image: Image.Image, prompt: str, max_new_tokens=None):
-        views = prepare_views(image, self.resolution)
+        views = prepare_views(image, self.resolution, self._spec)
         ids, mask = build_input_ids(self.processor, prompt, views.num_tokens)
         dtype = self._model_dtype
         device = self.device

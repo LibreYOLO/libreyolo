@@ -108,6 +108,8 @@ _WEVISONE_ALIASES: Dict[str, str] = {
 _DEEPSEEKOCR_ALIASES: Dict[str, str] = {
     "deepseek-ocr": "1",
     "deepseekocr": "1",
+    "deepseek-ocr-2": "2",
+    "deepseekocr2": "2",
 }
 
 _DEFAULT_MODEL = "qwen3-vl-4b"
