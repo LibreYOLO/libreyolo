@@ -117,6 +117,7 @@ from .dexined.model import LibreDexiNed  # noqa: E402,F401  (edge-only; MIT sour
 from .depth_anything3.model import (  # noqa: E402,F401  (import registers family)
     LibreDepthAnything3,
 )
+from .unimatch.model import LibreUniMatch  # noqa: E402,F401  (flow-only; can_load keyed on GMFlow feature_flow_attn + transformer)
 from .nafnet.model import LibreNAFNet  # noqa: E402,F401  (restore-only)
 from .ddcolor.model import LibreDDColor  # noqa: E402,F401  (restore-only colorization)
 from .hvi_cidnet.model import LibreHVICIDNet  # noqa: E402,F401  (restore-only low-light enhancement)
@@ -912,6 +913,7 @@ __all__ = [
     "LibreTEED",
     "LibreDexiNed",
     "LibreDepthAnything3",
+    "LibreUniMatch",
     "LibreNAFNet",
     "LibreDDColor",
     "LibreHVICIDNet",
