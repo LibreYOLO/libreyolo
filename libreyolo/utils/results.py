@@ -1650,6 +1650,13 @@ class OCRRegions(_TensorPayload):
 
     Detection quads are genuine polygons (rotated text), so they do not
     populate ``Results.boxes``; use :attr:`xyxy` for axis-aligned hulls.
+
+    Document parsers fill two optional extras: ``labels``, the per-region
+    layout category (for example ``"text"``, ``"table"``,
+    ``"display_formula"``), and ``markdown``, the whole-page document the
+    regions assemble into. Both default to empty (``None`` labels, ``""``
+    markdown) for line-level OCR. ``markdown`` is page-level, so slicing keeps
+    it unchanged.
     """
 
     def __init__(
@@ -1659,6 +1666,8 @@ class OCRRegions(_TensorPayload):
         confidence: TensorLike | None = None,
         det_confidence: TensorLike | None = None,
         orig_shape: Tuple[int, int] | None = None,
+        labels: Optional[List[str]] = None,
+        markdown: str = "",
     ):
         if isinstance(data, np.ndarray):
             data = torch.as_tensor(data)
@@ -1693,6 +1702,12 @@ class OCRRegions(_TensorPayload):
 
         self._conf = _as_scores(confidence)
         self._det_conf = _as_scores(det_confidence)
+        self.labels: Optional[List[str]] = list(labels) if labels is not None else None
+        if self.labels is not None and len(self.labels) != n:
+            raise ValueError(
+                f"expected {n} labels to match {n} polygons, got {len(self.labels)}"
+            )
+        self.markdown: str = str(markdown or "")
 
     @property
     def polygons(self) -> TensorLike:
@@ -1743,6 +1758,8 @@ class OCRRegions(_TensorPayload):
             _move(self._conf, *args, **kwargs),
             _move(self._det_conf, *args, **kwargs),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def cpu(self):
@@ -1752,6 +1769,8 @@ class OCRRegions(_TensorPayload):
             _cpu(self._conf),
             _cpu(self._det_conf),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def cuda(self):
@@ -1761,6 +1780,8 @@ class OCRRegions(_TensorPayload):
             _cuda(self._conf),
             _cuda(self._det_conf),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def numpy(self):
@@ -1770,6 +1791,8 @@ class OCRRegions(_TensorPayload):
             _numpy(self._conf),
             _numpy(self._det_conf),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def __getitem__(self, idx):
@@ -1785,6 +1808,8 @@ class OCRRegions(_TensorPayload):
             self._conf[indices],
             self._det_conf[indices],
             self.orig_shape,
+            [self.labels[i] for i in indices] if self.labels is not None else None,
+            self.markdown,
         )
 
     def __repr__(self) -> str:
@@ -2361,7 +2386,15 @@ class Results:
         if matte is not None and matte.orig_shape is None:
             matte = Matte(matte.data, orig_shape)
         if ocr is not None and ocr.orig_shape is None:
-            ocr = OCRRegions(ocr.data, ocr.texts, ocr.conf, ocr.det_conf, orig_shape)
+            ocr = OCRRegions(
+                ocr.data,
+                ocr.texts,
+                ocr.conf,
+                ocr.det_conf,
+                orig_shape,
+                ocr.labels,
+                ocr.markdown,
+            )
 
         if boxes3d is not None:
             boxes3d._validate_alignment(boxes, orig_shape)
@@ -2603,7 +2636,13 @@ class Results:
                 ocr
                 if ocr.orig_shape is not None
                 else OCRRegions(
-                    ocr.data, ocr.texts, ocr.conf, ocr.det_conf, self.orig_shape
+                    ocr.data,
+                    ocr.texts,
+                    ocr.conf,
+                    ocr.det_conf,
+                    self.orig_shape,
+                    ocr.labels,
+                    ocr.markdown,
                 )
             )
         if restore_scale is not None:
@@ -2897,7 +2936,7 @@ class Results:
                         polygon = polygon / np.array([w, h], dtype=float)
                     rows.append(
                         {
-                            "name": "text",
+                            "name": ocr_np.labels[i] if ocr_np.labels else "text",
                             "text": ocr_np.texts[i],
                             "confidence": round(float(ocr_np.conf[i]), decimals),
                             "det_confidence": round(

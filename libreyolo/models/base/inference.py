@@ -1322,6 +1322,8 @@ class InferenceRunner:
                     ocr_data.get("confidences"),
                     ocr_data.get("det_confidences"),
                     (orig_h, orig_w),
+                    ocr_data.get("labels"),
+                    ocr_data.get("markdown", ""),
                 ),
             )
 

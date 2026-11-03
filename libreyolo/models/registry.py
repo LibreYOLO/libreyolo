@@ -149,6 +149,7 @@ MODEL_GROUPS: dict[str, str] = {
     "libremodus": "s",
     "sensenovavision": "s",
     "wevisonevl": "s",
+    "paddleocrvl": "s",
 }
 
 

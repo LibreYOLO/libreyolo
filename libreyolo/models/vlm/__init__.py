@@ -103,6 +103,14 @@ _WEVISONE_ALIASES: Dict[str, str] = {
     "wevisone-vl-4b": "4b",
 }
 
+# PaddleOCR-VL lives in ``models/paddleocrvl`` (it ports the document-parsing
+# pipeline around its two networks) and resolves lazily for the same reason.
+_PADDLEOCRVL_ALIASES: Dict[str, str] = {
+    "paddleocr-vl": "0.9b",
+    "paddleocrvl": "0.9b",
+    "paddleocr-vl-0.9b": "0.9b",
+}
+
 _DEFAULT_MODEL = "qwen3-vl-4b"
 
 
@@ -157,10 +165,14 @@ def LibreVLM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreVLMModel:
         from ..wevisone import LibreWeVisOneVL
 
         return LibreWeVisOneVL(size=_WEVISONE_ALIASES[key], **kwargs)
+    if key in _PADDLEOCRVL_ALIASES:
+        from ..paddleocrvl import LibrePaddleOCRVL
+
+        return LibrePaddleOCRVL(size=_PADDLEOCRVL_ALIASES[key], **kwargs)
     match = _ALIASES.get(key)
     if match is None:
         known = set(_ALIASES) | set(_LAZY_ALIASES) | set(_MODUS_ALIASES)
-        known |= set(_WEVISONE_ALIASES)
+        known |= set(_WEVISONE_ALIASES) | set(_PADDLEOCRVL_ALIASES)
         raise ValueError(
             f"Unknown VLM model {model!r}. Known aliases: {', '.join(sorted(known))}."
         )
@@ -181,6 +193,10 @@ def __getattr__(name: str):
         from ..wevisone import LibreWeVisOneVL
 
         return LibreWeVisOneVL
+    if name == "LibrePaddleOCRVL":
+        from ..paddleocrvl import LibrePaddleOCRVL
+
+        return LibrePaddleOCRVL
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -200,6 +216,7 @@ __all__ = [
     "LibreNorthMicroVision",
     "LibreSenseNovaVision",
     "LibreWeVisOneVL",
+    "LibrePaddleOCRVL",
     "LibreMODUS",
     "LibreModus",
 ]
