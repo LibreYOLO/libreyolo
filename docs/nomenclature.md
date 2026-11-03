@@ -131,6 +131,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `midas`     | `LibreMiDaS` | Upstream mixed-case brand preserved (`MiDaS`); inference-only relative-depth museum family |
 | `moge2`     | `LibreMoGe2` | Upstream brand casing preserved (`MoGe`) + version; surface-normal-only |
 | `marigold_v2` | `LibreMarigoldV2` | Marigold V2 depth, normals and albedo; pinned Qwen base with task adapters |
+| `memfof`    | `LibreMEMFOF` | All-caps acronym (`MEMFOF`); three-frame optical flow, flow-only |
 | `teed`      | `LibreTEED` | All-caps acronym (`TEED`); edge-only tiny CNN specialist |
 | `dexined`   | `LibreDexiNed` | Upstream brand casing preserved (`DexiNed`); edge-only base CNN specialist |
 | `birefnet`  | `LibreBiRefNet` | CamelCase preserved (Bilateral Reference); matte-only background-removal family |
@@ -275,6 +276,7 @@ ships:
 | `midas`     | `s` (MiDaS v2.1 Small, EfficientNet-Lite3, upper-bound 256), `l` (DPT-Large, ViT-L/16, minimal-resize 384) |
 | `moge2`     | `s`, `b`, `l` (official MoGe-2 ViT-S/B/L-14 normal checkpoints; all at native short side 518, `l` quality default) |
 | `marigold_v2` | `b` (20B Qwen base; task and depth-variant suffix select the adapter) |
+| `memfof`    | `m` (single released network, ResNet-34 FPN at dim 512; native resolution, `imgsz` caps the long side at 1920). Bare `LibreMEMFOFm-flow.pt` is upstream MEMFOF-Tartan-T-TSKH; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring` are the other published stages and fine-tunes, one Hugging Face repo per file |
 | `teed`      | `t` (tiny, 58,910 parameters; fixed 352 square) |
 | `dexined`   | `b` (base, 35.2M parameters; fixed 352 square) |
 | `birefnet`  | `t` (BiRefNet_lite, Swin-T tier), `l` (BiRefNet general, Swin-L tier); both at fixed 1024 |
@@ -407,7 +409,9 @@ frame: `flow.data[y, x]` is `(dx, dy)` in pixels from frame `t` to frame
 Every multi-image source is a sequence and `N` frames give `N - 1` results;
 a single image is an error. Families that need more than two frames declare
 `FLOW_CONTEXT = (before, after)`. Validation reports end-point error and the
-1 px, 3 px and KITTI Fl-all outlier rates. See ADR 0032.
+1 px, 3 px and KITTI Fl-all outlier rates. See ADR 0032. MEMFOF declares
+`FLOW_CONTEXT = (1, 0)`: it reads frames `t - 1`, `t`, `t + 1` and reports the
+forward flow of frame `t`.
 
 `albedo` predicts `Results.albedo`, a float32 `(H,W,3)` linear-RGB reflectance
 map in `[0,1]`. Its preview uses sRGB while the numeric payload remains linear.

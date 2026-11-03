@@ -103,6 +103,7 @@ file = name + ".pt"
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
 | GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
+| MEMFOF | `LibreMEMFOF` | `LibreMEMFOFm-flow.pt` (three-frame optical flow; BSD-3-Clause code, weights tagged `bsd-3-clause` upstream with no licence file; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring`, one repo each) |
 | FOMO | `LibreFOMO` | `LibreFOMOs-point.pt` (hosted s/m/l are randomly initialised MIT weights; upstream FOMO weights are cc-by-nc-4.0 and not mirrored) |
 
 Never-upload families: **L2CS** (Gaze360 terms forbid redistribution) and any
@@ -352,6 +353,9 @@ LibreMoGe2s-normal.pt, LibreMoGe2b-normal.pt, LibreMoGe2l-normal.pt,
 LibreZipDepthb-depth.pt, LibreZipDepthbnpu-depth.pt,
 
 LibreFOMOs-point.pt, LibreFOMOm-point.pt, LibreFOMOl-point.pt
+
+LibreMEMFOFm-flow.pt, LibreMEMFOFm-flow-tartan.pt, LibreMEMFOFm-flow-tartan-t.pt,
+LibreMEMFOFm-flow-kitti.pt, LibreMEMFOFm-flow-sintel.pt, LibreMEMFOFm-flow-spring.pt
 ```
 
 License caveats inside the list: BiRefNet `l` (general) weights are MIT-tagged
