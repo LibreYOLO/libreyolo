@@ -218,6 +218,58 @@ def test_tiny_forward_and_predict_threads_reading_order():
     assert len(order) == len(result) and order == sorted(order)
 
 
+@pytest.mark.parametrize("export_format", ("onnx", "torchscript"))
+def test_export_reload_keeps_regions_and_reading_order(tmp_path, export_format):
+    if export_format == "onnx":
+        onnx = pytest.importorskip("onnx")
+        pytest.importorskip("onnxruntime")
+    from libreyolo import LibrePPDocLayoutV3, LibreYOLO
+    from libreyolo.models.ppdoclayoutv3.nn import PPDocLayoutV3ExportWrapper
+    from libreyolo.postprocess.ppdoclayoutv3 import postprocess
+    from libreyolo.preprocess.ppdoclayoutv3 import preprocess_numpy
+
+    torch.manual_seed(1)
+    model = LibrePPDocLayoutV3(size="l", device="cpu")
+    model.model.eval()
+    suffix = ".onnx" if export_format == "onnx" else ".torchscript"
+    artifact = model.export(
+        format=export_format,
+        imgsz=256,
+        dynamic=False,
+        simplify=False,
+        device="cpu",
+        output_path=str(tmp_path / f"LibrePPDocLayoutV3l{suffix}"),
+    )
+    backend = LibreYOLO(artifact, device="cpu")
+    assert backend.model_family == "ppdoclayoutv3"
+    if export_format == "onnx":
+        outputs = [value.name for value in onnx.load(artifact).graph.output]
+        assert outputs == ["pred_logits", "pred_boxes", "order_votes"]
+
+    image = (np.random.default_rng(1).random((300, 200, 3)) * 255).astype(np.uint8)
+    chw, _ = preprocess_numpy(image[:, :, ::-1], 256)  # predict reads arrays as BGR
+    raw = backend._run_inference(chw[None])
+    with torch.no_grad():
+        expected = PPDocLayoutV3ExportWrapper(model.model)(torch.from_numpy(chw[None]))
+    tolerances = (1e-3, 1e-4, 5e-2) if export_format == "onnx" else (0.0, 0.0, 0.0)
+    for got, want, atol in zip(raw, expected, tolerances):
+        np.testing.assert_allclose(got, want.numpy(), rtol=0, atol=atol)
+
+    # The exported decode equals the PyTorch postprocess on the graph outputs.
+    result = backend(image, conf=0.0, imgsz=256, max_det=50)
+    names = ("pred_logits", "pred_boxes", "order_votes")
+    det = postprocess(
+        {k: torch.from_numpy(np.asarray(v)) for k, v in zip(names, raw)},
+        conf_thres=0.0,
+        original_size=(200, 300),
+        max_det=50,
+    )
+    assert len(result) == det["num_detections"] == 50
+    np.testing.assert_array_equal(np.asarray(result.reading_order), det["reading_order"])
+    np.testing.assert_array_equal(result.boxes.cls.cpu().numpy(), det["classes"])
+    np.testing.assert_allclose(result.boxes.xyxy.cpu().numpy(), det["boxes"], atol=1e-3)
+
+
 def test_train_is_rejected():
     from libreyolo import LibrePPDocLayoutV3
 

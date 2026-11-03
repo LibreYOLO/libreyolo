@@ -54,6 +54,13 @@ class LibrePPDocLayoutV3(BaseModel):
     DEFAULT_TASK = "detect"
     TRAIN_CONFIG = None
     TTA_FIXED_SIZE = True
+    # A score-ranked TTA merge would discard the reading order; augment=True
+    # runs the plain forward instead.
+    TTA_ENABLED = False
+    # The FPN joins stride-8/16/32 maps, so the canvas must be square and a
+    # multiple of 32 (800 by default).
+    IMGSZ_STRIDE = 32
+    SQUARE_IMGSZ_CALLS = frozenset({"predict", "val"})
     val_preprocessor_class = PPDocLayoutV3ValPreprocessor
 
     # ------------------------------------------------------------------
