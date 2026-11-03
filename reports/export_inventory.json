@@ -2594,6 +2594,30 @@
     "available": true,
     "group": "g2"
   },
+  "waft": {
+    "class": "libreyolo.models.waft.model.LibreWAFT",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "t": 640,
+      "s": 640,
+      "m": 640,
+      "l": 640
+    },
+    "default_imgsz": {
+      "t": 640,
+      "s": 640,
+      "m": 640,
+      "l": 640
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "wevisonevl": {
     "class": "libreyolo.models.wevisone.model.LibreWeVisOneVL",
     "tasks": [
