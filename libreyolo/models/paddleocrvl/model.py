@@ -89,7 +89,10 @@ class LibrePaddleOCRVL(LibreVLMModel):
     FAMILY = "paddleocrvl"
     FILENAME_PREFIX = "LibrePaddleOCRVL"
     HF_REPOS: ClassVar[Dict[str, str]] = {"0.9b": "LibreYOLO/LibrePaddleOCRVL0.9b"}
-    HF_REVISIONS: ClassVar[Dict[str, str]] = {}
+    # Pinned mirror commit: the VL snapshot at the root, PP-DocLayoutV2 in layout/.
+    HF_REVISIONS: ClassVar[Dict[str, str]] = {
+        "0.9b": "9fe2730f6d29e4a3805175312114ef70d1e4c9d6"
+    }
     # Nominal: the layout stage runs at 800x800 and the recognizer resizes
     # every region within its own pixel budget.
     INPUT_SIZES: ClassVar[Dict[str, int]] = {"0.9b": layout.LAYOUT_INPUT_SIZE}
