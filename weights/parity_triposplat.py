@@ -12,8 +12,12 @@ compared stage by stage rather than end to end).
 
 Prereqs (a CUDA machine; throwaway env, do NOT install into the main .venv):
     pip install -e ".[gen]" tqdm torchvision
-    git clone https://github.com/VAST-AI-Research/TripoSplat   # commit d8db9e0
-    hf download VAST-AI/TripoSplat --local-dir path/to/TripoSplat/ckpts
+    git clone https://github.com/VAST-AI-Research/TripoSplat
+    git -C path/to/TripoSplat checkout d8db9e018b413dd9c4a9fe22463781bf98e8e68d
+    hf download VAST-AI/TripoSplat --revision 56a96e603204ec410c4da60c13ea4fa09a2169a9 \
+        --local-dir path/to/TripoSplat/ckpts
+
+The script refuses to run against another code commit or weight revision.
 
 Run:
     PYTHONPATH=path/to/TripoSplat python weights/parity_triposplat.py \
@@ -30,7 +34,37 @@ from pathlib import Path
 import numpy as np
 import torch
 
+UPSTREAM_CODE_COMMIT = "d8db9e018b413dd9c4a9fe22463781bf98e8e68d"
 UPSTREAM_REVISION = "56a96e603204ec410c4da60c13ea4fa09a2169a9"
+UPSTREAM_SHA256 = {
+    "diffusion_models/triposplat_fp16.safetensors": "c870b97ac1d6bc9177608a5ec625e19ef9f3c5019aa68f64b0fb7803abcd6d20",
+    "vae/triposplat_vae_decoder_fp16.safetensors": "ed0d0c3d43b599e326845d0ec70f3cf77be9a55e2d97627ac3b34d2830763cc8",
+    "background_removal/birefnet.safetensors": "9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154",
+}
+
+
+def check_upstream(checkout: Path) -> None:
+    """Refuse any TripoSplat checkout or weights other than the pinned ones."""
+    import hashlib
+    import subprocess
+
+    head = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if head != UPSTREAM_CODE_COMMIT:
+        raise SystemExit(
+            f"{checkout} is at {head}; parity is defined against {UPSTREAM_CODE_COMMIT}."
+        )
+    for name, expected in UPSTREAM_SHA256.items():
+        digest = hashlib.sha256((checkout / "ckpts" / name).read_bytes()).hexdigest()
+        if digest != expected:
+            raise SystemExit(
+                f"ckpts/{name} has SHA-256 {digest}; expected the file of VAST-AI/TripoSplat@{UPSTREAM_REVISION}."
+            )
+
 
 CASES = [
     ("lily", "plant_water_lily.webp", 42, {}),
@@ -69,6 +103,7 @@ def main() -> int:
     args = parser.parse_args()
     if not torch.cuda.is_available():
         raise SystemExit("Parity is defined on CUDA, where upstream runs.")
+    check_upstream(args.upstream)
 
     import triposplat as up
     from PIL import Image
