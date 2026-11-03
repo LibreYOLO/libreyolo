@@ -345,6 +345,23 @@ NeuFlow v2 (Apache License 2.0)
     mixin, and an out-of-place input scaling do not alter learned parameters
     or outputs. The converted mixed, sintel and things checkpoints keep the
     upstream Apache-2.0 licence.
+DPFlow / ptlflow (Apache License 2.0 code; CC BY-NC-SA 4.0 weights,
+mirrored under that license)
+    Path:    libreyolo/models/dpflow/_vendor/
+    License: libreyolo/models/dpflow/_vendor/LICENSE
+    Source:  https://github.com/hmorimitsu/ptlflow (ptlflow/models/dpflow)
+    Commit:  43cdc2b5fc7228e7090009a66e8e28e0b48e31ba
+
+    The DPFlow network is an inference-only port of Henrique Morimitsu's
+    Apache-2.0 implementation in ptlflow, with its timm-derived local_timm
+    helpers (Ross Wightman, Apache-2.0), ptlflow's pure-PyTorch correlation
+    samplers (Apache-2.0) and ptlflow's RAFT-derived input padder
+    (princeton-vl, BSD-3-Clause). The Lightning base class, training loss
+    and registry are removed; see libreyolo/models/dpflow/_vendor/NOTICE.
+    The ptlflow-trained weights are CC BY-NC-SA 4.0, mirrored at
+    huggingface.co/LibreYOLO/LibreDPFlowm-flow (and -sintel, -kitti,
+    -spring variants); the loader prints the non-commercial notice before
+    every automatic download.
 
 NAFNet (MIT License)
     Path:    libreyolo/models/nafnet/
