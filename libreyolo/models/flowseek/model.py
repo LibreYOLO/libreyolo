@@ -224,6 +224,12 @@ class LibreFlowSeek(BaseModel):
         before = self.FLOW_CONTEXT[0]
         return self._forward_pair(window[before : before + 1], window[before + 1 : before + 2])
 
+    def _forward(self, input_tensor: torch.Tensor) -> Any:
+        raise ValueError(
+            "LibreFlowSeek predicts optical flow from a pair of frames; pass two "
+            "or more images (a list, a directory or a video), not a single image."
+        )
+
     def _postprocess(
         self,
         output: Any,
