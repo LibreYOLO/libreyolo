@@ -94,9 +94,9 @@ logger = logging.getLogger(__name__)
 def _flow_file_path(output_path, stem) -> Path:
     """Where ``save_flow`` writes the raw field for one pair of a sequence.
 
-    Same directory and stem as the rendered image; a file ``output_path``
-    (``out.jpg``) means its directory, since the ``.flo`` cannot share the
-    render's name.
+    Same directory as the rendered image, named ``<frame stem>_<frame idx>.flo``
+    so pairs stay unique across folders; a file ``output_path`` (``out.jpg``)
+    means its directory, since the ``.flo`` cannot share the render's name.
     """
     directory = output_path
     if output_path is not None and Path(output_path).suffix:
@@ -1221,6 +1221,7 @@ class InferenceRunner:
                 save_flow=save_flow,
                 arrows=arrows,
                 warp=warp,
+                show=show,
                 output_path=output_path,
                 output_file_format=output_file_format,
                 **window_options,
@@ -1238,6 +1239,7 @@ class InferenceRunner:
                 save_flow=save_flow,
                 arrows=arrows,
                 warp=warp,
+                show=show,
                 output_path=output_path,
                 output_file_format=output_file_format,
                 **window_options,
@@ -1400,29 +1402,54 @@ class InferenceRunner:
         save_flow: bool,
         arrows: bool,
         warp: bool,
+        show: bool = False,
         output_path: Optional[str],
         output_file_format: Optional[str],
         before: int,
         after: int,
         **window_options,
     ) -> Generator[Results, None, None]:
-        """Yield one Results per consecutive pair of an image sequence."""
-        for _, window in iter_flow_windows(items, before, after):
-            anchor = window[before]
-            result, original_img = self._predict_flow_window(
-                window, before, **window_options
-            )
-            keep_source(result, original_img, anchor.label)
-            stem = anchor.label if anchor.label is not None else f"image{anchor.frame_idx}"
-            if save:
-                ext = output_file_format or "jpg"
-                save_path = resolve_save_path(output_path, stem, ext=ext)
-                rendered = result.plot(image=original_img, arrows=arrows, warp=warp, pil=True)
-                rendered.save(save_path)
-                log_saved_result(result, save_path)
-            if save_flow:
-                result.flow.save(_flow_file_path(output_path, stem))
-            yield result
+        """Yield one Results per consecutive pair of an image sequence.
+
+        ``show`` previews the chosen view for every pair in a window, the same
+        preview the video path offers (``q`` closes it and stops the sequence).
+        """
+        if show:
+            import cv2
+
+        try:
+            for _, window in iter_flow_windows(items, before, after):
+                anchor = window[before]
+                result, original_img = self._predict_flow_window(
+                    window, before, **window_options
+                )
+                keep_source(result, original_img, anchor.label)
+                stem = anchor.label if anchor.label is not None else f"image{anchor.frame_idx}"
+                rendered = None
+                if save or show:
+                    rendered = result.plot(
+                        image=original_img, arrows=arrows, warp=warp, pil=True
+                    )
+                if save:
+                    ext = output_file_format or "jpg"
+                    save_path = resolve_save_path(output_path, stem, ext=ext)
+                    rendered.save(save_path)
+                    log_saved_result(result, save_path)
+                if save_flow:
+                    # The frame index keeps every pair unique even when frames from
+                    # different folders share a file name (a/000.png and b/000.png),
+                    # mirroring the video naming (<clip stem>_<frame idx>.flo).
+                    raw_stem = f"{Path(stem).stem}_{anchor.frame_idx:06d}"
+                    result.flow.save(_flow_file_path(output_path, raw_stem))
+                if show:
+                    annotated_bgr = cv2.cvtColor(np.array(rendered), cv2.COLOR_RGB2BGR)
+                    cv2.imshow("LibreYOLO", annotated_bgr)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        break
+                yield result
+        finally:
+            if show:
+                cv2.destroyAllWindows()
 
     def _flow_video_results(
         self,

@@ -80,7 +80,8 @@ For that, predict attaches the next frame to the payload as
 `FlowField.next_frame`, a uint8 `(H, W, 3)` RGB array on the canvas of frame
 `t`. `predict(save=True)` writes the chosen view (`arrows=`, `warp=`), and
 `predict(save_flow=True)` also writes the raw field of every pair as a
-Middlebury `.flo` file next to it; `FlowField.save(path)` writes `.flo` or
+Middlebury `.flo` file next to it, named `<frame stem>_<frame index>.flo` so
+pairs stay unique across folders; `FlowField.save(path)` writes `.flo` or
 `.npy` directly.
 
 ## Consequences

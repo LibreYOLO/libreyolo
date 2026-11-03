@@ -175,13 +175,13 @@ def test_save_flow_writes_one_flo_per_pair(tmp_path):
     out = tmp_path / "out"
     results = InferenceRunner(_StubFlowModel())(_frames(3), save_flow=True, output_path=str(out))
     written = sorted(p.name for p in out.iterdir())
-    assert written == ["image0.flo", "image1.flo"]
-    assert np.array_equal(read_flo(out / "image1.flo"), results[1].flow.array)
+    assert written == ["image0_000000.flo", "image1_000001.flo"]
+    assert np.array_equal(read_flo(out / "image1_000001.flo"), results[1].flow.array)
     # Together with save, the render and the field sit side by side; a file
     # output_path means its directory for the .flo.
     out2 = tmp_path / "out2" / "pair.jpg"
     InferenceRunner(_StubFlowModel())(_frames(2), save=True, save_flow=True, output_path=str(out2))
-    assert sorted(p.name for p in out2.parent.iterdir()) == ["image0.flo", "pair.jpg"]
+    assert sorted(p.name for p in out2.parent.iterdir()) == ["image0_000000.flo", "pair.jpg"]
 
 
 def test_save_arrows_and_warp_views(tmp_path):
@@ -322,3 +322,28 @@ def test_live_source_without_stream_is_an_error():
 def test_multiple_streams_are_rejected():
     with pytest.raises(NotImplementedError, match="one live source"):
         InferenceRunner(_StubFlowModel())([0, 1], stream=True)
+
+
+def test_show_previews_every_pair_of_a_sequence(monkeypatch):
+    import cv2
+
+    shown = []
+    monkeypatch.setattr(cv2, "imshow", lambda name, img: shown.append((name, img.shape)))
+    monkeypatch.setattr(cv2, "waitKey", lambda delay: 0)
+    closed = []
+    monkeypatch.setattr(cv2, "destroyAllWindows", lambda: closed.append(True))
+    results = InferenceRunner(_StubFlowModel())(_frames(3), show=True)
+    assert len(results) == 2
+    assert [name for name, _ in shown] == ["LibreYOLO", "LibreYOLO"]
+    assert all(shape == (H, W, 3) for _, shape in shown)
+    assert closed == [True]
+
+
+def test_show_q_stops_the_sequence(monkeypatch):
+    import cv2
+
+    monkeypatch.setattr(cv2, "imshow", lambda name, img: None)
+    monkeypatch.setattr(cv2, "waitKey", lambda delay: ord("q"))
+    monkeypatch.setattr(cv2, "destroyAllWindows", lambda: None)
+    results = InferenceRunner(_StubFlowModel())(_frames(4), show=True)
+    assert results == []

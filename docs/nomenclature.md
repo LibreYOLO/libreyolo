@@ -431,7 +431,8 @@ Views and saving: `plot()` draws the Middlebury colour wheel, `plot(arrows=True)
 draws arrows on the frame, `plot(warp=True)` shows the next frame warped back
 onto the current one as a correctness check; `predict(save=True, arrows=...,
 warp=...)` writes the chosen view and `predict(save_flow=True)` writes each
-pair's raw field as a `.flo` file (`FlowField.save` writes `.flo` or `.npy`).
+pair's raw field as `<frame stem>_<frame index>.flo` (`FlowField.save` writes
+`.flo` or `.npy`); `show=True` previews the view per pair.
 
 ```python
 m = LibreYOLO("LibreSEARAFTm-flow.pt")
