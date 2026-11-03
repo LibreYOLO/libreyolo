@@ -350,6 +350,7 @@ From `libreyolo/tasks.py`:
 | `act`         | `-act` |
 | `generate`    | `-generate` |
 | `generate3d`  | `-generate3d` |
+| `flow`        | `-flow` |
 
 The factory accepts selected upstream-style aliases (`detection`, `det`,
 `segmentation`, `keypoints`, `cls`, …) at the API boundary; only the canonical
@@ -398,6 +399,15 @@ Inverse depth is the default `DepthMap.encoding`. Marigold V2 also declares
 in their named spaces. See ADR 0025. Its default depth file is
 `LibreMarigoldV2b-depth.pt` (Log-stage2); the six other depth variants use
 `LibreMarigoldV2b-depth-<variant>.pt`. See ADR 0027 for the variant list.
+
+`flow` is the task for dense optical flow. Models expose `Results.flow`, a
+float32 `(H, W, 2)` displacement field on the original canvas of the first
+frame: `flow.data[y, x]` is `(dx, dy)` in pixels from frame `t` to frame
+`t + 1`, `+x` right and `+y` down, with an optional `(H, W)` confidence map.
+Every multi-image source is a sequence and `N` frames give `N - 1` results;
+a single image is an error. Families that need more than two frames declare
+`FLOW_CONTEXT = (before, after)`. Validation reports end-point error and the
+1 px, 3 px and KITTI Fl-all outlier rates. See ADR 0032.
 
 `albedo` predicts `Results.albedo`, a float32 `(H,W,3)` linear-RGB reflectance
 map in `[0,1]`. Its preview uses sRGB while the numeric payload remains linear.
