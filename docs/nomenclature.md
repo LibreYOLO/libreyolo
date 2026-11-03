@@ -130,6 +130,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `depth_anything3` | `LibreDepthAnything3` | CamelCase preserved + version (Depth Anything 3), depth-only |
 | `zipdepth`  | `LibreZipDepth` | CamelCase preserved (`ZipDepth` brand casing); depth-only lightweight CNN (speed/edge tier) |
 | `midas`     | `LibreMiDaS` | Upstream mixed-case brand preserved (`MiDaS`); inference-only relative-depth museum family |
+| `searaft`   | `LibreSEARAFT` | All-caps acronym (hyphen dropped from `SEA-RAFT`); flow-only, inference-only; canonical filenames require `-flow` |
 | `moge2`     | `LibreMoGe2` | Upstream brand casing preserved (`MoGe`) + version; surface-normal-only |
 | `marigold_v2` | `LibreMarigoldV2` | Marigold V2 depth, normals and albedo; pinned Qwen base with task adapters |
 | `memfof`    | `LibreMEMFOF` | All-caps acronym (`MEMFOF`); three-frame optical flow, flow-only |
@@ -276,6 +277,7 @@ ships:
 | `depth_anything3` | `l` (DA3MONO-LARGE ViT-L, native upper-bound 504) |
 | `zipdepth`  | `b` (base, GPU/CPU convex upsampling), `bnpu` (base capacity with the separately trained unfold-free upsampling head for NPU/edge compilers); both at short-side 384 |
 | `midas`     | `s` (MiDaS v2.1 Small, EfficientNet-Lite3, upper-bound 256), `l` (DPT-Large, ViT-L/16, minimal-resize 384) |
+| `searaft`   | `s` (ResNet18 encoders, 4 iterations), `m` (ResNet34, 4 iterations), `l` (the `m` weights at 12 iterations, upstream's SEA-RAFT L); native resolution padded to a multiple of 8, long side capped at 960 |
 | `moge2`     | `s`, `b`, `l` (official MoGe-2 ViT-S/B/L-14 normal checkpoints; all at native short side 518, `l` quality default) |
 | `marigold_v2` | `b` (20B Qwen base; task and depth-variant suffix select the adapter) |
 | `memfof`    | `m` (single released network, ResNet-34 FPN at dim 512; native resolution, `imgsz` caps the long side at 1920). Bare `LibreMEMFOFm-flow.pt` is upstream MEMFOF-Tartan-T-TSKH; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring` are the other published stages and fine-tunes, one Hugging Face repo per file |

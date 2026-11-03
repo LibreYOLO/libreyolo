@@ -1327,6 +1327,25 @@ Giant) are for non-commercial use only. The offline conversion path
 (weights/convert_depth_anything_v2_weights.py) remains available.
 
 --------------------------------------------------------------------
+SEA-RAFT (Princeton Vision & Learning Lab)
+--------------------------------------------------------------------
+Source: https://github.com/princeton-vl/SEA-RAFT
+Pinned commit: 9137517ba24e628442aec097d3afe71d03503b75
+License: BSD 3-Clause License
+Copyright (c) 2024, Princeton Vision & Learning Lab.
+Citation: Wang, Y., Lipson, L., and Deng, J. "SEA-RAFT: Simple,
+          Efficient, Accurate RAFT for Optical Flow." ECCV 2024.
+Used for: SEA-RAFT optical flow family, inference subset of core/
+          (raft, extractor, update, corr, layer, utils) vendored under
+          libreyolo/models/searaft/_vendor/ with the BSD-3-Clause
+          LICENSE alongside. Training code, the Hugging Face mixin, the
+          optional alt_cuda_corr extension and the ImageNet initialisation
+          are dropped; the package docstring lists every change. The
+          pretrained weights (MemorySlices/Tartan-C-T-TSKH-spring540x960-
+          {S,M}) are BSD-3-Clause as well and are mirrored as
+          LibreYOLO/LibreSEARAFT{s,m,l}-flow.
+
+--------------------------------------------------------------------
 Depth Anything 3 (ByteDance Seed)
 --------------------------------------------------------------------
 Source: https://github.com/ByteDance-Seed/Depth-Anything-3
