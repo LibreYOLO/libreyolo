@@ -893,6 +893,30 @@
     "available": true,
     "group": "s"
   },
+  "flowseek": {
+    "class": "libreyolo.models.flowseek.model.LibreFlowSeek",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "t": 640,
+      "s": 640,
+      "m": 640,
+      "l": 640
+    },
+    "default_imgsz": {
+      "t": 640,
+      "s": 640,
+      "m": 640,
+      "l": 640
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "flux2_klein": {
     "class": "libreyolo.models.gen.flux2_klein.LibreFlux2Klein",
     "tasks": [

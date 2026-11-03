@@ -1344,6 +1344,31 @@ Used for: SEA-RAFT optical flow family, inference subset of core/
           pretrained weights (MemorySlices/Tartan-C-T-TSKH-spring540x960-
           {S,M}) are BSD-3-Clause as well and are mirrored as
           LibreYOLO/LibreSEARAFT{s,m,l}-flow.
+FlowSeek (University of Bologna)
+--------------------------------------------------------------------
+Source: https://github.com/mattpoggi/flowseek
+Pinned commit: ba6407370bceeb96244cad4d60d37489f6eb471e
+License: Apache License 2.0 (includes SEA-RAFT code, BSD 3-Clause License,
+         Copyright (c) 2024, Princeton Vision & Learning Lab)
+Copyright (c) 2025 Matteo Poggi and Fabio Tosi.
+Citation: Poggi, M., and Tosi, F. "FlowSeek: Optical Flow Made Easier with
+          Depth Foundation Models and Motion Bases." ICCV 2025.
+Used for: FlowSeek optical flow family vendored under
+          libreyolo/models/flowseek/_vendor/ (flowseek, corr, extractor,
+          layer, update, utils). Training code, the torchvision ResNet
+          initialisation download and the separate DAv2 weight load are
+          removed; the Depth Anything V2 encoder reuses the vendored copy in
+          libreyolo/models/depth_anything/_vendor/.
+
+Weight source: scripts/get_weights.sh at the pinned commit
+               (flowseek_T_TartanCT_TSKH.pth, flowseek_M_TartanCT_TSKH.pth).
+Weight license: the repository's Apache-2.0 licence, applied as an implied
+               grant (no separate checkpoint licence is published). The
+               checkpoints embed the Depth Anything V2 encoder: ViT-S (t, s)
+               is Apache-2.0, ViT-B (m, l) is CC BY-NC 4.0, so the hosted
+               LibreFlowSeek{m,l}-flow weights are non-commercial.
+Conversion: weights/convert_flowseek_weights.py wraps the unchanged tensors
+            (638 for t/s, 932 for m/l) in the LibreYOLO checkpoint schema.
 
 --------------------------------------------------------------------
 Depth Anything 3 (ByteDance Seed)

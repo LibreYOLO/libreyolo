@@ -260,6 +260,22 @@ LingBot-Vision (Apache License 2.0)
     LibreLingBotVision{s,b,l}-sem checkpoints combine those backbones
     with a LibreYOLO-trained ADE20K head.
 
+FlowSeek (Apache License 2.0)
+    Path:    libreyolo/models/flowseek/_vendor/
+    License: libreyolo/models/flowseek/_vendor/LICENSE.md
+    Notice:  libreyolo/models/flowseek/_vendor/NOTICE.md
+    Source:  https://github.com/mattpoggi/flowseek
+    Commit:  ba6407370bceeb96244cad4d60d37489f6eb471e
+
+    Copyright (c) 2025 Matteo Poggi and Fabio Tosi. The FlowSeek network,
+    the SEA-RAFT parts it includes (Copyright (c) 2024, Princeton Vision &
+    Learning Lab, BSD 3-Clause License, text in the vendored NOTICE.md) and
+    its motion bases are adapted for inference only. The Depth Anything V2
+    encoder reuses libreyolo/models/depth_anything/_vendor. The hosted
+    LibreFlowSeekm-flow and LibreFlowSeekl-flow checkpoints embed the Depth
+    Anything V2 Base encoder, whose weights are CC BY-NC 4.0
+    (non-commercial); t and s embed the Apache-2.0 Small encoder.
+
 Depth Anything 3 (Apache License 2.0)
     Path:    libreyolo/models/depth_anything3/_vendor/
     License: libreyolo/models/depth_anything3/NOTICE

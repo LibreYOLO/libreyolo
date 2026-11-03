@@ -136,6 +136,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `memfof`    | `LibreMEMFOF` | All-caps acronym (`MEMFOF`); three-frame optical flow, flow-only |
 | `teed`      | `LibreTEED` | All-caps acronym (`TEED`); edge-only tiny CNN specialist |
 | `dexined`   | `LibreDexiNed` | Upstream brand casing preserved (`DexiNed`); edge-only base CNN specialist |
+| `flowseek`  | `LibreFlowSeek` | Upstream brand casing (`FlowSeek`); flow-only, SEA-RAFT style recurrent optical flow with a frozen Depth Anything V2 encoder |
 | `birefnet`  | `LibreBiRefNet` | CamelCase preserved (Bilateral Reference); matte-only background-removal family |
 | `feynobg`   | `LibreFeyNobg` | CamelCase preserved (FeyNobg); matte-only background-removal family built on the BiRefNet architecture |
 | `ben2`      | `LibreBEN2` | All-caps acronym plus version digit; matte-only BEN2 Base background-removal family |
@@ -283,6 +284,7 @@ ships:
 | `memfof`    | `m` (single released network, ResNet-34 FPN at dim 512; native resolution, `imgsz` caps the long side at 1920). Bare `LibreMEMFOFm-flow.pt` is upstream MEMFOF-Tartan-T-TSKH; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring` are the other published stages and fine-tunes, one Hugging Face repo per file |
 | `teed`      | `t` (tiny, 58,910 parameters; fixed 352 square) |
 | `dexined`   | `b` (base, 35.2M parameters; fixed 352 square) |
+| `flowseek`  | `t`, `s`, `m`, `l` (upstream FlowSeek-T/S/M/L: t and s share the ResNet-18 + DAv2 ViT-S weights at 4 and 12 iterations, m and l share the ResNet-34 + DAv2 ViT-B weights at 4 and 12; native resolution padded to a multiple of 8) |
 | `birefnet`  | `t` (BiRefNet_lite, Swin-T tier), `l` (BiRefNet general, Swin-L tier); both at fixed 1024 |
 | `feynobg`   | `l` (single released variant: Swin-L tier with stage 3 deepened to 24 blocks, 263M params) at fixed 1024 |
 | `ben2`      | `b` (the single public BEN2 Base checkpoint, 94M parameters) at fixed 1024 |
@@ -589,6 +591,7 @@ Detector-factory family support follows:
 | `depth_anything3` | `("depth",)`                  | depth  | Depth Anything 3 mono (ViT-L + DPT); size `l` at upper-bound 504; recommended quality default; Apache-2.0 code/weights; predict + zero-shot `val`; not trainable in LibreYOLO |
 | `zipdepth`  | `("depth",)`                        | depth  | ZipDepth lightweight CNN (RepVGG encoder + FPN decoder, DA2-L distilled); sizes `b`/`bnpu` at short-side 384; predict + zero-shot `val` + fixed-resolution ONNX/TorchScript export; MIT code and weights; not trainable in LibreYOLO |
 | `midas`     | `("depth",)`                        | depth  | MiDaS relative inverse depth, defined only up to a per-image scale and shift; higher means closer and values have no metric unit. Sizes `s`/`l`; predict + zero-shot `val` + fixed-resolution ONNX/TorchScript/TensorRT/OpenVINO export; inference-only |
+| `flowseek`  | `("flow",)`                         | flow   | FlowSeek (ICCV 2025) optical flow; `FLOW_CONTEXT = (0, 0)`; predict + `val`; Apache-2.0 code; m/l embed the CC BY-NC 4.0 DAv2 Base encoder (non-commercial); not trainable in LibreYOLO |
 | `moge2`     | `("normal",)`                       | normal | MoGe-2 ViT-S/B/L-14 normal models; sizes `s`/`b`/`l` at native short-side 518 (`l` quality default); OpenCV camera-frame unit normals; predict + zero-shot `val` + fixed-resolution ONNX export; official code and checkpoints are MIT; not trainable in LibreYOLO |
 | `teed`      | `("edge",)`                         | edge   | TEED tiny edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
 | `dexined`   | `("edge",)`                         | edge   | DexiNed base edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
@@ -766,6 +769,12 @@ LibreDepthAnythingV2s-depth.pt   # ViT-S (Apache-2.0 weights)
 LibreDepthAnythingV2b-depth.pt   # ViT-B (CC-BY-NC-4.0 weights)
 LibreDepthAnythingV2l-depth.pt   # ViT-L (CC-BY-NC-4.0 weights)
 LibreDepthAnythingV2g-depth.pt   # ViT-G (local checkpoints only; not released upstream)
+
+# flowseek: FlowSeek optical flow (flow-only)
+LibreFlowSeekt-flow.pt   # ResNet-18 + DAv2 ViT-S, 4 iterations (Apache-2.0 weights)
+LibreFlowSeeks-flow.pt   # same weights, 12 iterations (Apache-2.0 weights)
+LibreFlowSeekm-flow.pt   # ResNet-34 + DAv2 ViT-B, 4 iterations (CC BY-NC 4.0 encoder)
+LibreFlowSeekl-flow.pt   # same weights, 12 iterations (CC BY-NC 4.0 encoder)
 
 # depth_anything3 — Depth Anything 3 mono (recommended depth quality default)
 LibreDepthAnything3l-depth.pt    # DA3MONO-LARGE ViT-L (Apache-2.0 weights)
