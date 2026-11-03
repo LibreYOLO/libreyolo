@@ -748,7 +748,7 @@ LibreDepthAnythingV2g-depth.pt   # ViT-G (local checkpoints only; not released u
 # depth_anything3 — Depth Anything 3 mono (recommended depth quality default)
 LibreDepthAnything3l-depth.pt    # DA3MONO-LARGE ViT-L (Apache-2.0 weights)
 
-# waft — WAFT optical flow (flow-only, BSD-3-Clause; t also carries the DINOv3 License)
+# waft: WAFT optical flow (flow-only, BSD-3-Clause; t also carries the DINOv3 License)
 LibreWAFTt-flow-dinov3.pt        # a2, DINOv3 ViT-S/16 encoder
 LibreWAFTs-flow-dav2.pt          # a2, Depth Anything V2 ViT-S encoder
 LibreWAFTm-flow.pt               # a1, Depth Anything V2 ViT-S (canonical)
