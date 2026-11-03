@@ -60,9 +60,13 @@ def main() -> None:
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
 
-    ref = PPDocLayoutV3ForObjectDetection.from_pretrained(
-        args.upstream, attn_implementation="eager"
-    ).to(device).eval()
+    ref = (
+        PPDocLayoutV3ForObjectDetection.from_pretrained(
+            args.upstream, attn_implementation="eager"
+        )
+        .to(device)
+        .eval()
+    )
     processor = AutoImageProcessor.from_pretrained(args.upstream)
     model = LibreYOLO(args.checkpoint, device=str(device))
     net = model.model.eval()
@@ -89,7 +93,10 @@ def main() -> None:
         }
         ok = all(v == 0.0 for v in diffs.values())
         failures += not ok
-        print(f"{'OK ' if ok else 'BAD'} {name}: " + ", ".join(f"{k}={v:.3g}" for k, v in diffs.items()))
+        print(
+            f"{'OK ' if ok else 'BAD'} {name}: "
+            + ", ".join(f"{k}={v:.3g}" for k, v in diffs.items())
+        )
 
     print(f"== Gate 2: decoded regions at conf={args.conf} ==")
     for name, tensor, size in inputs[:-1]:
@@ -137,7 +144,11 @@ def main() -> None:
         detail = ""
         if match and len(own_labels):
             detail = " max_box_diff_px={:.3g}".format(
-                float(np.abs(up_own["boxes"].cpu().numpy() - ours.boxes.xyxy.cpu().numpy()).max())
+                float(
+                    np.abs(
+                        up_own["boxes"].cpu().numpy() - ours.boxes.xyxy.cpu().numpy()
+                    ).max()
+                )
             )
         print(
             f"    own preprocessing: regions={len(own_labels)}/{len(ours)} "

@@ -36,9 +36,9 @@ def order_ranks(votes: torch.Tensor) -> torch.Tensor:
     ranks.scatter_(
         -1,
         pointers,
-        torch.arange(votes.shape[-1], device=votes.device, dtype=pointers.dtype).expand_as(
-            pointers
-        ),
+        torch.arange(
+            votes.shape[-1], device=votes.device, dtype=pointers.dtype
+        ).expand_as(pointers),
     )
     return ranks
 

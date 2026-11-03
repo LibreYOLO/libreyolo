@@ -287,7 +287,9 @@ class ConvEncoder(nn.Module):
 
 
 class MLPPredictionHead(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, num_layers: int):
+    def __init__(
+        self, input_dim: int, hidden_dim: int, output_dim: int, num_layers: int
+    ):
         super().__init__()
         self.num_layers = num_layers
         hidden = [hidden_dim] * (num_layers - 1)
@@ -366,7 +368,9 @@ class CSPRepLayer(nn.Module):
         super().__init__()
         self.conv1 = ConvNormLayer(hidden_dim * 2, hidden_dim, 1, 1, activation=True)
         self.conv2 = ConvNormLayer(hidden_dim * 2, hidden_dim, 1, 1, activation=True)
-        self.bottlenecks = nn.Sequential(*[RepVggBlock(hidden_dim) for _ in range(num_blocks)])
+        self.bottlenecks = nn.Sequential(
+            *[RepVggBlock(hidden_dim) for _ in range(num_blocks)]
+        )
         self.conv3 = nn.Identity()
 
     def forward(self, x: Tensor) -> Tensor:
@@ -376,7 +380,11 @@ class CSPRepLayer(nn.Module):
 
 
 def eager_attention(
-    query: Tensor, key: Tensor, value: Tensor, scaling: float, mask: Tensor | None = None
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    scaling: float,
+    mask: Tensor | None = None,
 ) -> Tensor:
     weights = torch.matmul(query, key.transpose(2, 3)) * scaling
     if mask is not None:
@@ -397,7 +405,9 @@ class SelfAttention(nn.Module):
         self.q_proj = nn.Linear(hidden_size, hidden_size)
         self.out_proj = nn.Linear(hidden_size, hidden_size)
 
-    def forward(self, hidden_states: Tensor, position_embeddings: Tensor | None) -> Tensor:
+    def forward(
+        self, hidden_states: Tensor, position_embeddings: Tensor | None
+    ) -> Tensor:
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
         qk_input = (
@@ -484,13 +494,17 @@ class AIFILayer(nn.Module):
 
 
 class ScaleHead(nn.Module):
-    def __init__(self, in_channels: int, feature_channels: int, fpn_stride: int, base_stride: int):
+    def __init__(
+        self, in_channels: int, feature_channels: int, fpn_stride: int, base_stride: int
+    ):
         super().__init__()
         head_length = max(1, int(math.log2(fpn_stride) - math.log2(base_stride)))
         self.layers = nn.ModuleList()
         for k in range(head_length):
             self.layers.append(
-                ConvLayer(in_channels if k == 0 else feature_channels, feature_channels, 3)
+                ConvLayer(
+                    in_channels if k == 0 else feature_channels, feature_channels, 3
+                )
             )
             if fpn_stride != base_stride:
                 self.layers.append(
@@ -573,7 +587,9 @@ class HybridEncoder(nn.Module):
             mask_channels[1], cfg["num_prototypes"]
         )
 
-    def forward(self, feats: List[Tensor], x4_feat: Tensor) -> Tuple[List[Tensor], Tensor]:
+    def forward(
+        self, feats: List[Tensor], x4_feat: Tensor
+    ) -> Tuple[List[Tensor], Tensor]:
         feats = list(feats)
         feats[-1] = self.encoder[0](feats[-1])
 
@@ -632,7 +648,11 @@ def multi_scale_deformable_attention(
         grid_l = sampling_grids[:, :, :, level].transpose(1, 2).flatten(0, 1)
         sampled.append(
             F.grid_sample(
-                value_l, grid_l, mode="bilinear", padding_mode="zeros", align_corners=False
+                value_l,
+                grid_l,
+                mode="bilinear",
+                padding_mode="zeros",
+                align_corners=False,
             )
         )
     attention_weights = attention_weights.transpose(1, 2).reshape(
@@ -653,7 +673,9 @@ class MultiscaleDeformableAttention(nn.Module):
         self.n_heads = num_heads
         self.n_levels = num_levels
         self.n_points = num_points
-        self.sampling_offsets = nn.Linear(d_model, num_heads * num_levels * num_points * 2)
+        self.sampling_offsets = nn.Linear(
+            d_model, num_heads * num_levels * num_points * 2
+        )
         self.attention_weights = nn.Linear(d_model, num_heads * num_levels * num_points)
         self.value_proj = nn.Linear(d_model, d_model)
         self.output_proj = nn.Linear(d_model, d_model)
@@ -684,12 +706,11 @@ class MultiscaleDeformableAttention(nn.Module):
         # Box reference points: (B, Q, 1, 4) cxcywh in [0, 1].
         locations = (
             reference_points[:, :, None, :, None, :2]
-            + offsets
-            / self.n_points
-            * reference_points[:, :, None, :, None, 2:]
-            * 0.5
+            + offsets / self.n_points * reference_points[:, :, None, :, None, 2:] * 0.5
         )
-        output = multi_scale_deformable_attention(value, spatial_shapes, locations, weights)
+        output = multi_scale_deformable_attention(
+            value, spatial_shapes, locations, weights
+        )
         return self.output_proj(output)
 
 
@@ -724,7 +745,11 @@ class DecoderLayer(nn.Module):
         hidden_states = self.self_attn_layer_norm(residual + hidden_states)
         residual = hidden_states
         hidden_states = self.encoder_attn(
-            hidden_states, query_pos, encoder_hidden_states, reference_points, spatial_shapes
+            hidden_states,
+            query_pos,
+            encoder_hidden_states,
+            reference_points,
+            spatial_shapes,
         )
         hidden_states = self.encoder_attn_layer_norm(residual + hidden_states)
         residual = hidden_states
@@ -735,8 +760,12 @@ class DecoderLayer(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, cfg: dict) -> None:
         super().__init__()
-        self.layers = nn.ModuleList(DecoderLayer(cfg) for _ in range(cfg["decoder_layers"]))
-        self.query_pos_head = MLPPredictionHead(4, 2 * cfg["d_model"], cfg["d_model"], 2)
+        self.layers = nn.ModuleList(
+            DecoderLayer(cfg) for _ in range(cfg["decoder_layers"])
+        )
+        self.query_pos_head = MLPPredictionHead(
+            4, 2 * cfg["d_model"], cfg["d_model"], 2
+        )
 
 
 class GlobalPointer(nn.Module):
@@ -775,10 +804,14 @@ def mask_to_box_coordinate(mask: Tensor, dtype: torch.dtype) -> Tensor:
     finfo_max = torch.full((), torch.finfo(dtype).max, dtype=dtype, device=mask.device)
     x_masked = x_coords * mask
     x_max = x_masked.flatten(start_dim=-2).max(dim=-1).values + 1
-    x_min = torch.where(mask, x_masked, finfo_max).flatten(start_dim=-2).min(dim=-1).values
+    x_min = (
+        torch.where(mask, x_masked, finfo_max).flatten(start_dim=-2).min(dim=-1).values
+    )
     y_masked = y_coords * mask
     y_max = y_masked.flatten(start_dim=-2).max(dim=-1).values + 1
-    y_min = torch.where(mask, y_masked, finfo_max).flatten(start_dim=-2).min(dim=-1).values
+    y_min = (
+        torch.where(mask, y_masked, finfo_max).flatten(start_dim=-2).min(dim=-1).values
+    )
     box = torch.stack([x_min, y_min, x_max, y_max], dim=-1)
     box = box * torch.any(mask, dim=(-2, -1)).unsqueeze(-1)
     norm = torch.tensor([width, height, width, height], device=mask.device, dtype=dtype)
@@ -863,7 +896,9 @@ class PPDocLayoutV3Model(nn.Module):
         )
         self.decoder_global_pointer = GlobalPointer(d, cfg["global_pointer_head_size"])
         self.decoder_norm = nn.LayerNorm(d, eps=eps)
-        self.mask_query_head = MLPPredictionHead(d, d, cfg["num_prototypes"], num_layers=3)
+        self.mask_query_head = MLPPredictionHead(
+            d, d, cfg["num_prototypes"], num_layers=3
+        )
 
     # The decoder reuses the encoder heads (tied in the released checkpoint).
     @property
@@ -885,13 +920,16 @@ class PPDocLayoutV3Model(nn.Module):
         source_flatten = torch.cat([s.flatten(2).transpose(1, 2) for s in sources], 1)
         dtype = source_flatten.dtype
 
-        anchors, valid_mask = generate_anchors(spatial_shapes, source_flatten.device, dtype)
+        # The anchors only matter for their validity mask here: the encoder
+        # box proposals they offset are replaced by the mask-derived boxes.
+        _, valid_mask = generate_anchors(spatial_shapes, source_flatten.device, dtype)
         memory = valid_mask.to(dtype) * source_flatten
         output_memory = self.enc_output(memory)
         enc_outputs_class = self.enc_score_head(output_memory)
-        enc_outputs_coord_logits = self.enc_bbox_head(output_memory) + anchors
 
-        _, topk_ind = torch.topk(enc_outputs_class.max(-1).values, self.num_queries, dim=1)
+        _, topk_ind = torch.topk(
+            enc_outputs_class.max(-1).values, self.num_queries, dim=1
+        )
 
         batch_ind = torch.arange(memory.shape[0], device=memory.device).unsqueeze(1)
         out_query = self.decoder_norm(output_memory[batch_ind, topk_ind])
@@ -905,9 +943,9 @@ class PPDocLayoutV3Model(nn.Module):
 
         # Mask-enhanced initialisation: the reference box of each query is the
         # tight box around its encoder mask.
-        enc_out_masks = torch.bmm(mask_query_embed, mask_feat.flatten(start_dim=2)).reshape(
-            batch_size, mask_dim, mask_h, mask_w
-        )
+        enc_out_masks = torch.bmm(
+            mask_query_embed, mask_feat.flatten(start_dim=2)
+        ).reshape(batch_size, mask_dim, mask_h, mask_w)
         reference_points = mask_to_box_coordinate(enc_out_masks > 0, dtype=dtype)
         reference_points = F.sigmoid(inverse_sigmoid(reference_points).detach())
 
@@ -922,7 +960,9 @@ class PPDocLayoutV3Model(nn.Module):
                 spatial_shapes,
             )
             predicted = self.bbox_embed(hidden_states)
-            new_reference_points = F.sigmoid(predicted + inverse_sigmoid(reference_points))
+            new_reference_points = F.sigmoid(
+                predicted + inverse_sigmoid(reference_points)
+            )
             reference_points = new_reference_points.detach()
 
         last_query = self.decoder_norm(hidden_states)
@@ -957,4 +997,8 @@ class PPDocLayoutV3ExportWrapper(nn.Module):
         from ...postprocess.ppdoclayoutv3 import reading_order_votes
 
         out = self.model(x)
-        return out["pred_logits"], out["pred_boxes"], reading_order_votes(out["order_logits"])
+        return (
+            out["pred_logits"],
+            out["pred_boxes"],
+            reading_order_votes(out["order_logits"]),
+        )
