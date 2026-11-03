@@ -344,3 +344,68 @@ def test_pins_inventory_and_registry():
     assert entry["optional_extra"] == "vlm"
     assert entry["tasks"] == ["ocr"]
     assert set(processing.RESOLUTIONS) == {"tiny", "small", "base", "large", "gundam"}
+
+
+# ------------------------------------------------------- DeepSeek-OCR-2 (size 2)
+
+
+@pytest.mark.parametrize(
+    "size,resolution,grid,tokens",
+    [
+        # 1024 global view (256) + separator + 144 per 768 crop, no newlines.
+        ((1000, 1300), "gundam", (2, 3), 256 + 1 + 6 * 144),
+        ((1000, 1300), "base", (1, 1), 257),
+        ((700, 500), "gundam", (1, 1), 257),
+    ],
+)
+def test_v2_views_and_token_layout(size, resolution, grid, tokens):
+    views = processing.prepare_views(
+        Image.new("RGB", size, "white"), resolution, processing.V2
+    )
+    assert views.grid == grid and views.num_tokens == tokens
+    if grid != (1, 1):
+        assert views.crops.shape == (grid[0] * grid[1], 3, 768, 768)
+    with pytest.raises(ValueError, match="resolution"):
+        processing.prepare_views(Image.new("RGB", size), "tiny", processing.V2)
+
+
+def test_v2_flow_mask():
+    from libreyolo.models.deepseekocr.encoder2 import flow_mask
+
+    mask = flow_mask(5, 2, torch.float32, torch.device("cpu"))[0, 0]
+    allowed = mask == 0
+    expected = torch.tensor(
+        [
+            [1, 1, 0, 0, 0],
+            [1, 1, 0, 0, 0],
+            [1, 1, 1, 0, 0],
+            [1, 1, 1, 1, 0],
+            [1, 1, 1, 1, 1],
+        ],
+        dtype=torch.bool,
+    )
+    assert torch.equal(allowed, expected)
+
+
+def test_v2_network_matches_checkpoint_layout():
+    with torch.device("meta"):
+        net = DeepSeekOCRNetwork(DeepSeekOCRTextConfig(), version=2)
+    keys = set(net.state_dict())
+    assert len(keys) == 2707
+    for key in (
+        "model.qwen2_model.query_768.weight",
+        "model.qwen2_model.model.model.layers.23.self_attn.q_proj.bias",
+        "model.qwen2_model.model.model.norm.weight",
+        "model.projector.layers.weight",
+    ):
+        assert key in keys
+    assert "model.image_newline" not in keys
+    assert net.model.sam_model.net_3.out_channels == 896
+
+
+def test_v2_factory(harness):
+    model = LibreVLM("deepseek-ocr-2", device="cpu")
+    assert model.size == "2" and model.resolution == "gundam"
+    assert model.HF_REPOS["2"] == "LibreYOLO/LibreDeepSeekOCR2"
+    with pytest.raises(ValueError, match="resolution"):
+        model.resolution = "large"

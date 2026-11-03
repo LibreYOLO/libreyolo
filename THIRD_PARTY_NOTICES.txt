@@ -2950,6 +2950,18 @@ LayerNorm2d (MIT); conversation.py derives from FastChat (Apache-2.0).
 Apache-2.0 text: licenses/Apache-2.0.txt. See
 libreyolo/models/deepseekocr/NOTICE.
 
+DeepSeek-OCR-2 (size 2 of the same family)
+Upstream: DeepSeek, https://huggingface.co/deepseek-ai/DeepSeek-OCR-2
+Commit: aaa02f3811945a91062062994c5c4a3f4c0af2b0
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Used for: libreyolo/models/deepseekocr/encoder2.py (deepencoderv2.py: the
+Qwen2 decoder used as a vision encoder with learned queries and an
+image/query attention mask) and the version-2 branches of deepencoder.py,
+network.py and processing.py (modeling_deepseekocr2.py). The Qwen2 decoder
+layer, SDPA attention and rotary embedding that path runs are ported from
+transformers 4.46.3 models/qwen2/modeling_qwen2.py (Apache-2.0, The
+HuggingFace Inc. team).
+
 
 GTR (Gated Token Recurrence)
 Source: https://github.com/Intellindust-AI-Lab/GTR

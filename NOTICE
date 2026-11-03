@@ -831,7 +831,11 @@ DeepSeek-OCR (MIT License; Apache-2.0 sub-components)
     is the transformers 4.46.3 Llama attention (Apache-2.0); the SAM encoder
     is adapted upstream from detectron2 ViTDet (Apache-2.0). Weights (MIT)
     download from the byte-identical LibreYOLO/LibreDeepSeekOCR1 mirror at
-    a pinned revision.
+    a pinned revision. DeepSeek-OCR-2 (size 2, Apache-2.0, commit
+    aaa02f3811945a91062062994c5c4a3f4c0af2b0) adds a Qwen2-based vision
+    encoder ported from its deepencoderv2.py and the transformers 4.46.3
+    Qwen2 modules (Apache-2.0); its weights (Apache-2.0) download from the
+    LibreYOLO/LibreDeepSeekOCR2 mirror.
 
 ------------------------------------------------------------------------
 Pretrained model weights

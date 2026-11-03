@@ -134,15 +134,16 @@ class LibreDeepSeekOCR(LibreVLMModel):
 
     FAMILY = "deepseekocr"
     FILENAME_PREFIX = "LibreDeepSeekOCR"
-    # Byte-identical mirror of deepseek-ai/DeepSeek-OCR @ 9f30c71f (weights,
-    # config, tokenizer; no remote code), pinned.
+    # Byte-identical mirrors (weights, config, tokenizer; no remote code) of
+    # deepseek-ai/DeepSeek-OCR @ 9f30c71f and deepseek-ai/DeepSeek-OCR-2 @
+    # aaa02f38, pinned.
     HF_REPOS: ClassVar[Dict[str, str]] = {
         "1": "LibreYOLO/LibreDeepSeekOCR1",
-        "2": "deepseek-ai/DeepSeek-OCR-2",
+        "2": "LibreYOLO/LibreDeepSeekOCR2",
     }
     HF_REVISIONS: ClassVar[Dict[str, str]] = {
         "1": "a47622e3fb7279eaed206ab5d656158b71976b5b",
-        "2": "aaa02f3811945a91062062994c5c4a3f4c0af2b0",
+        "2": "9958a0a3fe52c14219cc3008d4bb85a4db875083",
     }
     INPUT_SIZES: ClassVar[Dict[str, int]] = {"1": 1024, "2": 1024}
     SUPPORTED_TASKS = ("ocr",)
