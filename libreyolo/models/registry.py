@@ -78,6 +78,7 @@ MODEL_GROUPS: dict[str, str] = {
     "eomt": "g3",
     "pidnet": "g3",
     "depth_anything": "g3",
+    "flowseek": "g3",
     "depth_anything3": "g3",
     "zipdepth": "g3",
     "midas": "g3",

@@ -105,6 +105,7 @@ from .hrnet.model import LibreHRNet  # noqa: E402,F401  (top-down pose; unique s
 from .dekr.model import LibreDEKR  # noqa: E402,F401  (bottom-up pose; unique offset_final_layer stack)
 from .l2cs.model import LibreL2CS  # noqa: E402,F401  (import registers family)
 from .fomo.model import LibreFOMO  # noqa: E402,F401  (import registers family)
+from .flowseek.model import LibreFlowSeek  # noqa: E402,F401  (flow-only; can_load keyed on bnet + merge_head + dav2)
 from .midas.model import LibreMiDaS  # noqa: E402,F401  (depth-only MiDaS museum family)
 from .depth_anything.model import (  # noqa: E402,F401  (import registers family)
     LibreDepthAnythingV2,
@@ -905,6 +906,7 @@ __all__ = [
     "LibreRTDETRv2",
     "LibreRTDETRv4",
     "LibreFOMO",
+    "LibreFlowSeek",
     "LibreMiDaS",
     "LibreDepthAnythingV2",
     "LibreMoGe2",
