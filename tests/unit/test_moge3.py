@@ -237,9 +237,10 @@ class TestGeometry:
 
         normalized = torch.tensor([[0.8, 0, 0.5], [0, 1.2, 0.5], [0, 0, 1.0]])
         k = pixel_intrinsics(normalized, 640, 480)
-        assert k.tolist() == pytest.approx(
+        expected = torch.tensor(
             [[512.0, 0.0, 319.5], [0.0, 576.0, 239.5], [0.0, 0.0, 1.0]]
         )
+        assert torch.allclose(k, expected)
 
     def test_token_budget(self):
         from libreyolo.models.moge3.nn import token_grid
