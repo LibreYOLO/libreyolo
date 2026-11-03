@@ -539,6 +539,7 @@ requires-dist = []
 extend-exclude = [
     "libreyolo/models/deimv2/engine",
     "libreyolo/models/depth_anything3/_vendor",
+    "libreyolo/models/unimatch/_vendor",
 ]
 
 [tool.ty.rules]
@@ -668,6 +669,7 @@ markers = [
     "siglip2: tests covering the LibreSigLIP2 zero-shot open-vocabulary classifier family",
     "pe: tests covering the LibrePE Perception Encoder Core zero-shot / embedding family",
     "midas: tests covering the MiDaS relative-depth family",
+    "unimatch: tests covering the UniMatch / GMFlow optical flow family",
     "quicksrnet: tests covering the QuickSRNet super-resolution family",
     "ddcolor: tests covering the DDColor automatic-colorization family",
     "hvi_cidnet: tests covering the HVI-CIDNet low-light restoration family",
