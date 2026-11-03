@@ -100,6 +100,7 @@ file = name + ".pt"
 | EoMT | `LibreEoMT` | `LibreEoMTl-sem.pt` (semantic), `LibreEoMTl-seg.pt` (COCO instance), `LibreEoMTs-panoptic.pt` (COCO panoptic) |
 | DINOv2 | `LibreDINOv2` | `LibreDINOv2n.pt` (semantic default), `LibreDINOv2n-cls.pt` |
 | DepthAnythingV2 | `LibreDepthAnythingV2` | `LibreDepthAnythingV2s-depth.pt` (only `s` is Apache; b/l/g are CC-BY-NC, see below) |
+| FlowSeek | `LibreFlowSeek` | `LibreFlowSeekt-flow.pt` (Apache code; t/s embed the Apache DAv2 Small encoder, m/l the CC BY-NC 4.0 Base encoder) |
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
 | GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
@@ -346,6 +347,9 @@ LibreDepthAnythingV2s-depth.pt, LibreDepthAnythingV2b-depth.pt,
 LibreDepthAnythingV2l-depth.pt, LibreDepthAnythingV2g-depth.pt,
 
 LibreDepthAnything3l-depth.pt,
+
+LibreFlowSeekt-flow.pt, LibreFlowSeeks-flow.pt, LibreFlowSeekm-flow.pt,
+LibreFlowSeekl-flow.pt,
 
 LibreMoGe2s-normal.pt, LibreMoGe2b-normal.pt, LibreMoGe2l-normal.pt,
 
