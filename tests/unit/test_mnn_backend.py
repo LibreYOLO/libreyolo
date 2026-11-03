@@ -260,3 +260,33 @@ def test_libreyolo_routes_mnn_suffix_to_backend(tmp_path, monkeypatch):
         "device": "cuda",
         "task": "detect",
     }
+
+
+def test_import_mnn_explains_the_executable_stack_refusal(monkeypatch):
+    # glibc 2.41+ refuses MNN's Linux wheel, which is installed; the message
+    # must not tell the user to install it again (#989).
+    import builtins
+
+    from libreyolo.backends.mnn import import_mnn
+
+    real_import = builtins.__import__
+
+    def refuse(name, *args, **kwargs):
+        if name == "MNN":
+            raise ImportError(
+                "_mnncengine.so: cannot enable executable stack as shared "
+                "object requires: Invalid argument"
+            )
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", refuse)
+    with pytest.raises(ImportError, match="GLIBC_TUNABLES=glibc.rtld.execstack=2"):
+        import_mnn("MNN export")
+
+
+def test_import_mnn_points_a_missing_package_at_the_extra(monkeypatch):
+    from libreyolo.backends.mnn import import_mnn
+
+    monkeypatch.setitem(sys.modules, "MNN", None)
+    with pytest.raises(ImportError, match=r"pip install libreyolo\[mnn\]"):
+        import_mnn("MNN inference")

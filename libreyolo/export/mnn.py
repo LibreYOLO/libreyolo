@@ -43,11 +43,12 @@ def _find_mnnconvert() -> Path:
 
 def check_mnn_available() -> Path:
     """Validate the optional MNN runtime and converter installation."""
-    try:
-        import MNN  # noqa: F401
+    from ..backends.mnn import import_mnn
 
+    import_mnn("MNN export")
+    try:
         importlib.metadata.version("MNN")
-    except (ImportError, OSError, importlib.metadata.PackageNotFoundError) as exc:
+    except importlib.metadata.PackageNotFoundError as exc:
         raise ImportError(
             "MNN export requires the optional MNN package. "
             "Install with: pip install libreyolo[mnn]"

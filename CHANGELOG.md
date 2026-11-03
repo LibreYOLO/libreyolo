@@ -26,6 +26,9 @@ before 1.4.0 are documented in the
 - **MNN and ExecuTorch export work from a virtualenv that is not activated. (#989)**
   Running the venv's python directly (an IDE run button, a Jupyter kernel, `venv/bin/python script.py`) left `mnnconvert` and ExecuTorch's `flatc` off `PATH`, so MNN export said `mnnconvert` was missing and ExecuTorch export could not start `flatc`. Both are now found in the environment's own scripts directory.
 
+- **A failing `import MNN` on current Linux says why. (#989)**
+  MNN's Linux wheel asks for an executable stack, which glibc 2.41 and newer refuse (Ubuntu 25.04+, Fedora 42+), so MNN export and inference failed with "Install with: pip install libreyolo[mnn]" although MNN was installed. The error now names the cause and the workarounds: `GLIBC_TUNABLES=glibc.rtld.execstack=2` (glibc 2.42+) or `patchelf --clear-execstack`.
+
 - **`uv sync` resolves from a source checkout. (#989)**
   The dev group asked for pytest 9 while ExecuTorch 1.2 requires pytest below 9, `coreai-torch` was requested on Python 3.10 although it needs 3.11, and extras that cannot share an environment (`vla` with `molmo2` or `marigold`, `executorch` or `paddle` with `tflite`) were not declared as conflicts. A new `Dependency resolution` workflow resolves `uv lock` and every extra on Python 3.10 to 3.13 for Linux x86_64, Linux ARM, Windows and Apple Silicon, on dependency changes and nightly. Thanks @gboeer.
 

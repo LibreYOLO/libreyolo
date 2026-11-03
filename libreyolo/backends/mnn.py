@@ -18,6 +18,33 @@ from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.serialization import warn_on_metadata_schema_version
 from .base import BaseBackend, ImageSize, _read_metadata_imgsz
 
+
+def import_mnn(purpose: str):
+    """Import MNN, explaining the two ways it fails to load.
+
+    MNN's Linux wheels ask for an executable stack. glibc 2.41 and newer
+    refuse that for libraries loaded at runtime, so ``import MNN`` fails on
+    current distributions although the package is installed (#989).
+    """
+    try:
+        import MNN
+    except (ImportError, OSError) as exc:
+        if "executable stack" in str(exc):
+            raise ImportError(
+                f"{purpose} cannot load MNN: its Linux wheel asks for an "
+                "executable stack, which glibc 2.41 and newer refuse "
+                "(Ubuntu 25.04+, Fedora 42+). Start Python with "
+                "GLIBC_TUNABLES=glibc.rtld.execstack=2 (glibc 2.42+), or "
+                "clear the flag once with `patchelf --clear-execstack` on the "
+                f"library named here: {exc}"
+            ) from exc
+        raise ImportError(
+            f"{purpose} requires the optional MNN package. "
+            "Install with: pip install libreyolo[mnn]"
+        ) from exc
+    return MNN
+
+
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_FAMILIES = {
@@ -77,14 +104,7 @@ class MNNBackend(BaseBackend):
         path = Path(model_path)
         if not path.is_file():
             raise FileNotFoundError(f"MNN model not found: {model_path}")
-        try:
-            import MNN
-        except (ImportError, OSError) as exc:
-            raise ImportError(
-                "MNN inference requires the optional MNN runtime. "
-                "Install with: pip install libreyolo[mnn]"
-            ) from exc
-        mnn_api = cast(Any, MNN)
+        mnn_api = cast(Any, import_mnn("MNN inference"))
 
         if str(device).lower() not in {"auto", "cpu"}:
             logger.warning("MNN exports run on CPU; ignoring device=%r.", device)
