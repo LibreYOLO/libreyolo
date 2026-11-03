@@ -7,6 +7,11 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+### Added
+
+- **PaddleOCR-VL document parsing on the `ocr` task. (#994)**
+  `LibreVLM("paddleocr-vl")` (or `LibrePaddleOCRVL`) runs PaddlePaddle's two-stage document parser, Apache-2.0 code and weights: PP-DocLayoutV2 finds layout regions and their reading order, and PaddleOCR-VL-0.9B reads each region as text, a table (returned as HTML) or a formula (LaTeX), with charts opt-in through `use_chart_recognition=True`. `Results.ocr` holds one region per block in reading order, and two new optional fields: `labels` (the layout class of each region) and `markdown` (the whole page). `use_layout_detection=False` with `prompt_label=` reads a pre-cropped element. `val()` runs the OCR validator. Both networks load through native transformers classes (transformers 5.3 or newer) from the pinned mirror `LibreYOLO/LibrePaddleOCRVL0.9b`; the surrounding pipeline is ported from PaddleX. Inference only; `train()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+
 ### Changed
 
 - **`libreyolo[all]` no longer includes `paddle`. (#989)**
