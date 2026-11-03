@@ -22,7 +22,8 @@ Files and changes:
 - dpflow.py: inference-only rewrite of ptlflow/models/dpflow/dpflow.py on
   torch.nn.Module. Removed: Lightning BaseModel, SequenceLoss, registry
   decorators, loguru, warm start (prev_preds), training outputs, and the
-  corr modes other than "allpairs" and "torch". ptlflow's
+  corr modes other than "allpairs" and "torch". The "torch" engine is
+  called with chunk_size=9 (exact, lower peak memory). ptlflow's
   preprocess_images and postprocess_predictions are inlined for the
   settings DPFlow uses.
 

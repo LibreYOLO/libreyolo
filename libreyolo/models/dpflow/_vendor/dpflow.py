@@ -23,7 +23,8 @@
 # (two-sided replicate padding to the output stride, images scaled to
 # [-1, 1]). The corr_mode dispatch keeps "allpairs" and the pure-PyTorch
 # "torch" engine, including upstream's fallback from "allpairs" to "torch"
-# on CUDA out-of-memory. The dual-pyramid network, the adaptive pyramid
+# on CUDA out-of-memory; the "torch" engine samples its correlation window
+# in row chunks (exact, lower peak memory). The dual-pyramid network, the adaptive pyramid
 # level rule and the recurrent refinement are unchanged.
 
 import logging
@@ -304,13 +305,25 @@ class DPFlow(nn.Module):
 
             coords0 = self.coords_grid(x1.shape[0], x1.shape[2], x1.shape[3])
 
-            corr_cls = CorrBlock if self.corr_mode == "allpairs" else IterativeCorrBlock
-            corr_fn = corr_cls(
-                fmap1=x1,
-                fmap2=x2,
-                num_levels=self.corr_levels,
-                radius=self.corr_range,
-            )
+            if self.corr_mode == "allpairs":
+                corr_fn = CorrBlock(
+                    fmap1=x1,
+                    fmap2=x2,
+                    num_levels=self.corr_levels,
+                    radius=self.corr_range,
+                )
+            else:
+                # LibreYOLO: sample the (2r+1)^2 window offsets one row at a
+                # time. Each offset is an independent grid_sample, so the
+                # result is unchanged while peak memory drops by 2r+1 (this is
+                # what lets the "torch" fallback fit 4K inputs on 24 GB).
+                corr_fn = IterativeCorrBlock(
+                    fmap1=x1,
+                    fmap2=x2,
+                    num_levels=self.corr_levels,
+                    radius=self.corr_range,
+                    chunk_size=2 * self.corr_range + 1,
+                )
 
             if l > 0:
                 flow = rescale_flow(flow, x1.shape[-1], x1.shape[-2], to_local=False)
