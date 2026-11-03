@@ -384,6 +384,16 @@ project the weights were derived from. Per-family summary:
              any-view checkpoints are not hosted. CC-BY-NC-4.0
              Large/Giant/Nested checkpoints are explicitly excluded.
 
+    SEA-RAFT (LibreSEARAFT{s,m,l}-flow)                BSD-3-Clause
+             upstream: princeton-vl/SEA-RAFT, checkpoints
+             MemorySlices/Tartan-C-T-TSKH-spring540x960-{S,M}
+             (revisions 31b9b4b711bd2d0d0d38cb99d93ba144beb2dc92 and
+             eb97ef34ba5d856c3fa2cdcd073150c057ac8b69). l is the M
+             checkpoint run with 12 iterations. Tensors are unchanged; the
+             converter re-adds the BatchNorm aliases safetensors stores once
+             and adds LibreYOLO checkpoint metadata.
+             Convert with weights/convert_searaft_weights.py.
+
     MiDaS    (LibreMiDaS{s,l}-depth)                   upstream download only
              upstream: isl-org/MiDaS release assets
              midas_v21_small_256.pt SHA-256:

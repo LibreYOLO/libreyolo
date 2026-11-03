@@ -271,6 +271,19 @@ Depth Anything 3 (Apache License 2.0)
     Platforms Apache-2.0 headers. Package-relative imports and dependency-free
     tensor reshapes do not alter learned parameters or monocular outputs.
 
+SEA-RAFT (BSD 3-Clause License)
+    Path:    libreyolo/models/searaft/_vendor/
+    License: libreyolo/models/searaft/_vendor/LICENSE  (BSD-3-Clause)
+    Source:  https://github.com/princeton-vl/SEA-RAFT
+             (commit 9137517ba24e628442aec097d3afe71d03503b75)
+             Copyright (c) 2024, Princeton Vision & Learning Lab.
+
+    The inference subset of SEA-RAFT's core/ is vendored for the
+    LibreSEARAFT optical flow family; training code and the optional CUDA
+    correlation extension are not included. The published S and M
+    checkpoints are BSD-3-Clause and mirrored on the LibreYOLO Hugging Face
+    organisation.
+
 NAFNet (MIT License)
     Path:    libreyolo/models/nafnet/
     License: libreyolo/models/nafnet/NOTICE  (MIT)
