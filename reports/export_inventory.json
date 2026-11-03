@@ -245,6 +245,24 @@
     "available": true,
     "group": "g3"
   },
+  "deepseekocr": {
+    "class": "libreyolo.models.deepseekocr.model.LibreDeepSeekOCR",
+    "tasks": [
+      "ocr"
+    ],
+    "default_task": "ocr",
+    "sizes": {
+      "1": 1024
+    },
+    "default_imgsz": {
+      "1": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "deformable_detr": {
     "class": "libreyolo.models.deformable_detr.model.LibreDeformableDETR",
     "tasks": [
