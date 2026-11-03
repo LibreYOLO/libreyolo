@@ -3757,6 +3757,11 @@ _TASK_BLOCKS = {
         "3D detection export is blocked until its graph outputs, camera metadata, "
         "and backend runtime contract are defined."
     ),
+    "flow": (
+        "Optical flow export is blocked until the two-input graph (image1, "
+        "image2) and the backend vector-rescale contract of ADR 0032 are "
+        "implemented for a family."
+    ),
     "ocr": (
         "OCR uses two networks for detection and recognition with dynamic "
         "per-region cropping, so it does not fit the single-graph export contract."
