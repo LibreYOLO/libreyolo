@@ -53,6 +53,10 @@ TASK_MODULES = {
     "depth": ("encoder", "neck", "points_head", "mask_head", "scale_head", "refiner"),
     "normal": ("encoder", "neck", "normal_head"),
 }
+# The normal graph has no refiner, and its tensors match MoGe-2 ViT-L by name
+# and shape, so it carries this persistent buffer to stay recognizable as
+# MoGe-3 after save().
+FAMILY_TAG_KEY = "moge3_tag"
 
 
 class MLP(nn.Sequential):
@@ -137,6 +141,7 @@ class MoGe3Net(nn.Module):
 
         if task == "normal":
             self.normal_head = head(3)
+            self.register_buffer(FAMILY_TAG_KEY, torch.tensor(3))
         else:
             self.points_head = head(3)
             self.mask_head = head(1)
@@ -191,7 +196,8 @@ class MoGe3Net(nn.Module):
         num_tokens: int | None = None,
         refine_steps: int = DEFAULT_REFINE_STEPS,
     ):
-        batch_size, _, img_h, img_w = image.shape
+        # Plain ints keep the token grid arithmetic traceable for export.
+        batch_size, _, img_h, img_w = (int(dim) for dim in image.shape)
         device, dtype = image.device, image.dtype
         if num_tokens is None:
             num_tokens = (img_h // PATCH_SIZE) * (img_w // PATCH_SIZE)
@@ -241,4 +247,4 @@ class MoGe3Net(nn.Module):
         }
 
 
-__all__ = ["MoGe3Net", "SIZE_CONFIGS", "TASK_MODULES", "token_grid"]
+__all__ = ["FAMILY_TAG_KEY", "MoGe3Net", "SIZE_CONFIGS", "TASK_MODULES", "token_grid"]

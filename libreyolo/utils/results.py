@@ -887,6 +887,10 @@ class DepthMap(_TensorPayload):
         def apply(value):
             return None if value is None else fn(value)
 
+        mask = apply(self.valid_mask)
+        if isinstance(mask, torch.Tensor) and mask.dtype != torch.bool:
+            # A dtype cast (``to(torch.float16)``) must not turn the mask numeric.
+            mask = mask.bool()
         return self.__class__(
             fn(self.data),
             self.orig_shape if orig_shape is None else orig_shape,
@@ -894,7 +898,7 @@ class DepthMap(_TensorPayload):
             metric=self.metric,
             point_map=apply(self.point_map),
             intrinsics=apply(self.intrinsics),
-            valid_mask=apply(self.valid_mask),
+            valid_mask=mask,
         )
 
     def to(self, *args, **kwargs):

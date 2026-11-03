@@ -28,7 +28,7 @@ from PIL import Image
 
 from ...utils.image_loader import ImageInput, ImageLoader
 from ..base.model import BaseModel
-from .nn import PATCH_SIZE, TASK_MODULES, MoGe3Net
+from .nn import FAMILY_TAG_KEY, PATCH_SIZE, TASK_MODULES, MoGe3Net
 from .utils import num_tokens_for, pixel_intrinsics, preprocess_numpy, recover_geometry
 
 _WRAPPER_PREFIXES = ("module.", "_orig_mod.", "model.")
@@ -43,6 +43,10 @@ def _clean_state_dict(state_dict: dict, task: str | None = None) -> dict:
             key = key.split(".", 1)[1]
         if prefixes is None or key.startswith(prefixes):
             cleaned[key] = value
+    if task == "normal" and cleaned:
+        cleaned[FAMILY_TAG_KEY] = torch.tensor(3)
+    elif task is not None:
+        cleaned.pop(FAMILY_TAG_KEY, None)
     return cleaned
 
 
@@ -120,10 +124,14 @@ class LibreMoGe3(BaseModel):
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        # The refiner is what separates MoGe-3 from MoGe-2, whose encoder,
-        # neck, and heads share these names (and, at ViT-L, these shapes).
+        # The refiner (or, for saved normal-only graphs, the family tag) is
+        # what separates MoGe-3 from MoGe-2, whose encoder, neck, and heads
+        # share these names (and, at ViT-L, these shapes).
         return (
-            "refiner.input_proj.weight" in weights_dict
+            (
+                "refiner.input_proj.weight" in weights_dict
+                or FAMILY_TAG_KEY in weights_dict
+            )
             and "encoder.backbone.cls_token" in weights_dict
             and "neck.input_blocks.0.weight" in weights_dict
         )

@@ -104,6 +104,7 @@ class LibreMoGe2(BaseModel):
         # MoGe-3 checkpoints share these keys; its sparse refiner marks them.
         return (
             "refiner.input_proj.weight" not in weights_dict
+            and "moge3_tag" not in weights_dict
             and "encoder.backbone.cls_token" in weights_dict
             and "neck.input_blocks.0.weight" in weights_dict
             and "normal_head.output_blocks.4.weight" in weights_dict

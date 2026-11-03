@@ -103,6 +103,15 @@ class TestMoGeSiblingRouting:
         assert not LibreMoGe2.can_load(state)
         assert LibreMoGe2.convert_upstream_state_dict(state) is None
 
+    def test_saved_normal_graph_tag_routes_to_moge3(self):
+        from libreyolo.models.moge2.model import LibreMoGe2
+        from libreyolo.models.moge3.model import LibreMoGe3
+
+        state = _moge2_state()
+        state["moge3_tag"] = torch.tensor(3)
+        assert LibreMoGe3.can_load(state)
+        assert not LibreMoGe2.can_load(state)
+
     def test_each_family_still_claims_its_own(self):
         from libreyolo.models.moge2.model import LibreMoGe2
         from libreyolo.models.moge3.model import LibreMoGe3
@@ -123,6 +132,7 @@ class TestMoGeSiblingRouting:
             "encoder.backbone.cls_token",
             "neck.input_blocks.0.weight",
             "normal_head.output_blocks.4.weight",
+            "moge3_tag",
         }
 
 
@@ -271,6 +281,9 @@ class TestDepthMapGeometry:
         assert converted.intrinsics.shape == (3, 3)
         assert converted.valid_mask.dtype == bool
         assert result[0].depth_map.point_map is depth.point_map
+        half = depth.to(torch.float16)
+        assert half.data.dtype == torch.float16
+        assert half.valid_mask.dtype == torch.bool
 
     def test_rejects_inconsistent_geometry(self):
         from libreyolo.utils.results import DepthMap
@@ -397,3 +410,17 @@ def test_exported_moge3_normal_parity(tiny_moge3, tmp_path, format_name):
     angular = np.rad2deg(np.arccos(np.clip(dots, -1.0, 1.0)))
     assert actual.shape == native.shape
     assert float(angular.mean()) < 0.1
+
+
+@pytest.mark.parametrize("task", ["depth", "normal"])
+def test_saved_checkpoint_reloads_through_factory(tiny_moge3, tmp_path, task):
+    from libreyolo import LibreYOLO
+
+    model = tiny_moge3[task]
+    path = model.save(str(tmp_path / f"LibreMoGe3t-{task}.pt"))
+    reloaded = LibreYOLO(path, device="cpu")
+    assert reloaded.family == "moge3"
+    assert reloaded.task == task
+    original = model.model.state_dict()
+    for key, value in reloaded.model.state_dict().items():
+        assert torch.equal(value, original[key]), key
