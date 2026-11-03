@@ -56,9 +56,7 @@ LAYOUT_LABELS: Tuple[str, ...] = (
 )
 
 # Per-class score thresholds of the PaddleOCR-VL pipeline config.
-LAYOUT_THRESHOLDS: Dict[int, float] = {
-    i: 0.5 for i in range(len(LAYOUT_LABELS))
-}
+LAYOUT_THRESHOLDS: Dict[int, float] = {i: 0.5 for i in range(len(LAYOUT_LABELS))}
 LAYOUT_THRESHOLDS.update({5: 0.4, 6: 0.4, 15: 0.4, 17: 0.4, 20: 0.45, 22: 0.4, 23: 0.4})
 
 # Classes whose boxes swallow the boxes they contain ("large" merge mode);
@@ -83,9 +81,9 @@ def order_sequence(order_logits: torch.Tensor) -> torch.Tensor:
     """Reading-order rank of each query from the pointer-network logits."""
     scores = torch.sigmoid(order_logits)
     _, n, _ = scores.shape
-    votes = scores.triu(diagonal=1).sum(dim=1) + (
-        1.0 - scores.transpose(1, 2)
-    ).tril(diagonal=-1).sum(dim=1)
+    votes = scores.triu(diagonal=1).sum(dim=1) + (1.0 - scores.transpose(1, 2)).tril(
+        diagonal=-1
+    ).sum(dim=1)
     pointers = torch.argsort(votes, dim=1)
     seq = torch.empty_like(pointers)
     ranks = torch.arange(n, device=pointers.device, dtype=pointers.dtype).expand(
@@ -140,7 +138,9 @@ def _iou_plus_one(a: Sequence[float], b: Sequence[float]) -> float:
     return inter / float(area_a + area_b - inter)
 
 
-def layout_nms(rows: np.ndarray, iou_same: float = 0.6, iou_diff: float = 0.98) -> List[int]:
+def layout_nms(
+    rows: np.ndarray, iou_same: float = 0.6, iou_diff: float = 0.98
+) -> List[int]:
     """Class-aware NMS: a looser threshold across different classes."""
     indices = list(np.argsort(rows[:, 1])[::-1])
     keep: List[int] = []
@@ -171,8 +171,10 @@ def _contained_by_class(rows: np.ndarray, category: int) -> np.ndarray:
     contained = np.zeros(n, dtype=bool)
     for i in range(n):
         for j in range(n):
-            if i != j and rows[j, 0] == category and _is_contained(
-                rows[i, 2:6], rows[j, 2:6]
+            if (
+                i != j
+                and rows[j, 0] == category
+                and _is_contained(rows[i, 2:6], rows[j, 2:6])
             ):
                 contained[i] = True
     return contained
@@ -304,7 +306,12 @@ def filter_overlap_boxes(boxes: List[dict]) -> List[dict]:
             if ratio > 0.7:
                 pair = {li, lj}
                 if pair & {"image", "table", "seal", "chart"} and len(pair) > 1:
-                    if "table" not in pair or pair <= {"table", "image", "seal", "chart"}:
+                    if "table" not in pair or pair <= {
+                        "table",
+                        "image",
+                        "seal",
+                        "chart",
+                    }:
                         continue
                 dropped.add(j if areas[i] >= areas[j] else i)
     return [b for k, b in enumerate(boxes) if k not in dropped]

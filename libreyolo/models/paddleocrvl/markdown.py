@@ -50,7 +50,9 @@ def _title(s: str) -> str:
     return _collapse(f"#{'#' * level} {s}")
 
 
-def _first_line(s: str, templates: Iterable[str], fmt: Callable[[str], str], splitter: str) -> str:
+def _first_line(
+    s: str, templates: Iterable[str], fmt: Callable[[str], str], splitter: str
+) -> str:
     lines = s.split(splitter)
     for i, line in enumerate(lines):
         if not line.strip():
@@ -73,14 +75,25 @@ HANDLERS: Dict[str, Callable[[str], str]] = {
     "text": _paragraphs,
     "vertical_text": _paragraphs,
     "reference_content": _paragraphs,
-    "abstract": lambda s: _first_line(s, ("摘要", "abstract"), lambda x: f"## {x}\n", " "),
+    "abstract": lambda s: _first_line(
+        s, ("摘要", "abstract"), lambda x: f"## {x}\n", " "
+    ),
     "content": lambda s: s.replace("-\n", "  \n").replace("\n", "  \n"),
     "display_formula": _plain,
     "inline_formula": _plain,
     "formula_number": _plain,
-    "table": lambda s: "\n" + ("\n" + s).replace("<html>", "").replace("</html>", "").replace("<body>", "").replace("</body>", ""),
+    "table": lambda s: (
+        "\n"
+        + ("\n" + s)
+        .replace("<html>", "")
+        .replace("</html>", "")
+        .replace("<body>", "")
+        .replace("</body>", "")
+    ),
     "chart": _plain,
-    "reference": lambda s: _first_line(s, ("参考文献", "references"), lambda x: f"## {x}", "\n"),
+    "reference": lambda s: _first_line(
+        s, ("参考文献", "references"), lambda x: f"## {x}", "\n"
+    ),
     "algorithm": lambda s: s.strip("\n"),
     "number": _plain,
     "footnote": _plain,

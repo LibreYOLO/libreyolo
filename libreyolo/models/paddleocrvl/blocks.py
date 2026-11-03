@@ -211,7 +211,11 @@ def _otsl_pad_to_rectangle(otsl: str) -> str:
 
 def _otsl_cells(texts: List[str], tokens: List[str]):
     """Parse OTSL tags and texts into cells ``(text, r0, r1, c0, c1)``."""
-    grid = [list(g) for is_nl, g in itertools.groupby(tokens, lambda t: t == OTSL_NL) if not is_nl]
+    grid = [
+        list(g)
+        for is_nl, g in itertools.groupby(tokens, lambda t: t == OTSL_NL)
+        if not is_nl
+    ]
     if grid:
         width = max(len(r) for r in grid)
         for row in grid:

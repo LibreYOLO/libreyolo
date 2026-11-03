@@ -303,7 +303,9 @@ class LibrePaddleOCRVL(LibreVLMModel):
     # Layout
     # =========================================================================
 
-    def detect_layout(self, image: ImageInput, color_format: str = "auto") -> List[dict]:
+    def detect_layout(
+        self, image: ImageInput, color_format: str = "auto"
+    ) -> List[dict]:
         """PP-DocLayoutV2 regions in reading order, before the overlap filter.
 
         Each region is ``{"cls_id", "label", "score", "coordinate"}`` with
