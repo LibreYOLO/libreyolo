@@ -91,6 +91,19 @@ from .flow_sequence import (
 
 logger = logging.getLogger(__name__)
 
+def _flow_file_path(output_path, stem) -> Path:
+    """Where ``save_flow`` writes the raw field for one pair of a sequence.
+
+    Same directory and stem as the rendered image; a file ``output_path``
+    (``out.jpg``) means its directory, since the ``.flo`` cannot share the
+    render's name.
+    """
+    directory = output_path
+    if output_path is not None and Path(output_path).suffix:
+        directory = str(Path(output_path).parent)
+    return resolve_save_path(directory, stem, ext="flo")
+
+
 class _FlowFrame:
     """One frame of an optical flow sequence as the runner carries it.
 
@@ -302,6 +315,10 @@ class InferenceRunner:
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
         cuda_graph: bool | str = False,
+        # optical flow only
+        save_flow: bool = False,
+        arrows: bool = False,
+        warp: bool = False,
         **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """
@@ -326,6 +343,16 @@ class InferenceRunner:
                 afterwards, from the family's candidate budget of up to 300
                 boxes. Detect, segment, pose and OBB (rotated IoU) only.
             save: If True, saves annotated image or video.
+            save_flow: Optical flow only. Also write the raw field of every
+                pair as a Middlebury ``.flo`` file next to the rendered output
+                (``<stem>.flo`` for image sequences, ``<stem>_<frame>.flo``
+                for videos and streams).
+            arrows: Optical flow only. Save or show the arrows view (the frame
+                with one yellow displacement arrow every 16 px) instead of the
+                colour wheel. Needs ``save=True`` or ``show=True``.
+            warp: Optical flow only. Save or show the warp check (frame t on
+                the left, frame t+1 warped back onto it on the right). Needs
+                ``save=True`` or ``show=True``; combines with ``arrows``.
             batch: Images per forward pass for directory and list sources.
                 With batch > 1, supported families run a single stacked
                 forward per chunk (true batched inference); batch=1 keeps
@@ -451,6 +478,21 @@ class InferenceRunner:
                 "Use augment=False for edge models."
             )
 
+        flow_only = {"save_flow": save_flow, "arrows": arrows, "warp": warp}
+        requested = [name for name, value in flow_only.items() if value]
+        if requested and getattr(self.model, "task", None) != "flow":
+            raise ValueError(
+                f"{', '.join(requested)} only apply to optical flow models "
+                f"(task='flow'); this model's task is "
+                f"{getattr(self.model, 'task', None)!r}."
+            )
+        if (arrows or warp) and not (save or show):
+            raise ValueError(
+                "arrows and warp pick the saved or shown flow view, so pass "
+                "save=True or show=True with them, or render a result yourself "
+                "with Results.plot(arrows=..., warp=...)."
+            )
+
         if source_spec is None:
             source_spec = classify_source(source)
 
@@ -478,6 +520,9 @@ class InferenceRunner:
                 augment=augment,
                 batch=batch,
                 predict_input_kwargs=predict_input_kwargs,
+                save_flow=save_flow,
+                arrows=arrows,
+                warp=warp,
                 **kwargs,
             )
 
@@ -1088,6 +1133,9 @@ class InferenceRunner:
         augment: bool,
         batch: int,
         predict_input_kwargs: Optional[Dict[str, object]],
+        save_flow: bool = False,
+        arrows: bool = False,
+        warp: bool = False,
         **kwargs,
     ) -> Union[List[Results], Generator[Results, None, None]]:
         """Run a flow family over a frame sequence, one window per pair.
@@ -1170,6 +1218,9 @@ class InferenceRunner:
             gen = self._flow_sequence_results(
                 items,
                 save=save,
+                save_flow=save_flow,
+                arrows=arrows,
+                warp=warp,
                 output_path=output_path,
                 output_file_format=output_file_format,
                 **window_options,
@@ -1184,6 +1235,9 @@ class InferenceRunner:
             gen = self._flow_sequence_results(
                 items,
                 save=save,
+                save_flow=save_flow,
+                arrows=arrows,
+                warp=warp,
                 output_path=output_path,
                 output_file_format=output_file_format,
                 **window_options,
@@ -1197,6 +1251,9 @@ class InferenceRunner:
                 label=str(source_spec.source),
                 stride_divisor=max(1, int(vid_stride)),
                 save=save,
+                save_flow=save_flow,
+                arrows=arrows,
+                warp=warp,
                 show=show,
                 output_path=output_path,
                 **window_options,
@@ -1220,6 +1277,9 @@ class InferenceRunner:
                 label="stream",
                 stride_divisor=1,
                 save=save,
+                save_flow=save_flow,
+                arrows=arrows,
+                warp=warp,
                 show=show,
                 output_path=output_path,
                 **window_options,
@@ -1238,6 +1298,9 @@ class InferenceRunner:
                 label=str(source_spec.source),
                 stride_divisor=1,
                 save=save,
+                save_flow=save_flow,
+                arrows=arrows,
+                warp=warp,
                 show=show,
                 output_path=output_path,
                 **window_options,
@@ -1267,10 +1330,13 @@ class InferenceRunner:
         """
         tensors = []
         anchor = None
+        next_img = None
         for index, item in enumerate(window):
             tensor, original_img, original_size, ratio = self._preprocess_model_input(
                 item.image, color_format, input_size=input_size
             )
+            if index == before + 1:
+                next_img = original_img
             if not isinstance(tensor, torch.Tensor) or tensor.dim() != 4:
                 raise TypeError(
                     f"{type(self.model).__name__}._preprocess must return a "
@@ -1310,6 +1376,20 @@ class InferenceRunner:
                 "entry for a frame window; a flow family must return "
                 '{"flow": (H, W, 2)} on the original canvas.'
             )
+        # Frame t + 1 rides on the payload so the warp view (and
+        # FlowField.warp without arguments to find) has something to warp.
+        # It is resized to frame t's canvas when the two differ.
+        if next_img is not None:
+            h, w = result.flow.orig_shape
+            frame = next_img.convert("RGB")
+            if frame.size != (w, h):
+                frame = frame.resize((w, h), Image.BILINEAR)
+            result.flow = FlowField(
+                result.flow.data,
+                result.flow.orig_shape,
+                confidence=result.flow.confidence,
+                next_frame=np.asarray(frame),
+            )
         return result, original_img
 
     def _flow_sequence_results(
@@ -1317,6 +1397,9 @@ class InferenceRunner:
         items,
         *,
         save: bool,
+        save_flow: bool,
+        arrows: bool,
+        warp: bool,
         output_path: Optional[str],
         output_file_format: Optional[str],
         before: int,
@@ -1330,16 +1413,15 @@ class InferenceRunner:
                 window, before, **window_options
             )
             keep_source(result, original_img, anchor.label)
+            stem = anchor.label if anchor.label is not None else f"image{anchor.frame_idx}"
             if save:
                 ext = output_file_format or "jpg"
-                save_path = resolve_save_path(
-                    output_path,
-                    anchor.label
-                    if anchor.label is not None
-                    else f"image{anchor.frame_idx}",
-                    ext=ext,
-                )
-                self._save_annotated_image(result, original_img, save_path)
+                save_path = resolve_save_path(output_path, stem, ext=ext)
+                rendered = result.plot(image=original_img, arrows=arrows, warp=warp, pil=True)
+                rendered.save(save_path)
+                log_saved_result(result, save_path)
+            if save_flow:
+                result.flow.save(_flow_file_path(output_path, stem))
             yield result
 
     def _flow_video_results(
@@ -1350,6 +1432,9 @@ class InferenceRunner:
         label: str,
         stride_divisor: int,
         save: bool,
+        save_flow: bool,
+        arrows: bool,
+        warp: bool,
         show: bool,
         output_path: Optional[str],
         before: int,
@@ -1368,7 +1453,11 @@ class InferenceRunner:
         with frame_source as video_src:
             fps = float(getattr(video_src, "fps", 0.0) or 30.0) / max(1, stride_divisor)
             writer = None
-            out_path = resolve_video_save_path(save_name, output_path) if save else None
+            out_path = (
+                resolve_video_save_path(save_name, output_path)
+                if (save or save_flow)
+                else None
+            )
 
             def frames():
                 for frame_item in video_src:
@@ -1397,9 +1486,18 @@ class InferenceRunner:
                     result.orig_img = original_img
                     result.frame_idx = anchor.frame_idx
                     result.path = anchor.label
+                    if save_flow:
+                        clip = Path(out_path)
+                        result.flow.save(
+                            clip.with_name(f"{clip.stem}_{anchor.frame_idx:06d}.flo")
+                        )
                     if save or show:
                         annotated_bgr = cv2.cvtColor(
-                            np.array(draw_results(result, original_img)),
+                            np.array(
+                                result.plot(
+                                    image=original_img, arrows=arrows, warp=warp, pil=True
+                                )
+                            ),
                             cv2.COLOR_RGB2BGR,
                         )
                         if save:

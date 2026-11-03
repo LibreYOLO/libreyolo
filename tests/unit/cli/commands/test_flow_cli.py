@@ -117,6 +117,66 @@ def test_predict_pair_source_reports_flow_summary(monkeypatch, tmp_path, grammar
     assert len(payload["results"]) == 1
 
 
+@pytest.mark.parametrize("grammar", ["key=value", "--flag"])
+def test_predict_flow_view_flags_reach_predict(monkeypatch, tmp_path, grammar):
+    a, b = _write_frames(tmp_path)
+    fake_model = _FakeFlowModel()
+    monkeypatch.setattr(predict_module, "resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr(predict_module, "load_model_or_exit", lambda *args, **kwargs: fake_model)
+    source = f"{a},{b}"
+    base = (
+        [f"source={source}", "model=LibreSEARAFTm-flow.pt", f"output_path={tmp_path}"]
+        if grammar == "key=value"
+        else ["--source", source, "--model", "LibreSEARAFTm-flow.pt", "--output-path", str(tmp_path)]
+    )
+    flags = (
+        ["save=True", "save_flow=True", "arrows=True", "warp=True"]
+        if grammar == "key=value"
+        else ["--save", "--save-flow", "--arrows", "--warp"]
+    )
+    result = runner.invoke(_predict_app(), base + flags + ["--json"])
+    assert result.exit_code == 0, result.output
+    kwargs = fake_model.calls[0][1]
+    assert kwargs["save"] is True
+    assert kwargs["save_flow"] is True and kwargs["arrows"] is True and kwargs["warp"] is True
+    # Unset flags are not sent at all, so non-flow predict paths never see them.
+    fake_model.calls.clear()
+    result = runner.invoke(_predict_app(), base + ["--json"])
+    assert result.exit_code == 0, result.output
+    assert not {"save_flow", "arrows", "warp"} & set(fake_model.calls[0][1])
+
+
+def test_predict_view_flags_need_save_or_show(monkeypatch, tmp_path):
+    a, b = _write_frames(tmp_path)
+    fake_model = _FakeFlowModel()
+    monkeypatch.setattr(predict_module, "resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr(predict_module, "load_model_or_exit", lambda *args, **kwargs: fake_model)
+    result = runner.invoke(
+        _predict_app(), [f"source={a},{b}", "model=LibreSEARAFTm-flow.pt", "--arrows", "--json"]
+    )
+    assert result.exit_code != 0
+    assert "config_unsupported" in result.output
+    assert fake_model.calls == []
+
+
+def test_predict_flow_flags_rejected_for_other_tasks(monkeypatch, tmp_path):
+    (a,) = _write_frames(tmp_path, 1)
+
+    class _Detector(_FakeFlowModel):
+        task = "detect"
+
+    fake_model = _Detector()
+    monkeypatch.setattr(predict_module, "resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr(predict_module, "load_model_or_exit", lambda *args, **kwargs: fake_model)
+    result = runner.invoke(
+        _predict_app(), [f"source={a}", "model=LibreYOLO9t.pt", "--save", "--save-flow", "--json"]
+    )
+    assert result.exit_code != 0
+    assert "config_unsupported" in result.output
+    assert "--save-flow" in result.output
+    assert fake_model.calls == []
+
+
 def test_predict_human_summary_mentions_flow(monkeypatch, tmp_path):
     a, b = _write_frames(tmp_path)
     fake_model = _FakeFlowModel()

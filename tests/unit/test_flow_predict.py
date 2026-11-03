@@ -153,6 +153,68 @@ def test_save_writes_one_image_per_pair(tmp_path):
     assert written == ["image0.jpg", "image1.jpg"]
 
 
+def test_results_carry_the_next_frame(tmp_path):
+    results = InferenceRunner(_StubFlowModel())(_frames(3))
+    for t, result in enumerate(results):
+        nxt = result.flow.next_frame
+        assert nxt is not None and nxt.shape == (H, W, 3) and nxt.dtype == np.uint8
+        assert int(nxt.mean()) == 10 * (t + 1)
+    # Image files on disk get their next frame too.
+    paths = []
+    for index, shade in enumerate((0, 40)):
+        path = tmp_path / f"f{index}.png"
+        Image.fromarray(_frame(shade)).save(path)
+        paths.append(str(path))
+    (result,) = InferenceRunner(_StubFlowModel())(paths)
+    assert int(result.flow.next_frame.mean()) == 40
+
+
+def test_save_flow_writes_one_flo_per_pair(tmp_path):
+    from libreyolo.data.flow_dataset import read_flo
+
+    out = tmp_path / "out"
+    results = InferenceRunner(_StubFlowModel())(_frames(3), save_flow=True, output_path=str(out))
+    written = sorted(p.name for p in out.iterdir())
+    assert written == ["image0.flo", "image1.flo"]
+    assert np.array_equal(read_flo(out / "image1.flo"), results[1].flow.array)
+    # Together with save, the render and the field sit side by side; a file
+    # output_path means its directory for the .flo.
+    out2 = tmp_path / "out2" / "pair.jpg"
+    InferenceRunner(_StubFlowModel())(_frames(2), save=True, save_flow=True, output_path=str(out2))
+    assert sorted(p.name for p in out2.parent.iterdir()) == ["image0.flo", "pair.jpg"]
+
+
+def test_save_arrows_and_warp_views(tmp_path):
+    out = tmp_path / "arrows"
+    InferenceRunner(_StubFlowModel())(_frames(2), save=True, arrows=True, output_path=str(out))
+    arrows = np.asarray(Image.open(out / "image0.jpg").convert("RGB"))
+    assert arrows.shape == (H, W, 3)
+    # JPEG blurs the exact yellow, so look for strongly yellow pixels.
+    assert ((arrows[..., 0] > 180) & (arrows[..., 1] > 180) & (arrows[..., 2] < 90)).any()
+    out = tmp_path / "warp"
+    InferenceRunner(_StubFlowModel())(
+        _frames(2), save=True, warp=True, output_path=str(out), output_file_format="png"
+    )
+    warped = np.asarray(Image.open(out / "image0.png"))
+    assert warped.shape == (H, 2 * W, 3)
+
+
+def test_view_options_need_save_or_show():
+    with pytest.raises(ValueError, match="save=True or show=True"):
+        InferenceRunner(_StubFlowModel())(_frames(2), arrows=True)
+    with pytest.raises(ValueError, match="save=True or show=True"):
+        InferenceRunner(_StubFlowModel())(_frames(2), warp=True)
+
+
+def test_flow_only_options_are_rejected_for_other_tasks():
+    class _NotFlow(_StubFlowModel):
+        task = "detect"
+
+    for option in ("save_flow", "arrows", "warp"):
+        with pytest.raises(ValueError, match="only apply to optical flow"):
+            InferenceRunner(_NotFlow())(_frame(0), save=True, **{option: True})
+
+
 @pytest.mark.parametrize(
     "kwargs, message",
     [
@@ -226,6 +288,25 @@ def test_video_save_writes_a_video(shaded_video, tmp_path):
     results = InferenceRunner(_StubFlowModel())(shaded_video, save=True, output_path=str(out))
     assert len(results) == 9
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_video_save_flow_and_views(shaded_video, tmp_path):
+    from libreyolo.data.flow_dataset import read_flo
+
+    out = tmp_path / "flow.mp4"
+    results = InferenceRunner(_StubFlowModel())(
+        shaded_video, save=True, save_flow=True, warp=True, arrows=True, output_path=str(out)
+    )
+    assert out.exists() and out.stat().st_size > 0
+    flos = sorted(p.name for p in tmp_path.glob("*.flo"))
+    assert flos == [f"flow_{i:06d}.flo" for i in range(9)]
+    assert read_flo(tmp_path / "flow_000003.flo").shape == (64, 64, 2)
+    assert all(r.flow.next_frame is not None for r in results)
+    # Only the raw field, no render, when save is off.
+    out2 = tmp_path / "raw" / "shades.mp4"
+    InferenceRunner(_StubFlowModel())(shaded_video, save_flow=True, output_path=str(out2))
+    assert not out2.exists()
+    assert len(list(out2.parent.glob("*.flo"))) == 9
 
 
 def test_screen_without_stream_is_an_error():

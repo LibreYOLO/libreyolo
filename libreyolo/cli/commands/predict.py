@@ -181,6 +181,21 @@ def predict_cmd(
         False, help="FP16 inference (CUDA only, requires model support)"
     ),
     save: bool = typer.Option(False, help="Save annotated images"),
+    save_flow: bool = typer.Option(
+        False,
+        help="Optical flow only: also write each pair's raw field as a "
+        "Middlebury .flo file next to the rendered output",
+    ),
+    arrows: bool = typer.Option(
+        False,
+        help="Optical flow only: save/show the arrows view (frame with one "
+        "arrow every 16 px) instead of the colour wheel; needs --save or --show",
+    ),
+    warp: bool = typer.Option(
+        False,
+        help="Optical flow only: save/show the warp check (frame t left, "
+        "frame t+1 warped back onto it right); needs --save or --show",
+    ),
     batch: int = typer.Option(
         1,
         help="Images per forward pass for directory sources "
@@ -346,6 +361,26 @@ def predict_cmd(
             "with task=embed).",
         )
 
+    # Flow-only options: reject them loudly for every other task instead of
+    # letting them parse and do nothing.
+    flow_only = {"save_flow": save_flow, "arrows": arrows, "warp": warp}
+    requested_flow = [option for option, value in flow_only.items() if value]
+    if requested_flow and getattr(loaded_model, "task", None) != "flow":
+        names = ", ".join(f"--{option.replace('_', '-')}" for option in requested_flow)
+        exit_with_error(
+            out,
+            "config_unsupported",
+            f"{names} only apply to optical flow models (task flow); "
+            f"this model's task is {getattr(loaded_model, 'task', None)!r}.",
+        )
+    if (arrows or warp) and not (save or show):
+        exit_with_error(
+            out,
+            "config_unsupported",
+            "--arrows and --warp pick the saved or shown flow view.",
+            suggestion="Add --save or --show.",
+        )
+
     # FP16 (half) precision: exported runtimes (ONNX, TensorRT, ...) accept the
     # flag and run in FP16, so forward it there. For native PyTorch inference it
     # is not yet wired (model converts to FP16 but input stays FP32 → dtype
@@ -416,6 +451,9 @@ def predict_cmd(
     if agnostic_nms:
         # Only when set: predict paths without it reject the option.
         predict_kwargs["agnostic_nms"] = True
+    for option, value in flow_only.items():
+        if value:
+            predict_kwargs[option] = True
     if gallery_obj is not None:
         predict_kwargs["gallery"] = gallery_obj
         predict_kwargs["threshold"] = gallery_threshold
