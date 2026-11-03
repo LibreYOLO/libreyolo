@@ -265,6 +265,18 @@ def test_export_reload_keeps_regions_and_reading_order(tmp_path, export_format):
     assert result.boxes.xyxy.shape == (50, 4)
 
 
+def test_rejects_tiling_and_too_small_inputs():
+    from libreyolo import LibrePPDocLayoutV3
+
+    model = LibrePPDocLayoutV3(size="l", device="cpu")
+    model.model.eval()
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    with pytest.raises(ValueError, match="tiling"):
+        model(image, tiling=True)
+    with torch.no_grad(), pytest.raises(ValueError, match="encoder positions"):
+        model.model(torch.zeros(1, 3, 96, 96))
+
+
 def test_train_is_rejected():
     from libreyolo import LibrePPDocLayoutV3
 

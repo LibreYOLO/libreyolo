@@ -129,6 +129,16 @@ class LibrePPDocLayoutV3(BaseModel):
         if isinstance(model_path, str):
             self._load_weights(model_path)
 
+    def __call__(self, source=None, **kwargs):
+        if kwargs.get("tiling"):
+            # Reading order is a whole-page property; merged tiles cannot
+            # carry one. The model already sees the full page at 800x800.
+            raise ValueError(
+                "PP-DocLayoutV3 does not support tiling=True: reading order is "
+                "predicted for the whole page. Predict the full page instead."
+            )
+        return super().__call__(source, **kwargs)
+
     def _init_model(self) -> nn.Module:
         return PPDocLayoutV3Model(nc=self.nb_classes)
 

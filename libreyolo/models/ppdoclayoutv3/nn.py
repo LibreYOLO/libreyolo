@@ -917,6 +917,13 @@ class PPDocLayoutV3Model(nn.Module):
 
         sources = [proj(f) for proj, f in zip(self.decoder_input_proj, pan_maps)]
         spatial_shapes = [(int(s.shape[2]), int(s.shape[3])) for s in sources]
+        num_positions = sum(h * w for h, w in spatial_shapes)
+        if num_positions < self.num_queries:
+            raise ValueError(
+                f"Input {tuple(x.shape[2:])} gives {num_positions} encoder positions, "
+                f"fewer than the {self.num_queries} queries; use imgsz >= 128 "
+                "(the model is trained at 800)."
+            )
         source_flatten = torch.cat([s.flatten(2).transpose(1, 2) for s in sources], 1)
         dtype = source_flatten.dtype
 
