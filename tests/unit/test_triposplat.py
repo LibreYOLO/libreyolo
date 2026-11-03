@@ -354,13 +354,23 @@ def _tiny_model():
 
 
 def test_end_to_end_at_a_tiny_size(tmp_path, monkeypatch):
-    from libreyolo.models.gen.triposplat import model as module
+    from libreyolo.models.gen.triposplat import nn as networks
 
-    monkeypatch.setattr(module, "MAX_VOXEL_LEVEL", 3, raising=False)
+    # ``_generate_3d`` reads the octree depth from ``nn`` at call time.
+    monkeypatch.setattr(networks, "MAX_VOXEL_LEVEL", 3)
     model = _tiny_model()
+    decode = model._pipeline.decoder.decode
+    levels = []
+
+    def recording(latent, count, level, generator):
+        levels.append(level)
+        return decode(latent, count, level=level, generator=generator)
+
+    model._pipeline.decoder.decode = recording
     image = Image.new("RGB", (90, 60), (10, 20, 230))
     result = model(image, seed=11, steps=2, gaussians=32_768)
     g = result.gaussians
+    assert levels == [3]
     assert len(g) == 32_768
     assert g.seed == 11
     assert g.params["steps"] == 2 and g.params["model"] == "triposplat-0.6b"
