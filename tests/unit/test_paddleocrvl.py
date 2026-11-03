@@ -445,3 +445,8 @@ def test_vision_position_grid_matches_upstream():
         not m.interpolation_align_corners for m in net.modules() if isinstance(m, _Emb)
     )
     assert _match_upstream_position_grid(nn.Linear(1, 1)) == 0
+
+
+def test_heading_level_is_capped():
+    md = build_markdown([{"label": "paragraph_title", "text": "1.2.3.4.5.6.7 Deep"}])
+    assert md.startswith("###### ") and not md.startswith("#######")

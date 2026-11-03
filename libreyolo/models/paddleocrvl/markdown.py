@@ -47,6 +47,8 @@ def _title(s: str) -> str:
         s = match.group(1).strip() + " " + match.group(3).lstrip()
     s = s.rstrip(".")
     level = s.count(".") + 1 if "." in s else 1
+    # Upstream counts every period; Markdown stops at six levels.
+    level = min(level, 5)
     return _collapse(f"#{'#' * level} {s}")
 
 
