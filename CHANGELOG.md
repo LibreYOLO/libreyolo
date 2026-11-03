@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **TripoSplat, a second image-to-3D family: `LibreGen("triposplat")`.**
+  TripoAI's MIT model that Speridlabs Idol builds on, behind the same call: one image in, up to 262,144 Gaussian splats out, `.ply` and `.splat` files, `libreyolo generate source=chair.jpg model=triposplat`. Knobs `steps`, `guidance`, `shift`, `gaussians`, `margin`. Weights download from LibreYOLO's mirror of the `VAST-AI/TripoSplat` snapshot; the DINOv3 and FLUX.2 VAE encoders are the ones Idol uses. Runs on CUDA, Apple MPS and CPU.
+
 - **PP-DocLayoutV3 document layout detection with reading order. (#994)**
   `LibreYOLO("LibrePPDocLayoutV3l.pt")` finds 25 kinds of page regions (text, titles, tables, figures, formulas, headers, footers, seals, ...) and returns them sorted in reading order, with the one-based rank in the new `Results.reading_order` field. Ported from PaddleOCR's PP-DocLayoutV3 (Apache-2.0 code and weights), outputs match the reference bit for bit, and ONNX and TorchScript export keep the reading order. The official `model.safetensors` also loads directly. Inference-only.
 
