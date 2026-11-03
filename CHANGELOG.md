@@ -7,6 +7,11 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+### Added
+
+- **WAFT optical flow family (`LibreWAFT`).**
+  Warping-Alone Field Transforms (princeton-vl/WAFT, BSD-3-Clause) for the `flow` task, inference only, sizes `t`/`s`/`m`/`l` mapped from the released zero-shot checkpoints (DINOv3, Depth Anything V2 a2, Depth Anything V2 a1, Twins). `LibreWAFTm-flow.pt` is the canonical file; the DINOv3 `t` weights carry the DINOv3 License.
+
 ### Changed
 
 - **`libreyolo[all]` no longer includes `paddle`. (#989)**

@@ -103,6 +103,7 @@ file = name + ".pt"
 | DepthAnythingV2 | `LibreDepthAnythingV2` | `LibreDepthAnythingV2s-depth.pt` (only `s` is Apache; b/l/g are CC-BY-NC, see below) |
 | FlowSeek | `LibreFlowSeek` | `LibreFlowSeekt-flow.pt` (Apache code; t/s embed the Apache DAv2 Small encoder, m/l the CC BY-NC 4.0 Base encoder) |
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
+| WAFT | `LibreWAFT` | `LibreWAFTm-flow.pt` (canonical); `LibreWAFTt-flow-dinov3.pt`, `LibreWAFTs-flow-dav2.pt`, `LibreWAFTl-flow-twins.pt` (BSD-3-Clause plus the encoder licence; `t` carries the DINOv3 License) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
 | GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
 | MEMFOF | `LibreMEMFOF` | `LibreMEMFOFm-flow.pt` (three-frame optical flow; BSD-3-Clause code, weights tagged `bsd-3-clause` upstream with no licence file; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring`, one repo each) |
@@ -355,6 +356,8 @@ LibreDepthAnything3l-depth.pt,
 
 LibreFlowSeekt-flow.pt, LibreFlowSeeks-flow.pt, LibreFlowSeekm-flow.pt,
 LibreFlowSeekl-flow.pt,
+LibreWAFTt-flow-dinov3.pt, LibreWAFTs-flow-dav2.pt, LibreWAFTm-flow.pt,
+LibreWAFTl-flow-twins.pt,
 
 LibreMoGe2s-normal.pt, LibreMoGe2b-normal.pt, LibreMoGe2l-normal.pt,
 

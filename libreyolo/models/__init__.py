@@ -187,6 +187,9 @@ from .levjepa.model import LibreLeVJEPA  # noqa: E402,F401  (import registers fa
 
 # Optical flow families (task ``flow``), kept in alphabetical order.
 from .raft.model import LibreRAFT  # noqa: E402,F401  (flow-only; can_load needs the closed fnet/cnet/update_block key set)
+# WAFT optical flow: can_load needs warp_linear + refine_transform + refine_net
+# ViT keys together with one of the four encoder signatures.
+from .waft.model import LibreWAFT  # noqa: E402,F401  (flow-only)
 
 
 def _ensure_rfdetr():
@@ -954,6 +957,7 @@ __all__ = [
     "LibrePPOCR",
     "LibreVJEPA2",
     "LibreLeVJEPA",
+    "LibreWAFT",
     "LibreFaceEmbedder",
     "try_ensure_rfdetr",
 ]

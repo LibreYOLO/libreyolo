@@ -46,6 +46,26 @@ DINOv3 (Meta DINOv3 License Agreement)
     These terms apply only to the DINOv3 subtree listed above. The
     rest of LibreYOLO remains under the MIT License.
 
+    The WAFT family (libreyolo/models/waft/) builds its size t encoder
+    from this subtree; the LibreWAFTt-flow-dinov3 weights contain a
+    fine-tuned DINOv3 ViT-S/16 and carry the DINOv3 License with them.
+
+WAFT (BSD 3-Clause License)
+    Path:    libreyolo/models/waft/_vendor/
+    License: libreyolo/models/waft/_vendor/LICENSE
+    Source:  https://github.com/princeton-vl/WAFT
+    Commit:  b152ff1cad1af8c185ee7b141997c48ff3334c87
+
+    Inference-only copy of WAFT (Warping-Alone Field Transforms, Wang and
+    Deng, Princeton Vision & Learning Lab), Copyright (c) 2025. Training
+    code is dropped; xformers and timm are replaced by plain torch with
+    F.scaled_dot_product_attention. The Twins-SVT backbone in
+    _vendor/twins.py is derived from timm (Apache License 2.0, Copyright
+    2019 Ross Wightman), itself from Meituan-AutoML/Twins (Apache License
+    2.0, Copyright 2021 Meituan); see licenses/Apache-2.0.txt. The
+    Depth Anything V2 and DINOv3 encoders are reused from the
+    depth_anything and deimv2 families and keep their own licenses.
+
 SenseNova-Vision / Bagel (Apache License 2.0 code; CC BY-NC 4.0 weights,
 mirrored under that license)
     Path:    libreyolo/models/sensenova/

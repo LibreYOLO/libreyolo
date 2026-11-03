@@ -128,6 +128,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `swinir`    | `LibreSwinIR`    | Upstream brand casing (`SwinIR`); restore-only transformer super-resolution family |
 | `depth_anything` | `LibreDepthAnythingV2` | CamelCase preserved + version (Depth Anything V2), depth-only |
 | `depth_anything3` | `LibreDepthAnything3` | CamelCase preserved + version (Depth Anything 3), depth-only |
+| `waft` | `LibreWAFT` | All-caps acronym (Warping-Alone Field Transforms), flow-only |
 | `zipdepth`  | `LibreZipDepth` | CamelCase preserved (`ZipDepth` brand casing); depth-only lightweight CNN (speed/edge tier) |
 | `midas`     | `LibreMiDaS` | Upstream mixed-case brand preserved (`MiDaS`); inference-only relative-depth museum family |
 | `searaft`   | `LibreSEARAFT` | All-caps acronym (hyphen dropped from `SEA-RAFT`); flow-only, inference-only; canonical filenames require `-flow` |
@@ -276,6 +277,7 @@ ships:
 | `swinir`    | `s`, `m`, `l` (all 4x: lightweight SwinIR-S, real-world SwinIR-M, and real-world SwinIR-L) |
 | `depth_anything` | `s`, `b`, `l`, `g` (ViT-S/B/L/G, all at 518) |
 | `depth_anything3` | `l` (DA3MONO-LARGE ViT-L, native upper-bound 504) |
+| `waft` | `t`, `s`, `m`, `l` by parameter count: `t` a2 DINOv3 ViT-S/16 (56.5 M), `s` a2 Depth Anything V2 ViT-S (56.9 M), `m` a1 Depth Anything V2 ViT-S (64.2 M, upstream's recommended checkpoint), `l` a2 Twins-SVT-Large (136.0 M); native resolution, the backbone is the weight variant (`-dinov3`, `-dav2`, `-twins`); `m` has no variant suffix |
 | `zipdepth`  | `b` (base, GPU/CPU convex upsampling), `bnpu` (base capacity with the separately trained unfold-free upsampling head for NPU/edge compilers); both at short-side 384 |
 | `midas`     | `s` (MiDaS v2.1 Small, EfficientNet-Lite3, upper-bound 256), `l` (DPT-Large, ViT-L/16, minimal-resize 384) |
 | `searaft`   | `s` (ResNet18 encoders, 4 iterations), `m` (ResNet34, 4 iterations), `l` (the `m` weights at 12 iterations, upstream's SEA-RAFT L); native resolution padded to a multiple of 8, long side capped at 960 |
@@ -778,6 +780,12 @@ LibreFlowSeekl-flow.pt   # same weights, 12 iterations (CC BY-NC 4.0 encoder)
 
 # depth_anything3 — Depth Anything 3 mono (recommended depth quality default)
 LibreDepthAnything3l-depth.pt    # DA3MONO-LARGE ViT-L (Apache-2.0 weights)
+
+# waft: WAFT optical flow (flow-only, BSD-3-Clause; t also carries the DINOv3 License)
+LibreWAFTt-flow-dinov3.pt        # a2, DINOv3 ViT-S/16 encoder
+LibreWAFTs-flow-dav2.pt          # a2, Depth Anything V2 ViT-S encoder
+LibreWAFTm-flow.pt               # a1, Depth Anything V2 ViT-S (canonical)
+LibreWAFTl-flow-twins.pt         # a2, Twins-SVT-Large encoder
 
 # zipdepth — ZipDepth lightweight CNN (depth-only, MIT weights)
 LibreZipDepthb-depth.pt          # base, convex upsampling (GPU/CPU default)
