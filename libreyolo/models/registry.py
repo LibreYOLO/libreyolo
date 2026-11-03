@@ -152,6 +152,7 @@ MODEL_GROUPS: dict[str, str] = {
     "flux2_klein": "s",
     "sana_sprint": "s",
     "speridlabs_idol": "s",
+    "triposplat": "s",
     "clip": "s",
     "siglip2": "s",
     "libremodus": "s",

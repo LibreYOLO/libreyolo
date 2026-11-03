@@ -893,6 +893,24 @@ Speridlabs Idol (Apache License 2.0)
     LibreYOLO/LibreDINOv3vith16plus, which ships the agreement. All at
     pinned revisions.
 
+TripoSplat (MIT License)
+    Path:    libreyolo/models/gen/triposplat/
+    License: libreyolo/models/gen/triposplat/NOTICE
+    Source:  https://github.com/VAST-AI-Research/TripoSplat
+             (commit d8db9e018b413dd9c4a9fe22463781bf98e8e68d)
+             Copyright (c) 2026 VAST.
+
+    The TripoSplat denoiser, octree and Gaussian decoders, configuration
+    constants, flow sampler and Gaussian activation are ported from the MIT
+    TripoSplat repository (TripoAI). Preprocessing, encoder tokenization and
+    camera decoding are shared with Speridlabs Idol
+    (libreyolo/models/gen/image3d.py); background removal reuses LibreYOLO's
+    BiRefNet network. Weights: LibreYOLO's byte-identical mirror of
+    VAST-AI/TripoSplat (MIT), LibreYOLO/LibreTripoSplat0.6b; the FLUX.2 VAE
+    from FLUX.2-klein-4B (Apache-2.0) downloads from its publisher; the
+    DINOv3 encoder (Meta DINOv3 License) downloads from LibreYOLO's bf16
+    mirror LibreYOLO/LibreDINOv3vith16plus. All at pinned revisions.
+
 WeVisOne-VL (Apache License 2.0)
     Path:    libreyolo/models/wevisone/
     License: libreyolo/models/wevisone/NOTICE

@@ -1134,6 +1134,15 @@ own weights are the pinned `speridlabs/idol` snapshot in
 object as a `Gaussians` payload; `libreyolo generate source=...` is the CLI.
 See ADR 0031.
 
+`LibreTripoSplat` (`triposplat`, size `0.6b`, aliases `triposplat` and
+`triposplat-0.6b`) is the second image-to-3D family, the TripoAI model Idol
+builds on; the name is upstream's and already carries its maker. Same task,
+aliases, coverage group and encoders as Idol. Its own weights are the
+denoiser, decoder and BiRefNet files of LibreYOLO's mirror
+`LibreYOLO/LibreTripoSplat0.6b` (byte-identical to the pinned
+`VAST-AI/TripoSplat` snapshot) in `weights/LibreTripoSplat0.6b/`, kept in their upstream folders
+(`diffusion_models/`, `vae/`, `background_removal/`).
+
 ## Vision-language-action policies
 
 `LibreACT` (`act_policy`, aliases `act` and `act-policy`) and
