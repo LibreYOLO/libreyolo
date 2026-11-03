@@ -717,6 +717,114 @@ def draw_depth_map(
     return result
 
 
+@lru_cache(maxsize=1)
+def _flow_colorwheel() -> np.ndarray:
+    """The 55-entry Middlebury colour wheel (Baker et al., 2007) as RGB in [0, 1].
+
+    Six arcs: red to yellow, yellow to green, green to cyan, cyan to blue,
+    blue to magenta, magenta to red. Hue encodes flow direction.
+    """
+    ry, yg, gc, cb, bm, mr = 15, 6, 4, 11, 13, 6
+    wheel = np.zeros((ry + yg + gc + cb + bm + mr, 3), dtype=np.float64)
+    col = 0
+    wheel[col : col + ry, 0] = 255
+    wheel[col : col + ry, 1] = np.floor(255 * np.arange(ry) / ry)
+    col += ry
+    wheel[col : col + yg, 0] = 255 - np.floor(255 * np.arange(yg) / yg)
+    wheel[col : col + yg, 1] = 255
+    col += yg
+    wheel[col : col + gc, 1] = 255
+    wheel[col : col + gc, 2] = np.floor(255 * np.arange(gc) / gc)
+    col += gc
+    wheel[col : col + cb, 1] = 255 - np.floor(255 * np.arange(cb) / cb)
+    wheel[col : col + cb, 2] = 255
+    col += cb
+    wheel[col : col + bm, 2] = 255
+    wheel[col : col + bm, 0] = np.floor(255 * np.arange(bm) / bm)
+    col += bm
+    wheel[col : col + mr, 2] = 255 - np.floor(255 * np.arange(mr) / mr)
+    wheel[col : col + mr, 0] = 255
+    return wheel / 255.0
+
+
+def flow_to_rgb(flow: np.ndarray, max_magnitude: float | None = None) -> np.ndarray:
+    """Render an ``(H, W, 2)`` optical flow field with the Middlebury colour wheel.
+
+    Hue encodes direction and saturation encodes magnitude: zero motion is
+    white, a vector of ``max_magnitude`` pixels is fully saturated, and longer
+    vectors are darkened. ``max_magnitude`` defaults to the largest finite
+    magnitude in the field; pass a fixed value to keep colours comparable
+    across the frames of a video. Non-finite vectors render black. Returns a
+    uint8 ``(H, W, 3)`` RGB array.
+    """
+    field = np.asarray(flow, dtype=np.float32)
+    if field.ndim != 3 or field.shape[-1] != 2:
+        raise ValueError(f"expected an (H, W, 2) flow field, got {field.shape}")
+    finite = np.isfinite(field).all(axis=-1)
+    u = np.where(finite, field[..., 0], 0.0).astype(np.float64)
+    v = np.where(finite, field[..., 1], 0.0).astype(np.float64)
+    radius = np.sqrt(u * u + v * v)
+    if max_magnitude is None:
+        max_magnitude = float(radius.max()) if radius.size else 0.0
+    if not np.isfinite(max_magnitude) or max_magnitude < 0:
+        raise ValueError(f"max_magnitude must be finite and non-negative, got {max_magnitude}")
+    scale = float(max_magnitude) + 1e-5
+    u = u / scale
+    v = v / scale
+    radius = radius / scale
+
+    wheel = _flow_colorwheel()
+    ncols = wheel.shape[0]
+    angle = np.arctan2(-v, -u) / np.pi
+    fk = (angle + 1.0) / 2.0 * (ncols - 1)
+    k0 = np.floor(fk).astype(np.int64)
+    k1 = (k0 + 1) % ncols
+    frac = (fk - k0)[..., None]
+    color = (1.0 - frac) * wheel[k0] + frac * wheel[k1]
+    radius3 = radius[..., None]
+    color = np.where(radius3 <= 1.0, 1.0 - radius3 * (1.0 - color), color * 0.75)
+    rgb = np.floor(255.0 * color).clip(0, 255).astype(np.uint8)
+    rgb[~finite] = 0
+    return rgb
+
+
+def draw_flow(
+    img: Image.Image,
+    flow: np.ndarray,
+    *,
+    arrows: bool = False,
+    step: int = 16,
+    max_magnitude: float | None = None,
+) -> Image.Image:
+    """Render a flow field as a colour-wheel image the size of ``img``.
+
+    With ``arrows=True`` a sparse grid of displacement vectors (one every
+    ``step`` flow pixels) is drawn in black on top of the colours.
+    """
+    field = np.asarray(flow, dtype=np.float32)
+    rendered = Image.fromarray(flow_to_rgb(field, max_magnitude=max_magnitude), mode="RGB")
+    if rendered.size != img.size:
+        rendered = rendered.resize(img.size, Image.BILINEAR)
+    if arrows:
+        step = max(int(step), 1)
+        scale_y = img.height / field.shape[0]
+        scale_x = img.width / field.shape[1]
+        draw = ImageDraw.Draw(rendered)
+        for y in range(step // 2, field.shape[0], step):
+            for x in range(step // 2, field.shape[1], step):
+                dx, dy = float(field[y, x, 0]), float(field[y, x, 1])
+                if not (math.isfinite(dx) and math.isfinite(dy)):
+                    continue
+                x0, y0 = x * scale_x, y * scale_y
+                draw.line(
+                    [(x0, y0), (x0 + dx * scale_x, y0 + dy * scale_y)],
+                    fill=(0, 0, 0),
+                    width=1,
+                )
+                draw.ellipse([x0 - 1, y0 - 1, x0 + 1, y0 + 1], fill=(0, 0, 0))
+    return rendered
+
+
 def draw_edge_map(
     img: Image.Image,
     edge_map: np.ndarray,
@@ -1397,6 +1505,8 @@ def draw_results(
         if not result.depth_map.near_is_high:
             depth = -depth
         return draw_depth_map(img, depth)
+    if result.boxes is None and getattr(result, "flow", None) is not None:
+        return draw_flow(img, _to_numpy(result.flow.data))
     if result.boxes is None and getattr(result, "edges", None) is not None:
         return draw_edge_map(img, _to_numpy(result.edges.data))
     if result.boxes is None and getattr(result, "normal_map", None) is not None:

@@ -1115,6 +1115,202 @@ class NormalMap(_TensorPayload):
         )
 
 
+class FlowField(_TensorPayload):
+    """Dense optical flow from this frame to the next one.
+
+    ``data`` is float32 ``(H, W, 2)`` on the original image canvas: for the
+    pixel at ``(y, x)`` of the first frame, ``data[y, x]`` is ``(dx, dy)``, its
+    displacement in pixels to the second frame (``+x`` right, ``+y`` down).
+    ``confidence`` is an optional ``(H, W)`` float map in ``[0, 1]`` carrying
+    whatever the family can offer (an occlusion or covisibility estimate, a
+    variance-derived score); ``None`` when the family has none.
+    """
+
+    def __init__(
+        self,
+        data: TensorLike,
+        orig_shape: Tuple[int, int] | None = None,
+        *,
+        confidence: TensorLike | None = None,
+    ):
+        if not isinstance(data, (torch.Tensor, np.ndarray)):
+            raise TypeError("flow data must be a torch.Tensor or numpy.ndarray")
+        if data.ndim != 3 or data.shape[-1] != 2:
+            raise ValueError(
+                f"expected (H, W, 2) flow field but got shape {tuple(data.shape)}"
+            )
+        if int(data.shape[0]) <= 0 or int(data.shape[1]) <= 0:
+            raise ValueError("flow height and width must be positive")
+
+        if isinstance(data, torch.Tensor):
+            data = data.to(dtype=torch.float32)
+        else:
+            data = np.asarray(data, dtype=np.float32)
+
+        data_shape = (int(data.shape[0]), int(data.shape[1]))
+        if orig_shape is None:
+            orig_shape = data_shape
+        else:
+            orig_shape = (int(orig_shape[0]), int(orig_shape[1]))
+            if orig_shape != data_shape:
+                raise ValueError(
+                    f"flow shape {data_shape} does not match original "
+                    f"image shape {orig_shape}"
+                )
+
+        if confidence is not None:
+            if not isinstance(confidence, (torch.Tensor, np.ndarray)):
+                raise TypeError(
+                    "flow confidence must be a torch.Tensor or numpy.ndarray"
+                )
+            if confidence.ndim != 2 or (
+                int(confidence.shape[0]),
+                int(confidence.shape[1]),
+            ) != data_shape:
+                raise ValueError(
+                    f"expected ({data_shape[0]}, {data_shape[1]}) flow confidence "
+                    f"but got shape {tuple(confidence.shape)}"
+                )
+            if isinstance(confidence, torch.Tensor):
+                confidence = confidence.to(dtype=torch.float32)
+            else:
+                confidence = np.asarray(confidence, dtype=np.float32)
+
+        super().__init__(data, orig_shape)
+        self.confidence = confidence
+
+    def _with(self, data, confidence) -> "FlowField":
+        return self.__class__(data, self.orig_shape, confidence=confidence)
+
+    def to(self, *args, **kwargs):
+        return self._with(
+            _move(self.data, *args, **kwargs), _move(self.confidence, *args, **kwargs)
+        )
+
+    def cpu(self):
+        return self._with(_cpu(self.data), _cpu(self.confidence))
+
+    def cuda(self):
+        return self._with(_cuda(self.data), _cuda(self.confidence))
+
+    def numpy(self):
+        return self._with(_numpy(self.data), _numpy(self.confidence))
+
+    def __getitem__(self, idx):
+        # A dense flow field is whole-image data, not an instance collection.
+        return self._with(self.data, self.confidence)
+
+    def __len__(self) -> int:
+        return 1
+
+    @property
+    def array(self) -> np.ndarray:
+        """The field as an ``(H, W, 2)`` float32 NumPy array."""
+        return np.asarray(_numpy(self.data), dtype=np.float32)
+
+    @property
+    def dx(self) -> TensorLike:
+        """Horizontal displacement ``(H, W)`` in pixels, positive to the right."""
+        return self.data[..., 0]
+
+    @property
+    def dy(self) -> TensorLike:
+        """Vertical displacement ``(H, W)`` in pixels, positive downwards."""
+        return self.data[..., 1]
+
+    @property
+    def magnitude(self) -> TensorLike:
+        """Per-pixel displacement length ``(H, W)`` in pixels."""
+        if isinstance(self.data, torch.Tensor):
+            return torch.linalg.vector_norm(self.data, dim=-1)
+        return np.linalg.norm(self.data, axis=-1)
+
+    @property
+    def angle(self) -> TensorLike:
+        """Per-pixel displacement direction ``(H, W)`` in radians, ``atan2(dy, dx)``."""
+        if isinstance(self.data, torch.Tensor):
+            return torch.atan2(self.data[..., 1], self.data[..., 0])
+        return np.arctan2(self.data[..., 1], self.data[..., 0])
+
+    def _finite_magnitudes(self) -> np.ndarray:
+        values = np.linalg.norm(self.array, axis=-1)
+        return values[np.isfinite(values)]
+
+    @property
+    def max_magnitude(self) -> float:
+        values = self._finite_magnitudes()
+        return float(values.max()) if values.size else 0.0
+
+    @property
+    def mean_magnitude(self) -> float:
+        values = self._finite_magnitudes()
+        return float(values.mean()) if values.size else 0.0
+
+    def to_rgb(self, max_magnitude: float | None = None) -> np.ndarray:
+        """Middlebury colour-wheel rendering as uint8 ``(H, W, 3)`` RGB.
+
+        Pass ``max_magnitude`` to keep colours comparable across video frames.
+        """
+        from .drawing import flow_to_rgb
+
+        return flow_to_rgb(self.array, max_magnitude=max_magnitude)
+
+    def warp(self, image: Any) -> np.ndarray:
+        """Warp the second frame back onto the first frame's pixel grid.
+
+        ``image`` is the second frame as an ``(H, W)`` or ``(H, W, C)`` array on
+        the original canvas. The output samples it bilinearly at
+        ``(x + dx, y + dy)`` with border clamping, so a zero flow returns the
+        image unchanged and a correct flow turns the second frame into the
+        first. Non-finite vectors sample in place. Integer inputs return the
+        same dtype, rounded; float inputs return float32.
+        """
+        source = np.asarray(_numpy(image) if isinstance(image, torch.Tensor) else image)
+        h, w = self.orig_shape
+        if source.ndim not in (2, 3) or (int(source.shape[0]), int(source.shape[1])) != (h, w):
+            raise ValueError(
+                f"expected an image of shape ({h}, {w}[, C]) on the original canvas, "
+                f"got {source.shape}"
+            )
+        flow = self.array
+        flow = np.where(np.isfinite(flow), flow, 0.0)
+        ys, xs = np.mgrid[0:h, 0:w]
+        sx = np.clip(xs + flow[..., 0], 0, w - 1)
+        sy = np.clip(ys + flow[..., 1], 0, h - 1)
+        x0 = np.floor(sx).astype(np.int64)
+        y0 = np.floor(sy).astype(np.int64)
+        x1 = np.minimum(x0 + 1, w - 1)
+        y1 = np.minimum(y0 + 1, h - 1)
+        wx = (sx - x0).astype(np.float32)
+        wy = (sy - y0).astype(np.float32)
+        planar = source.ndim == 2
+        values = source.astype(np.float32)
+        if planar:
+            values = values[..., None]
+        wx = wx[..., None]
+        wy = wy[..., None]
+        out = (
+            values[y0, x0] * (1 - wx) * (1 - wy)
+            + values[y0, x1] * wx * (1 - wy)
+            + values[y1, x0] * (1 - wx) * wy
+            + values[y1, x1] * wx * wy
+        )
+        if planar:
+            out = out[..., 0]
+        if np.issubdtype(source.dtype, np.integer):
+            info = np.iinfo(source.dtype)
+            return np.rint(out).clip(info.min, info.max).astype(source.dtype)
+        return out.astype(np.float32)
+
+    def __repr__(self) -> str:
+        return (
+            f"FlowField(shape={tuple(self.data.shape)}, "
+            f"max_magnitude={self.max_magnitude:.4g}, "
+            f"confidence={'yes' if self.confidence is not None else 'no'}, "
+            f"orig_shape={self.orig_shape})"
+        )
+
+
 class RestoredImage(_TensorPayload):
     """Dense restored RGB image for a single input.
 
@@ -2304,6 +2500,7 @@ class Results:
         "actions",
         "generated",
         "gaussians",
+        "flow",
     )
 
     def __init__(
@@ -2341,6 +2538,7 @@ class Results:
         orig_img: Any = None,
         generated: Optional[GeneratedImage] = None,
         gaussians: Optional[Gaussians] = None,
+        flow: Optional[FlowField] = None,
     ):
         if boxes is not None and boxes.orig_shape is None:
             boxes = boxes.with_orig_shape(orig_shape)
@@ -2362,6 +2560,8 @@ class Results:
             matte = Matte(matte.data, orig_shape)
         if ocr is not None and ocr.orig_shape is None:
             ocr = OCRRegions(ocr.data, ocr.texts, ocr.conf, ocr.det_conf, orig_shape)
+        if flow is not None and flow.orig_shape != tuple(orig_shape):
+            flow = FlowField(flow.data, orig_shape, confidence=flow.confidence)
 
         if boxes3d is not None:
             boxes3d._validate_alignment(boxes, orig_shape)
@@ -2386,6 +2586,7 @@ class Results:
         self.actions = actions
         self.generated = generated
         self.gaussians = gaussians
+        self.flow = flow
         # Integer upscale factor of a restore/super-resolution result: the
         # restored canvas is ``restore_scale`` times the input. 1 for
         # deblur/denoise and every non-restore task.
@@ -2452,6 +2653,7 @@ class Results:
             "actions": self.actions,
             "generated": self.generated,
             "gaussians": self.gaussians,
+            "flow": self.flow,
             "restore_scale": self.restore_scale,
             "embeddings": self.embeddings,
             "identities": self.identities,
@@ -2534,6 +2736,7 @@ class Results:
         actions: Optional[Actions] = None,
         generated: Optional[GeneratedImage] = None,
         gaussians: Optional[Gaussians] = None,
+        flow: Optional[FlowField] = None,
     ) -> "Results":
         aligned_cuboids = boxes3d if boxes3d is not None else self.boxes3d
         if aligned_cuboids is not None:
@@ -2590,6 +2793,12 @@ class Results:
             self.generated = generated
         if gaussians is not None:
             self.gaussians = gaussians
+        if flow is not None:
+            self.flow = (
+                flow
+                if flow.orig_shape == tuple(self.orig_shape)
+                else FlowField(flow.data, self.orig_shape, confidence=flow.confidence)
+            )
         if meshes is not None:
             self.meshes = meshes
         if matte is not None:
@@ -2642,15 +2851,19 @@ class Results:
         show: bool = False,
         save: bool = False,
         filename: str | None = None,
+        arrows: bool = False,
+        arrow_step: int = 16,
     ):
         """Render the result on its source image.
 
         Boxes, masks, OBB, keypoints, points, OCR, semantic and panoptic maps,
         and classification top-5 draw exactly like ``predict(save=True)`` and
         return an ``HxWx3`` uint8 BGR array. Dense maps (depth, normal, edge,
-        albedo), 3D cuboids, action chunks, generated images and a preview of
-        generated Gaussians (rendered from the inferred input camera) return a
-        PIL image. ``pil`` forces either return type.
+        albedo, optical flow), 3D cuboids, action chunks, generated images and
+        a preview of generated Gaussians (rendered from the inferred input
+        camera) return a PIL image. ``pil`` forces either return type. Optical
+        flow draws the Middlebury colour wheel; ``arrows=True`` adds one
+        displacement vector every ``arrow_step`` pixels.
 
         The source image is ``img`` (BGR array or PIL image), else ``image``
         (RGB array or PIL image), else the image kept by predict
@@ -2664,7 +2877,7 @@ class Results:
                 if isinstance(img, np.ndarray)
                 else img
             )
-        rendered = self._plot_dense(image)
+        rendered = self._plot_dense(image, arrows=arrows, arrow_step=arrow_step)
         default_pil = rendered is not None
         if rendered is None:
             from .drawing import draw_results
@@ -2697,10 +2910,18 @@ class Results:
             return rendered
         return np.ascontiguousarray(np.asarray(rendered.convert("RGB"))[..., ::-1])
 
-    def _plot_dense(self, image=None):
+    def _plot_dense(self, image=None, *, arrows: bool = False, arrow_step: int = 16):
         """Render dense outputs, cuboids, actions or a generated image or object; else None."""
         if self.generated is not None:
             return self.generated.image
+        if self.flow is not None:
+            from PIL import Image
+            from .drawing import draw_flow
+
+            h, w = self.orig_shape
+            return draw_flow(
+                Image.new("RGB", (w, h)), self.flow.array, arrows=arrows, step=arrow_step
+            )
         if self.gaussians is not None:
             return self.gaussians.render()
         if self.actions is not None:
@@ -2962,6 +3183,17 @@ class Results:
                         }
                     )
                 return rows
+            if self.flow is not None:
+                h, w = self.flow.orig_shape
+                return [
+                    {
+                        "name": "flow",
+                        "shape": [int(h), int(w), 2],
+                        "max_magnitude": round(self.flow.max_magnitude, decimals),
+                        "mean_magnitude": round(self.flow.mean_magnitude, decimals),
+                        "has_confidence": self.flow.confidence is not None,
+                    }
+                ]
             if self.depth_map is not None:
                 return [
                     {
@@ -3188,6 +3420,8 @@ class Results:
             return 1
         if self.depth_map is not None:
             return 1
+        if self.flow is not None:
+            return 1
         if self.normal_map is not None:
             return 1
         if self.albedo is not None:
@@ -3220,6 +3454,8 @@ class Results:
             parts.append(f"panoptic={self.panoptic}")
         if self.depth_map is not None:
             parts.append(f"depth_map={self.depth_map}")
+        if self.flow is not None:
+            parts.append(f"flow={self.flow}")
         if self.normal_map is not None:
             parts.append(f"normal_map={self.normal_map}")
         if self.albedo is not None:
