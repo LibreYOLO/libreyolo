@@ -106,7 +106,9 @@ def crop_grid(width: int, height: int, min_num=2, max_num=9, image_size=CROP_SIZ
     )
 
 
-def dynamic_preprocess(image: Image.Image, image_size: int = CROP_SIZE, max_num: int = 9):
+def dynamic_preprocess(
+    image: Image.Image, image_size: int = CROP_SIZE, max_num: int = 9
+):
     """Resize to the best grid and cut it into ``image_size`` tiles (row-major)."""
     cols, rows = crop_grid(
         image.size[0], image.size[1], max_num=max_num, image_size=image_size
@@ -173,7 +175,9 @@ class ImageViews:
     num_tokens: int
 
 
-def prepare_views(image: Image.Image, resolution: str, spec: VisionSpec = V1) -> ImageViews:
+def prepare_views(
+    image: Image.Image, resolution: str, spec: VisionSpec = V1
+) -> ImageViews:
     base_size, image_size, crop_mode = resolve_resolution(resolution, spec)
     image = image.convert("RGB")
     color = _pad_color()

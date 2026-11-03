@@ -337,7 +337,11 @@ def test_pins_inventory_and_registry():
     from libreyolo.models.registry import MODEL_GROUPS
 
     assert not LibreDeepSeekOCR.TRUST_REMOTE_CODE
-    assert set(LibreDeepSeekOCR.HF_REPOS) == set(LibreDeepSeekOCR.HF_REVISIONS) == {"1", "2"}
+    assert (
+        set(LibreDeepSeekOCR.HF_REPOS)
+        == set(LibreDeepSeekOCR.HF_REVISIONS)
+        == {"1", "2"}
+    )
     assert MODEL_GROUPS["deepseekocr"] == "s"
     entry = collect_model_inventory()["deepseekocr"]
     assert entry["optional_extra"] == "vlm"

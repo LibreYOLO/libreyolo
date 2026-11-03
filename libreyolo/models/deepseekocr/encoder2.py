@@ -43,8 +43,12 @@ class Qwen2SdpaAttention(nn.Module):
         self.num_key_value_heads = num_key_value_heads
         self.num_key_value_groups = num_heads // num_key_value_heads
         self.q_proj = nn.Linear(hidden_size, num_heads * self.head_dim, bias=True)
-        self.k_proj = nn.Linear(hidden_size, num_key_value_heads * self.head_dim, bias=True)
-        self.v_proj = nn.Linear(hidden_size, num_key_value_heads * self.head_dim, bias=True)
+        self.k_proj = nn.Linear(
+            hidden_size, num_key_value_heads * self.head_dim, bias=True
+        )
+        self.v_proj = nn.Linear(
+            hidden_size, num_key_value_heads * self.head_dim, bias=True
+        )
         self.o_proj = nn.Linear(num_heads * self.head_dim, hidden_size, bias=False)
 
     def forward(self, hidden_states, cos_sin, attention_mask):
@@ -53,10 +57,12 @@ class Qwen2SdpaAttention(nn.Module):
         key = self.k_proj(hidden_states)
         value = self.v_proj(hidden_states)
         query = query.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key = key.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value = value.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(
+        key = key.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(
             1, 2
         )
+        value = value.view(
+            bsz, q_len, self.num_key_value_heads, self.head_dim
+        ).transpose(1, 2)
         cos, sin = cos_sin
         query, key = apply_rotary_pos_emb(query, key, cos, sin)
         key = repeat_kv(key, self.num_key_value_groups)
@@ -117,16 +123,22 @@ class _Qwen2Stack(nn.Module):
     ):
         super().__init__()
         self.layers = nn.ModuleList(
-            Qwen2DecoderLayer(hidden_size, num_heads, num_kv_heads, intermediate_size, eps)
+            Qwen2DecoderLayer(
+                hidden_size, num_heads, num_kv_heads, intermediate_size, eps
+            )
             for _ in range(num_layers)
         )
         self.norm = DeepseekV2RMSNorm(hidden_size, eps=eps)
         self.rotary_emb = RotaryEmbedding(hidden_size // num_heads, rope_theta)
 
-    def forward(self, inputs_embeds: torch.Tensor, n_bidirectional: int) -> torch.Tensor:
+    def forward(
+        self, inputs_embeds: torch.Tensor, n_bidirectional: int
+    ) -> torch.Tensor:
         seq_len = inputs_embeds.shape[1]
         position_ids = torch.arange(seq_len, device=inputs_embeds.device).unsqueeze(0)
-        mask = flow_mask(seq_len, n_bidirectional, inputs_embeds.dtype, inputs_embeds.device)
+        mask = flow_mask(
+            seq_len, n_bidirectional, inputs_embeds.dtype, inputs_embeds.device
+        )
         mask = mask.expand(inputs_embeds.shape[0], 1, seq_len, seq_len)
         hidden_states = inputs_embeds
         cos_sin = self.rotary_emb(hidden_states, position_ids)
@@ -141,7 +153,9 @@ def flow_mask(seq_len: int, n_image: int, dtype, device) -> torch.Tensor:
     Rows and columns ``[0, n_image)`` are image tokens; the rest are queries,
     which see every image token and the queries up to themselves.
     """
-    mask = torch.full((seq_len, seq_len), torch.finfo(dtype).min, dtype=dtype, device=device)
+    mask = torch.full(
+        (seq_len, seq_len), torch.finfo(dtype).min, dtype=dtype, device=device
+    )
     mask[:n_image, :n_image] = 0.0
     queries = seq_len - n_image
     if queries:
