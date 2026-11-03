@@ -119,6 +119,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `vjepa2`    | `LibreVJEPA2`   | All-caps acronym + version (`V-JEPA 2`), hyphen dropped; video clip embedding (`embed`) + attentive-probe video classification (`classify`) |
 | `levjepa`   | `LibreLeVJEPA`  | Upstream mixed-case name preserved; inference-only clip and patch video embeddings |
 | `nafnet`    | `LibreNAFNet`   | All-caps acronym + CamelCase `Net`; restore-only image-restoration family |
+| `raft`      | `LibreRAFT`     | All-caps acronym (RAFT); flow-only optical flow family |
 | `ddcolor`   | `LibreDDColor`  | Upstream mixed-case brand preserved (`DDColor`); restore-only automatic colorization family |
 | `hvi_cidnet` | `LibreHVICIDNet` | All-caps upstream acronyms (`HVI-CIDNet`) with the separator retained only in the family id; restore-only low-light enhancement family |
 | `lama`      | `LibreLaMa`     | Upstream mixed-case acronym preserved (`LaMa`); mask-guided inpainting under the restore task |
@@ -263,6 +264,7 @@ ships:
 | `vgg`       | `16`, `19`, `16bn`, `19bn` (VGG depth plus optional batch normalization; all fixed 224) |
 | `swin`      | `t`, `s`, `b`, `l` (Swin V1 Tiny/Small/Base/Large; patch 4, window 7, all at 224) |
 | `nafnet`    | `s`, `l` (small width-32 / large width-64 restoration models). Weight variants select the degradation: `LibreNAFNetl-restore.pt` (GoPro deblur) and `LibreNAFNetl-restore-sidd.pt` (SIDD denoise, the model behind the `denoise` alias) |
+| `raft`      | `s`, `l` (raft-small / raft, native resolution padded to a multiple of 8). Weight variants of `l` select the fine-tuning set: `LibreRAFTl-flow.pt` (raft-things, canonical), `LibreRAFTl-flow-sintel.pt` (raft-sintel), `LibreRAFTl-flow-kitti.pt` (raft-kitti) |
 | `ddcolor`   | `t`, `l` (ConvNeXt-T and ConvNeXt-L encoders; both use a fixed 512 colorization graph and restore the source canvas) |
 | `hvi_cidnet` | `t` (the 1.98M-parameter generalization checkpoint; native resolution with padding to a multiple of 8) |
 | `lama`      | `b` (the single fixed-512 OpenCV Zoo QDQ ONNX graph embedded in a safe LibreYOLO checkpoint) |
@@ -570,6 +572,7 @@ Detector-factory family support follows:
 | `teed`      | `("edge",)`                         | edge   | TEED tiny edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
 | `dexined`   | `("edge",)`                         | edge   | DexiNed base edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
 | `nafnet`    | `("restore",)`                      | restore | NAFNet RGB restoration; sizes `s`/`l`; native predict runs at original resolution with reflect padding; paired PSNR/SSIM train+val; fixed-resolution ONNX v1. Published denoise weights: `LibreNAFNetl-restore-sidd.pt` (SIDD width-64, bit-exact conversion, upstream PSNR 40.3045 dB) |
+| `raft`      | `("flow",)`                         | flow   | RAFT optical flow, inference-only; sizes `s`/`l`; native predict pads to a multiple of 8 (upstream InputPadder) with 20 refinement iterations; `FLOW_CONTEXT = (0, 0)`; variants `-sintel`, `-kitti` of `l` |
 | `ddcolor`   | `("restore",)`                      | restore | DDColor automatic image colorization; sizes `t`/`l`; fixed 512 Lab chroma prediction plus exact original-resolution luminance reconstruction; inference + paired PSNR/SSIM `val`; export blocked pending a luminance side-input contract |
 | `hvi_cidnet` | `("restore",)`                    | restore | HVI-CIDNet low-light enhancement; size `t`; native-resolution predict with `gamma`, `saturation`, and `intensity` controls; paired PSNR/SSIM `val`; inference-only |
 | `lama`      | `("restore",)`                      | restore | LaMa mask-guided inpainting; size `b`, fixed 512 graph; `predict(image, mask=mask)` preserves unmasked pixels exactly; paired validation additionally requires `mask_dir`; inference-only opaque ONNX Runtime path |
@@ -753,6 +756,12 @@ LibreZipDepthbnpu-depth.pt       # base, unfold-free upsampling (NPU/edge export
 # midas — MiDaS relative inverse depth (official upstream downloads)
 LibreMiDaSs-depth.pt             # MiDaS v2.1 Small, EfficientNet-Lite3, 256
 LibreMiDaSl-depth.pt             # DPT-Large, ViT-L/16, 384
+
+# raft — RAFT optical flow (flow-only, BSD-3-Clause code and weights)
+LibreRAFTs-flow.pt               # raft-small
+LibreRAFTl-flow.pt               # raft-things (canonical)
+LibreRAFTl-flow-sintel.pt        # raft-sintel
+LibreRAFTl-flow-kitti.pt         # raft-kitti
 
 # moge2 — MoGe-2 surface normals (normal-only, MIT weights)
 LibreMoGe2s-normal.pt            # ViT-S/14, native short side 518
