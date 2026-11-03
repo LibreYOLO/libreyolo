@@ -70,7 +70,11 @@ def _detections(result):
         return value.cpu().numpy() if hasattr(value, "cpu") else np.asarray(value)
 
     boxes = result.boxes
-    return as_array(boxes.xyxy).reshape(-1, 4), as_array(boxes.cls).astype(int)
+    return (
+        as_array(boxes.xyxy).reshape(-1, 4),
+        as_array(boxes.cls).astype(int),
+        as_array(boxes.conf).astype(float),
+    )
 
 
 def _iou(a, b):
@@ -81,16 +85,25 @@ def _iou(a, b):
     return inter / union if union > 0 else 0.0
 
 
-def _unmatched(source, target):
-    """Boxes in source with no same-class box in target at IoU >= 0.9."""
-    (boxes, classes), (other_boxes, other_classes) = source, target
-    return sum(
-        not any(
-            c == oc and _iou(box, other) >= 0.9
-            for other, oc in zip(other_boxes, other_classes)
-        )
-        for box, c in zip(boxes, classes)
-    )
+def _match(source, target):
+    """Pair each source box with its best same-class target box at IoU >= 0.9.
+
+    Returns the number of source boxes without a match and the largest
+    confidence difference over the matched pairs.
+    """
+    unmatched, worst_conf = 0, 0.0
+    for box, c, conf in zip(*source):
+        candidates = [
+            (_iou(box, other), other_conf)
+            for other, oc, other_conf in zip(*target)
+            if oc == c
+        ]
+        best = max(candidates, default=(0.0, 0.0))
+        if best[0] >= 0.9:
+            worst_conf = max(worst_conf, abs(best[1] - conf))
+        else:
+            unmatched += 1
+    return unmatched, worst_conf
 
 
 def predict_torch():
@@ -113,14 +126,19 @@ if sys.platform == "darwin":
 def export_and_predict(fmt):
     path = state["model"].export(format=fmt)
     got = _detections(LibreYOLO(path)(SAMPLE_IMAGE))
-    # Same classes and boxes as PyTorch; one borderline detection near the
-    # confidence threshold may appear on only one side.
-    missing, extra = _unmatched(state["ref"], got), _unmatched(got, state["ref"])
+    # Same classes, boxes and scores as PyTorch; one borderline detection
+    # near the confidence threshold may appear on only one side.
+    missing, conf_diff = _match(state["ref"], got)
+    extra, _ = _match(got, state["ref"])
     assert missing <= 1 and extra <= 1, (
         f"{missing} PyTorch detections missing and {extra} unexpected "
         f"(same class, IoU >= 0.9) out of {len(state['ref'][1])}"
     )
-    return f"{len(got[1])} detections, {missing} missing, {extra} extra"
+    assert conf_diff <= 0.05, f"a matched score differs by {conf_diff:.3f}"
+    return (
+        f"{len(got[1])} detections, {missing} missing, {extra} extra, "
+        f"max score diff {conf_diff:.4f}"
+    )
 
 
 if "ref" in state:
