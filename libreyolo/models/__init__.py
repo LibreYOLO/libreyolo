@@ -182,6 +182,10 @@ from .vjepa2.model import LibreVJEPA2  # noqa: E402,F401  (import registers fami
 # CLS token and fused qkv weights, so it cannot collide with V-JEPA 2.
 from .levjepa.model import LibreLeVJEPA  # noqa: E402,F401  (import registers family)
 
+# WAFT optical flow: can_load needs warp_linear + refine_transform + refine_net
+# ViT keys together with one of the four encoder signatures.
+from .waft.model import LibreWAFT  # noqa: E402,F401  (flow-only)
+
 
 def _ensure_rfdetr():
     """Lazily register RF-DETR and LibreDINOv2 if their dependencies are installed."""
@@ -945,6 +949,7 @@ __all__ = [
     "LibrePPOCR",
     "LibreVJEPA2",
     "LibreLeVJEPA",
+    "LibreWAFT",
     "LibreFaceEmbedder",
     "try_ensure_rfdetr",
 ]
