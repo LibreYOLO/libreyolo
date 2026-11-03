@@ -11,18 +11,25 @@
 # - the Depth Anything V2 encoder reuses LibreYOLO's vendored copy
 #   (libreyolo/models/depth_anything/_vendor); FlowSeekDAv2 reproduces the
 #   upstream FlowSeek variant whose forward returns the DPT path_1 features
-#   alongside the depth map;
+#   alongside the depth map, and keeps upstream's manual attention math
+#   (q * scale @ k.T, softmax, @ v) instead of the fused SDPA kernel the shared
+#   vendor uses: the recurrent refinement amplifies the kernel's rounding
+#   differences to tens of pixels at isolated pixels, while the manual math
+#   reproduces upstream bit for bit;
 # - the DAv2 weights are no longer read from weights/*.pth at construction:
 #   they are part of the FlowSeek checkpoint (dav2.* keys);
 # - hard-coded .cuda() calls follow the input device instead;
 # - the training-only loss branch (test_mode=False) and the Hugging Face hub
 #   mixin are removed; forward returns the final flow only.
 
+import types
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ...depth_anything._vendor.dinov2_layers.attention import Attention
 from ...depth_anything._vendor.dpt import DepthAnythingV2
 from .corr import CorrBlock
 from .extractor import ResNetFPN
@@ -36,8 +43,30 @@ DA_MODEL_CONFIGS = {
 }
 
 
+def _upstream_attention_forward(self, x, attn_bias=None):
+    """DINOv2 attention exactly as in upstream FlowSeek's DAv2 copy."""
+    if attn_bias is not None:
+        raise ValueError("FlowSeek's DINOv2 attention takes no attention bias")
+    B, N, C = x.shape
+    qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+    q, k, v = qkv[0] * self.scale, qkv[1], qkv[2]
+    attn = q @ k.transpose(-2, -1)
+    attn = attn.softmax(dim=-1)
+    attn = self.attn_drop(attn)
+    x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+    x = self.proj(x)
+    x = self.proj_drop(x)
+    return x
+
+
 class FlowSeekDAv2(DepthAnythingV2):
     """Depth Anything V2 returning (path_1 features, relu depth), as in FlowSeek."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for module in self.pretrained.modules():
+            if isinstance(module, Attention):
+                module.forward = types.MethodType(_upstream_attention_forward, module)
 
     def forward(self, x):
         patch_h, patch_w = x.shape[-2] // 14, x.shape[-1] // 14

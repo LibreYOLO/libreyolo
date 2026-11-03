@@ -53,7 +53,16 @@ def main() -> None:
     p.add_argument("--sizes", default="t,s,m,l")
     p.add_argument("--save-dir", type=Path, default=None)
     p.add_argument("--json", type=Path, default=None)
+    p.add_argument(
+        "--manual-attn",
+        action="store_true",
+        help="Run the vendored DINOv2 attention as q @ k.T -> softmax -> @ v (upstream's math) instead of SDPA",
+    )
     a = p.parse_args()
+    if a.manual_attn:
+        import libreyolo.models.depth_anything._vendor.dinov2_layers.attention as attn
+
+        attn.manual_attention_required = lambda: True
 
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
@@ -69,7 +78,7 @@ def main() -> None:
         assert ours.iterations == iters, (ours.iterations, iters)
         results = ours([str(f) for f in frames])
         assert len(results) == len(frames) - 1
-        maxd, meand, epes, ours_all = [], [], [], []
+        maxd, meand, epes, ours_all, p999 = [], [], [], [], []
         with torch.no_grad():
             for i in range(len(frames) - 1):
                 t1 = torch.from_numpy(imgs[i]).permute(2, 0, 1).float()[None].cuda()
@@ -79,6 +88,7 @@ def main() -> None:
                 d = np.abs(got - ref)
                 maxd.append(float(d.max()))
                 meand.append(float(d.mean()))
+                p999.append(float(np.percentile(d, 99.9)))
                 epes.append(float(np.linalg.norm(got - ref, axis=-1).mean()))
                 ours_all.append(got)
         report[size] = {
@@ -86,6 +96,8 @@ def main() -> None:
             "iters": iters,
             "max_abs_diff_px": max(maxd),
             "mean_abs_diff_px": float(np.mean(meand)),
+            "p99.9_abs_diff_px": float(np.max(p999)),
+            "pairs_max_over_1e-2": int(sum(m > 1e-2 for m in maxd)),
             "mean_epe_between_px": float(np.mean(epes)),
             "mean_flow_magnitude_px": float(np.mean([np.linalg.norm(f, axis=-1).mean() for f in ours_all])),
         }
