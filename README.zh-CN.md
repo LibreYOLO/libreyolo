@@ -123,6 +123,7 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **图像复原** | DDColor、HVI-CIDNet、LaMa、NAFNet、QuickSRNet、Real-ESRGAN、SwinIR |
 | **背景移除** | BiRefNet、FeyNobg、ViTMatte |
 | **OCR** | PP-OCR |
+| **文档版面分析** | PP-DocLayoutV3（版面区域及阅读顺序） |
 | **点检测** | FOMO、LocateAnything |
 | **视线估计** | L2CS |
 | **开放词汇与 VLM** | Grounding DINO、OWLv2、OmDet-Turbo、OV-DEIM、Florence-2、Kosmos-2、Qwen3-VL、InternVL3、LFM2-VL、North Micro Vision、SmolVLM2、Molmo2、WeVisOne-VL、MODUS |

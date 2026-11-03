@@ -7,6 +7,11 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+### Added
+
+- **PP-DocLayoutV3 document layout detection with reading order. (#994)**
+  `LibreYOLO("LibrePPDocLayoutV3l.pt")` finds 25 kinds of page regions (text, titles, tables, figures, formulas, headers, footers, seals, ...) and returns them sorted in reading order, with the one-based rank in the new `Results.reading_order` field. Ported from PaddleOCR's PP-DocLayoutV3 (Apache-2.0 code and weights), outputs match the reference bit for bit, and ONNX and TorchScript export keep the reading order. The official `model.safetensors` also loads directly. Inference-only.
+
 ### Changed
 
 - **`libreyolo[all]` no longer includes `paddle`. (#989)**
