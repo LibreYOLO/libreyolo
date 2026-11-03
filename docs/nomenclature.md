@@ -133,6 +133,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `marigold_v2` | `LibreMarigoldV2` | Marigold V2 depth, normals and albedo; pinned Qwen base with task adapters |
 | `teed`      | `LibreTEED` | All-caps acronym (`TEED`); edge-only tiny CNN specialist |
 | `dexined`   | `LibreDexiNed` | Upstream brand casing preserved (`DexiNed`); edge-only base CNN specialist |
+| `unimatch`  | `LibreUniMatch` | Upstream brand casing preserved (`UniMatch`); flow-only GMFlow optical flow family |
 | `birefnet`  | `LibreBiRefNet` | CamelCase preserved (Bilateral Reference); matte-only background-removal family |
 | `feynobg`   | `LibreFeyNobg` | CamelCase preserved (FeyNobg); matte-only background-removal family built on the BiRefNet architecture |
 | `ben2`      | `LibreBEN2` | All-caps acronym plus version digit; matte-only BEN2 Base background-removal family |
@@ -277,6 +278,7 @@ ships:
 | `marigold_v2` | `b` (20B Qwen base; task and depth-variant suffix select the adapter) |
 | `teed`      | `t` (tiny, 58,910 parameters; fixed 352 square) |
 | `dexined`   | `b` (base, 35.2M parameters; fixed 352 square) |
+| `unimatch`  | `s` (GMFlow scale1, FlyingThings), `l` (GMFlow+ scale2 with 6 refinement steps, mixed data; quality default). Weight variants `-sintel` and `-kitti` select the `l` finetunes: `LibreUniMatchl-flow-sintel.pt`, `LibreUniMatchl-flow-kitti.pt` |
 | `birefnet`  | `t` (BiRefNet_lite, Swin-T tier), `l` (BiRefNet general, Swin-L tier); both at fixed 1024 |
 | `feynobg`   | `l` (single released variant: Swin-L tier with stage 3 deepened to 24 blocks, 263M params) at fixed 1024 |
 | `ben2`      | `b` (the single public BEN2 Base checkpoint, 94M parameters) at fixed 1024 |
@@ -568,6 +570,7 @@ Detector-factory family support follows:
 | `midas`     | `("depth",)`                        | depth  | MiDaS relative inverse depth, defined only up to a per-image scale and shift; higher means closer and values have no metric unit. Sizes `s`/`l`; predict + zero-shot `val` + fixed-resolution ONNX/TorchScript/TensorRT/OpenVINO export; inference-only |
 | `moge2`     | `("normal",)`                       | normal | MoGe-2 ViT-S/B/L-14 normal models; sizes `s`/`b`/`l` at native short-side 518 (`l` quality default); OpenCV camera-frame unit normals; predict + zero-shot `val` + fixed-resolution ONNX export; official code and checkpoints are MIT; not trainable in LibreYOLO |
 | `teed`      | `("edge",)`                         | edge   | TEED tiny edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
+| `unimatch`  | `("flow",)`                         | flow   | UniMatch / GMFlow optical flow; sizes `s` (scale1) and `l` (scale2 + 6 refinement steps) at native geometry rounded up to 16 / 32; MIT code, weights hosted under the implied MIT grant; predict only, not trainable in LibreYOLO |
 | `dexined`   | `("edge",)`                         | edge   | DexiNed base edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
 | `nafnet`    | `("restore",)`                      | restore | NAFNet RGB restoration; sizes `s`/`l`; native predict runs at original resolution with reflect padding; paired PSNR/SSIM train+val; fixed-resolution ONNX v1. Published denoise weights: `LibreNAFNetl-restore-sidd.pt` (SIDD width-64, bit-exact conversion, upstream PSNR 40.3045 dB) |
 | `ddcolor`   | `("restore",)`                      | restore | DDColor automatic image colorization; sizes `t`/`l`; fixed 512 Lab chroma prediction plus exact original-resolution luminance reconstruction; inference + paired PSNR/SSIM `val`; export blocked pending a luminance side-input contract |
@@ -753,6 +756,12 @@ LibreZipDepthbnpu-depth.pt       # base, unfold-free upsampling (NPU/edge export
 # midas — MiDaS relative inverse depth (official upstream downloads)
 LibreMiDaSs-depth.pt             # MiDaS v2.1 Small, EfficientNet-Lite3, 256
 LibreMiDaSl-depth.pt             # DPT-Large, ViT-L/16, 384
+
+# unimatch: UniMatch / GMFlow optical flow (flow-only)
+LibreUniMatchs-flow.pt           # GMFlow scale1, FlyingThings
+LibreUniMatchl-flow.pt           # GMFlow+ scale2 regrefine6, mixed data (default)
+LibreUniMatchl-flow-sintel.pt    # Sintel finetune of l
+LibreUniMatchl-flow-kitti.pt     # KITTI 2015 finetune of l
 
 # moge2 — MoGe-2 surface normals (normal-only, MIT weights)
 LibreMoGe2s-normal.pt            # ViT-S/14, native short side 518
