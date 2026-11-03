@@ -1068,6 +1068,15 @@ denoiser, decoder and BiRefNet files of LibreYOLO's mirror
 `VAST-AI/TripoSplat` snapshot) in `weights/LibreTripoSplat0.6b/`, kept in their upstream folders
 (`diffusion_models/`, `vae/`, `background_removal/`).
 
+`LibreTRELLIS` (`trellis`, size `l` for upstream's `TRELLIS-image-large`,
+aliases `trellis` and `trellis-image-large`) is the third image-to-3D
+family, Microsoft's model; the class keeps upstream's capitalisation. Same
+task, aliases and coverage group as Idol. Its weights are LibreYOLO's mirror
+`LibreYOLO/LibreTRELLISl` (byte-identical to the pinned
+`microsoft/TRELLIS-image-large` files, upstream layout under `ckpts/`, plus
+the BiRefNet weights) in `weights/LibreTRELLISl/`; its image encoder is
+`facebook/dinov2-with-registers-large` at a pinned revision.
+
 ## Vision-language-action policies
 
 `LibreACT` (`act_policy`, aliases `act` and `act-policy`) and

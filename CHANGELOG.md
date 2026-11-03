@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **TRELLIS, image to 3D Gaussians on any device: `LibreGen("trellis")`.**
+  Microsoft's TRELLIS-image-large (MIT) behind the same call as Idol and TripoSplat: one image in, the object out as Gaussian splats, `libreyolo generate source=chair.jpg model=trellis`. Upstream needs CUDA-only extensions (spconv, xformers or flash-attn); LibreYOLO runs it in plain PyTorch, on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `shift`, `margin`. Weights download from LibreYOLO's mirror of `microsoft/TRELLIS-image-large`; DINOv2 from `facebook/dinov2-with-registers-large`.
+
 - **TripoSplat, a second image-to-3D family: `LibreGen("triposplat")`.**
   TripoAI's MIT model that Speridlabs Idol builds on, behind the same call: one image in, up to 262,144 Gaussian splats out, `.ply` and `.splat` files, `libreyolo generate source=chair.jpg model=triposplat`. Knobs `steps`, `guidance`, `shift`, `gaussians`, `margin`. Weights download from LibreYOLO's mirror of the `VAST-AI/TripoSplat` snapshot; the DINOv3 and FLUX.2 VAE encoders are the ones Idol uses. Runs on CUDA, Apple MPS and CPU.
 
