@@ -7,6 +7,13 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+### Added
+
+- **DeepSeek-OCR. (#994)**
+  `LibreVLM("deepseek-ocr")` (or `LibreDeepSeekOCR`) runs DeepSeek-OCR, a 3B mixture-of-experts document OCR model with MIT code and weights, on the `ocr` task. Default predict returns one `Results.ocr` region per text line from the grounding prompt; `prompt="markdown"` returns layout blocks and the whole page as markdown, `prompt="free"` the page text only, and `resolution=` picks the release's `tiny`, `small`, `base`, `large` or `gundam` (default) input mode. The architecture is a vendored PyTorch port that reproduces the release token for token in bf16 on CUDA and also runs in float32 on CPU and MPS; weights download from the byte-identical `LibreYOLO/LibreDeepSeekOCR1` mirror. `val()` runs the OCR validator; `train()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+- **`Results.ocr.markdown` and `Results.ocr.labels`.**
+  OCR results can carry the whole page as text (`markdown`, `""` when the model emits only regions) and a per-region layout category (`labels`, `None` for line-level OCR). The JSON output of `libreyolo predict` includes both when set.
+
 ### Changed
 
 - **`libreyolo[all]` no longer includes `paddle`. (#989)**
