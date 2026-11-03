@@ -4,9 +4,10 @@ MEMFOF (https://github.com/msu-video-group/memfof, ICCV 2025 Highlight) is a
 memory-efficient multi-frame RAFT descendant: it reads frames ``t-1, t, t+1``
 and predicts the backward (``t`` to ``t-1``) and forward (``t`` to ``t+1``)
 flow of the middle frame in one pass. LibreYOLO's ``flow`` task reports flow
-from frame ``i`` to ``i+1``, so the family declares ``FLOW_CONTEXT = (1, 1)``
-(one frame of context on each side, edge-padded by the runner at sequence
-boundaries) and emits the forward flow as ``Results.flow``. The backward flow
+from frame ``i`` to ``i+1``, so the family declares ``FLOW_CONTEXT = (1, 0)``:
+the runner's window is ``before + 2 + after = 3`` frames, ``(t-1, t, t+1)``,
+with ``t-1`` edge padded to frame 0 at the start of a sequence, and the family
+emits the forward flow as ``Results.flow``. The backward flow
 is computed by the network but kept out of the task contract for now.
 
 Frames run at their native resolution, as upstream does, with upstream's
@@ -61,8 +62,9 @@ class LibreMEMFOF(BaseModel):
         "sintel",
         "spring",
     )
-    # Frames before and after the reference frame the network reads.
-    FLOW_CONTEXT: ClassVar[Tuple[int, int]] = (1, 1)
+    # Extra frames around the (t, t+1) pair: one before, none after, so the
+    # runner hands ``_forward_flow`` the (t-1, t, t+1) window MEMFOF reads.
+    FLOW_CONTEXT: ClassVar[Tuple[int, int]] = (1, 0)
     # Per-image native canvases differ, so batches are not stacked.
     SUPPORTS_BATCHED_PREDICT = False
     TTA_ENABLED = False
@@ -187,9 +189,9 @@ class LibreMEMFOF(BaseModel):
             )
         return window
 
-    def _forward_window(self, frames: Any) -> torch.Tensor:
-        """Run one (t-1, t, t+1) window; return the forward flow ``(B, 2, H, W)`` of frame t."""
-        return self._forward(frames)["flow"]
+    def _forward_flow(self, window: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """Runner hook: ``window`` is ``(3, 3, H, W)`` = frames (t-1, t, t+1)."""
+        return self._forward(window)
 
     def _forward(self, input_tensor: Any) -> Dict[str, torch.Tensor]:
         window = self._stack_window(input_tensor)

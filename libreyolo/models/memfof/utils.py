@@ -9,9 +9,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-# MEMFOF's correlation pyramid works at 1/16 and is pooled three more times,
-# so both sides must be at least 16 * 8 pixels after upstream's padding.
-MIN_SIDE = 128
+# MEMFOF's correlation pyramid starts at 1/16 and is halved four times while
+# it is built (the last halving is computed even though unused), so the padded
+# side must be at least 16 * 16 = 256 pixels: any side above 240 pads to it.
+MIN_SIDE = 241
 
 
 def input_hw(orig_h: int, orig_w: int, max_side: int) -> Tuple[int, int]:
