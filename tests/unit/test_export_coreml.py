@@ -1,5 +1,6 @@
 """Unit tests for CoreML export. Mocks coremltools so it runs on every platform."""
 
+import re
 import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -498,3 +499,25 @@ def test_yolo9_export_warm_up_freezes_the_anchor_grid():
         restore()
     assert model.head._frozen_grid is None
     assert model.head.export is True
+
+@pytest.mark.parametrize(
+    ("plat", "machine", "expected"),
+    [
+        ("darwin", "arm64", "pip install libreyolo[coreml]"),
+        ("linux", "x86_64", "pip install libreyolo[coreml]"),
+        ("win32", "AMD64", "wheels for macOS and Linux x86_64 only"),
+        ("linux", "aarch64", "wheels for macOS and Linux x86_64 only"),
+    ],
+)
+def test_missing_coremltools_message_fits_the_platform(
+    monkeypatch, plat, machine, expected
+):
+    # The coreml extra skips coremltools where it has no wheels (#989), so
+    # the install hint must not send those users in a circle.
+    import libreyolo.export.coreml as coreml_export
+
+    monkeypatch.setitem(sys.modules, "coremltools", None)
+    monkeypatch.setattr(coreml_export.sys, "platform", plat)
+    monkeypatch.setattr(coreml_export.platform, "machine", lambda: machine)
+    with pytest.raises(ImportError, match=re.escape(expected)):
+        coreml_export._require_coremltools()

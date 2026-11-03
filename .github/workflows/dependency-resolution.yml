@@ -1,9 +1,13 @@
 name: Dependency resolution
 
 # Resolves `uv lock` and every `pip install "libreyolo[<extra>]"` for each
-# supported Python and platform, without installing anything (#989). Runs on
-# changes to the dependency declarations, and nightly against dev and release
-# because a new upstream release can break resolution with no change here.
+# supported Python and platform, and checks each install needs no unexpected
+# source build, without installing anything (#989). A second job really runs
+# `pip install ".[all]"` on Linux, Windows and macOS and smoke-tests the
+# result, which catches what resolution cannot: runtime ABI mismatches and
+# tools missing from PATH. Runs on changes to the dependency declarations,
+# and nightly, because a new upstream release can break installs with no
+# change here.
 
 on:
   push:
@@ -11,12 +15,14 @@ on:
     paths:
       - pyproject.toml
       - tools/ci/check_dependency_resolution.py
+      - tools/ci/smoke_install.py
       - .github/workflows/dependency-resolution.yml
   pull_request:
     branches: [dev, release]
     paths:
       - pyproject.toml
       - tools/ci/check_dependency_resolution.py
+      - tools/ci/smoke_install.py
       - .github/workflows/dependency-resolution.yml
   schedule:
     - cron: "0 5 * * *"
@@ -50,3 +56,61 @@ jobs:
 
       - name: Resolve every extra
         run: uv run --no-project --python 3.12 python tools/ci/check_dependency_resolution.py
+
+  install-all:
+    name: pip install [all] / ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.12"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.10"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Scheduled runs install dev; the PyPI release has its own nightly.
+          ref: ${{ github.event_name == 'schedule' && 'dev' || '' }}
+
+      # Ubuntu 26.04 mounts /tmp as a small RAM-backed tmpfs
+      # (actions/runner-images#14777); pip builds and exports overflow it.
+      - name: Keep temp files on disk
+        if: runner.os == 'Linux'
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Plain pip on purpose: this is the path users take.
+      - name: pip install ".[all]"
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --progress-bar off ".[all]"
+
+      # decord 0.6.0's Linux wheel is named py3-none but its WHEEL file
+      # declares cp36-cp36m, so pip check flags it on every other Python
+      # although it installs and imports fine (upstream packaging bug).
+      - name: pip check
+        shell: bash
+        run: |
+          out=$(python -m pip check 2>&1) || true
+          echo "$out"
+          ! echo "$out" | grep -v -e '^decord 0.6.0 is not supported on this platform$' -e '^No broken requirements found.$' | grep -q .
+
+      - name: Smoke test the environment
+        shell: bash
+        run: |
+          # MNN's Linux wheel asks for an executable stack, which glibc 2.41+
+          # refuses on dlopen; this is the workaround LibreYOLO's error names.
+          if [ "$RUNNER_OS" = Linux ]; then
+            export GLIBC_TUNABLES=glibc.rtld.execstack=2
+            ldd --version | head -1
+          fi
+          mkdir -p "$RUNNER_TEMP/smoke"
+          cd "$RUNNER_TEMP/smoke"
+          python "$GITHUB_WORKSPACE/tools/ci/smoke_install.py"

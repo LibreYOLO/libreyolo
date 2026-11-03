@@ -10,12 +10,24 @@ before 1.4.0 are documented in the
 ### Changed
 
 - **`libreyolo[all]` no longer includes `paddle`. (#989)**
-  X2Paddle needs ONNX 1.17 or earlier while the TFLite exporter in `all` needs ONNX 1.20, so the two cannot share an environment. Install `libreyolo[paddle]` on its own (Python 3.10 to 3.12).
+  X2Paddle needs ONNX 1.17 or earlier while the TFLite exporter in `all` needs ONNX 1.20, so the two cannot share an environment. Install `libreyolo[paddle]` on its own; Paddle export needs Python 3.10 or 3.11.
 
 ### Fixed
 
 - **`pip install "libreyolo[all]"` works on Python 3.12 and 3.13, Apple Silicon and Linux ARM. (#989)**
   On Python 3.12 and newer the `paddle` and `tflite` extras in `all` pinned incompatible ONNX versions, so pip failed or fell back to an older LibreYOLO release. On macOS and Linux ARM, `vlm`, `vlm-train`, `ground` and `all` failed on `decord`, which ships wheels for Linux x86_64 and Windows only; it is now installed only there, the platforms where LocateAnything can run. `tensorrt-cu12`, which has no ARM wheels, is skipped on Linux ARM, where JetPack provides TensorRT. Loading LocateAnything where decord is not available now says so before downloading its weights, and Core AI export on Python 3.10 says it needs Python 3.11 instead of repeating the install command. Thanks @gboeer.
+
+- **Every extra installs without a compiler on Linux x86_64 and Windows, and on Apple Silicon with Python 3.12+. (#989)**
+  pip compiled three packages from source, which fails on a machine without the matching toolchain. `tensorrt` (and so `all`) pulled `pycuda`, which needs the CUDA toolkit headers; it is gone. TensorRT export and inference never needed it, and INT8 calibration uses `cuda.bindings`, which PyPI torch installs on Linux (elsewhere, `pip install cuda-python`). `tflite` pulled `onnx-simplifier`, a C++ build that duplicated the `onnxsim` module the `onnx` extra already provides; it is gone. `coreml` pulled `coremltools` on Windows and Linux ARM, where it has no wheels; it is now installed on macOS and Linux x86_64 only, and CoreML export elsewhere says so. Remaining source builds, all upstream: on Linux ARM, `tflite` (and so `all`) on Python 3.12+ compiles two packages onnx2tf pins exactly, and `executorch` compiles coremltools; `triton` (and so `all`) compiles gevent on macOS with Python 3.10 or 3.11 (needs the Xcode command line tools) and on Linux ARM with Python 3.10.
+
+- **`pip install "libreyolo[executorch]"` gets a runtime that loads. (#989)**
+  ExecuTorch 1.2's compiled runtime is built against torch 2.11 but accepts any newer torch, so pip paired it with torch 2.15 and loading a `.pte` failed with `Symbol not found` in `libc10`. The extra now pins `torch>=2.11,<2.12`.
+
+- **MNN and ExecuTorch export work from a virtualenv that is not activated. (#989)**
+  Running the venv's python directly (an IDE run button, a Jupyter kernel, `venv/bin/python script.py`) left `mnnconvert` and ExecuTorch's `flatc` off `PATH`, so MNN export said `mnnconvert` was missing and ExecuTorch export could not start `flatc`. Both are now found in the environment's own scripts directory.
+
+- **A failing `import MNN` on current Linux says why. (#989)**
+  MNN's Linux wheel asks for an executable stack, which glibc 2.41 and newer refuse (Ubuntu 25.04+, Fedora 42+), so MNN export and inference failed with "Install with: pip install libreyolo[mnn]" although MNN was installed. The error now names the cause and the workarounds: `GLIBC_TUNABLES=glibc.rtld.execstack=2` (glibc 2.42+) or `patchelf --clear-execstack`.
 
 - **`uv sync` resolves from a source checkout. (#989)**
   The dev group asked for pytest 9 while ExecuTorch 1.2 requires pytest below 9, `coreai-torch` was requested on Python 3.10 although it needs 3.11, and extras that cannot share an environment (`vla` with `molmo2` or `marigold`, `executorch` or `paddle` with `tflite`) were not declared as conflicts. A new `Dependency resolution` workflow resolves `uv lock` and every extra on Python 3.10 to 3.13 for Linux x86_64, Linux ARM, Windows and Apple Silicon, on dependency changes and nightly. Thanks @gboeer.
