@@ -133,15 +133,18 @@ def run_stages(
     structure: Dict[str, float],
     latent: Dict[str, float],
     stop_after: Optional[str] = None,
+    cond: Optional[torch.Tensor] = None,
 ) -> Dict[str, object]:
     """Image (already preprocessed) -> Gaussians, returning every stage for inspection.
 
     ``structure`` and ``latent`` hold ``steps``, ``guidance``, ``interval`` and
-    ``shift`` of the two samplers.
+    ``shift`` of the two samplers. ``cond`` reuses DINOv2 tokens already
+    computed for ``image``.
     """
     device = modules.device
     out: Dict[str, object] = {}
-    cond = encode_image(modules.dinov2, image, device)
+    if cond is None:
+        cond = encode_image(modules.dinov2, image, device)
     out["cond"] = cond
     generator = torch.Generator().manual_seed(seed)
     flow = modules.structure_flow

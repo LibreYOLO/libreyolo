@@ -65,6 +65,35 @@ import numpy as np
 import torch
 from PIL import Image
 
+# Stages that must be bitwise equal, and mean-absolute-difference limits for
+# the rest: about 3x what an RTX 3090 measured, so a real regression (wrong
+# kernel layout, wrong cast, wrong sampler) fails while kernel noise passes.
+BITWISE = ("image", "ss_flow_forward", "ss_sample", "ss_decoder")
+LIMITS = {
+    "dinov2": 1e-5,
+    "slat_flow_forward": 3e-3,
+    "slat_flow_forward_same_attention": 3e-3,
+    "slat_sample": 3e-3,
+    "gs_xyz": 3e-5,
+    "gs_scales": 5e-6,
+    "gs_rotations": 2e-3,
+    "gs_opacities": 2e-3,
+    "gs_sh": 3e-3,
+}
+
+
+def check(row):
+    """Names of the stages outside their limit (shape mismatches included)."""
+    failures = [k for k in BITWISE if not row[k].get("equal")]
+    failures += [
+        k
+        for k, limit in LIMITS.items()
+        if "mean" not in row[k] or row[k]["mean"] > limit
+    ]
+    if not row["voxels"]["same"]:
+        failures.append("voxels")
+    return failures
+
 
 def cmp(a, b):
     a = a.detach().float().cpu()
@@ -240,11 +269,21 @@ for name in images:
         "seconds_upstream": round(t_up, 1),
         "seconds_port": round(t_port, 1),
     }
+    row["failures"] = check(row)
     print(json.dumps(row), flush=True)
     report.append(row)
+passed = all(not row["failures"] for row in report)
 json.dump(
-    {"torch": torch.__version__, "gpu": torch.cuda.get_device_name(0), "cases": report},
+    {
+        "torch": torch.__version__,
+        "gpu": torch.cuda.get_device_name(0),
+        "limits": LIMITS,
+        "all_pass": passed,
+        "cases": report,
+    },
     open("parity_trellis_report.json", "w"),
     indent=1,
 )
 print("peak GiB", round(torch.cuda.max_memory_allocated() / 2**30, 2))
+print("ALL PASS" if passed else "MISMATCH")
+sys.exit(0 if passed else 1)

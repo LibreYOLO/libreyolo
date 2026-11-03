@@ -85,17 +85,22 @@ def test_constructor_rejects_unsupported_options():
 
 
 def test_matches_its_snapshot_directory(tmp_path):
-    from libreyolo.models.gen.trellis.model import _WEIGHT_FILES
+    from libreyolo.models.gen.trellis.model import _UPSTREAM_FILES, _WEIGHT_FILES
 
     assert not LibreTRELLIS.matches_directory(tmp_path)
-    for name in _WEIGHT_FILES:
+    for name in _UPSTREAM_FILES:
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text("{}")
     assert not LibreTRELLIS.matches_directory(tmp_path)
     (tmp_path / "pipeline.json").write_text(
         json.dumps({"name": "TrellisImageTo3DPipeline", "args": {}})
     )
+    # An unchanged upstream folder (no birefnet.safetensors) is recognised.
     assert LibreTRELLIS.matches_directory(tmp_path)
+    assert (
+        "birefnet.safetensors" in _WEIGHT_FILES
+        and "birefnet.safetensors" not in _UPSTREAM_FILES
+    )
     assert isinstance(LibreGen(str(tmp_path), device="cpu"), LibreTRELLIS)
 
 
@@ -375,7 +380,13 @@ def test_tiny_pipeline_end_to_end():
 def test_generate_through_the_public_call(tmp_path):
     model = LibreTRELLIS(device="cpu")
     model._pipeline = _tiny_modules()
+    calls = []
+    forward = model._pipeline.dinov2.forward
+    model._pipeline.dinov2.forward = lambda *a, **k: calls.append(1) or forward(*a, **k)
+    pair = model(_image(), seed=3, n=2, steps=2)
+    assert len(pair) == 2 and len(calls) == 1  # one encoding for both seeds
     result = model(_image(), seed=3, steps=2)
+    assert torch.equal(result.gaussians.xyz, pair[0].gaussians.xyz)
     g = result.gaussians
     assert len(g) % 32 == 0 and g.seed == 3
     assert g.params["model"] == "trellis-l" and g.params["steps"] == 2

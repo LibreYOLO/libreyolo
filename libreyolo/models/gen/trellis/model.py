@@ -45,15 +45,18 @@ _NETWORKS = {
     "gaussian_decoder": "ckpts/slat_dec_gs_swin8_B_64l8gs32_fp16",
 }
 _BIREFNET_FILE = "birefnet.safetensors"
-_WEIGHT_FILES = (
+# What upstream's TRELLIS-image-large layout must hold for LibreYOLO to load it.
+_UPSTREAM_FILES = (
     "pipeline.json",
-    _BIREFNET_FILE,
     *(
         f"{stem}{ext}"
         for stem in _NETWORKS.values()
         for ext in (".json", ".safetensors")
     ),
 )
+# LibreYOLO's mirror adds the BiRefNet weights; an upstream folder without
+# them reads that one file from the pinned mirror.
+_WEIGHT_FILES = (*_UPSTREAM_FILES, _BIREFNET_FILE)
 # BiRefNet heads used only for training supervision.
 _BIREFNET_TRAINING_ONLY = ("decoder.conv_ms_spvn_", "decoder.gdt_convs_pred_")
 # Upstream's sampler settings (pipeline.json), shared by both stages.
@@ -89,10 +92,10 @@ class LibreTRELLIS(LibreGen3DModel):
 
     @classmethod
     def matches_directory(cls, path: Any) -> bool:
-        """True when ``path`` holds the TRELLIS files LibreYOLO loads (upstream's layout)."""
+        """True when ``path`` holds upstream's TRELLIS-image-large files (``birefnet.safetensors`` optional)."""
         try:
             folder = Path(path)
-            if not all((folder / name).is_file() for name in _WEIGHT_FILES):
+            if not all((folder / name).is_file() for name in _UPSTREAM_FILES):
                 return False
             config = json.loads((folder / "pipeline.json").read_text(encoding="utf-8"))
         except (OSError, TypeError, ValueError):
@@ -133,9 +136,20 @@ class LibreTRELLIS(LibreGen3DModel):
                 load_file(str(folder / f"{stem}.safetensors")), strict=True
             )
             modules[name] = module.eval().requires_grad_(False).to(self.device)
+        birefnet_file = folder / _BIREFNET_FILE
+        if not birefnet_file.is_file():
+            from huggingface_hub import hf_hub_download
+
+            birefnet_file = Path(
+                hf_hub_download(
+                    self.HF_REPOS[self.size],
+                    _BIREFNET_FILE,
+                    revision=self.HF_REVISIONS[self.size],
+                )
+            )
         birefnet = LibreBiRefNetModel(size="l")
         missing, unexpected = birefnet.load_state_dict(
-            load_file(str(folder / _BIREFNET_FILE)), strict=False
+            load_file(str(birefnet_file)), strict=False
         )
         missing = [
             key for key in missing if not key.startswith(_BIREFNET_TRAINING_ONLY)
@@ -198,7 +212,7 @@ class LibreTRELLIS(LibreGen3DModel):
     ) -> List[Gaussians]:
         import torch
 
-        from .pipeline import preprocess_image, run_stages
+        from .pipeline import encode_image, preprocess_image, run_stages
 
         modules = self._pipeline
         stage = {
@@ -212,9 +226,11 @@ class LibreTRELLIS(LibreGen3DModel):
             prepared = preprocess_image(
                 image, modules.birefnet, crop_margin=knobs["margin"]
             )
+            # One image, so one set of tokens for every seed.
+            cond = encode_image(modules.dinov2, prepared, modules.device)
             for seed in seeds:
                 splats = run_stages(
-                    modules, prepared, seed, structure=stage, latent=stage
+                    modules, prepared, seed, structure=stage, latent=stage, cond=cond
                 )["gaussians"]
                 objects.append(
                     Gaussians(
