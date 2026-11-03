@@ -26,9 +26,7 @@ from typing import Dict, List, Tuple
 COORD_GRID = 999.0
 EOS_TEXT = "<｜end▁of▁sentence｜>"
 
-_BLOCK_RE = re.compile(
-    r"<\|ref\|>(.*?)<\|/ref\|><\|det\|>(.*?)<\|/det\|>", re.DOTALL
-)
+_BLOCK_RE = re.compile(r"<\|ref\|>(.*?)<\|/ref\|><\|det\|>(.*?)<\|/det\|>", re.DOTALL)
 # A trailing, unterminated block left by a truncated generation.
 _DANGLING_RE = re.compile(r"<\|ref\|>.*\Z", re.DOTALL)
 
@@ -58,7 +56,9 @@ def _parse_boxes(raw: str) -> List[List[float]]:
         if (
             isinstance(box, (list, tuple))
             and len(box) == 4
-            and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in box)
+            and all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) for v in box
+            )
         ):
             boxes.append([float(v) for v in box])
     return boxes

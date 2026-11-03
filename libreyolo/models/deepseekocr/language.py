@@ -111,9 +111,9 @@ class RotaryEmbedding(nn.Module):
         device_type = x.device.type
         device_type = device_type if device_type != "mps" else "cpu"
         with torch.autocast(device_type=device_type, enabled=False):
-            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(
-                1, 2
-            )
+            freqs = (
+                inv_freq_expanded.float() @ position_ids_expanded.float()
+            ).transpose(1, 2)
             emb = torch.cat((freqs, freqs), dim=-1)
             cos = emb.cos()
             sin = emb.sin()
@@ -143,8 +143,12 @@ class Attention(nn.Module):
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         hidden = config.hidden_size
         self.q_proj = nn.Linear(hidden, self.num_heads * self.head_dim, bias=False)
-        self.k_proj = nn.Linear(hidden, self.num_key_value_heads * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(hidden, self.num_key_value_heads * self.head_dim, bias=False)
+        self.k_proj = nn.Linear(
+            hidden, self.num_key_value_heads * self.head_dim, bias=False
+        )
+        self.v_proj = nn.Linear(
+            hidden, self.num_key_value_heads * self.head_dim, bias=False
+        )
         self.o_proj = nn.Linear(self.num_heads * self.head_dim, hidden, bias=False)
 
     def forward(self, hidden_states, cos_sin, attention_mask, past):
@@ -153,10 +157,12 @@ class Attention(nn.Module):
         key = self.k_proj(hidden_states)
         value = self.v_proj(hidden_states)
         query = query.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key = key.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value = value.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(
+        key = key.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(
             1, 2
         )
+        value = value.view(
+            bsz, q_len, self.num_key_value_heads, self.head_dim
+        ).transpose(1, 2)
         cos, sin = cos_sin
         query, key = apply_rotary_pos_emb(query, key, cos, sin)
         if past is not None:
@@ -166,10 +172,14 @@ class Attention(nn.Module):
         if self.num_key_value_groups > 1:
             key = torch.repeat_interleave(key, self.num_key_value_groups, dim=1)
             value = torch.repeat_interleave(value, self.num_key_value_groups, dim=1)
-        attn_weights = torch.matmul(query, key.transpose(2, 3)) / math.sqrt(self.head_dim)
+        attn_weights = torch.matmul(query, key.transpose(2, 3)) / math.sqrt(
+            self.head_dim
+        )
         if attention_mask is not None:
             attn_weights = attn_weights + attention_mask[:, :, :, : key.shape[-2]]
-        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
+        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
+            query.dtype
+        )
         attn_output = torch.matmul(attn_weights, value)
         attn_output = attn_output.transpose(1, 2).contiguous().reshape(bsz, q_len, -1)
         return self.o_proj(attn_output), present
@@ -192,7 +202,9 @@ class MoEGate(nn.Module):
         self.top_k = config.num_experts_per_tok
         self.routed_scaling_factor = config.routed_scaling_factor
         self.norm_topk_prob = config.norm_topk_prob
-        self.weight = nn.Parameter(torch.empty((config.n_routed_experts, config.hidden_size)))
+        self.weight = nn.Parameter(
+            torch.empty((config.n_routed_experts, config.hidden_size))
+        )
 
     def forward(self, hidden_states: torch.Tensor):
         _, _, h = hidden_states.shape
@@ -223,7 +235,8 @@ class DeepseekV2MoE(nn.Module):
         self.shared_experts = None
         if config.n_shared_experts:
             self.shared_experts = DeepseekV2MLP(
-                config.hidden_size, config.moe_intermediate_size * config.n_shared_experts
+                config.hidden_size,
+                config.moe_intermediate_size * config.n_shared_experts,
             )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -277,7 +290,9 @@ class DecoderLayer(nn.Module):
             if use_moe
             else DeepseekV2MLP(config.hidden_size, config.intermediate_size)
         )
-        self.input_layernorm = DeepseekV2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.input_layernorm = DeepseekV2RMSNorm(
+            config.hidden_size, eps=config.rms_norm_eps
+        )
         self.post_attention_layernorm = DeepseekV2RMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
@@ -285,7 +300,9 @@ class DecoderLayer(nn.Module):
     def forward(self, hidden_states, cos_sin, attention_mask, past):
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        hidden_states, present = self.self_attn(hidden_states, cos_sin, attention_mask, past)
+        hidden_states, present = self.self_attn(
+            hidden_states, cos_sin, attention_mask, past
+        )
         hidden_states = residual + hidden_states
         residual = hidden_states
         hidden_states = self.mlp(self.post_attention_layernorm(hidden_states))
@@ -382,7 +399,9 @@ class DeepSeekV2TextModel(nn.Module):
         return self.norm(hidden_states), presents
 
     @staticmethod
-    def _value_dtype_probe(hidden_states: torch.Tensor, layer: DecoderLayer) -> torch.Tensor:
+    def _value_dtype_probe(
+        hidden_states: torch.Tensor, layer: DecoderLayer
+    ) -> torch.Tensor:
         """A tensor carrying the dtype the value projection produces.
 
         Under autocast a linear layer emits the autocast dtype; otherwise it

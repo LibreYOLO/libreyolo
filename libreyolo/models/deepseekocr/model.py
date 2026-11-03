@@ -44,7 +44,6 @@ from typing import Any, ClassVar, Dict, Optional, Tuple
 
 import numpy as np
 import torch
-import torch.nn as nn
 from PIL import Image
 
 from ...postprocess.ppocr import sort_quads_reading_order
@@ -145,10 +144,13 @@ class LibreDeepSeekOCR(LibreVLMModel):
     PROMPTS: ClassVar[Dict[str, str]] = PROMPTS
     # Only weights, config and tokenizer are needed: the port never runs the
     # snapshot's Python files.
-    SNAPSHOT_IGNORE_PATTERNS: ClassVar[tuple] = LibreVLMModel.SNAPSHOT_IGNORE_PATTERNS + (
-        "*.py",
-        "assets/*",
-        ".ipynb_checkpoints/*",
+    SNAPSHOT_IGNORE_PATTERNS: ClassVar[tuple] = (
+        LibreVLMModel.SNAPSHOT_IGNORE_PATTERNS
+        + (
+            "*.py",
+            "assets/*",
+            ".ipynb_checkpoints/*",
+        )
     )
     TRAIN_UNSUPPORTED_REASON = (
         "DeepSeek-OCR is inference-only in LibreYOLO: the release ships no "
@@ -328,4 +330,10 @@ def build_ocr_dict(
     }
 
 
-__all__ = ["LibreDeepSeekOCR", "PROMPTS", "RESOLUTIONS", "build_network", "build_ocr_dict"]
+__all__ = [
+    "LibreDeepSeekOCR",
+    "PROMPTS",
+    "RESOLUTIONS",
+    "build_network",
+    "build_ocr_dict",
+]

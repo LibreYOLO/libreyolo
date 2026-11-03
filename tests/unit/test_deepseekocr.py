@@ -44,7 +44,10 @@ MARKDOWN_OUTPUT = (
 
 def test_ocr_prompt_output_gives_one_line_per_box():
     items = parsing.parse_grounding(OCR_OUTPUT)
-    assert [i["text"] for i in items] == ["Quarterly Report 2026", "Schedule project amount"]
+    assert [i["text"] for i in items] == [
+        "Quarterly Report 2026",
+        "Schedule project amount",
+    ]
     assert [i["label"] for i in items] == ["text", "text"]
     assert items[0]["box"] == [81.0, 64.0, 633.0, 98.0]
     assert parsing.to_page_text(OCR_OUTPUT) == ""
@@ -69,12 +72,20 @@ def test_multi_box_det_truncation_and_garbage():
         "<|ref|>cut off<|/ref|><|det|>[[1, 2,"
     )
     items = parsing.parse_grounding(text)
-    assert [i["box"] for i in items] == [[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 30.0, 30.0]]
+    assert [i["box"] for i in items] == [
+        [0.0, 0.0, 10.0, 10.0],
+        [20.0, 20.0, 30.0, 30.0],
+    ]
     assert parsing.to_page_text(text) == ""
 
 
 def test_grid_box_to_pixels_scales_by_999_orders_and_clamps():
-    assert parsing.grid_box_to_pixels([999, 0, 0, 999], 1000, 500) == (0.0, 0.0, 1000.0, 500.0)
+    assert parsing.grid_box_to_pixels([999, 0, 0, 999], 1000, 500) == (
+        0.0,
+        0.0,
+        1000.0,
+        500.0,
+    )
     x1, y1, x2, y2 = parsing.grid_box_to_pixels([81, 64, 633, 98], 1000, 1300)
     assert x1 == pytest.approx(81 / 999 * 1000) and y2 == pytest.approx(98 / 999 * 1300)
     assert parsing.grid_box_to_pixels([-5, 0, 2000, 10], 100, 100)[::2] == (0.0, 100.0)
@@ -104,8 +115,9 @@ def test_build_ocr_dict_reading_order_scores_and_markdown():
 @pytest.mark.parametrize(
     "size,resolution,grid,tokens",
     [
-        # Counts recorded from the release's input_ids on the same sizes.
-        ((1000, 1300), "gundam", (2, 3), 1 + 902),
+        # The release laid out 903 placeholders for this page in Gundam mode
+        # (910 input ids: BOS, 903 image tokens, 6 prompt tokens).
+        ((1000, 1300), "gundam", (2, 3), 903),
         ((1000, 1300), "base", (1, 1), 273),
         ((1000, 1300), "tiny", (1, 1), 73),
         ((1000, 1300), "small", (1, 1), 111),
@@ -119,12 +131,13 @@ def test_views_and_token_layout(size, resolution, grid, tokens):
     if resolution == "gundam" and grid != (1, 1):
         assert views.crops.shape == (grid[0] * grid[1], 3, 640, 640)
         assert views.global_view.shape == (1, 3, 1024, 1024)
-        assert views.num_tokens == tokens - 1
     else:
         assert views.crops is None
-        assert views.num_tokens == tokens
+    assert views.num_tokens == tokens
     # Pad colour is the normalized mean, i.e. 127/255 mapped to about -0.004.
-    assert float(views.global_view.min()) >= -1.0 and float(views.global_view.max()) <= 1.0
+    assert (
+        float(views.global_view.min()) >= -1.0 and float(views.global_view.max()) <= 1.0
+    )
 
 
 def test_unknown_resolution_and_prompt_placeholders():
@@ -168,7 +181,11 @@ def test_tokenizer_reads_bos_from_config(tmp_path):
         json.dumps({"add_bos_token": True, "bos_token": "</s>", "eos_token": "<s>"})
     )
     wrapped = processing.DeepSeekOCRTokenizer(tmp_path)
-    assert (wrapped.bos_token_id, wrapped.eos_token_id, wrapped.image_token_id) == (1, 0, 2)
+    assert (wrapped.bos_token_id, wrapped.eos_token_id, wrapped.image_token_id) == (
+        1,
+        0,
+        2,
+    )
     assert wrapped.encode("a b") == [3, 5, 4]
 
 
@@ -227,7 +244,9 @@ def test_text_config_rejects_unsupported_routing(tmp_path):
     path.write_text(json.dumps({"use_mla": True}))
     with pytest.raises(ValueError, match="latent attention"):
         DeepSeekOCRTextConfig.from_json(path)
-    path.write_text(json.dumps({"language_config": {"hidden_size": 64}, "vocab_size": 7}))
+    path.write_text(
+        json.dumps({"language_config": {"hidden_size": 64}, "vocab_size": 7})
+    )
     cfg = DeepSeekOCRTextConfig.from_json(path)
     assert (cfg.hidden_size, cfg.vocab_size) == (64, 7)
 
@@ -303,7 +322,10 @@ def test_chat_custom_prompt_and_unsupported(harness):
 
 def test_ocr_regions_markdown_survives_moves_and_slices():
     regions = OCRRegions(
-        np.zeros((2, 4, 2), dtype=np.float32), ["a", "b"], labels=["t", "u"], markdown="# p"
+        np.zeros((2, 4, 2), dtype=np.float32),
+        ["a", "b"],
+        labels=["t", "u"],
+        markdown="# p",
     )
     for moved in (regions.cpu(), regions.numpy(), regions[1:], regions[0]):
         assert moved.markdown == "# p"

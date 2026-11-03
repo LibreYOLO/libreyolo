@@ -146,7 +146,9 @@ class NoTPAttention(nn.Module):
 
 
 class NoTPTransformerBlock(nn.Module):
-    def __init__(self, hidden_size: int, num_heads: int, ffn_hidden_size: int, eps: float):
+    def __init__(
+        self, hidden_size: int, num_heads: int, ffn_hidden_size: int, eps: float
+    ):
         super().__init__()
         self.self_attn = NoTPAttention(hidden_size, num_heads)
         self.mlp = NoTPFeedForward(hidden_size, ffn_hidden_size)
@@ -221,7 +223,9 @@ def get_abs_pos_sam(abs_pos: torch.Tensor, tgt_size: int) -> torch.Tensor:
 
 
 class MLPBlock(nn.Module):
-    def __init__(self, embedding_dim: int, mlp_dim: int, act: Type[nn.Module] = nn.GELU):
+    def __init__(
+        self, embedding_dim: int, mlp_dim: int, act: Type[nn.Module] = nn.GELU
+    ):
         super().__init__()
         self.lin1 = nn.Linear(embedding_dim, mlp_dim)
         self.lin2 = nn.Linear(mlp_dim, embedding_dim)
@@ -409,9 +413,13 @@ class Block(nn.Module):
 
 
 class PatchEmbed(nn.Module):
-    def __init__(self, kernel_size=(16, 16), stride=(16, 16), in_chans=3, embed_dim=768):
+    def __init__(
+        self, kernel_size=(16, 16), stride=(16, 16), in_chans=3, embed_dim=768
+    ):
         super().__init__()
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=kernel_size, stride=stride)
+        self.proj = nn.Conv2d(
+            in_chans, embed_dim, kernel_size=kernel_size, stride=stride
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.proj(x).permute(0, 2, 3, 1)
@@ -469,7 +477,9 @@ class ImageEncoderViT(nn.Module):
             LayerNorm2d(out_chans),
         )
         self.net_2 = nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1, bias=False)
-        self.net_3 = nn.Conv2d(512, 1024, kernel_size=3, stride=2, padding=1, bias=False)
+        self.net_3 = nn.Conv2d(
+            512, 1024, kernel_size=3, stride=2, padding=1, bias=False
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.patch_embed(x)

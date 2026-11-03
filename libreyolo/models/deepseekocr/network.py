@@ -121,7 +121,9 @@ class DeepSeekOCRNetwork(nn.Module):
         with ctx:
             embeds = self.model.embed_tokens(input_ids[None, :])
             features = self.model.encode_image(global_view, crops, grid)
-            embeds[0].masked_scatter_(image_mask.unsqueeze(-1), features.to(embeds.dtype))
+            embeds[0].masked_scatter_(
+                image_mask.unsqueeze(-1), features.to(embeds.dtype)
+            )
             hidden, past = self.model(embeds)
             logits = self._logits(hidden)[:, -1, :]
             ngram = NoRepeatNGram(no_repeat_ngram_size, input_ids.tolist())

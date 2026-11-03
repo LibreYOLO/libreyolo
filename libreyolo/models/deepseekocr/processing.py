@@ -184,13 +184,19 @@ class DeepSeekOCRTokenizer:
         snapshot_dir = Path(snapshot_dir)
         self._tok = Tokenizer.from_file(str(snapshot_dir / "tokenizer.json"))
         cfg_path = snapshot_dir / "tokenizer_config.json"
-        cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+        cfg = (
+            json.loads(cfg_path.read_text(encoding="utf-8"))
+            if cfg_path.exists()
+            else {}
+        )
         self.add_bos = bool(cfg.get("add_bos_token", True))
         self.bos_token_id = self._token_id(cfg.get("bos_token"), default=0)
         self.eos_token_id = self._token_id(cfg.get("eos_token"), default=1)
         image_id = self._tok.token_to_id(IMAGE_TOKEN)
         if image_id is None:
-            raise ValueError(f"{IMAGE_TOKEN!r} is missing from {snapshot_dir}/tokenizer.json")
+            raise ValueError(
+                f"{IMAGE_TOKEN!r} is missing from {snapshot_dir}/tokenizer.json"
+            )
         self.image_token_id = int(image_id)
 
     def _token_id(self, token, default: int) -> int:
