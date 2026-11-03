@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 COORD_GRID = 999.0
 EOS_TEXT = "<｜end▁of▁sentence｜>"
@@ -65,7 +65,7 @@ def _parse_boxes(raw: str) -> List[List[float]]:
     return boxes
 
 
-def parse_grounding(text: str) -> List[Dict]:
+def parse_grounding(text: str, layout: Optional[bool] = None) -> List[Dict]:
     """Grounded blocks in emission order.
 
     Each item is ``{"label": layout label, "text": transcript, "box": [x1, y1,
@@ -73,6 +73,11 @@ def parse_grounding(text: str) -> List[Dict]:
     ``<|ref|>`` content when it names a layout block (text follows the box),
     else ``"text"``. A ``<|det|>`` holding
     several boxes yields one item per box with the same transcript.
+
+    ``layout`` says whether the output is layout (markdown-prompt) output.
+    ``None`` infers it from whether any block carries trailing text; callers
+    that know the prompt should pass it, so a figure-only markdown page is
+    not mistaken for line-level OCR.
     """
     text = strip_eos(text)
     matches = list(_BLOCK_RE.finditer(text))
@@ -83,7 +88,8 @@ def parse_grounding(text: str) -> List[Dict]:
         blocks.append((match.group(1).strip(), trailing, match.group(2)))
     # Layout output (markdown prompt) is recognized by any block carrying
     # trailing text; there an empty block is a figure, not a transcript.
-    layout = any(trailing for _, trailing, _ in blocks)
+    if layout is None:
+        layout = any(trailing for _, trailing, _ in blocks)
     items: List[Dict] = []
     for label, trailing, raw_boxes in blocks:
         if layout and not trailing:

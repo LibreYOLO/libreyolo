@@ -304,7 +304,13 @@ class LibreDeepSeekOCR(LibreVLMModel):
         **kwargs,
     ) -> Dict:
         text = parsing.strip_eos(self.processor.decode(list(output)))
-        return build_ocr_dict(text, original_size, max_det, self.DEFAULT_SCORE)
+        # The preset prompts fix the output shape; custom prompts are inferred.
+        layout = {self.PROMPTS["ocr"]: False, self.PROMPTS["markdown"]: True}.get(
+            self._custom_prompt
+        )
+        return build_ocr_dict(
+            text, original_size, max_det, self.DEFAULT_SCORE, layout=layout
+        )
 
     # --------------------------------------------------------------- validation
 
@@ -315,12 +321,16 @@ class LibreDeepSeekOCR(LibreVLMModel):
 
 
 def build_ocr_dict(
-    text: str, original_size: Tuple[int, int], max_det: int, score: float
+    text: str,
+    original_size: Tuple[int, int],
+    max_det: int,
+    score: float,
+    layout: Optional[bool] = None,
 ) -> Dict:
     """Parsed generation as the ``{"ocr": ...}`` payload the runner wraps."""
     width, height = original_size
     polygons, texts, labels = [], [], []
-    for item in parsing.parse_grounding(text):
+    for item in parsing.parse_grounding(text, layout=layout):
         if not item["text"] or len(polygons) >= max_det:
             continue
         x1, y1, x2, y2 = parsing.grid_box_to_pixels(item["box"], width, height)

@@ -63,6 +63,14 @@ def test_markdown_output_uses_trailing_text_and_drops_figures():
     assert page == "## Quarterly Report 2026  \n\n\n\n\nLine one := two"
 
 
+def test_figure_only_markdown_page_has_no_text_regions():
+    figure = "<|ref|>image<|/ref|><|det|>[[10, 10, 500, 500]]<|/det|>"
+    assert parsing.parse_grounding(figure, layout=True) == []
+    assert [i["text"] for i in parsing.parse_grounding(figure, layout=False)] == ["image"]
+    out = ds_model.build_ocr_dict(figure, (100, 100), 300, 1.0, layout=True)["ocr"]
+    assert out["polygons"] == [] and out["markdown"] == ""
+
+
 def test_multi_box_det_truncation_and_garbage():
     text = (
         "<|ref|>a<|/ref|><|det|>[[0, 0, 10, 10], [20, 20, 30, 30]]<|/det|>"
