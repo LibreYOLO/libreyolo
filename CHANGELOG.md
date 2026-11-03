@@ -7,7 +7,15 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+### Added
+
+- **MoGe-3 monocular geometry: `LibreMoGe3`, sizes `l` (ViT-L) and `g` (ViT-g), tasks `depth` and `normal`. (#994)**
+  `LibreYOLO("LibreMoGe3l-depth.pt").predict(img)` returns metric depth in metres on `Results.depth_map` (`encoding="depth"`, `metric=True`), with the camera-space point map, OpenCV pixel intrinsics, and validity mask attached as `depth_map.point_map`, `depth_map.intrinsics`, and `depth_map.valid_mask`; pixels outside the mask are `inf`. `LibreMoGe3l-normal.pt` returns unit normals. The sparse volumetric refiner is plain PyTorch and runs on CPU, CUDA, and MPS. `imgsz` (default 840) sets the token budget; inputs keep their resolution. The single-forward graph matches upstream bit for bit; refined depth matches to floating-point rounding (p99 relative difference 4.7e-6 for `l`, 3.7e-5 for `g`). Normal export to ONNX and TorchScript is validated; depth export is blocked. Inference only; MIT code and weights, mirrored on the LibreYOLO Hugging Face org.
+
 ### Changed
+
+- **`DepthMap` can carry camera geometry.** New optional keyword-only fields `metric`, `point_map`, `intrinsics`, and `valid_mask` (ADR 0006 amendment). Existing depth families are unchanged.
+- **MoGe-2 no longer claims MoGe-3 checkpoints**, which share its encoder, neck, and head names.
 
 - **`libreyolo[all]` no longer includes `paddle`. (#989)**
   X2Paddle needs ONNX 1.17 or earlier while the TFLite exporter in `all` needs ONNX 1.20, so the two cannot share an environment. Install `libreyolo[paddle]` on its own; Paddle export needs Python 3.10 or 3.11.

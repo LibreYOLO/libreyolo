@@ -2009,6 +2009,100 @@ copyright notice and this permission notice. THE SOFTWARE IS PROVIDED "AS IS",
 WITHOUT WARRANTY OF ANY KIND.
 
 --------------------------------------------------------------------
+MoGe-3 (Microsoft)
+--------------------------------------------------------------------
+Source: https://github.com/microsoft/MoGe
+Commit: 74fbce054ebed49800de42d0ad0e83495065719a
+License: MIT
+Copyright (c) Microsoft Corporation.
+Used for: the MoGe-3 forward pass, log-depth voxelization, iterative sparse
+          refinement, sparse 3D UNet layout, and camera recovery in
+          libreyolo/models/moge3/. The DINOv2 encoder wrapper and decoder are
+          shared with libreyolo/models/moge2/.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+FlexGEMM (Jianfeng Xiang)
+--------------------------------------------------------------------
+Source: https://github.com/JeffreyXiang/FlexGEMM
+Commit: b2fadb29d41846c7981ade6801ffc689fae119cf
+License: MIT
+Copyright (c) 2025 Jianfeng Xiang
+Used for: the operator semantics (kernel tap order, weight layout, strided
+          mean pooling, nearest upsampling) re-expressed in plain PyTorch in
+          libreyolo/models/moge3/sparse.py. No FlexGEMM source or kernel is
+          vendored.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+utils3d (MoGe fork, EasternJournalist)
+--------------------------------------------------------------------
+Source: https://github.com/EasternJournalist/utils3d-moge
+Commit: 62f09d58509485564e24d5d9f6aac9ee9ebc0c37
+License: MIT
+Copyright (c) 2022 EasternJournalist
+Used for: the pixel-center UV map, intrinsics construction, and OpenCV
+          unprojection in libreyolo/models/moge3/utils.py.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
 MoGe-2 (Microsoft)
 --------------------------------------------------------------------
 Source: https://github.com/microsoft/MoGe

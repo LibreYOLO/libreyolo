@@ -130,6 +130,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `zipdepth`  | `LibreZipDepth` | CamelCase preserved (`ZipDepth` brand casing); depth-only lightweight CNN (speed/edge tier) |
 | `midas`     | `LibreMiDaS` | Upstream mixed-case brand preserved (`MiDaS`); inference-only relative-depth museum family |
 | `moge2`     | `LibreMoGe2` | Upstream brand casing preserved (`MoGe`) + version; surface-normal-only |
+| `moge3`     | `LibreMoGe3` | Upstream brand casing preserved (`MoGe`) + version; metric depth with point map and intrinsics, plus normals |
 | `marigold_v2` | `LibreMarigoldV2` | Marigold V2 depth, normals and albedo; pinned Qwen base with task adapters |
 | `teed`      | `LibreTEED` | All-caps acronym (`TEED`); edge-only tiny CNN specialist |
 | `dexined`   | `LibreDexiNed` | Upstream brand casing preserved (`DexiNed`); edge-only base CNN specialist |
@@ -274,6 +275,7 @@ ships:
 | `zipdepth`  | `b` (base, GPU/CPU convex upsampling), `bnpu` (base capacity with the separately trained unfold-free upsampling head for NPU/edge compilers); both at short-side 384 |
 | `midas`     | `s` (MiDaS v2.1 Small, EfficientNet-Lite3, upper-bound 256), `l` (DPT-Large, ViT-L/16, minimal-resize 384) |
 | `moge2`     | `s`, `b`, `l` (official MoGe-2 ViT-S/B/L-14 normal checkpoints; all at native short side 518, `l` quality default) |
+| `moge3`     | `l`, `g` (official MoGe-3 ViT-L/14 and ViT-g/14; `imgsz` 840 sets a 3600-token budget, inputs keep native resolution) |
 | `marigold_v2` | `b` (20B Qwen base; task and depth-variant suffix select the adapter) |
 | `teed`      | `t` (tiny, 58,910 parameters; fixed 352 square) |
 | `dexined`   | `b` (base, 35.2M parameters; fixed 352 square) |
@@ -557,6 +559,7 @@ Detector-factory family support follows:
 | `zipdepth`  | `("depth",)`                        | depth  | ZipDepth lightweight CNN (RepVGG encoder + FPN decoder, DA2-L distilled); sizes `b`/`bnpu` at short-side 384; predict + zero-shot `val` + fixed-resolution ONNX/TorchScript export; MIT code and weights; not trainable in LibreYOLO |
 | `midas`     | `("depth",)`                        | depth  | MiDaS relative inverse depth, defined only up to a per-image scale and shift; higher means closer and values have no metric unit. Sizes `s`/`l`; predict + zero-shot `val` + fixed-resolution ONNX/TorchScript/TensorRT/OpenVINO export; inference-only |
 | `moge2`     | `("normal",)`                       | normal | MoGe-2 ViT-S/B/L-14 normal models; sizes `s`/`b`/`l` at native short-side 518 (`l` quality default); OpenCV camera-frame unit normals; predict + zero-shot `val` + fixed-resolution ONNX export; official code and checkpoints are MIT; not trainable in LibreYOLO |
+| `moge3`     | `("depth", "normal")`             | depth  | MoGe-3 ViT-L/g-14 with sparse volumetric refinement; metric depth (`encoding="depth"`, `metric=True`) plus point map, pixel intrinsics, and validity mask on `Results.depth_map`, or OpenCV-frame unit normals; predict + zero-shot `val`; fixed-resolution normal export; MIT code and weights; not trainable in LibreYOLO |
 | `teed`      | `("edge",)`                         | edge   | TEED tiny edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
 | `dexined`   | `("edge",)`                         | edge   | DexiNed base edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
 | `nafnet`    | `("restore",)`                      | restore | NAFNet RGB restoration; sizes `s`/`l`; native predict runs at original resolution with reflect padding; paired PSNR/SSIM train+val; fixed-resolution ONNX v1. Published denoise weights: `LibreNAFNetl-restore-sidd.pt` (SIDD width-64, bit-exact conversion, upstream PSNR 40.3045 dB) |
@@ -748,6 +751,12 @@ LibreMiDaSl-depth.pt             # DPT-Large, ViT-L/16, 384
 LibreMoGe2s-normal.pt            # ViT-S/14, native short side 518
 LibreMoGe2b-normal.pt            # ViT-B/14, native short side 518
 LibreMoGe2l-normal.pt            # ViT-L/14, native short side 518, quality default
+
+# moge3 - MoGe-3 metric geometry (depth + point map + intrinsics) and normals, MIT weights
+LibreMoGe3l-depth.pt             # ViT-L/14, metric depth, point map, intrinsics
+LibreMoGe3l-normal.pt            # ViT-L/14, surface normals (same tensors as -depth)
+LibreMoGe3g-depth.pt             # ViT-g/14, metric depth, point map, intrinsics
+LibreMoGe3g-normal.pt            # ViT-g/14, surface normals (same tensors as -depth)
 
 # edge specialists - architecture code is MIT; no released weights are mirrored
 LibreTEEDt-edge.pt               # tiny TEED, local compatible checkpoint

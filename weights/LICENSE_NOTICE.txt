@@ -397,6 +397,20 @@ project the weights were derived from. Per-family summary:
              verifies these hashes, safely loads the raw state dict, and adds
              LibreYOLO metadata locally. See docs/provenance/midas.md.
 
+    MoGe-3  (LibreMoGe3{l,g}-{depth,normal})           MIT
+             upstream / pinned revision / model.pt SHA-256:
+             Ruicheng/moge-3-vitl
+               184008f877d7ad1ad4c2cd2182a9bd1f63d0e5be
+               9b41b7b9f65ad80aab7ad686f5e9cc0d1fd33f1964022618dfbcd52fc1fb7925
+             Ruicheng/moge-3-vitg
+               6ef26c5a4b4148dab5ccaacdb08b72dc66380475
+               ce7c15417e9105c2ace7b4272e2cc69e36940921211eb7fa05d4d0bb03f0a00c
+             Both upstream Hugging Face model cards declare license: mit.
+             Conversion keeps every tensor unchanged and adds LibreYOLO
+             checkpoint metadata; the depth and normal files share tensors.
+             Mirrored at LibreYOLO/LibreMoGe3{l,g}-{depth,normal} and
+             checksum-pinned. Convert with weights/convert_moge3_weights.py.
+
     MoGe-2  (LibreMoGe2{s,b,l}-normal)                 MIT
              upstream / pinned revision / model.pt SHA-256:
              Ruicheng/moge-2-vits-normal
