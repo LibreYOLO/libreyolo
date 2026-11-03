@@ -14,7 +14,7 @@ from libreyolo.models.raft.nn import DEFAULT_ITERS, LibreRAFTNet
 from libreyolo.models.raft.utils import pad_amounts, postprocess_flow
 from libreyolo.utils.serialization import validate_checkpoint_metadata
 
-pytestmark = [pytest.mark.unit]
+pytestmark = [pytest.mark.unit, pytest.mark.raft]
 
 _REPO = Path(__file__).resolve().parents[2]
 
@@ -157,3 +157,21 @@ def test_train_is_not_supported():
     model = LibreRAFT(model_path=None, size="s", device="cpu")
     with pytest.raises(NotImplementedError):
         model.train(data="x.yaml")
+
+
+def test_runner_pair_hook_returns_flow_on_original_canvas():
+    """Two frames through the public call give one Results with an unpadded field."""
+    import numpy as np
+    from PIL import Image
+
+    model = LibreRAFT(model_path=None, size="s", device="cpu")
+    model.model.iters = 2
+    rng = np.random.default_rng(0)
+    frames = [Image.fromarray(rng.integers(0, 255, (131, 197, 3), dtype=np.uint8)) for _ in range(3)]
+    results = model(frames)
+    assert len(results) == 2
+    for r in results:
+        assert r.boxes is None
+        assert tuple(np.asarray(r.flow.data).shape) == (131, 197, 2)
+    with pytest.raises(ValueError):
+        model(frames[0])
