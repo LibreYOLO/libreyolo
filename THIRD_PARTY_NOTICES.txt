@@ -131,6 +131,37 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+TripoSplat image-to-3D networks and sampler
+-------------------------------------------
+
+Upstream: VAST-AI-Research (TripoAI), https://github.com/VAST-AI-Research/TripoSplat
+Commit: d8db9e018b413dd9c4a9fe22463781bf98e8e68d
+License: MIT (full text above, in the Speridlabs Idol entry)
+Copyright (c) 2026 VAST.
+Authors: Runjie Yan, Yan-Pei Cao, Peng Wang, Ding Liang, Yuan-Chen Guo.
+Citation: Yan, R. et al. "Generative 3D Gaussians with Learned Density
+          Control." arXiv:2605.16355, 2026. https://arxiv.org/abs/2605.16355
+Used for: the TripoSplat family (libreyolo/models/gen/triposplat/): the
+          denoiser, the octree and Gaussian decoders, the configuration
+          constants, the flow sampler and the Gaussian activation.
+          Parameter names are unchanged so the released safetensors load
+          strictly. Upstream's DINOv3 ViT, FLUX.2 VAE encoder and BiRefNet
+          implementations are not ported: the encoders load through
+          transformers and diffusers, background removal runs on LibreYOLO's
+          BiRefNet network, and preprocessing and camera decoding are shared
+          with Speridlabs Idol (libreyolo/models/gen/image3d.py).
+
+NOTE - code vs. weights: no weights are bundled in the package.
+The denoiser, the decoder and BiRefNet are redistributed by LibreYOLO as
+LibreYOLO/LibreTripoSplat0.6b (MIT, revision dbef04688a6b3af979b735e20dbf09acbb941af7), byte-identical to
+VAST-AI/TripoSplat at revision 56a96e603204ec410c4da60c13ea4fa09a2169a9. The FLUX.2 VAE from
+black-forest-labs/FLUX.2-klein-4B (Apache-2.0, revision
+e7b7dc27f91deacad38e78976d1f2b499d76a294) download from their publishers.
+The DINOv3 ViT-H+/16 encoder (Meta DINOv3 License) is LibreYOLO's bfloat16
+mirror LibreYOLO/LibreDINOv3vith16plus (revision
+e849a3492905c6dabc89758042bf1402770fb4e6), see the Speridlabs Idol entry.
+
+--------------------------------------------------------------------
 DDColor and permissive architecture lineage
 --------------------------------------------------------------------
 Primary source: https://github.com/piddnad/DDColor

@@ -211,6 +211,7 @@ def __getattr__(name):
         "LibreFlux2Klein": (".models.gen", "LibreFlux2Klein"),
         "LibreSanaSprint": (".models.gen", "LibreSanaSprint"),
         "LibreSperidlabsIdol": (".models.gen", "LibreSperidlabsIdol"),
+        "LibreTripoSplat": (".models.gen", "LibreTripoSplat"),
         "LibreVLM": (".models.vlm", "LibreVLM"),
         "LibreLFM2VL": (".models.vlm", "LibreLFM2VL"),
         "LibreQwen3VL": (".models.vlm", "LibreQwen3VL"),
@@ -397,6 +398,7 @@ __all__ = [
     "LibreFlux2Klein",
     "LibreSanaSprint",
     "LibreSperidlabsIdol",
+    "LibreTripoSplat",
     # Calibrated native monocular 3D detection
     "LibreFCOS3D",
     # Promptable 3D detection (separately installed upstream runtime)
