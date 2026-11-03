@@ -2341,6 +2341,7 @@ class Results:
         orig_img: Any = None,
         generated: Optional[GeneratedImage] = None,
         gaussians: Optional[Gaussians] = None,
+        reading_order: Optional[TensorLike] = None,
     ):
         if boxes is not None and boxes.orig_shape is None:
             boxes = boxes.with_orig_shape(orig_shape)
@@ -2401,6 +2402,9 @@ class Results:
         )
         self.frame_idx = frame_idx
         self.orig_img = orig_img
+        # One-based reading-order rank per box (document layout families),
+        # aligned with ``boxes`` and sliced in lockstep like ``track_id``.
+        self.reading_order = reading_order
 
     @property
     def orig_img(self) -> np.ndarray | None:
@@ -2459,6 +2463,7 @@ class Results:
             "track_id": self.track_id,
             "frame_idx": self.frame_idx,
             "orig_img": self._orig_img,
+            "reading_order": self.reading_order,
         }
         data.update(overrides)
         return Results(**data)
@@ -2488,14 +2493,16 @@ class Results:
                 getattr(value, method)(*args, **kwargs) if value is not None else None
             )
 
-        if method == "cpu":
-            overrides["track_id"] = _cpu(self.track_id)
-        elif method == "numpy":
-            overrides["track_id"] = _numpy(self.track_id)
-        elif method == "to":
-            overrides["track_id"] = _move(self.track_id, *args, **kwargs)
-        elif method == "__getitem__":
-            overrides["track_id"] = _slice_first(self.track_id, args[0])
+        for key in ("track_id", "reading_order"):
+            value = getattr(self, key)
+            if method == "cpu":
+                overrides[key] = _cpu(value)
+            elif method == "numpy":
+                overrides[key] = _numpy(value)
+            elif method == "to":
+                overrides[key] = _move(value, *args, **kwargs)
+            elif method == "__getitem__":
+                overrides[key] = _slice_first(value, args[0])
 
         return self._new(**overrides)
 
@@ -2534,6 +2541,7 @@ class Results:
         actions: Optional[Actions] = None,
         generated: Optional[GeneratedImage] = None,
         gaussians: Optional[Gaussians] = None,
+        reading_order: Optional[TensorLike] = None,
     ) -> "Results":
         aligned_cuboids = boxes3d if boxes3d is not None else self.boxes3d
         if aligned_cuboids is not None:
@@ -2616,6 +2624,8 @@ class Results:
             self.track_id = track_id
             if self.boxes is not None:
                 self.boxes = self.boxes.with_id(track_id)
+        if reading_order is not None:
+            self.reading_order = reading_order
         return self
 
     @property
@@ -3045,6 +3055,7 @@ class Results:
         meshes_np = self.meshes.numpy() if self.meshes is not None else None
         cuboids = self.boxes3d.numpy() if self.boxes3d is not None else None
         track_ids = _numpy(self.track_id)
+        reading_order = _numpy(self.reading_order)
         rows = []
         for i in range(len(boxes_np)):
             cls_id = int(boxes_np.cls[i])
@@ -3161,6 +3172,8 @@ class Results:
                 row["mesh"] = mesh_row
             if track_ids is not None:
                 row["track_id"] = int(track_ids[i])
+            if reading_order is not None:
+                row["reading_order"] = int(reading_order[i])
             rows.append(row)
         return rows
 
@@ -3246,6 +3259,8 @@ class Results:
             parts.append(f"gaussians={self.gaussians}")
         if self.track_id is not None:
             parts.append(f"track_ids={len(self.track_id)}")
+        if self.reading_order is not None:
+            parts.append(f"reading_order={len(self.reading_order)}")
         if self.frame_idx is not None:
             parts.append(f"frame_idx={self.frame_idx}")
         return f"Results({', '.join(parts)})"
