@@ -86,6 +86,7 @@ file = name + ".pt"
 | LeVJEPA | `LibreLeVJEPA` | `LibreLeVJEPAl-embed.pt` (16-frame clip and patch embeddings; CC BY-NC 4.0 weights) |
 | NAFNet | `LibreNAFNet` | `LibreNAFNets-restore.pt` (restore-only; `-sidd` variant = SIDD denoise) |
 | RAFT | `LibreRAFT` | `LibreRAFTl-flow.pt` (flow-only; `-sintel` / `-kitti` variants of `l`; one HF repo per file) |
+| NeuFlowv2 | `LibreNeuFlowv2` | `LibreNeuFlowv2s-flow.pt` (flow-only; one repo per file, `-sintel` / `-things` training-data variants; Apache-2.0 implied from the upstream repo) |
 | BEN2 | `LibreBEN2` | `LibreBEN2b-matte.pt` (matte / background-removal; MIT code + weights; inference-only) |
 | BiRefNet | `LibreBiRefNet` | `LibreBiRefNetl-matte.pt` (matte / background-removal; `l` is MIT, `t`/lite has no explicit weights-license tag) |
 | FeyNobg | `LibreFeyNobg` | `LibreFeyNobgl-matte.pt` (matte / background-removal; Apache-2.0 code+weights; also ships `-fp8`/`-nvfp4` pre-quantized repos, see below) |
@@ -305,6 +306,8 @@ LibreNAFNetl-restore-sidd.pt,
 
 LibreRAFTs-flow.pt, LibreRAFTl-flow.pt,
 LibreRAFTl-flow-sintel.pt, LibreRAFTl-flow-kitti.pt,
+LibreNeuFlowv2s-flow.pt, LibreNeuFlowv2s-flow-sintel.pt,
+LibreNeuFlowv2s-flow-things.pt,
 
 LibreRealESRGANx4-restore.pt, LibreRealESRGANx2-restore.pt,
 LibreRealESRGANx4t-restore.pt,

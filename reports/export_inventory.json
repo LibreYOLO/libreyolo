@@ -1601,6 +1601,30 @@
     "available": true,
     "group": "g2"
   },
+  "neuflowv2": {
+    "class": "libreyolo.models.neuflowv2.model.LibreNeuFlowv2",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "s": [
+        432,
+        768
+      ]
+    },
+    "default_imgsz": {
+      "s": [
+        432,
+        768
+      ]
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "northmicrovision": {
     "class": "libreyolo.models.vlm.northmicro.LibreNorthMicroVision",
     "tasks": [

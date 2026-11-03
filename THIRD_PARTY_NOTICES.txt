@@ -1369,6 +1369,26 @@ Weight license: the repository's Apache-2.0 licence, applied as an implied
                LibreFlowSeek{m,l}-flow weights are non-commercial.
 Conversion: weights/convert_flowseek_weights.py wraps the unchanged tensors
             (638 for t/s, 932 for m/l) in the LibreYOLO checkpoint schema.
+NeuFlow v2 (Northeastern University Field Robotics Lab)
+--------------------------------------------------------------------
+Source: https://github.com/neufieldrobotics/NeuFlow_v2
+Pinned commit: 204b5e3744461d90303b9ff82caa7a1bb56a2ca2
+License: Apache License 2.0
+Copyright (c) 2024 Zhiyong Zhang, Aniket Gupta, Huaizu Jiang, Hanumant Singh.
+Citation: Zhang, Z., Gupta, A., Jiang, H., and Singh, H. "NeuFlow v2:
+          Push High-Efficiency Optical Flow To the Limit." arXiv:2408.10161.
+Used for: NeuFlow v2 optical flow family (libreyolo/models/neuflowv2/),
+          model code vendored under libreyolo/models/neuflowv2/_vendor/
+          with the upstream LICENSE. Changes: package-relative imports,
+          the huggingface_hub mixin base dropped, out-of-place input
+          scaling, unused commented and broken helpers removed. Training,
+          dataset and evaluation code is not vendored.
+
+Weights: upstream commits neuflow_mixed.pth, neuflow_sintel.pth and
+neuflow_things.pth in the Apache-2.0 repository root with no separate
+weight licence. LibreYOLO mirrors the converted checkpoints
+(LibreYOLO/LibreNeuFlowv2s-flow, -flow-sintel, -flow-things) under that
+Apache-2.0 licence, an implied grant from the releasing project.
 
 --------------------------------------------------------------------
 Depth Anything 3 (ByteDance Seed)

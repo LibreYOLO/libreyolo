@@ -541,6 +541,7 @@ extend-exclude = [
     "libreyolo/models/depth_anything3/_vendor",
     "libreyolo/models/waft/_vendor",
     "libreyolo/models/unimatch/_vendor",
+    "libreyolo/models/neuflowv2/_vendor",
 ]
 
 [tool.ty.rules]
@@ -676,6 +677,7 @@ markers = [
     "flowseek: tests covering the FlowSeek optical flow family",
     "waft: tests covering the WAFT optical flow family",
     "unimatch: tests covering the UniMatch / GMFlow optical flow family",
+    "neuflowv2: tests covering the NeuFlow v2 optical flow family",
     "quicksrnet: tests covering the QuickSRNet super-resolution family",
     "ddcolor: tests covering the DDColor automatic-colorization family",
     "hvi_cidnet: tests covering the HVI-CIDNet low-light restoration family",

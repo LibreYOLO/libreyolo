@@ -122,6 +122,7 @@ from .depth_anything3.model import (  # noqa: E402,F401  (import registers famil
 from .searaft.model import LibreSEARAFT  # noqa: E402,F401  (flow-only; can_load keyed on 6-channel cnet + init_conv + 6-channel flow_head)
 from .unimatch.model import LibreUniMatch  # noqa: E402,F401  (flow-only; can_load keyed on GMFlow feature_flow_attn + transformer)
 from .nafnet.model import LibreNAFNet  # noqa: E402,F401  (restore-only)
+from .neuflowv2.model import LibreNeuFlowv2  # noqa: E402,F401  (flow-only; can_load keyed on cross_attn_s16 + refine_s8 + upsample_s8)
 from .ddcolor.model import LibreDDColor  # noqa: E402,F401  (restore-only colorization)
 from .hvi_cidnet.model import LibreHVICIDNet  # noqa: E402,F401  (restore-only low-light enhancement)
 from .lama.model import LibreLaMa  # noqa: E402,F401  (mask-guided restore/inpainting)
@@ -926,6 +927,7 @@ __all__ = [
     "LibreDepthAnything3",
     "LibreUniMatch",
     "LibreNAFNet",
+    "LibreNeuFlowv2",
     "LibreDDColor",
     "LibreHVICIDNet",
     "LibreLaMa",

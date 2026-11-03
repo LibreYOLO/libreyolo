@@ -333,6 +333,18 @@ SEA-RAFT (BSD 3-Clause License)
     correlation extension are not included. The published S and M
     checkpoints are BSD-3-Clause and mirrored on the LibreYOLO Hugging Face
     organisation.
+NeuFlow v2 (Apache License 2.0)
+    Path:    libreyolo/models/neuflowv2/_vendor/
+    License: libreyolo/models/neuflowv2/_vendor/LICENSE
+    Source:  https://github.com/neufieldrobotics/NeuFlow_v2
+    Commit:  204b5e3744461d90303b9ff82caa7a1bb56a2ca2
+
+    The NeuFlow v2 optical flow network (Zhiyong Zhang, Aniket Gupta, Huaizu
+    Jiang, Hanumant Singh) is vendored for inference only. Package-relative
+    imports, a plain torch.nn.Module base instead of the huggingface_hub
+    mixin, and an out-of-place input scaling do not alter learned parameters
+    or outputs. The converted mixed, sintel and things checkpoints keep the
+    upstream Apache-2.0 licence.
 
 NAFNet (MIT License)
     Path:    libreyolo/models/nafnet/
