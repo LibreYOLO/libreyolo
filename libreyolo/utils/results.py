@@ -1124,6 +1124,9 @@ class FlowField(_TensorPayload):
     ``confidence`` is an optional ``(H, W)`` float map in ``[0, 1]`` carrying
     whatever the family can offer (an occlusion or covisibility estimate, a
     variance-derived score); ``None`` when the family has none.
+    ``next_frame`` is the second frame as a uint8 ``(H, W, 3)`` RGB array on
+    the same canvas, attached by predict so ``warp()`` and the warp view have
+    something to warp; ``None`` when not attached.
     """
 
     def __init__(
@@ -1132,6 +1135,7 @@ class FlowField(_TensorPayload):
         orig_shape: Tuple[int, int] | None = None,
         *,
         confidence: TensorLike | None = None,
+        next_frame: TensorLike | None = None,
     ):
         if not isinstance(data, (torch.Tensor, np.ndarray)):
             raise TypeError("flow data must be a torch.Tensor or numpy.ndarray")
@@ -1178,9 +1182,47 @@ class FlowField(_TensorPayload):
 
         super().__init__(data, orig_shape)
         self.confidence = confidence
+        if next_frame is not None:
+            frame = _numpy(next_frame) if isinstance(next_frame, torch.Tensor) else next_frame
+            if not isinstance(frame, np.ndarray):
+                raise TypeError("flow next_frame must be a numpy.ndarray or torch.Tensor")
+            if frame.ndim != 3 or frame.shape[-1] != 3 or (
+                int(frame.shape[0]),
+                int(frame.shape[1]),
+            ) != data_shape:
+                raise ValueError(
+                    f"expected a ({data_shape[0]}, {data_shape[1]}, 3) RGB next_frame "
+                    f"but got shape {tuple(frame.shape)}"
+                )
+            next_frame = np.ascontiguousarray(frame.astype(np.uint8, copy=False))
+        self.next_frame = next_frame
 
     def _with(self, data, confidence) -> "FlowField":
-        return self.__class__(data, self.orig_shape, confidence=confidence)
+        return self.__class__(
+            data, self.orig_shape, confidence=confidence, next_frame=self.next_frame
+        )
+
+    def save(self, path: str | Path) -> Path:
+        """Write the raw field to ``path``: Middlebury ``.flo`` or NumPy ``.npy``.
+
+        Both hold the float32 ``(H, W, 2)`` vectors on the original canvas,
+        exactly as stored; ``confidence`` and ``next_frame`` are not written.
+        The extension picks the format; anything else is an error.
+        """
+        target = Path(path)
+        suffix = target.suffix.lower()
+        if suffix == ".flo":
+            from ..data.flow_dataset import write_flo
+
+            write_flo(target, self.array)
+        elif suffix == ".npy":
+            target.parent.mkdir(parents=True, exist_ok=True)
+            np.save(target, np.ascontiguousarray(self.array, dtype=np.float32))
+        else:
+            raise ValueError(
+                f"FlowField.save writes .flo or .npy files, got {target.name!r}"
+            )
+        return target
 
     def to(self, *args, **kwargs):
         return self._with(
@@ -1307,6 +1349,7 @@ class FlowField(_TensorPayload):
             f"FlowField(shape={tuple(self.data.shape)}, "
             f"max_magnitude={self.max_magnitude:.4g}, "
             f"confidence={'yes' if self.confidence is not None else 'no'}, "
+            f"next_frame={'yes' if self.next_frame is not None else 'no'}, "
             f"orig_shape={self.orig_shape})"
         )
 
@@ -2561,7 +2604,9 @@ class Results:
         if ocr is not None and ocr.orig_shape is None:
             ocr = OCRRegions(ocr.data, ocr.texts, ocr.conf, ocr.det_conf, orig_shape)
         if flow is not None and flow.orig_shape != tuple(orig_shape):
-            flow = FlowField(flow.data, orig_shape, confidence=flow.confidence)
+            flow = FlowField(
+                flow.data, orig_shape, confidence=flow.confidence, next_frame=flow.next_frame
+            )
 
         if boxes3d is not None:
             boxes3d._validate_alignment(boxes, orig_shape)
@@ -2797,7 +2842,12 @@ class Results:
             self.flow = (
                 flow
                 if flow.orig_shape == tuple(self.orig_shape)
-                else FlowField(flow.data, self.orig_shape, confidence=flow.confidence)
+                else FlowField(
+                    flow.data,
+                    self.orig_shape,
+                    confidence=flow.confidence,
+                    next_frame=flow.next_frame,
+                )
             )
         if meshes is not None:
             self.meshes = meshes
@@ -2853,6 +2903,8 @@ class Results:
         filename: str | None = None,
         arrows: bool = False,
         arrow_step: int = 16,
+        arrow_scale: float = 1.0,
+        warp: bool = False,
     ):
         """Render the result on its source image.
 
@@ -2861,9 +2913,17 @@ class Results:
         return an ``HxWx3`` uint8 BGR array. Dense maps (depth, normal, edge,
         albedo, optical flow), 3D cuboids, action chunks, generated images and
         a preview of generated Gaussians (rendered from the inferred input
-        camera) return a PIL image. ``pil`` forces either return type. Optical
-        flow draws the Middlebury colour wheel; ``arrows=True`` adds one
-        displacement vector every ``arrow_step`` pixels.
+        camera) return a PIL image. ``pil`` forces either return type.
+
+        Optical flow has three views. The default is the Middlebury colour
+        wheel (hue is direction, saturation is speed). ``arrows=True`` draws
+        the source frame with one yellow arrow every ``arrow_step`` pixels,
+        stretched by ``arrow_scale``, vectors under 1 px skipped.
+        ``warp=True`` puts the source frame on the left and the next frame
+        warped back onto it with the flow on the right, so a correct flow
+        makes the two panels look alike; it needs ``flow.next_frame``, which
+        predict attaches. ``arrows`` and ``warp`` together draw the arrows on
+        the left panel.
 
         The source image is ``img`` (BGR array or PIL image), else ``image``
         (RGB array or PIL image), else the image kept by predict
@@ -2877,7 +2937,9 @@ class Results:
                 if isinstance(img, np.ndarray)
                 else img
             )
-        rendered = self._plot_dense(image, arrows=arrows, arrow_step=arrow_step)
+        rendered = self._plot_dense(
+            image, arrows=arrows, arrow_step=arrow_step, arrow_scale=arrow_scale, warp=warp
+        )
         default_pil = rendered is not None
         if rendered is None:
             from .drawing import draw_results
@@ -2910,17 +2972,57 @@ class Results:
             return rendered
         return np.ascontiguousarray(np.asarray(rendered.convert("RGB"))[..., ::-1])
 
-    def _plot_dense(self, image=None, *, arrows: bool = False, arrow_step: int = 16):
+    def _plot_flow(
+        self,
+        image=None,
+        *,
+        arrows: bool = False,
+        arrow_step: int = 16,
+        arrow_scale: float = 1.0,
+        warp: bool = False,
+    ):
+        """The three flow views: colour wheel, arrows on the frame, warp check."""
+        from PIL import Image
+        from .drawing import draw_flow
+
+        h, w = self.orig_shape
+        if not arrows and not warp:
+            return draw_flow(Image.new("RGB", (w, h)), self.flow.array)
+        frame = Image.fromarray(self._source_rgb(image, self.orig_shape))
+        left = (
+            draw_flow(frame, self.flow.array, arrows=True, step=arrow_step, scale=arrow_scale)
+            if arrows
+            else frame
+        )
+        if not warp:
+            return left
+        if self.flow.next_frame is None:
+            raise ValueError(
+                "plot(warp=True) needs the next frame, but Results.flow.next_frame is "
+                "None. Predict attaches it; for a hand-built FlowField pass "
+                "next_frame=<HxWx3 RGB uint8 array>, or call flow.warp(image) yourself."
+            )
+        right = Image.fromarray(self.flow.warp(self.flow.next_frame))
+        panels = Image.new("RGB", (2 * w, h))
+        panels.paste(left, (0, 0))
+        panels.paste(right, (w, 0))
+        return panels
+
+    def _plot_dense(
+        self,
+        image=None,
+        *,
+        arrows: bool = False,
+        arrow_step: int = 16,
+        arrow_scale: float = 1.0,
+        warp: bool = False,
+    ):
         """Render dense outputs, cuboids, actions or a generated image or object; else None."""
         if self.generated is not None:
             return self.generated.image
         if self.flow is not None:
-            from PIL import Image
-            from .drawing import draw_flow
-
-            h, w = self.orig_shape
-            return draw_flow(
-                Image.new("RGB", (w, h)), self.flow.array, arrows=arrows, step=arrow_step
+            return self._plot_flow(
+                image, arrows=arrows, arrow_step=arrow_step, arrow_scale=arrow_scale, warp=warp
             )
         if self.gaussians is not None:
             return self.gaussians.render()

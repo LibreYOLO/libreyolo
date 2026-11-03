@@ -200,12 +200,87 @@ class TestFlowResults:
         rendered = result.plot()
         assert isinstance(rendered, Image.Image)
         assert rendered.size == (8, 6)
-        with_arrows = result.plot(arrows=True, arrow_step=2)
-        assert with_arrows.size == (8, 6)
-        assert not np.array_equal(np.asarray(rendered), np.asarray(with_arrows))
+        assert np.array_equal(np.asarray(rendered), result.flow.to_rgb())
         bgr = result.plot(pil=False)
         assert isinstance(bgr, np.ndarray)
         assert bgr.shape == (6, 8, 3)
+
+    def test_plot_arrows_draw_on_the_frame_not_the_wheel(self):
+        result = self._result(h=24, w=32)
+        frame = np.full((24, 32, 3), (20, 30, 40), dtype=np.uint8)
+        with_arrows = np.asarray(result.plot(image=frame, arrows=True, arrow_step=8))
+        assert with_arrows.shape == (24, 32, 3)
+        yellow = np.all(with_arrows == (255, 255, 0), axis=-1)
+        assert yellow.any()
+        untouched = np.all(with_arrows == (20, 30, 40), axis=-1)
+        assert untouched.sum() > yellow.sum()
+        wheel = result.flow.to_rgb()
+        assert not np.array_equal(with_arrows, wheel)
+        # arrow_scale stretches the drawing only; the field is untouched.
+        longer = np.asarray(result.plot(image=frame, arrows=True, arrow_step=8, arrow_scale=3.0))
+        assert np.all(longer == (255, 255, 0), axis=-1).sum() > yellow.sum()
+        assert result.flow.max_magnitude == pytest.approx(np.hypot(1.5, 0.5))
+
+    def test_plot_warp_view_needs_next_frame(self):
+        result = self._result()
+        frame = np.zeros((6, 8, 3), dtype=np.uint8)
+        with pytest.raises(ValueError, match="next_frame"):
+            result.plot(image=frame, warp=True)
+
+    def test_plot_warp_view_shows_both_frames(self):
+        h, w = 6, 8
+        frame = np.zeros((h, w, 3), dtype=np.uint8)
+        frame[2, 3] = (200, 0, 0)
+        shifted = np.roll(frame, 2, axis=1)  # the red pixel moved 2 px right
+        flow = _translation_flow(h, w, 2.0, 0.0)
+        result = Results(
+            boxes=None,
+            orig_shape=(h, w),
+            flow=FlowField(flow, next_frame=shifted),
+            names={0: "flow"},
+        )
+        panels = np.asarray(result.plot(image=frame, warp=True))
+        assert panels.shape == (h, 2 * w, 3)
+        assert np.array_equal(panels[:, :w], frame)
+        # Warping frame t+1 back with the true flow reproduces frame t.
+        assert np.array_equal(panels[:, w:], frame)
+        both = np.asarray(result.plot(image=frame, warp=True, arrows=True, arrow_step=2))
+        assert np.all(both[:, :w] == (255, 255, 0), axis=-1).any()
+        assert np.array_equal(both[:, w:], frame)
+
+    def test_next_frame_is_validated_and_carried(self):
+        flow = _translation_flow(3, 4, 1.0, 0.0)
+        with pytest.raises(ValueError, match="next_frame"):
+            FlowField(flow, next_frame=np.zeros((3, 5, 3), dtype=np.uint8))
+        with pytest.raises(ValueError, match="next_frame"):
+            FlowField(flow, next_frame=np.zeros((3, 4), dtype=np.uint8))
+        field = FlowField(torch.from_numpy(flow), next_frame=torch.zeros((3, 4, 3), dtype=torch.uint8))
+        assert isinstance(field.next_frame, np.ndarray)
+        assert field.next_frame.dtype == np.uint8
+        assert field.numpy().next_frame.shape == (3, 4, 3)
+        assert field.cpu().next_frame.shape == (3, 4, 3)
+        assert field.to("cpu").next_frame.shape == (3, 4, 3)
+        assert field[0].next_frame.shape == (3, 4, 3)
+        assert "next_frame=yes" in repr(field)
+        assert "next_frame=no" in repr(FlowField(flow))
+        result = Results(boxes=None, orig_shape=(3, 4), flow=field, names={0: "flow"})
+        assert result.flow.next_frame.shape == (3, 4, 3)
+        result.update(flow=FlowField(flow, next_frame=np.ones((3, 4, 3), dtype=np.uint8)))
+        assert int(result.flow.next_frame.max()) == 1
+
+    def test_save_round_trips_flo_and_npy(self, tmp_path):
+        from libreyolo.data.flow_dataset import read_flo
+
+        flow = _translation_flow(5, 7, 1.25, -2.5)
+        field = FlowField(flow, confidence=np.ones((5, 7), dtype=np.float32))
+        flo = field.save(tmp_path / "nested" / "a.flo")
+        assert flo.exists()
+        assert np.array_equal(read_flo(flo), flow)
+        npy = field.save(tmp_path / "a.npy")
+        loaded = np.load(npy)
+        assert loaded.dtype == np.float32 and np.array_equal(loaded, flow)
+        with pytest.raises(ValueError, match=r"\.flo or \.npy"):
+            field.save(tmp_path / "a.png")
 
     def test_plot_save(self, tmp_path):
         out = tmp_path / "flow.png"
@@ -223,3 +298,17 @@ class TestFlowResults:
     def test_draw_flow_resizes_to_the_canvas(self):
         rendered = draw_flow(Image.new("RGB", (16, 12)), _translation_flow(6, 8, 1.0, 0.0))
         assert rendered.size == (16, 12)
+
+    def test_draw_flow_arrows_skip_still_pixels(self):
+        from libreyolo.utils.drawing import draw_flow_arrows
+
+        frame = Image.new("RGB", (32, 24), color=(5, 5, 5))
+        still = draw_flow_arrows(frame, np.zeros((24, 32, 2), dtype=np.float32), step=4)
+        assert np.array_equal(np.asarray(still), np.asarray(frame))
+        tiny = draw_flow_arrows(frame, _translation_flow(24, 32, 0.4, 0.4), step=4)
+        assert np.array_equal(np.asarray(tiny), np.asarray(frame))
+        moving = draw_flow(frame, _translation_flow(24, 32, 3.0, 0.0), arrows=True, step=4)
+        assert moving.size == (32, 24)
+        assert np.all(np.asarray(moving) == (255, 255, 0), axis=-1).any()
+        # The frame passed in is never modified in place.
+        assert np.array_equal(np.asarray(frame), np.full((24, 32, 3), 5, dtype=np.uint8))

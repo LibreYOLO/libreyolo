@@ -788,40 +788,79 @@ def flow_to_rgb(flow: np.ndarray, max_magnitude: float | None = None) -> np.ndar
     return rgb
 
 
+def draw_flow_arrows(
+    img: Image.Image,
+    flow: np.ndarray,
+    *,
+    step: int = 16,
+    scale: float = 1.0,
+    color: tuple[int, int, int] = (255, 255, 0),
+    min_magnitude: float = 1.0,
+) -> Image.Image:
+    """Draw a sparse grid of flow vectors as arrows on a copy of ``img``.
+
+    One arrow every ``step`` flow pixels, starting at the pixel and ending at
+    ``(x + dx * scale, y + dy * scale)`` in flow-pixel units (rescaled when the
+    field and the image differ in size). Vectors shorter than
+    ``min_magnitude`` pixels and non-finite vectors are skipped so still
+    regions stay clean. ``scale`` only changes the drawing, never the field.
+    """
+    field = np.asarray(flow, dtype=np.float32)
+    if field.ndim != 3 or field.shape[-1] != 2:
+        raise ValueError(f"expected an (H, W, 2) flow field, got {field.shape}")
+    canvas = img.convert("RGB").copy()
+    step = max(int(step), 1)
+    scale = float(scale)
+    scale_y = canvas.height / field.shape[0]
+    scale_x = canvas.width / field.shape[1]
+    head = max(3.0, min(canvas.width, canvas.height) / 80.0)
+    draw = ImageDraw.Draw(canvas)
+    for y in range(step // 2, field.shape[0], step):
+        for x in range(step // 2, field.shape[1], step):
+            dx, dy = float(field[y, x, 0]), float(field[y, x, 1])
+            if not (math.isfinite(dx) and math.isfinite(dy)):
+                continue
+            if math.hypot(dx, dy) < min_magnitude:
+                continue
+            x0, y0 = x * scale_x, y * scale_y
+            x1, y1 = x0 + dx * scale * scale_x, y0 + dy * scale * scale_y
+            draw.line([(x0, y0), (x1, y1)], fill=color, width=2)
+            angle = math.atan2(y1 - y0, x1 - x0)
+            for turn in (math.pi * 0.8, -math.pi * 0.8):
+                draw.line(
+                    [
+                        (x1, y1),
+                        (x1 + head * math.cos(angle + turn), y1 + head * math.sin(angle + turn)),
+                    ],
+                    fill=color,
+                    width=2,
+                )
+    return canvas
+
+
 def draw_flow(
     img: Image.Image,
     flow: np.ndarray,
     *,
     arrows: bool = False,
     step: int = 16,
+    scale: float = 1.0,
     max_magnitude: float | None = None,
 ) -> Image.Image:
-    """Render a flow field as a colour-wheel image the size of ``img``.
+    """Render a flow field the size of ``img``.
 
-    With ``arrows=True`` a sparse grid of displacement vectors (one every
-    ``step`` flow pixels) is drawn in black on top of the colours.
+    The default view is the Middlebury colour wheel (``flow_to_rgb``), which
+    ignores the pixels of ``img`` and only uses its size. With ``arrows=True``
+    the view is instead the frame itself with one yellow displacement arrow
+    every ``step`` flow pixels (see ``draw_flow_arrows``; ``scale`` stretches
+    the drawn arrows, vectors under 1 px are skipped).
     """
     field = np.asarray(flow, dtype=np.float32)
+    if arrows:
+        return draw_flow_arrows(img, field, step=step, scale=scale)
     rendered = Image.fromarray(flow_to_rgb(field, max_magnitude=max_magnitude), mode="RGB")
     if rendered.size != img.size:
         rendered = rendered.resize(img.size, Image.BILINEAR)
-    if arrows:
-        step = max(int(step), 1)
-        scale_y = img.height / field.shape[0]
-        scale_x = img.width / field.shape[1]
-        draw = ImageDraw.Draw(rendered)
-        for y in range(step // 2, field.shape[0], step):
-            for x in range(step // 2, field.shape[1], step):
-                dx, dy = float(field[y, x, 0]), float(field[y, x, 1])
-                if not (math.isfinite(dx) and math.isfinite(dy)):
-                    continue
-                x0, y0 = x * scale_x, y * scale_y
-                draw.line(
-                    [(x0, y0), (x0 + dx * scale_x, y0 + dy * scale_y)],
-                    fill=(0, 0, 0),
-                    width=1,
-                )
-                draw.ellipse([x0 - 1, y0 - 1, x0 + 1, y0 + 1], fill=(0, 0, 0))
     return rendered
 
 
