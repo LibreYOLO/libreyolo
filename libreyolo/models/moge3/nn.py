@@ -75,10 +75,14 @@ class MLP(nn.Sequential):
 
 
 def token_grid(num_tokens: int, aspect_ratio: float) -> tuple[int, int]:
-    """Upstream's base token grid for a token budget and width/height ratio."""
-    return round((num_tokens / aspect_ratio) ** 0.5), round(
-        (num_tokens * aspect_ratio) ** 0.5
-    )
+    """Upstream's base token grid for a token budget and width/height ratio.
+
+    Each side is clamped to at least one token so extreme aspect ratios on a
+    small budget do not produce an empty grid.
+    """
+    rows = round((num_tokens / aspect_ratio) ** 0.5)
+    cols = round((num_tokens * aspect_ratio) ** 0.5)
+    return max(1, rows), max(1, cols)
 
 
 def _resize(x: torch.Tensor, size: tuple[int, int], channel_last: bool = False):

@@ -259,6 +259,7 @@ class TestGeometry:
         assert num_tokens_for(840) == 3600
         assert token_grid(3600, 1.0) == (60, 60)
         assert token_grid(3600, 1536 / 1194) == (53, 68)
+        assert token_grid(4, 2000 / 100) == (1, 9)
 
 
 class TestDepthMapGeometry:
