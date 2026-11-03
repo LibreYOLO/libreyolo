@@ -9,6 +9,9 @@ import torch
 import torch.nn.functional as F
 
 STRIDE = 8
+# The correlation pyramid halves the 1/8 feature map four times, so the padded
+# canvas needs at least 16 cells per side (upstream fails the same way).
+MIN_SIDE = 128
 
 
 def compute_padding(h: int, w: int) -> List[int]:
@@ -53,6 +56,11 @@ def preprocess_numpy(
     if (work_h, work_w) != (h, w):
         x = F.interpolate(x, size=(work_h, work_w), mode="bilinear", align_corners=False)
     pad = compute_padding(work_h, work_w)
+    if work_h + pad[2] + pad[3] < MIN_SIDE or work_w + pad[0] + pad[1] < MIN_SIDE:
+        raise ValueError(
+            f"SEA-RAFT needs frames of at least {MIN_SIDE}x{MIN_SIDE} pixels, got "
+            f"{work_w}x{work_h}."
+        )
     x = F.pad(x, pad, mode="replicate")
     return x, {"orig_hw": (h, w), "work_hw": (work_h, work_w), "pad": pad}
 

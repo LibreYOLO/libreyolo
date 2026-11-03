@@ -76,6 +76,28 @@ class LibreSEARAFT(BaseModel):
             and "upsample_weight.2.weight" in weights_dict
         )
 
+    @staticmethod
+    def restore_shared_keys(weights_dict: dict) -> dict:
+        """Re-add ``downsample.1.*`` aliases that safetensors drops.
+
+        In ``BasicBlock`` the projection's BatchNorm is registered twice
+        (``bn3`` and ``downsample.1``). ``torch.save`` keeps both names, but the
+        upstream Hugging Face ``model.safetensors`` files store each shared
+        tensor once, under ``bn3``.
+        """
+        out = dict(weights_dict)
+        for key, value in weights_dict.items():
+            if ".bn3." in key:
+                alias = key.replace(".bn3.", ".downsample.1.")
+                out.setdefault(alias, value)
+        return out
+
+    @classmethod
+    def convert_upstream_state_dict(cls, state_dict: dict) -> Optional[dict]:
+        if not cls.can_load(state_dict):
+            return None
+        return cls.restore_shared_keys(state_dict)
+
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
         # ResNet18 has 2 blocks in layer1, ResNet34 has 3. ``l`` shares the
