@@ -44,7 +44,7 @@ size marked with `*`. The authoritative alias tables are in
 | `sensenova-vision`, `-7b`*                    | SenseNova-Vision | Apache-2.0 code, CC BY-NC 4.0 weights | unified multimodal; 7 tasks, vendored port, heavy |
 | `wevisone-vl`, `-2b`*, `-4b`                  | WeVisOne-VL | Apache-2.0        | Qwen3-VL perception fine-tune; 5 tasks; ported pixel decoder |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
-| `deepseek-ocr`*, `deepseekocr`                | DeepSeek-OCR | MIT | document OCR, `ocr` task only; vendored port, mirrored weights |
+| `deepseek-ocr`*, `deepseekocr`, `deepseek-ocr-2` | DeepSeek-OCR | MIT (`1`), Apache-2.0 (`2`) | document OCR, `ocr` task only; vendored port, mirrored weights |
 
 Florence-2 and Kosmos-2 do not use a chat template: they are driven by task /
 grounding prompts and decode boxes via the processor's `post_process_generation`,
@@ -418,6 +418,14 @@ model.val(data="ocr_dataset/")                        # det hmean, e2e F1, 1-NED
 - CUDA runs bf16 weights under `torch.autocast`, as the release does (fp16 on
   GPUs without bf16). CPU and MPS run float32 with eager attention (about 13
   GB of memory); MPS has not been run on hardware.
+- DeepSeek-OCR-2 (`LibreVLM("deepseek-ocr-2")`, size `2`, Apache-2.0 code and
+  weights, mirror `LibreYOLO/LibreDeepSeekOCR2`) keeps the decoder and the SAM
+  stage and replaces CLIP with a 24-layer Qwen2 encoder that reads the SAM
+  tokens bidirectionally and emits one learned query per visual token
+  causally. Its views are 1024 px global plus up to 6 local 768 px crops
+  (`resolution="gundam"`, default) or a single 1024 view (`"base"`); the
+  other resolutions have no learned queries and raise. Same prompts, same
+  outputs.
 - EXIF orientation is not applied (LibreYOLO's image loader convention); the
   release transposes EXIF-rotated photos first.
 
@@ -425,8 +433,10 @@ Validation: on an RTX 3090 the port reproduces the release (transformers
 4.46.3 remote code, bf16 autocast, greedy) token for token on 17 cases: six
 synthetic pages with the OCR and markdown prompts in Gundam mode, one page at
 each of the other four resolutions, and the free prompt; the parsed boxes are
-identical. Upstream-reported benchmark numbers are in the release paper
-(arXiv 2510.18234) and are not reproduced here.
+identical. DeepSeek-OCR-2 reproduces its release the same way on 14 cases (the
+six pages with both prompts in Gundam mode, one Base page, the free prompt).
+Upstream-reported benchmark numbers are in the release papers (arXiv
+2510.18234, 2601.20552) and are not reproduced here.
 
 ## Known limitations (v1)
 
