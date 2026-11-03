@@ -34,13 +34,19 @@ from typing import Any, ClassVar, Dict, List, Sequence, Tuple
 from ....utils.results import Gaussians
 from ..base import _INSTALL_HINT
 from ..base3d import LibreGen3DModel
+from ..image3d import (
+    DINOV3_REPO as _DINOV3_REPO,  # noqa: F401  (the pins, kept under their old names)
+)
+from ..image3d import (
+    DINOV3_REVISION as _DINOV3_REVISION,  # noqa: F401
+)
+from ..image3d import (
+    FLUX2_VAE_REPO as _FLUX2_VAE_REPO,  # noqa: F401
+)
+from ..image3d import (
+    FLUX2_VAE_REVISION as _FLUX2_VAE_REVISION,  # noqa: F401
+)
 
-# Meta's facebook/dinov3-vith16plus-pretrain-lvd1689m@c807c9e, cast to bf16
-# (the precision Idol runs it in) and mirrored ungated under the DINOv3 License.
-_DINOV3_REPO = "LibreYOLO/LibreDINOv3vith16plus"
-_DINOV3_REVISION = "e849a3492905c6dabc89758042bf1402770fb4e6"
-_FLUX2_VAE_REPO = "black-forest-labs/FLUX.2-klein-4B"
-_FLUX2_VAE_REVISION = "e7b7dc27f91deacad38e78976d1f2b499d76a294"
 _WEIGHT_FILES = (
     "config.json",
     "denoiser.safetensors",
@@ -107,20 +113,16 @@ class LibreSperidlabsIdol(LibreGen3DModel):
     # ------------------------------------------------------------------
 
     def _load(self, snapshot_dir: str) -> None:
-        import diffusers
-        import torch
-        from diffusers.models import AutoencoderKLFlux2
         from safetensors.torch import load_file
-        from transformers import AutoModel
 
         from ...birefnet.nn import LibreBiRefNetModel
+        from ..image3d import load_image_encoder
         from .nn import (
             GaussianFixedlenDecoder,
             LatentSeqMMFlowModel,
             OctreeProbabilityFixedlenDecoder,
             compile_for_sampling,
         )
-        from .pipeline import ImageEncoder
 
         folder = Path(snapshot_dir)
         config = json.loads((folder / "config.json").read_text(encoding="utf-8"))
@@ -151,22 +153,7 @@ class LibreSperidlabsIdol(LibreGen3DModel):
         if self.device.type == "cuda":
             birefnet.half()
 
-        # ``dtype`` replaced ``torch_dtype`` in diffusers 0.40.
-        release = tuple(int(part) for part in diffusers.__version__.split(".")[:2])
-        vae_dtype_argument = "dtype" if release >= (0, 40) else "torch_dtype"
-        dinov3 = AutoModel.from_pretrained(
-            _DINOV3_REPO, revision=_DINOV3_REVISION, dtype=torch.bfloat16
-        )
-        flux2_vae = AutoencoderKLFlux2.from_pretrained(
-            _FLUX2_VAE_REPO,
-            subfolder="vae",
-            revision=_FLUX2_VAE_REVISION,
-            **{vae_dtype_argument: torch.bfloat16},
-        )
-        encoder = ImageEncoder(
-            dinov3.eval().requires_grad_(False).to(self.device),
-            flux2_vae.eval().requires_grad_(False).to(self.device),
-        )
+        encoder = load_image_encoder(self.device)
         if self.compile:
             compile_for_sampling(denoiser)
         self._pipeline = _IdolModules(
@@ -231,10 +218,10 @@ class LibreSperidlabsIdol(LibreGen3DModel):
     def _generate_3d(
         self, image, seeds: Sequence[int], knobs: Dict[str, Any]
     ) -> List[Gaussians]:
-        import numpy as np
         import torch
 
-        from .pipeline import CROP_MARGIN, decode_camera, preprocess_image, sample_flow
+        from ..image3d import decode_camera, pixels_of, preprocess_image
+        from .pipeline import CROP_MARGIN, sample_flow
 
         modules = self._pipeline
         margin = (
@@ -252,13 +239,7 @@ class LibreSperidlabsIdol(LibreGen3DModel):
                 image_size=modules.config["image_size"],
                 crop_margin=margin,
             )
-            pixels = (
-                torch.from_numpy(np.array(prepared))
-                .permute(2, 0, 1)
-                .float()
-                .div(255.0)[None]
-                .to(self.device)
-            )
+            pixels = pixels_of(prepared, self.device)
             denoiser = modules.denoiser
             objects = []
             for seed in seeds:

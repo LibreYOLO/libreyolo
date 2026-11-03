@@ -507,7 +507,11 @@ Speridlabs Idol, loads the upstream snapshot directory unchanged:
 `config.json` (with `image_encoders`, `denoiser`, `decoder` and
 `decoder_gs`) next to `denoiser.safetensors`, `decoder.safetensors`,
 `decoder_gs.safetensors` and `birefnet.safetensors`, pinned to a Hub commit.
-See ADR 0031.
+TripoSplat loads its snapshot the same way, keeping the upstream folders:
+`diffusion_models/triposplat_fp16.safetensors`,
+`vae/triposplat_vae_decoder_fp16.safetensors` and
+`background_removal/birefnet.safetensors`; its network configuration is
+upstream's, fixed in code. See ADR 0031.
 
 ### Optional LibreVLA runtime
 
