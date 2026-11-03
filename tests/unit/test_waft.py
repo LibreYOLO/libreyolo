@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -31,10 +32,36 @@ _NETS = {
 _UPSTREAM_KEYS = {"t": 521, "s": 508, "m": 604, "l": 699}
 
 
+def _meta_state_dict(build) -> dict:
+    """Keys and shapes of a net without allocating its weights.
+
+    The four WAFT graphs hold about 314 M parameters; building them for real
+    inside the fast unit gate costs 1.25 GB. Recognition and size detection
+    only look at key names, so the nets are constructed on the meta device.
+    The vendored DINOv2 derives its drop-path schedule from ``torch.linspace``
+    with ``.item()``, which meta tensors refuse, so that one factory call is
+    pinned to the CPU while the net is built.
+    """
+    real_linspace = torch.linspace
+
+    def cpu_linspace(*args, **kwargs):
+        kwargs.setdefault("device", "cpu")
+        return real_linspace(*args, **kwargs)
+
+    with torch.device("meta"), mock.patch("torch.linspace", cpu_linspace):
+        return build().state_dict()
+
+
 @pytest.fixture(scope="module")
 def state_dicts():
+    return {size: _meta_state_dict(build) for size, build in _NETS.items()}
+
+
+@pytest.fixture(scope="module")
+def small_model():
+    """One real size-s model, shared by the tests that need weights."""
     torch.manual_seed(0)
-    return {size: build().state_dict() for size, build in _NETS.items()}
+    return LibreWAFT(None, size="s", device="cpu")
 
 
 @pytest.mark.parametrize("size", sorted(_NETS))
@@ -47,7 +74,8 @@ def test_can_load_and_detect_size(state_dicts, size):
 
 
 def test_rejects_foreign_state_dicts():
-    assert not LibreWAFT.can_load(DepthAnythingV2("vits", 64, [48, 96, 192, 384]).state_dict())
+    dav2 = _meta_state_dict(lambda: DepthAnythingV2("vits", 64, [48, 96, 192, 384]))
+    assert not LibreWAFT.can_load(dav2)
     assert not LibreWAFT.can_load({"warp_linear.weight": torch.zeros(1)})
     assert not LibreWAFT.can_load({})
 
@@ -81,8 +109,10 @@ def test_unpublished_combinations_raise(filename):
         LibreWAFT.get_download_url(filename)
 
 
-def test_conversion_metadata_and_load(state_dicts, tmp_path):
-    ckpt = convert_waft_weights.convert_state_dict(state_dicts["s"])
+def test_conversion_metadata_and_load(small_model, state_dicts, tmp_path):
+    source = small_model.model.state_dict()
+    assert source.keys() == state_dicts["s"].keys()
+    ckpt = convert_waft_weights.convert_state_dict(source)
     assert validate_checkpoint_metadata(ckpt, strict=True) == []
     assert (ckpt["model_family"], ckpt["size"], ckpt["task"]) == ("waft", "s", "flow")
     assert ckpt["nc"] == 1 and ckpt["names"] == {0: "flow"}
@@ -95,7 +125,7 @@ def test_conversion_metadata_and_load(state_dicts, tmp_path):
     assert isinstance(model, LibreWAFT)
     assert (model.size, model.task, model.names) == ("s", "flow", {0: "flow"})
     for key, value in model.model.state_dict().items():
-        assert torch.equal(value, state_dicts["s"][key]), key
+        assert torch.equal(value, source[key]), key
 
 
 def test_conversion_rejects_size_mismatch(state_dicts):
@@ -105,8 +135,8 @@ def test_conversion_rejects_size_mismatch(state_dicts):
         convert_waft_weights.convert_state_dict({"foo": torch.zeros(1)})
 
 
-def test_pair_predict_shapes_and_single_image_error():
-    model = LibreWAFT(None, size="s", device="cpu")
+def test_pair_predict_shapes_and_single_image_error(small_model):
+    model = small_model
     rng = np.random.default_rng(0)
     frame = (rng.random((70, 90, 3)) * 255).astype(np.uint8)
     results = model([frame, np.roll(frame, 2, axis=1), np.roll(frame, 4, axis=1)])
@@ -118,6 +148,6 @@ def test_pair_predict_shapes_and_single_image_error():
         model(frame)
 
 
-def test_train_is_rejected():
+def test_train_is_rejected(small_model):
     with pytest.raises(NotImplementedError):
-        LibreWAFT(None, size="s", device="cpu").train(data="x.yaml")
+        small_model.train(data="x.yaml")
