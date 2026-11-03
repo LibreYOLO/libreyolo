@@ -27,13 +27,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Optional, Tuple
+from typing import Any, ClassVar
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
+from torch import nn
 
 from ...utils.image_loader import ImageInput, ImageLoader
 from ..base.model import BaseModel
@@ -43,7 +43,7 @@ from .utils import preprocess_numpy
 logger = logging.getLogger(__name__)
 
 
-def _input_size_hw(input_size) -> Tuple[int, int]:
+def _input_size_hw(input_size) -> tuple[int, int]:
     if isinstance(input_size, int):
         return input_size, input_size
     if isinstance(input_size, (tuple, list)) and len(input_size) == 2:
@@ -61,22 +61,22 @@ class LibreNeuFlowv2(BaseModel):
     WEIGHT_EXT = ".pt"
     # One released architecture. The canvas is (height, width), the upstream
     # infer.py size; both sides must be multiples of 16.
-    INPUT_SIZES: ClassVar[Dict[str, Tuple[int, int]]] = {"s": (432, 768)}
+    INPUT_SIZES: ClassVar[dict[str, tuple[int, int]]] = {"s": (432, 768)}
     IMGSZ_STRIDE: ClassVar[int] = NEUFLOWV2_STRIDE
     SUPPORTED_TASKS = ("flow",)
     DEFAULT_TASK = "flow"
     REQUIRE_TASK_SUFFIX = True
     # Training-data variants of the same network. The bare filename is the
     # upstream "mixed" checkpoint.
-    WEIGHT_VARIANTS: ClassVar[Tuple[str, ...]] = ("sintel", "things")
+    WEIGHT_VARIANTS: ClassVar[tuple[str, ...]] = ("sintel", "things")
     # Frames of context before and after the pair (ADR 0032): a plain pair.
-    FLOW_CONTEXT: ClassVar[Tuple[int, int]] = (0, 0)
+    FLOW_CONTEXT: ClassVar[tuple[int, int]] = (0, 0)
     SUPPORTS_BATCHED_PREDICT = False
     TTA_ENABLED = False
 
     # Keys unique to NeuFlow v2: the 1/16 cross-attention, the two refiners
     # and the 8x convex upsampler. All four prefixes must be present.
-    _SIGNATURE_PREFIXES: ClassVar[Tuple[str, ...]] = (
+    _SIGNATURE_PREFIXES: ClassVar[tuple[str, ...]] = (
         "backbone.block_8_1.",
         "cross_attn_s16.layers.",
         "refine_s8.conv1.",
@@ -96,11 +96,11 @@ class LibreNeuFlowv2(BaseModel):
         )
 
     @classmethod
-    def detect_size(cls, weights_dict: dict) -> Optional[str]:
+    def detect_size(cls, weights_dict: dict) -> str | None:
         return "s" if cls.can_load(weights_dict) else None
 
     @classmethod
-    def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
+    def detect_nb_classes(cls, weights_dict: dict) -> int | None:
         # The single class slot is a schema placeholder; flow has no classes.
         return 1
 
@@ -136,7 +136,7 @@ class LibreNeuFlowv2(BaseModel):
     def _init_model(self) -> nn.Module:
         return LibreNeuFlowv2Net()
 
-    def _get_available_layers(self) -> Dict[str, nn.Module]:
+    def _get_available_layers(self) -> dict[str, nn.Module]:
         return {
             "backbone": self.model.backbone,
             "cross_attn_s16": self.model.cross_attn_s16,
@@ -153,7 +153,7 @@ class LibreNeuFlowv2(BaseModel):
     def _get_preprocess_numpy():
         return preprocess_numpy
 
-    def _canvas_hw(self, input_size=None) -> Tuple[int, int]:
+    def _canvas_hw(self, input_size=None) -> tuple[int, int]:
         effective = input_size if input_size is not None else self._get_input_size()
         h, w = _input_size_hw(effective)
         if h % NEUFLOWV2_STRIDE or w % NEUFLOWV2_STRIDE:
@@ -168,7 +168,7 @@ class LibreNeuFlowv2(BaseModel):
         image: ImageInput,
         color_format: str = "auto",
         input_size=None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], Tuple[float, float]]:
+    ) -> tuple[torch.Tensor, Image.Image, tuple[int, int], tuple[float, float]]:
         """Load one frame and stretch it to the canvas.
 
         Returns ``(tensor (1, 3, H, W) in [0, 1], PIL image, (orig_w, orig_h),
@@ -190,8 +190,7 @@ class LibreNeuFlowv2(BaseModel):
         if isinstance(input_tensor, (tuple, list)):
             if len(input_tensor) != 2:
                 raise ValueError(
-                    "NeuFlow v2 consumes exactly two frames, got "
-                    f"{len(input_tensor)}."
+                    f"NeuFlow v2 consumes exactly two frames, got {len(input_tensor)}."
                 )
             return self._forward_pair(input_tensor[0], input_tensor[1])
         if isinstance(input_tensor, torch.Tensor):
@@ -213,10 +212,10 @@ class LibreNeuFlowv2(BaseModel):
         output: Any,
         conf_thres: float,
         iou_thres: float,
-        original_size: Tuple[int, int],
+        original_size: tuple[int, int],
         max_det: int = 300,
         **kwargs,
-    ) -> Dict:
+    ) -> dict:
         flow = output
         if isinstance(flow, dict):
             flow = flow.get("flow", flow.get("predictions"))
@@ -246,5 +245,3 @@ class LibreNeuFlowv2(BaseModel):
             "-things variants), or convert an upstream checkpoint with "
             "weights/convert_neuflowv2_weights.py."
         )
-
-

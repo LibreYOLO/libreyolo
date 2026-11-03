@@ -30,7 +30,9 @@ def _shifted_pair(sample_image, tmp_path: Path) -> list[str]:
     scale = 960 / w
     img = cv2.resize(img, (960, round(h * scale)), interpolation=cv2.INTER_AREA)
     shift = np.float32([[1, 0, DX], [0, 1, DY]])
-    moved = cv2.warpAffine(img, shift, (img.shape[1], img.shape[0]), borderMode=cv2.BORDER_REFLECT)
+    moved = cv2.warpAffine(
+        img, shift, (img.shape[1], img.shape[0]), borderMode=cv2.BORDER_REFLECT
+    )
     paths = []
     for name, frame in (("000.png", img), ("001.png", moved)):
         path = tmp_path / name

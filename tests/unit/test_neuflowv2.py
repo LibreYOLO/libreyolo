@@ -109,7 +109,9 @@ def test_filenames_and_download_urls(filename, variant):
         ("neuflow_things.pth", "things", "LibreNeuFlowv2s-flow-things.pt"),
     ],
 )
-def test_conversion_round_trip(tmp_path, upstream_state_dict, upstream_name, variant, expected):
+def test_conversion_round_trip(
+    tmp_path, upstream_state_dict, upstream_name, variant, expected
+):
     conv = _converter()
     assert conv.detect_variant(upstream_name) == variant
     assert conv.output_filename(variant) == expected
@@ -171,7 +173,7 @@ def test_forward_does_not_mutate_inputs():
 def test_preprocess_and_postprocess_geometry():
     model = LibreNeuFlowv2(None, size="s", device="cpu")
     img = Image.fromarray(np.full((90, 160, 3), 128, dtype=np.uint8))
-    tensor, pil, orig_size, ratio = model._preprocess(img, input_size=(48, 64))
+    tensor, _pil, orig_size, ratio = model._preprocess(img, input_size=(48, 64))
     assert tensor.shape == (1, 3, 48, 64)
     assert orig_size == (160, 90)
     assert ratio == pytest.approx((160 / 64, 90 / 48))

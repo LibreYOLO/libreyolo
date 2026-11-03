@@ -28,7 +28,6 @@ import argparse
 from pathlib import Path
 
 import torch
-
 from _conversion_utils import (
     add_repo_root_to_path,
     extract_state_dict,
@@ -44,7 +43,9 @@ _IMGSZ_HW = (432, 768)
 def output_filename(variant: str) -> str:
     """Canonical LibreYOLO filename for an upstream variant."""
     if variant not in VARIANTS:
-        raise ValueError(f"Unknown NeuFlow v2 variant {variant!r}; expected {VARIANTS}.")
+        raise ValueError(
+            f"Unknown NeuFlow v2 variant {variant!r}; expected {VARIANTS}."
+        )
     suffix = "" if variant == CANONICAL_VARIANT else f"-{variant}"
     return f"LibreNeuFlowv2s-flow{suffix}.pt"
 
@@ -123,8 +124,12 @@ def verify_conversion(converted_path: str) -> bool:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Convert NeuFlow v2 weights to LibreYOLO format")
-    parser.add_argument("input", help="Upstream checkpoint (neuflow_{mixed,sintel,things}.pth)")
+    parser = argparse.ArgumentParser(
+        description="Convert NeuFlow v2 weights to LibreYOLO format"
+    )
+    parser.add_argument(
+        "input", help="Upstream checkpoint (neuflow_{mixed,sintel,things}.pth)"
+    )
     parser.add_argument(
         "output",
         nargs="?",

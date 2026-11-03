@@ -31,7 +31,6 @@ import sys
 from pathlib import Path
 
 import torch
-
 from _conversion_utils import add_repo_root_to_path
 
 UPSTREAM_COMMIT = "204b5e3744461d90303b9ff82caa7a1bb56a2ca2"
@@ -52,7 +51,9 @@ def main() -> int:
     parser.add_argument("checkpoint")
     parser.add_argument("--upstream-dir", required=True)
     parser.add_argument("--upstream-ckpt", required=True)
-    parser.add_argument("--frames", required=True, help="glob of frames, sorted by name")
+    parser.add_argument(
+        "--frames", required=True, help="glob of frames, sorted by name"
+    )
     parser.add_argument("--json", default=None, help="write the per-pair numbers here")
     args = parser.parse_args()
 
@@ -73,7 +74,7 @@ def main() -> int:
     from libreyolo import LibreYOLO
 
     sys.path.insert(0, str(upstream_dir))
-    from NeuFlow.neuflow import NeuFlow  # noqa: E402
+    from NeuFlow.neuflow import NeuFlow
 
     upstream = NeuFlow().to(device)
     ckpt = torch.load(args.upstream_ckpt, map_location="cpu", weights_only=False)
@@ -95,7 +96,10 @@ def main() -> int:
 
     results = model.predict(frames)
     if len(results) != len(frames) - 1:
-        print(f"predict returned {len(results)} results for {len(frames)} frames", file=sys.stderr)
+        print(
+            f"predict returned {len(results)} results for {len(frames)} frames",
+            file=sys.stderr,
+        )
         return 1
 
     pairs = []
@@ -135,12 +139,19 @@ def main() -> int:
         "gpu": torch.cuda.get_device_name(0),
         "canvas": agg("canvas"),
         "e2e": agg("e2e"),
-        "upstream_mean_magnitude": sum(p["upstream_mean_magnitude"] for p in pairs) / len(pairs),
+        "upstream_mean_magnitude": sum(p["upstream_mean_magnitude"] for p in pairs)
+        / len(pairs),
     }
     print(json.dumps(summary, indent=2))
     if args.json:
-        Path(args.json).write_text(json.dumps({"summary": summary, "pairs": pairs}, indent=2))
-    return 0 if summary["canvas"]["max_abs"] < 1e-2 and summary["e2e"]["max_abs"] < 1e-2 else 1
+        Path(args.json).write_text(
+            json.dumps({"summary": summary, "pairs": pairs}, indent=2)
+        )
+    return (
+        0
+        if summary["canvas"]["max_abs"] < 1e-2 and summary["e2e"]["max_abs"] < 1e-2
+        else 1
+    )
 
 
 if __name__ == "__main__":

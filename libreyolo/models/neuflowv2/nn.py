@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
-
 import torch
 
 from ._vendor.neuflow import NeuFlow
@@ -45,7 +43,7 @@ class LibreNeuFlowv2Net(NeuFlow):
         super().__init__()
         self.iters_s16 = int(iters_s16)
         self.iters_s8 = int(iters_s8)
-        self._bhwd_key: Optional[Tuple] = None
+        self._bhwd_key: tuple | None = None
 
     def _ensure_bhwd(self, image: torch.Tensor) -> None:
         b, _, h, w = image.shape

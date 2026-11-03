@@ -539,6 +539,7 @@ requires-dist = []
 extend-exclude = [
     "libreyolo/models/deimv2/engine",
     "libreyolo/models/depth_anything3/_vendor",
+    "libreyolo/models/neuflowv2/_vendor",
 ]
 
 [tool.ty.rules]

@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Tuple
-
 import cv2
 import numpy as np
 
 
 def preprocess_numpy(
-    img_rgb_hwc: np.ndarray, input_size: Tuple[int, int] = (432, 768)
-) -> Tuple[np.ndarray, Tuple[float, float]]:
+    img_rgb_hwc: np.ndarray, input_size: tuple[int, int] = (432, 768)
+) -> tuple[np.ndarray, tuple[float, float]]:
     """Stretch-resize one RGB frame to the NeuFlow v2 canvas.
 
     Reproduces upstream ``infer.py``: ``cv2.resize`` with the default bilinear
