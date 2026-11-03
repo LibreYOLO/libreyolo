@@ -1249,11 +1249,12 @@ Used for: MEMFOF optical flow family, inference code vendored under
           as its source.
 
 NOTE - weights: the upstream MEMFOF checkpoints (Hugging Face
-egorchistov/optical-flow-MEMFOF-*) carry no separate licence statement.
+egorchistov/optical-flow-MEMFOF-*) are tagged bsd-3-clause in their card
+metadata but ship no licence file or separate weight-licence text.
 LibreYOLO mirrors the converted checkpoints (LibreYOLO/LibreMEMFOFm-flow
-and its -<variant> repos) under the BSD-3-Clause licence of the
-releasing code repository; that weight licence is inherited from the
-code repository, not stated by the authors.
+and the LibreYOLO/LibreMEMFOFm-flow-<variant> repos for tartan,
+tartan-t, kitti, sintel and spring) under the BSD-3-Clause licence of the
+releasing code repository, from which the weight licence is inherited.
 
 --------------------------------------------------------------------
 Depth Anything V2 (DepthAnything / TikTok)
