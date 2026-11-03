@@ -245,10 +245,11 @@ tensorrt = [
     # [[tool.uv.dependency-metadata]] blocks below. No aarch64 wheels on PyPI:
     # Jetson gets TensorRT from JetPack.
     "tensorrt-cu12==10.16.1.11; sys_platform != 'darwin' and platform_machine != 'aarch64'",
-    # CUDA runtime bindings for INT8 calibration. cuda-python ships wheels;
-    # pycuda, the fallback the calibrator also accepts, is sdist only and
-    # needs the CUDA toolkit headers to build, which broke pip installs.
-    "cuda-python>=12.6,<13; sys_platform != 'darwin'",
+    # No pycuda: it is sdist only and needs the CUDA toolkit headers to build,
+    # which broke pip installs. Export and inference use torch.cuda. INT8
+    # calibration imports cuda.bindings, which PyPI torch already installs on
+    # Linux; elsewhere it asks for `pip install cuda-python`. Pinning
+    # cuda-python here would fight torch's own cuda-bindings major version.
 ]
 openvino = [
     "openvino>=2024.0.0",

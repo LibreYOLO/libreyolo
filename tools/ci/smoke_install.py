@@ -57,7 +57,7 @@ for module in MODULES:
 
 # GPU-only packages cannot be imported on a CPU runner; check they installed.
 if sys.platform != "darwin" and platform.machine().lower() in ("x86_64", "amd64"):
-    for dist in ("tensorrt-cu12", "cuda-python"):
+    for dist in ("tensorrt-cu12",):
         check(f"installed {dist}", lambda d=dist: importlib.metadata.version(d))
 
 state: dict = {}

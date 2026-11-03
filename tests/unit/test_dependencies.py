@@ -72,7 +72,6 @@ def _extra(name):
 def test_extras_avoid_packages_that_compile_on_install():
     # #989: pip compiled these from source and failed without a toolchain.
     assert not any(dep.startswith("pycuda") for dep in _extra("tensorrt"))
-    assert any(dep.startswith("cuda-python") for dep in _extra("tensorrt"))
     assert not any(dep.startswith("onnx-simplifier") for dep in _extra("tflite"))
     (coremltools,) = [d for d in _extra("coreml") if d.startswith("coremltools")]
     assert "sys_platform == 'darwin'" in coremltools
