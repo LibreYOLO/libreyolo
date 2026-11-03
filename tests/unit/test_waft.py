@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import sys
 from pathlib import Path
 from unittest import mock
@@ -57,11 +58,23 @@ def state_dicts():
     return {size: _meta_state_dict(build) for size, build in _NETS.items()}
 
 
-@pytest.fixture(scope="module")
-def small_model():
-    """One real size-s model, shared by the tests that need weights."""
+def _small_model() -> LibreWAFT:
+    """A real size-s model (57 M parameters, 230 MB); built per test and freed."""
     torch.manual_seed(0)
     return LibreWAFT(None, size="s", device="cpu")
+
+
+def _fingerprint(state_dict: dict) -> dict:
+    """Shape, dtype and float64 sum per tensor, plus full copies of the small ones.
+
+    Lets the round-trip test compare the loaded weights against the source
+    after the source model has been freed, so only one 230 MB model is alive.
+    """
+    out = {}
+    for key, value in state_dict.items():
+        small = value.clone() if value.numel() <= 1024 else None
+        out[key] = (tuple(value.shape), value.dtype, float(value.double().sum()), small)
+    return out
 
 
 @pytest.mark.parametrize("size", sorted(_NETS))
@@ -109,8 +122,9 @@ def test_unpublished_combinations_raise(filename):
         LibreWAFT.get_download_url(filename)
 
 
-def test_conversion_metadata_and_load(small_model, state_dicts, tmp_path):
-    source = small_model.model.state_dict()
+def test_conversion_metadata_and_load(state_dicts, tmp_path):
+    source_model = _small_model()
+    source = source_model.model.state_dict()
     assert source.keys() == state_dicts["s"].keys()
     ckpt = convert_waft_weights.convert_state_dict(source)
     assert validate_checkpoint_metadata(ckpt, strict=True) == []
@@ -121,11 +135,22 @@ def test_conversion_metadata_and_load(small_model, state_dicts, tmp_path):
 
     path = tmp_path / "LibreWAFTs-flow-dav2.pt"
     torch.save(ckpt, path)
+    expected = _fingerprint(source)
+    del source_model, source, ckpt
+    gc.collect()
+
     model = LibreYOLO(str(path), device="cpu")
+    path.unlink()
     assert isinstance(model, LibreWAFT)
     assert (model.size, model.task, model.names) == ("s", "flow", {0: "flow"})
-    for key, value in model.model.state_dict().items():
-        assert torch.equal(value, source[key]), key
+    loaded = model.model.state_dict()
+    assert loaded.keys() == expected.keys()
+    for key, value in loaded.items():
+        shape, dtype, total, small = expected[key]
+        assert (tuple(value.shape), value.dtype) == (shape, dtype), key
+        assert float(value.double().sum()) == total, key
+        if small is not None:
+            assert torch.equal(value, small), key
 
 
 def test_conversion_rejects_size_mismatch(state_dicts):
@@ -135,8 +160,8 @@ def test_conversion_rejects_size_mismatch(state_dicts):
         convert_waft_weights.convert_state_dict({"foo": torch.zeros(1)})
 
 
-def test_pair_predict_shapes_and_single_image_error(small_model):
-    model = small_model
+def test_pair_predict_shapes_and_single_image_error():
+    model = _small_model()
     rng = np.random.default_rng(0)
     frame = (rng.random((70, 90, 3)) * 255).astype(np.uint8)
     results = model([frame, np.roll(frame, 2, axis=1), np.roll(frame, 4, axis=1)])
@@ -148,6 +173,6 @@ def test_pair_predict_shapes_and_single_image_error(small_model):
         model(frame)
 
 
-def test_train_is_rejected(small_model):
+def test_train_is_rejected():
     with pytest.raises(NotImplementedError):
-        small_model.train(data="x.yaml")
+        _small_model().train(data="x.yaml")
