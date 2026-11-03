@@ -252,10 +252,12 @@
     ],
     "default_task": "ocr",
     "sizes": {
-      "1": 1024
+      "1": 1024,
+      "2": 1024
     },
     "default_imgsz": {
-      "1": 1024
+      "1": 1024,
+      "2": 1024
     },
     "task_sizes": {},
     "export_override": "blocked",

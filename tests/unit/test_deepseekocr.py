@@ -57,7 +57,6 @@ def test_markdown_output_uses_trailing_text_and_drops_figures():
     items = parsing.parse_grounding(MARKDOWN_OUTPUT)
     assert [(i["label"], i["text"]) for i in items] == [
         ("sub_title", "## Quarterly Report 2026"),
-        ("text", "image"),
         ("text", "Line one \\coloneqq two"),
     ]
     page = parsing.to_page_text(MARKDOWN_OUTPUT)
@@ -300,7 +299,7 @@ def test_predict_returns_ocr_regions_and_markdown(harness):
     harness["text"] = MARKDOWN_OUTPUT
     md = model.set_prompt("markdown").predict(Image.new("RGB", (999, 999), "white"))
     assert harness["calls"][-1][1] == ds_model.PROMPTS["markdown"]
-    assert md.ocr.labels == ["sub_title", "text", "text"]
+    assert md.ocr.labels == ["sub_title", "text"]
     assert md.ocr.markdown.startswith("## Quarterly Report 2026")
     harness["text"] = "just text"
     free = model.set_prompt("free").predict(Image.new("RGB", (64, 64)))
@@ -338,7 +337,7 @@ def test_pins_inventory_and_registry():
     from libreyolo.models.registry import MODEL_GROUPS
 
     assert not LibreDeepSeekOCR.TRUST_REMOTE_CODE
-    assert set(LibreDeepSeekOCR.HF_REPOS) == set(LibreDeepSeekOCR.HF_REVISIONS) == {"1"}
+    assert set(LibreDeepSeekOCR.HF_REPOS) == set(LibreDeepSeekOCR.HF_REVISIONS) == {"1", "2"}
     assert MODEL_GROUPS["deepseekocr"] == "s"
     entry = collect_model_inventory()["deepseekocr"]
     assert entry["optional_extra"] == "vlm"

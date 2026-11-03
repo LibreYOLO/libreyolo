@@ -13,8 +13,9 @@ Two shapes occur:
   ``image``...) inside ``<|ref|>`` and the block's markdown after the box.
 
 One rule covers both: a box's transcript is the text that follows it up to
-the next block when there is any, else the ``<|ref|>`` content. Boxes with an
-empty transcript (figures) are not text regions and are dropped.
+the next block when the output carries any such text (layout output), else the
+``<|ref|>`` content. In layout output, blocks without text (figures) are not
+text regions and are dropped.
 """
 
 from __future__ import annotations
@@ -75,14 +76,21 @@ def parse_grounding(text: str) -> List[Dict]:
     """
     text = strip_eos(text)
     matches = list(_BLOCK_RE.finditer(text))
-    items: List[Dict] = []
+    blocks = []
     for i, match in enumerate(matches):
-        label = match.group(1).strip()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         trailing = _DANGLING_RE.sub("", text[match.end() : end]).strip()
-        transcript = trailing if trailing else label
-        kind = label if trailing else "text"
-        for box in _parse_boxes(match.group(2)):
+        blocks.append((match.group(1).strip(), trailing, match.group(2)))
+    # Layout output (markdown prompt) is recognized by any block carrying
+    # trailing text; there an empty block is a figure, not a transcript.
+    layout = any(trailing for _, trailing, _ in blocks)
+    items: List[Dict] = []
+    for label, trailing, raw_boxes in blocks:
+        if layout and not trailing:
+            continue
+        transcript = trailing if layout else label
+        kind = label if layout else "text"
+        for box in _parse_boxes(raw_boxes):
             items.append({"label": kind, "text": transcript, "box": box})
     return items
 
