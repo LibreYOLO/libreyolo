@@ -150,6 +150,7 @@ SDK's behaviour.
 | Alias | Upstream | License | Knobs (defaults) |
 | --- | --- | --- | --- |
 | `speridlabs-idol` | `speridlabs/idol` (code `speridlabs/idol-sdk`) | Apache-2.0 code and weights | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"`), `margin` (`None`) |
+| `triposplat` | `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
 
 Speridlabs Idol is a 0.66B rectified-flow transformer: DINOv3 ViT-H+ and
 FLUX.2 VAE tokens of the 1024px input condition a denoiser over an 8192-token
@@ -175,6 +176,24 @@ not the same Gaussians, because TF32 and fused kernels move the sampled
 latent slightly and the octree places its points from it.
 Precision is the published mixed precision (fp16 transformer blocks, bf16
 encoders), so `dtype` accepts only `"auto"`.
+
+TripoSplat is the model Idol builds on: the same 0.66B architecture, the
+same encoders, the same octree and Gaussian decoders, up to 262,144
+Gaussians. Its knobs are upstream's: `steps` (upstream recommends 10 to
+20), `guidance` with upstream's diffusers convention (1 or less runs the
+conditional pass only; above 1 blends `s * v(cond) - (s - 1) * v(uncond)`,
+where Idol's `w` equals `s - 1`), `shift`, `gaussians` (32,768 to 262,144)
+and `margin` (upstream's fixed 1.2 crop, exposed). No `mode`, no `compile`.
+The networks run in fp16 on CUDA and MPS as upstream loads them, and in
+fp32 on CPU. Upstream draws the octree sampling from the global generator,
+so its decoder stage is not seed-reproducible; the port draws it from the
+seeded generator, so a seed reproduces the whole object. The sampled latent
+and camera follow upstream for a seed; the Gaussians are the same
+distribution, not the same draw.
+
+The shared steps (background removal, crop, the two encoders, the camera
+decoding) live in `libreyolo/models/gen/image3d.py`; each family keeps its
+own networks and sampler.
 
 ## Weights
 
@@ -205,6 +224,12 @@ snapshot.
 `LibreGen(path)` loads a local directory holding the snapshot files
 (`config.json` with `image_encoders`, `denoiser.safetensors`,
 `decoder.safetensors`, `decoder_gs.safetensors`, `birefnet.safetensors`).
+
+TripoSplat's own weights are the denoiser, the decoder and BiRefNet of the
+pinned `VAST-AI/TripoSplat` snapshot (MIT), downloaded into
+`weights/LibreTripoSplat0.6b/` in their upstream folders; the repo's DINOv3
+and FLUX.2 VAE copies are not downloaded, the two encoders above are used
+instead. `LibreGen(path)` loads a directory holding those three files.
 
 ## Reserved for later
 

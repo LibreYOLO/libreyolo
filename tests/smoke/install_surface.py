@@ -157,13 +157,14 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreGen,
         LibreSanaSprint,
         LibreSperidlabsIdol,
+        LibreTripoSplat,
     )
 
     if not callable(LibreGen):
         raise AssertionError("LibreGen import did not resolve to a callable")
     if not all(
         isinstance(cls, type)
-        for cls in (LibreFlux2Klein, LibreSanaSprint, LibreSperidlabsIdol, GeneratedImage, Gaussians)
+        for cls in (LibreFlux2Klein, LibreSanaSprint, LibreSperidlabsIdol, LibreTripoSplat, GeneratedImage, Gaussians)
     ):
         raise AssertionError("LibreGen family/payload exports did not resolve to classes")
     for family in (

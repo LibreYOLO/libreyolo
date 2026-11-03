@@ -810,8 +810,8 @@ WildDet3D (LibreYOLO/LibreWildDet3D; byte-identical upstream mirror)
     Filename: wilddet3d_alldata_all_prompt_v1.0.pt
     SHA-256: f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57
 
-DINOv3 ViT-H+/16 encoder for Speridlabs Idol (LibreYOLO/LibreDINOv3vith16plus;
-bfloat16 mirror)
+DINOv3 ViT-H+/16 encoder for Speridlabs Idol and TripoSplat
+(LibreYOLO/LibreDINOv3vith16plus; bfloat16 mirror)
     Source: https://huggingface.co/facebook/dinov3-vith16plus-pretrain-lvd1689m
             revision c807c9eeea853df70aec4069e6f56b28ddc82acc
     License: Meta's DINOv3 License, a custom non-OSI agreement. It permits
@@ -963,9 +963,33 @@ bfloat16 mirror LibreYOLO/LibreDINOv3vith16plus under Meta's DINOv3 License
 libreyolo/models/gen/speridlabs_idol/NOTICE.
 
 
+TripoSplat (LibreTripoSplat 0.6b)                       MIT
+Image-to-3D Gaussian splats
+---------------------------
+
+Upstream: VAST-AI-Research (TripoAI), https://github.com/VAST-AI-Research/TripoSplat
+License: MIT, as declared by the official model repository.
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+VAST-AI/TripoSplat @ 56a96e603204ec410c4da60c13ea4fa09a2169a9
+  diffusion_models/triposplat_fp16.safetensors
+    SHA-256: c870b97ac1d6bc9177608a5ec625e19ef9f3c5019aa68f64b0fb7803abcd6d20
+  vae/triposplat_vae_decoder_fp16.safetensors
+    SHA-256: ed0d0c3d43b599e326845d0ec70f3cf77be9a55e2d97627ac3b34d2830763cc8
+  background_removal/birefnet.safetensors
+    SHA-256: 9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154
+
+The repository's own DINOv3 and FLUX.2 VAE copies are not downloaded. The
+FLUX.2 VAE comes from black-forest-labs/FLUX.2-klein-4B (see the FLUX.2
+klein entry below) and the DINOv3 encoder from LibreYOLO's bfloat16 mirror
+LibreYOLO/LibreDINOv3vith16plus under Meta's DINOv3 License (see its entry
+above). Ported inference code: see libreyolo/models/gen/triposplat/NOTICE.
+
+
 FLUX.2 klein (LibreFlux2Klein 4b)                       Apache-2.0
-Text-to-image pipeline, also the VAE source for Speridlabs Idol
----------------------------------------------------------------
+Text-to-image pipeline, also the VAE source for Speridlabs Idol and TripoSplat
+-----------------------------------------------------------------------------
 
 Upstream: Black Forest Labs, https://huggingface.co/black-forest-labs/FLUX.2-klein-4B
 License: Apache-2.0, as declared by the official model repository.

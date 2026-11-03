@@ -154,6 +154,7 @@ and records seed, camera and settings in a header comment.
 | Alias | Parameters | Knobs (defaults) | Download | License |
 | --- | --- | --- | --- | --- |
 | `speridlabs-idol` | 0.66B (plus DINOv3 ViT-H+ and the FLUX.2 VAE encoder) | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"` or `"real"`), `margin` (crop override) | about 3.1 GB, plus 1.7 GB DINOv3 and 0.2 GB VAE | Apache-2.0; the DINOv3 encoder under Meta's DINOv3 License |
+| `triposplat` | 0.66B (plus the same two encoders) | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) | about 1.8 GB, plus the same DINOv3 and VAE | MIT; the DINOv3 encoder under Meta's DINOv3 License |
 
 Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
 in under 8 GB of GPU memory. On CUDA, a seed gives the same object as the
@@ -172,9 +173,22 @@ encoder Idol reads its input through comes from LibreYOLO's bf16 mirror,
 under Meta's DINOv3 License, which restricts some uses (military, weapons,
 sanctioned parties among them); read it before use.
 
+TripoSplat by [TripoAI](https://www.tripo3d.ai/research/triposplat) is the
+model Idol builds on, under MIT. Same call, same output, same encoders; its
+own knobs are `steps` (upstream recommends 10 to 20), `guidance` (1 or less
+turns it off), `shift`, `gaussians` (32,768 to 262,144) and `margin` (the
+crop, 1.2 as upstream). It runs in fp16 on CUDA and Apple MPS and in fp32 on
+CPU, with no compiled path.
+
+```python
+model = LibreGen("triposplat")
+model("chair.jpg", steps=20, gaussians=131072).save("chair.ply")
+```
+
 ```bash
 libreyolo generate source=chair.jpg
 libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
+libreyolo generate source=chair.jpg model=triposplat
 ```
 
 With `source=` the model defaults to `speridlabs-idol` and objects are saved
@@ -189,9 +203,10 @@ reserved by ADRs 0030 and 0031.
 ## Licensing
 
 LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
-Idol networks ported from the Apache-2.0 Idol SDK (see the family's
+Idol networks ported from the Apache-2.0 Idol SDK and the TripoSplat
+networks ported from the MIT TripoSplat repository (see each family's
 `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
-one exception is Speridlabs Idol's DINOv3 encoder, which LibreYOLO mirrors
-in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;
+one exception is the DINOv3 encoder both image-to-3D families read, which
+LibreYOLO mirrors in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;
 upstream usage policies apply.

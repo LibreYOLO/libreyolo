@@ -2479,6 +2479,25 @@
     "available": true,
     "group": "g1"
   },
+  "triposplat": {
+    "class": "libreyolo.models.gen.triposplat.model.LibreTripoSplat",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "0.6b": 1024
+    },
+    "default_imgsz": {
+      "0.6b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "unet": {
     "class": "libreyolo.models.unet.model.LibreUNet",
     "tasks": [
