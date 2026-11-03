@@ -2503,6 +2503,26 @@
     "available": true,
     "group": "g2"
   },
+  "unimatch": {
+    "class": "libreyolo.models.unimatch.model.LibreUniMatch",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "s": 640,
+      "l": 640
+    },
+    "default_imgsz": {
+      "s": 640,
+      "l": 640
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "vgg": {
     "class": "libreyolo.models.vgg.model.LibreVGG",
     "tasks": [
