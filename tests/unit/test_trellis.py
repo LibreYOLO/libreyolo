@@ -430,7 +430,24 @@ def test_guidance_interval_skips_the_unconditional_pass_outside_it():
     assert unconditional == [1000.0, 750.0, 500.0]
 
 
-@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs Apple MPS")
+def _mps_runs_conv3d() -> bool:
+    """Real Apple GPUs run Conv3d on MPS; GitHub's virtual macOS GPU cannot compile its Metal kernel."""
+    if not torch.backends.mps.is_available():
+        return False
+    try:
+        torch.nn.functional.conv3d(
+            torch.ones(1, 4, 4, 4, 4, device="mps"),
+            torch.ones(4, 4, 3, 3, 3, device="mps"),
+        )
+        torch.mps.synchronize()
+    except RuntimeError:
+        return False
+    return True
+
+
+@pytest.mark.skipif(
+    not _mps_runs_conv3d(), reason="needs an Apple GPU that runs Conv3d on MPS"
+)
 def test_tiny_pipeline_runs_on_mps_like_on_cpu():
     prepared = tpipe.preprocess_image(_image(), _CentreBlob())
     cpu = tpipe.run_stages(
