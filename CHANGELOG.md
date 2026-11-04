@@ -7,6 +7,11 @@ before 1.4.0 are documented in the
 
 ## [Unreleased]
 
+### Changed
+
+- **TFLite INT8 export quantizes once instead of twice.**
+  `onnx2tf -oiqt` builds the integer model twice — float32 I/O, then int8 I/O — and only the second is shipped, although the I/O dtype does not change the calibrated scales. `export(format="tflite", int8=True, ...)` now builds the SavedModel with onnx2tf and runs a single in-process `TFLiteConverter` pass; `int8_backend="onnx2tf"` keeps the previous route, and `int8_output_dtype="float32"` writes float outputs for host-dequantizing runtimes (in-process backend only).
+
 ## [1.7.2] - 2026-11-03
 
 ### Changed
