@@ -193,7 +193,7 @@ def hard_mish_bwd(x, grad_output):
 
 class HardMishAutoFn(torch.autograd.Function):
     """A memory efficient variant of Hard Mish
-    Experimental, based on notes by Mish author Diganta Misra at
+    Based on notes by Mish author Diganta Misra at
       https://github.com/digantamisra98/H-Mish/blob/0da20d4bc58e696b6803f2523c58d3c8a82782d0/README.md
     """
 

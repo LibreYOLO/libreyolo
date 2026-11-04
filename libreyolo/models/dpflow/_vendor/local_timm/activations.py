@@ -102,7 +102,7 @@ class HardSigmoid(nn.Module):
 
 def hard_mish(x, inplace: bool = False):
     """Hard Mish
-    Experimental, based on notes by Mish author Diganta Misra at
+    Based on notes by Mish author Diganta Misra at
       https://github.com/digantamisra98/H-Mish/blob/0da20d4bc58e696b6803f2523c58d3c8a82782d0/README.md
     """
     if inplace:
