@@ -271,7 +271,7 @@ ships:
 | `vgg`       | `16`, `19`, `16bn`, `19bn` (VGG depth plus optional batch normalization; all fixed 224) |
 | `swin`      | `t`, `s`, `b`, `l` (Swin V1 Tiny/Small/Base/Large; patch 4, window 7, all at 224) |
 | `nafnet`    | `s`, `l` (small width-32 / large width-64 restoration models). Weight variants select the degradation: `LibreNAFNetl-restore.pt` (GoPro deblur) and `LibreNAFNetl-restore-sidd.pt` (SIDD denoise, the model behind the `denoise` alias) |
-| `raft`      | `s`, `l` (raft-small / raft, native resolution padded to a multiple of 8). Weight variants of `l` select the fine-tuning set: `LibreRAFTl-flow.pt` (raft-things, canonical), `LibreRAFTl-flow-sintel.pt` (raft-sintel), `LibreRAFTl-flow-kitti.pt` (raft-kitti) |
+| `raft`      | `s`, `l` (raft-small / raft, native resolution by default (`imgsz` caps the long side), padded to a multiple of 8). Weight variants of `l` select the fine-tuning set: `LibreRAFTl-flow.pt` (raft-things, canonical), `LibreRAFTl-flow-sintel.pt` (raft-sintel), `LibreRAFTl-flow-kitti.pt` (raft-kitti) |
 | `neuflowv2` | `s` (the single released 9M-parameter network, default canvas 432x768). Training-data variants: `LibreNeuFlowv2s-flow.pt` (upstream `neuflow_mixed.pth`), `LibreNeuFlowv2s-flow-sintel.pt` and `LibreNeuFlowv2s-flow-things.pt` |
 | `ddcolor`   | `t`, `l` (ConvNeXt-T and ConvNeXt-L encoders; both use a fixed 512 colorization graph and restore the source canvas) |
 | `hvi_cidnet` | `t` (the 1.98M-parameter generalization checkpoint; native resolution with padding to a multiple of 8) |
@@ -281,8 +281,8 @@ ships:
 | `swinir`    | `s`, `m`, `l` (all 4x: lightweight SwinIR-S, real-world SwinIR-M, and real-world SwinIR-L) |
 | `depth_anything` | `s`, `b`, `l`, `g` (ViT-S/B/L/G, all at 518) |
 | `depth_anything3` | `l` (DA3MONO-LARGE ViT-L, native upper-bound 504) |
-| `waft` | `t`, `s`, `m`, `l` by parameter count: `t` a2 DINOv3 ViT-S/16 (56.5 M), `s` a2 Depth Anything V2 ViT-S (56.9 M), `m` a1 Depth Anything V2 ViT-S (64.2 M, upstream's recommended checkpoint), `l` a2 Twins-SVT-Large (136.0 M); native resolution, the backbone is the weight variant (`-dinov3`, `-dav2`, `-twins`); `m` has no variant suffix |
-| `dpflow`    | `m` (the single published DPFlow graph, 10.0M parameters; runs at the native frame size, pyramid depth chosen from the image diagonal; nominal `imgsz` 960) |
+| `waft` | `t`, `s`, `m`, `l` by parameter count: `t` a2 DINOv3 ViT-S/16 (56.5 M), `s` a2 Depth Anything V2 ViT-S (56.9 M), `m` a1 Depth Anything V2 ViT-S (64.2 M, upstream's recommended checkpoint), `l` a2 Twins-SVT-Large (136.0 M); native resolution by default (`imgsz` caps the long side), the backbone is the weight variant (`-dinov3`, `-dav2`, `-twins`); `m` has no variant suffix |
+| `dpflow`    | `m` (the single published DPFlow graph, 10.0M parameters; runs at the native frame size by default, pyramid depth chosen from the image diagonal; `imgsz` caps the long side) |
 | `zipdepth`  | `b` (base, GPU/CPU convex upsampling), `bnpu` (base capacity with the separately trained unfold-free upsampling head for NPU/edge compilers); both at short-side 384 |
 | `midas`     | `s` (MiDaS v2.1 Small, EfficientNet-Lite3, upper-bound 256), `l` (DPT-Large, ViT-L/16, minimal-resize 384) |
 | `searaft`   | `s` (ResNet18 encoders, 4 iterations), `m` (ResNet34, 4 iterations), `l` (the `m` weights at 12 iterations, upstream's SEA-RAFT L); native resolution padded to a multiple of 8, long side capped at 960 |
@@ -291,7 +291,7 @@ ships:
 | `memfof`    | `m` (single released network, ResNet-34 FPN at dim 512; native resolution, `imgsz` caps the long side at 1920). Bare `LibreMEMFOFm-flow.pt` is upstream MEMFOF-Tartan-T-TSKH; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring` are the other published stages and fine-tunes, one Hugging Face repo per file |
 | `teed`      | `t` (tiny, 58,910 parameters; fixed 352 square) |
 | `dexined`   | `b` (base, 35.2M parameters; fixed 352 square) |
-| `flowseek`  | `t`, `s`, `m`, `l` (upstream FlowSeek-T/S/M/L: t and s share the ResNet-18 + DAv2 ViT-S weights at 4 and 12 iterations, m and l share the ResNet-34 + DAv2 ViT-B weights at 4 and 12; native resolution padded to a multiple of 8) |
+| `flowseek`  | `t`, `s`, `m`, `l` (upstream FlowSeek-T/S/M/L: t and s share the ResNet-18 + DAv2 ViT-S weights at 4 and 12 iterations, m and l share the ResNet-34 + DAv2 ViT-B weights at 4 and 12; native resolution by default (`imgsz` caps the long side), padded to a multiple of 8) |
 | `unimatch`  | `s` (GMFlow scale1, FlyingThings), `l` (GMFlow+ scale2 with 6 refinement steps, mixed data; quality default). Weight variants `-sintel` and `-kitti` select the `l` finetunes: `LibreUniMatchl-flow-sintel.pt`, `LibreUniMatchl-flow-kitti.pt` |
 | `birefnet`  | `t` (BiRefNet_lite, Swin-T tier), `l` (BiRefNet general, Swin-L tier); both at fixed 1024 |
 | `feynobg`   | `l` (single released variant: Swin-L tier with stage 3 deepened to 24 blocks, 263M params) at fixed 1024 |
@@ -432,7 +432,12 @@ draws arrows on the frame, `plot(warp=True)` shows the next frame warped back
 onto the current one as a correctness check; `predict(save=True, arrows=...,
 warp=...)` writes the chosen view and `predict(save_flow=True)` writes each
 pair's raw field as `<frame stem>_<frame index>.flo` (`FlowField.save` writes
-`.flo` or `.npy`); `show=True` previews the view per pair.
+`.flo` or `.npy`); `show=True` previews the view per pair. `imgsz` is the
+maximum long side for the flow families that run at native resolution (RAFT,
+WAFT, FlowSeek, DPFlow, default 8192 so nothing is resized unless asked; SEA-RAFT
+caps at 960 and MEMFOF at 1920): larger frames are downscaled before the network
+and the flow is rescaled back to the original canvas; NeuFlow v2 stretches to
+its 432x768 canvas or an explicit `imgsz` multiple of 16.
 
 ```python
 m = LibreYOLO("LibreSEARAFTm-flow.pt")
