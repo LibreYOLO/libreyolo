@@ -173,3 +173,19 @@ class TestPredict:
         assert LibreFlowSeek.FLOW_CONTEXT == (0, 0)
         with pytest.raises(NotImplementedError):
             model.train()
+
+
+def test_small_frames_are_rejected_with_a_clear_error(model):
+    from PIL import Image as _Image
+
+    tiny = [_Image.new("RGB", (80, 60)), _Image.new("RGB", (80, 60))]
+    with pytest.raises(ValueError, match="at least 128x128"):
+        model(tiny)
+
+
+def test_imgsz_cap_below_the_minimum_names_the_cap(model):
+    from PIL import Image as _Image
+
+    frames = [_Image.new("RGB", (400, 300)), _Image.new("RGB", (400, 300))]
+    with pytest.raises(ValueError, match="imgsz=100"):
+        model(frames, imgsz=100)

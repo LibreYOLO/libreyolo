@@ -86,6 +86,12 @@ def preprocess_numpy(img_rgb_hwc: np.ndarray, input_size: int | None = None):
     return chw, 1.0
 
 
+# FlowSeek builds on SEA-RAFT: features at 1/8 resolution with a correlation
+# pyramid on top, so each side of the working canvas must be at least 128 px
+# (upstream fails inside the network on smaller frames, as RAFT and SEA-RAFT do).
+MIN_SIDE = 128
+
+
 class LibreFlowSeek(BaseModel):
     """FlowSeek: frame pair to dense optical flow."""
 
@@ -209,6 +215,18 @@ class LibreFlowSeek(BaseModel):
         img = ImageLoader.load(image, color_format=color_format)
         orig_w, orig_h = img.size
         frame, ratio = downscale_rgb(np.asarray(img.convert("RGB")), max_side)
+        work_h, work_w = frame.shape[:2]
+        if min(work_h, work_w) < MIN_SIDE:
+            cause = (
+                f" after capping the long side at imgsz={max_side}"
+                if (work_h, work_w) != (orig_h, orig_w)
+                else ""
+            )
+            raise ValueError(
+                f"FlowSeek needs frames of at least {MIN_SIDE}x{MIN_SIDE} pixels, got "
+                f"{work_w}x{work_h}{cause}: its correlation pyramid and the "
+                "upsampling head fail inside the network on smaller frames."
+            )
         chw, _ = preprocess_numpy(frame)
         return torch.from_numpy(chw).unsqueeze(0), img, (orig_w, orig_h), ratio
 
