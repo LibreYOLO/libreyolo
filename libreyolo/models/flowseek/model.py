@@ -86,9 +86,10 @@ def preprocess_numpy(img_rgb_hwc: np.ndarray, input_size: int | None = None):
     return chw, 1.0
 
 
-# FlowSeek builds on SEA-RAFT: features at 1/8 resolution with a correlation
-# pyramid on top, so each side of the working canvas must be at least 128 px
-# (upstream fails inside the network on smaller frames, as RAFT and SEA-RAFT do).
+# FlowSeek builds on SEA-RAFT: features at 1/8 resolution with a four-level
+# correlation pyramid on top, so each side of the padded working canvas must be
+# at least 128 px. Probed with the tiny model: 96x96 and 200x48 fail inside the
+# network with a zero-sized upsample, 128x128 runs (RAFT and SEA-RAFT are the same).
 MIN_SIDE = 128
 
 
@@ -216,7 +217,10 @@ class LibreFlowSeek(BaseModel):
         orig_w, orig_h = img.size
         frame, ratio = downscale_rgb(np.asarray(img.convert("RGB")), max_side)
         work_h, work_w = frame.shape[:2]
-        if min(work_h, work_w) < MIN_SIDE:
+        # The network pads to a multiple of 8 before the 1/8 feature pyramid, so
+        # the padded canvas is what must reach the minimum.
+        padded_h, padded_w = ((work_h + 7) // 8) * 8, ((work_w + 7) // 8) * 8
+        if min(padded_h, padded_w) < MIN_SIDE:
             cause = (
                 f" after capping the long side at imgsz={max_side}"
                 if (work_h, work_w) != (orig_h, orig_w)

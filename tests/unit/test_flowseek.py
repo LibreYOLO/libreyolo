@@ -144,12 +144,14 @@ class TestPredict:
 
     def test_imgsz_caps_the_long_side(self, model):
         model.model.eval()
-        frames = _frames(124, 165)
-        tensor, _, size, ratio = model._preprocess(frames[0], input_size=80)
-        assert tuple(tensor.shape) == (1, 3, 60, 80) and size == (165, 124)
-        assert ratio == (165 / 80, 124 / 60)
+        frames = _frames(248, 330)
+        # The cap must leave a padded canvas of at least 128 px per side:
+        # 330 -> 200 gives 150x200, padded to 152x200.
+        tensor, _, size, ratio = model._preprocess(frames[0], input_size=200)
+        assert tuple(tensor.shape) == (1, 3, 150, 200) and size == (330, 248)
+        assert ratio == (330 / 200, 248 / 150)
         native, _, _, ratio_native = model._preprocess(frames[0])
-        assert tuple(native.shape) == (1, 3, 124, 165) and ratio_native == (1.0, 1.0)
+        assert tuple(native.shape) == (1, 3, 248, 330) and ratio_native == (1.0, 1.0)
         seen = []
         forward_flow = model._forward_flow
 
