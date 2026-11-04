@@ -145,9 +145,9 @@
   job runs on Linux, macOS, and Windows. For PRs into `dev`, that job passing
   on any one of the three platforms is sufficient; a failure of the same job
   on another platform is noted in the PR, not chased before merge. The rule
-  covers only that three-platform job. Jobs that run on a single platform
-  (the Linux-only `distributed` tests, provenance, install smoke, Greptile)
-  have no fallback and must pass. Release PRs are the exception: cutting a
+  covers only that shared unit job. Every other check (the Linux-only
+  `distributed` job, provenance, the install smoke matrix, wheel and sdist
+  checks, Greptile) must pass as usual. Release PRs are the exception: cutting a
   version requires the full matrix green (see the `libreyolo-release` skill).
 
 ## General library constraints
