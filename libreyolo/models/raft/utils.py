@@ -7,13 +7,14 @@ the two sides of each axis.
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Tuple, Optional
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
 
+from ..base.flow_sequence import downscale_rgb
 from ...utils.image_loader import ImageInput, ImageLoader
 
 PAD_MULTIPLE = 8
@@ -46,25 +47,36 @@ def preprocess_image(
     image: ImageInput,
     *,
     color_format: str = "auto",
-) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-    """Load one RGB frame as a padded float ``(1, 3, H, W)`` tensor in [0, 255].
+    max_side=None,
+) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], dict]:
+    """Load one RGB frame as a padded float ``(1, 3, Hp, Wp)`` tensor in [0, 255].
 
     RAFT normalises to [-1, 1] inside its forward (``2 * (x / 255) - 1``), so
     the tensor stays in the 0 to 255 range here, as in upstream ``demo.py``.
-    No resize: RAFT runs at native resolution, so the ratio is 1.
+    The frame runs at native resolution unless its long side exceeds
+    ``max_side`` (the ``imgsz`` cap), in which case it is downscaled with area
+    interpolation, aspect kept and never upscaled. The returned meta carries
+    ``orig_hw`` and ``work_hw`` (the canvas before padding) so
+    ``postprocess_flow`` can crop the padding and rescale the vectors.
     """
     img = ImageLoader.load(image, color_format=color_format)
     original_size = img.size
-    width, height = original_size
-    if min(width, height) < MIN_SIDE:
+    orig_w, orig_h = original_size
+    frame, _ = downscale_rgb(np.asarray(img.convert("RGB")), max_side)
+    work_h, work_w = int(frame.shape[0]), int(frame.shape[1])
+    if min(work_h, work_w) < MIN_SIDE:
+        capped = (work_h, work_w) != (orig_h, orig_w)
         raise ValueError(
-            f"RAFT needs frames of at least {MIN_SIDE}x{MIN_SIDE} pixels, got "
-            f"{width}x{height}: its correlation pyramid pools the 1/8 feature map "
-            "three more times and samples it, so smaller frames fail inside the network."
+            f"RAFT needs frames of at least {MIN_SIDE}x{MIN_SIDE} pixels at the "
+            f"network canvas, got {work_w}x{work_h}"
+            + (f" after capping the long side at imgsz={int(max_side)}" if capped else "")
+            + ": its correlation pyramid pools the 1/8 feature map three more "
+            "times and samples it, so smaller frames fail inside the network."
         )
-    arr = np.asarray(img, dtype=np.float32)
+    arr = np.asarray(frame, dtype=np.float32)
     tensor = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).contiguous()
-    return pad_image(tensor), img, original_size, 1.0
+    meta = {"orig_hw": (orig_h, orig_w), "work_hw": (work_h, work_w)}
+    return pad_image(tensor), img, original_size, meta
 
 
 def preprocess_numpy(img_rgb_hwc: np.ndarray, input_size):
@@ -76,19 +88,30 @@ def preprocess_numpy(img_rgb_hwc: np.ndarray, input_size):
     return arr.transpose(2, 0, 1).astype(np.float32), 1.0
 
 
-def postprocess_flow(flow: torch.Tensor, original_size: Tuple[int, int]) -> torch.Tensor:
+def postprocess_flow(
+    flow: torch.Tensor,
+    original_size: Tuple[int, int],
+    work_hw: Optional[Tuple[int, int]] = None,
+) -> torch.Tensor:
     """Map a padded ``(B, 2, Hp, Wp)`` flow back to the original canvas.
 
-    Removes the InputPadder padding, then, if the remaining canvas still differs
-    from the original image (a resized input), resizes it and scales the vectors
-    by ``W_orig / W_in`` and ``H_orig / H_in``. Returns ``(H, W, 2)`` float32.
+    Removes the InputPadder padding (computed from ``work_hw``, the canvas the
+    network saw before padding; when it is not given the original size is
+    assumed), then, if the remaining canvas still differs from the original
+    image (a capped ``imgsz``), resizes it and scales the vectors by
+    ``W_orig / W_in`` and ``H_orig / H_in``. Returns ``(H, W, 2)`` float32.
     """
     orig_w, orig_h = original_size
     flow = flow.float()
     _, _, hp, wp = flow.shape
-    # Padding is a function of the unpadded size; recover it from the input.
-    if hp - orig_h < PAD_MULTIPLE and wp - orig_w < PAD_MULTIPLE and hp >= orig_h and wp >= orig_w:
-        left, right, top, bottom = pad_amounts(orig_h, orig_w)
+    if work_hw is None and (
+        hp - orig_h < PAD_MULTIPLE and wp - orig_w < PAD_MULTIPLE and hp >= orig_h and wp >= orig_w
+    ):
+        # Padding is a function of the unpadded size; recover it from the input.
+        work_hw = (orig_h, orig_w)
+    if work_hw is not None:
+        work_h, work_w = int(work_hw[0]), int(work_hw[1])
+        left, right, top, bottom = pad_amounts(work_h, work_w)
         flow = flow[..., top : hp - bottom, left : wp - right]
     _, _, h_in, w_in = flow.shape
     if (h_in, w_in) != (orig_h, orig_w):

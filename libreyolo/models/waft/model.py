@@ -31,9 +31,11 @@ Licensing of the sub-components:
   ``libreyolo/models/depth_anything`` (Apache-2.0).
 - size ``l`` uses a plain-torch Twins copy derived from timm (Apache-2.0).
 
-Prediction runs at native resolution: the network pads each frame pair with
-upstream's ``Padder`` (to a multiple of 112, 32 or 16 depending on the
-encoder) and crops the flow back, so ``imgsz`` does not resize. Five refinement
+Prediction runs at native resolution by default: the network pads each frame
+pair with upstream's ``Padder`` (to a multiple of 112, 32 or 16 depending on
+the encoder) and crops the flow back. ``imgsz`` is a cap on the long side
+(default 8192, in practice no cap): frames above it are downscaled before the
+network and the flow is rescaled back to the original canvas. Five refinement
 iterations are baked in (upstream evaluation default). Inference only.
 """
 
@@ -50,6 +52,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 from ...utils.image_loader import ImageInput, ImageLoader
+from ..base.flow_sequence import NATIVE_FLOW_IMGSZ, downscale_rgb
 from ..base.model import BaseModel
 from ._vendor.waft import WAFTA1, WAFTA2
 
@@ -90,7 +93,10 @@ class LibreWAFT(BaseModel):
     FILENAME_PREFIX = "LibreWAFT"
     WEIGHT_EXT = ".pt"
     # Nominal canvas only (export and metadata); predict keeps native size.
-    INPUT_SIZES: ClassVar[Dict[str, int]] = {"t": 640, "s": 640, "m": 640, "l": 640}
+    # ``imgsz`` is a cap on the long side; the default means native resolution.
+    INPUT_SIZES: ClassVar[Dict[str, int]] = {
+        size: NATIVE_FLOW_IMGSZ for size in ("t", "s", "m", "l")
+    }
     SUPPORTED_TASKS = ("flow",)
     DEFAULT_TASK = "flow"
     REQUIRE_TASK_SUFFIX = True
@@ -183,12 +189,14 @@ class LibreWAFT(BaseModel):
         color_format: str = "auto",
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        # Native resolution: ``input_size`` is accepted for API symmetry and
-        # ignored; the network pads internally and crops the flow back.
-        del input_size
+        # Native resolution by default; an explicit ``imgsz`` caps the long side
+        # (the frame is downscaled here, the network pads internally and crops
+        # the flow back, ``_postprocess`` rescales it to the original canvas).
+        max_side = input_size if input_size is not None else self._get_input_size()
         img = ImageLoader.load(image, color_format=color_format)
         orig_w, orig_h = img.size
-        chw, ratio = preprocess_numpy(np.asarray(img.convert("RGB")))
+        frame, ratio = downscale_rgb(np.asarray(img.convert("RGB")), max_side)
+        chw, _ = preprocess_numpy(frame)
         return torch.from_numpy(chw).unsqueeze(0), img, (orig_w, orig_h), ratio
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:

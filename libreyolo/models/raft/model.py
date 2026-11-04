@@ -21,6 +21,7 @@ import torch
 import torch.nn as nn
 
 from ...utils.image_loader import ImageInput
+from ..base.flow_sequence import NATIVE_FLOW_IMGSZ
 from ..base.model import BaseModel
 from .nn import DEFAULT_ITERS, LibreRAFTNet
 from .utils import postprocess_flow, preprocess_image, preprocess_numpy
@@ -35,8 +36,10 @@ class LibreRAFT(BaseModel):
     FILENAME_PREFIX = "LibreRAFT"
     WEIGHT_EXT = ".pt"
     # Nominal square size recorded in checkpoints and used by fixed-size
-    # export. Predict runs at native resolution (padded to a multiple of 8).
-    INPUT_SIZES: ClassVar[Dict[str, int]] = {"s": 640, "l": 640}
+    # export. Predict runs at native resolution (padded to a multiple of 8)
+    # unless an explicit ``imgsz`` caps the long side.
+    # ``imgsz`` is a cap on the long side; the default means native resolution.
+    INPUT_SIZES: ClassVar[Dict[str, int]] = {"s": NATIVE_FLOW_IMGSZ, "l": NATIVE_FLOW_IMGSZ}
     SUPPORTED_TASKS = ("flow",)
     DEFAULT_TASK = "flow"
     REQUIRE_TASK_SUFFIX = True
@@ -136,8 +139,9 @@ class LibreRAFT(BaseModel):
         color_format: str = "auto",
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Any, Tuple[int, int], float]:
-        del input_size  # native resolution, padded to a multiple of 8
-        return preprocess_image(image, color_format=color_format)
+        # Native resolution by default; an explicit ``imgsz`` caps the long side.
+        max_side = input_size if input_size is not None else self._get_input_size()
+        return preprocess_image(image, color_format=color_format, max_side=max_side)
 
     def _forward_pair(self, image1: torch.Tensor, image2: torch.Tensor) -> torch.Tensor:
         """Flow from ``image1`` to ``image2``; both ``(B, 3, H, W)`` from ``_preprocess``."""
@@ -172,9 +176,10 @@ class LibreRAFT(BaseModel):
         ratio: float = 1.0,
         **kwargs,
     ) -> Dict:
-        del conf_thres, iou_thres, max_det, ratio, kwargs
+        del conf_thres, iou_thres, max_det, kwargs
         flow = output.get("flow") if isinstance(output, dict) else output
-        return {"flow": postprocess_flow(flow, original_size)}
+        work_hw = ratio.get("work_hw") if isinstance(ratio, dict) else None
+        return {"flow": postprocess_flow(flow, original_size, work_hw)}
 
     # ====================================================================
     # Out of scope

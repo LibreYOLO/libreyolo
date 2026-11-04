@@ -5,8 +5,10 @@ Dual-Pyramid Framework", CVPR 2025) is a recurrent flow estimator whose
 dual-pyramid encoder adapts its depth to the input size: the number of pyramid
 levels is chosen from the image diagonal (3 levels around 1K, one more per
 doubling), so the model generalises to 4K and 8K inputs while being trained at
-low resolution. LibreYOLO keeps that rule and always runs at the native input
-resolution; ``imgsz`` does not resize the frames.
+low resolution. LibreYOLO keeps that rule and runs at the native input
+resolution by default; ``imgsz`` is a cap on the long side (default 8192, in
+practice no cap): frames above it are downscaled before the network and the
+flow is rescaled back to the original canvas.
 
 The vendored code (``_vendor/``) comes from ptlflow
 (https://github.com/hmorimitsu/ptlflow, ``ptlflow/models/dpflow``) under the
@@ -38,6 +40,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 from ...utils.image_loader import ImageInput, ImageLoader
+from ..base.flow_sequence import NATIVE_FLOW_IMGSZ, downscale_rgb
 from ..base.model import BaseModel
 from ._vendor.dpflow import DPFlow
 from .utils import preprocess_numpy
@@ -59,7 +62,9 @@ class LibreDPFlow(BaseModel):
     WEIGHT_EXT = ".pt"
     # Nominal 1K reference (the size the pyramid rule is anchored on). Predict
     # always runs at the native frame size; this value is only metadata.
-    INPUT_SIZES: ClassVar[Dict[str, int]] = {"m": 960}
+    # ``imgsz`` is a cap on the long side; the default means native resolution,
+    # which is where the dual pyramid's adaptive depth (up to 8K) matters.
+    INPUT_SIZES: ClassVar[Dict[str, int]] = {"m": NATIVE_FLOW_IMGSZ}
     SUPPORTED_TASKS = ("flow",)
     DEFAULT_TASK = "flow"
     REQUIRE_TASK_SUFFIX = True
@@ -156,11 +161,14 @@ class LibreDPFlow(BaseModel):
         color_format: str = "auto",
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        # input_size is accepted for the runner contract but not applied: the
-        # dual pyramid adapts to the native resolution (see module docstring).
+        # Native resolution by default (the dual pyramid adapts its depth to the
+        # frame); an explicit ``imgsz`` caps the long side and ``_postprocess``
+        # rescales the flow back to the original canvas.
+        max_side = input_size if input_size is not None else self._get_input_size()
         img = ImageLoader.load(image, color_format=color_format)
         orig_w, orig_h = img.size
-        chw, ratio = preprocess_numpy(np.asarray(img.convert("RGB")))
+        frame, ratio = downscale_rgb(np.asarray(img.convert("RGB")), max_side)
+        chw, _ = preprocess_numpy(frame)
         return torch.from_numpy(chw).unsqueeze(0), img, (orig_w, orig_h), ratio
 
     def _forward_pair(self, image1: torch.Tensor, image2: torch.Tensor) -> torch.Tensor:
