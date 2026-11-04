@@ -357,6 +357,17 @@ def test_factory(alias, harness):
     assert model.names[LABEL["table"]] == "table"
 
 
+def test_custom_prompt_reaches_the_recognizer(harness):
+    RESPONSES["Read it:"] = "Custom"
+    try:
+        model = LibreVLM("paddleocr-vl", device="cpu", prompt="Read it:")
+        result = model.predict(Image.new("RGB", (400, 400), "white"))
+    finally:
+        RESPONSES.pop("Read it:")
+    assert set(harness.prompts) == {"Read it:"}
+    assert result.ocr.texts[1] == "Custom"
+
+
 def test_predict_returns_regions_in_reading_order(harness):
     model = LibreVLM("paddleocr-vl", device="cpu")
     result = model.predict(Image.new("RGB", (400, 400), "white"))

@@ -160,6 +160,9 @@ class LibrePaddleOCRVL(LibreVLMModel):
                 thresholds with one float or a ``{class_id: float}`` dict.
             min_pixels / max_pixels: Per-region pixel budget of the vision
                 encoder (upstream defaults ``112896`` / ``1003520``).
+            prompt: Optional override sent to the recognizer for every region
+                instead of the routed task prompt (``"OCR:"``,
+                ``"Table Recognition:"``, ``"Formula Recognition:"``).
         """
         prompt_label = str(prompt_label).strip().lower()
         if prompt_label not in _PROMPT_LABELS:
@@ -366,7 +369,10 @@ class LibrePaddleOCRVL(LibreVLMModel):
             if prepared is None:
                 continue
             crop, prompt = prepared
-            rec = self.recognize(Image.fromarray(crop), prompt)
+            # ``LibreVLM(..., prompt=...)`` overrides the routed task prompt
+            # for every region (the recognizer's own prompts are the three
+            # upstream task strings, so this is an expert knob).
+            rec = self.recognize(Image.fromarray(crop), self._custom_prompt or prompt)
             records.append(
                 {
                     **region,
