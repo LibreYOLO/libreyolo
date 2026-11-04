@@ -20,8 +20,10 @@ PAD_MULTIPLE = 8
 
 
 # Features are computed at 1/8 resolution and the correlation pyramid pools them
-# three more times, so each side must be at least 64 px (upstream fails the same way).
-MIN_SIDE = 64
+# three more times, to 1/64. The sampler needs at least two cells at that level
+# (it divides by W - 1 and H - 1), so each side must be at least 128 px; upstream
+# fails the same way on smaller frames.
+MIN_SIDE = 128
 
 
 def pad_amounts(height: int, width: int, multiple: int = PAD_MULTIPLE) -> Tuple[int, int, int, int]:
@@ -58,7 +60,7 @@ def preprocess_image(
         raise ValueError(
             f"RAFT needs frames of at least {MIN_SIDE}x{MIN_SIDE} pixels, got "
             f"{width}x{height}: its correlation pyramid pools the 1/8 feature map "
-            "three more times, so smaller frames fail inside the network."
+            "three more times and samples it, so smaller frames fail inside the network."
         )
     arr = np.asarray(img, dtype=np.float32)
     tensor = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).contiguous()

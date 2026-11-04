@@ -177,13 +177,13 @@ def test_runner_pair_hook_returns_flow_on_original_canvas():
         model(frames[0])
 
 
-def test_raft_rejects_frames_under_64px():
+def test_raft_rejects_frames_under_128px():
     from PIL import Image as _Image
 
     from libreyolo.models.raft.utils import MIN_SIDE, preprocess_image
 
-    tiny = _Image.new("RGB", (32, 48))
-    with pytest.raises(ValueError, match="at least 64x64"):
+    tiny = _Image.new("RGB", (64, 96))
+    with pytest.raises(ValueError, match="at least 128x128"):
         preprocess_image(tiny)
     ok = _Image.new("RGB", (MIN_SIDE, MIN_SIDE))
     tensor, _, size, ratio = preprocess_image(ok)
