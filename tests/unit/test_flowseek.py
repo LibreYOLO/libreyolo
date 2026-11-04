@@ -142,6 +142,33 @@ class TestPredict:
         assert torch.allclose(flow[..., 0], torch.full((128, 160), 2.0))
         assert torch.allclose(flow[..., 1], torch.full((128, 160), 2.0))
 
+    def test_imgsz_caps_the_long_side(self, model):
+        model.model.eval()
+        frames = _frames(124, 165)
+        tensor, _, size, ratio = model._preprocess(frames[0], input_size=80)
+        assert tuple(tensor.shape) == (1, 3, 60, 80) and size == (165, 124)
+        assert ratio == (165 / 80, 124 / 60)
+        native, _, _, ratio_native = model._preprocess(frames[0])
+        assert tuple(native.shape) == (1, 3, 124, 165) and ratio_native == (1.0, 1.0)
+        seen = []
+        forward_flow = model._forward_flow
+
+        def record(window):
+            seen.append(tuple(window.shape))
+            return forward_flow(window)
+
+        model._forward_flow = record
+        # Cap a 248x330 pair onto the 124x165 canvas the pair test above runs at.
+        big = _frames(248, 330)
+        try:
+            results = model(big, imgsz=165)
+        finally:
+            del model._forward_flow
+        assert seen == [(2, 3, 124, 165)]
+        assert tuple(results[0].flow.data.shape) == (248, 330, 2)
+        with pytest.raises(ValueError, match="single int"):
+            model(big, imgsz=(165, 165))
+
     def test_flow_context_and_train(self, model):
         assert LibreFlowSeek.FLOW_CONTEXT == (0, 0)
         with pytest.raises(NotImplementedError):

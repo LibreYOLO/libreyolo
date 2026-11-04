@@ -186,5 +186,53 @@ def test_raft_rejects_frames_under_128px():
     with pytest.raises(ValueError, match="at least 128x128"):
         preprocess_image(tiny)
     ok = _Image.new("RGB", (MIN_SIDE, MIN_SIDE))
-    tensor, _, size, ratio = preprocess_image(ok)
-    assert size == (MIN_SIDE, MIN_SIDE) and ratio == 1.0 and tensor.shape[-2:] == (MIN_SIDE, MIN_SIDE)
+    tensor, _, size, meta = preprocess_image(ok)
+    assert size == (MIN_SIDE, MIN_SIDE) and tensor.shape[-2:] == (MIN_SIDE, MIN_SIDE)
+    assert meta["work_hw"] == (MIN_SIDE, MIN_SIDE) and meta["orig_hw"] == (MIN_SIDE, MIN_SIDE)
+    # A cap that leaves the working canvas under the minimum is rejected too,
+    # naming the cap so the user knows which knob to change.
+    big = _Image.new("RGB", (450, 300))
+    with pytest.raises(ValueError, match="imgsz=96"):
+        preprocess_image(big, max_side=96)
+
+
+def test_imgsz_caps_the_long_side_and_vectors_scale_back():
+    """An explicit imgsz downscales the frame; the field returns to the original canvas."""
+    import numpy as np
+    from PIL import Image as _Image
+
+    from libreyolo.models.raft.utils import postprocess_flow, preprocess_image
+
+    frame = _Image.new("RGB", (450, 300))
+    tensor, _, size, meta = preprocess_image(frame, max_side=192)
+    assert size == (450, 300)
+    assert meta["work_hw"] == (128, 192)
+    assert tuple(tensor.shape) == (1, 3, 128, 192)
+    # The default cap (8192) leaves the frame untouched.
+    native, _, _, meta_native = preprocess_image(frame, max_side=8192)
+    assert tuple(native.shape[-2:]) == (304, 456) and meta_native["work_hw"] == (300, 450)
+    # Padding is cropped from the working canvas, then vectors scale by the per-axis ratio.
+    work_h, work_w = 130, 195
+    padded = torch.ones(1, 2, 136, 200)
+    out = postprocess_flow(padded, (450, 300), (work_h, work_w))
+    assert tuple(out.shape) == (300, 450, 2)
+    assert torch.allclose(out[..., 0], torch.full((300, 450), 450 / 195))
+    assert torch.allclose(out[..., 1], torch.full((300, 450), 300 / 130))
+
+    model = LibreRAFT(model_path=None, size="s", device="cpu")
+    model.model.iters = 2
+    seen = []
+    forward_flow = model._forward_flow
+
+    def record(window):
+        seen.append(tuple(window.shape))
+        return forward_flow(window)
+
+    model._forward_flow = record
+    rng = np.random.default_rng(0)
+    frames = [_Image.fromarray(rng.integers(0, 255, (300, 450, 3), dtype=np.uint8)) for _ in range(2)]
+    results = model(frames, imgsz=192)
+    assert seen == [(2, 3, 128, 192)]
+    assert tuple(np.asarray(results[0].flow.data).shape) == (300, 450, 2)
+    with pytest.raises(ValueError, match="single int"):
+        model(frames, imgsz=(192, 192))

@@ -153,13 +153,43 @@ def test_converted_checkpoint_loads_through_factory(tmp_path, native_state):
         assert torch.equal(value, native_state[key])
 
 
-def test_preprocess_keeps_native_resolution(model):
+def test_preprocess_caps_the_long_side_only_above_imgsz(model):
     img = Image.fromarray(np.full((37, 53, 3), 255, dtype=np.uint8))
+    # A cap above the frame leaves it at native resolution.
     tensor, pil, size, ratio = model._preprocess(img, input_size=960)
     assert tuple(tensor.shape) == (1, 3, 37, 53)
     assert size == (53, 37)
-    assert ratio == 1.0
+    assert ratio == (1.0, 1.0)
     assert float(tensor.max()) == 1.0
+    # The family default is a cap too (8192, in practice no cap).
+    native, _, _, ratio_native = model._preprocess(img)
+    assert tuple(native.shape) == (1, 3, 37, 53) and ratio_native == (1.0, 1.0)
+    # An explicit smaller imgsz downscales, aspect kept, and reports the factors back.
+    small, _, size, ratio = model._preprocess(img, input_size=40)
+    assert tuple(small.shape) == (1, 3, 28, 40) and size == (53, 37)
+    assert ratio == (53 / 40, 37 / 28)
+    with pytest.raises(ValueError, match="single int"):
+        model._preprocess(img, input_size=(40, 40))
+
+
+def test_imgsz_runs_the_network_on_the_capped_canvas(model):
+    rng = np.random.default_rng(0)
+    frames = [Image.fromarray(rng.integers(0, 255, (90, 140, 3), dtype=np.uint8)) for _ in range(2)]
+    seen = []
+    forward_flow = model._forward_flow
+
+    def record(window):
+        seen.append(tuple(window.shape))
+        return forward_flow(window)
+
+    model._forward_flow = record
+    try:
+        results = list(model.predict(frames, imgsz=70))
+    finally:
+        del model._forward_flow
+    assert seen == [(2, 3, 45, 70)]
+    assert tuple(results[0].flow.data.shape) == (90, 140, 2)
+    assert torch.isfinite(torch.as_tensor(results[0].flow.data)).all()
 
 
 def test_postprocess_rescales_vectors_to_original_canvas(model):

@@ -173,6 +173,32 @@ def test_pair_predict_shapes_and_single_image_error():
         model(frame)
 
 
+def test_imgsz_caps_the_long_side():
+    """An explicit imgsz downscales the frames; the field returns to the original canvas."""
+    model = _small_model()
+    frame = np.zeros((70, 90, 3), dtype=np.uint8)
+    tensor, _, size, ratio = model._preprocess(frame, input_size=48)
+    assert tuple(tensor.shape) == (1, 3, 37, 48) and size == (90, 70)
+    assert ratio == (90 / 48, 70 / 37)
+    native, _, _, ratio_native = model._preprocess(frame)
+    assert tuple(native.shape) == (1, 3, 70, 90) and ratio_native == (1.0, 1.0)
+    seen = []
+    forward_flow = model._forward_flow
+
+    def record(window):
+        seen.append(tuple(window.shape))
+        return forward_flow(window)
+
+    model._forward_flow = record
+    rng = np.random.default_rng(0)
+    frame = (rng.random((70, 90, 3)) * 255).astype(np.uint8)
+    results = model([frame, np.roll(frame, 2, axis=1)], imgsz=64)
+    assert seen == [(2, 3, 50, 64)]
+    assert tuple(results[0].flow.data.shape) == (70, 90, 2)
+    with pytest.raises(ValueError, match="single int"):
+        model([frame, frame], imgsz=(64, 64))
+
+
 def test_train_is_rejected():
     with pytest.raises(NotImplementedError):
         _small_model().train(data="x.yaml")
