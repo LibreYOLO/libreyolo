@@ -788,6 +788,13 @@ mirrored or bundled by LibreYOLO.
              ee0ef6023621cff504d758262d4e04895a5af4a2.
              Learned parameters unchanged.
 
+    Qwen3-VL-Embedding 2B (LibreQwen3VLEmbedding2b)  Apache-2.0
+             mirrored snapshot of Qwen/Qwen3-VL-Embedding-2B @
+             9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda. The upstream
+             repo ships no LICENSE file; the Apache-2.0 text is from
+             QwenLM/Qwen3-VL-Embedding @ 393e2978. Learned parameters
+             unchanged.
+
     Moondream 2 (LibreMoondream2)                      Apache-2.0
              mirrored snapshot of vikhyatk/moondream2 @ 9a7d402
              (2025-06-21). Learned parameters unchanged.
