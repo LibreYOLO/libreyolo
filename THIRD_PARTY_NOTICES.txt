@@ -1414,6 +1414,37 @@ Giant) are for non-commercial use only. The offline conversion path
 (weights/convert_depth_anything_v2_weights.py) remains available.
 
 --------------------------------------------------------------------
+Video Depth Anything (ByteDance)
+--------------------------------------------------------------------
+Source: https://github.com/DepthAnything/Video-Depth-Anything
+Pinned commit: 4f5ae23172ba60fd7bc11ef671cca678842c7072
+License: Apache License 2.0
+Copyright (2025) Bytedance Ltd. and/or its affiliates.
+Citation: Chen, S., Guo, H., Zhu, S., Zhang, F., Huang, Z., Feng, J., and
+          Kang, B. "Video Depth Anything: Consistent Depth Estimation for
+          Super-Long Videos." CVPR 2025.
+Used for: Video Depth Anything depth family. dpt_temporal.py,
+          motion_module/{motion_module,attention}.py and utils/util.py are
+          vendored under libreyolo/models/video_depth_anything/_vendor/
+          with the Apache-2.0 LICENSE alongside; the package docstring lists
+          every change (import path, EasyDict and einops replaced by plain
+          Python/torch, xFormers notice demoted to a log). motion_module.py
+          originates in AnimateDiff (guoyww/AnimateDiff, Apache-2.0) and
+          attention.py in Hugging Face diffusers (Apache-2.0, Copyright 2022
+          The HuggingFace Team). The DINOv2 encoder and DPT head reuse the
+          identical copies vendored for Depth Anything V2.
+          libreyolo/models/video_depth_anything/utils.py adapts upstream
+          VideoDepthAnything.infer_video_depth into a streaming generator.
+
+Weight license: Video-Depth-Anything-Small is Apache-2.0; -Base and -Large
+               are CC BY-NC 4.0 (non-commercial). Mirrored as
+               LibreYOLO/LibreVideoDepthAnything{s,b,l}-depth with the
+               upstream licence; b and l lead their cards with a
+               non-commercial banner. Metric checkpoints are not hosted.
+Conversion: weights/convert_video_depth_anything_weights.py wraps the
+            unchanged tensors in the LibreYOLO checkpoint schema.
+
+--------------------------------------------------------------------
 SEA-RAFT (Princeton Vision & Learning Lab)
 --------------------------------------------------------------------
 Source: https://github.com/princeton-vl/SEA-RAFT

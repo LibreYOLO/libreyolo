@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Video Depth Anything: temporally consistent depth for videos. (#994)**
+  `LibreVideoDepthAnything` (s/b/l, `LibreVideoDepthAnythings-depth.pt`) on the `depth` task. A list of frames, a directory, a video or a stream is one sequence: `N` frames give `N` depth maps, all in one relative scale, from upstream's overlapping 32-frame windows with scale/shift alignment between them, streamed with at most one window of lag. A single image is a one-frame sequence. New shared hook: families set `SEQUENCE_INPUT = True` and implement `_forward_sequence` to reuse the optical flow sequence runner with one result per frame (ADR 0006 and 0032 amendments). Apache-2.0 code; `s` weights Apache-2.0, `b`/`l` CC BY-NC 4.0 with a non-commercial notice. Metric checkpoints are refused. Inference only; export is rejected.
+
 - **Qwen3-VL-Embedding, image and text retrieval on the `embed` task. (#994)**
   `LibreVLM("qwen3-vl-embedding-2b")` (or `LibreQwen3VLEmbedding`) runs Qwen3-VL-Embedding-2B (Apache-2.0), the first VLM-based embedder. `predict(image)` returns `Results.embeddings` of shape `(1, 2048)`, `embed(source)` stacks rows, and `embed_text(texts, prompt=None)` returns text rows in the same space, as CLIP, SigLIP2 and PE do. `prompt` is the model's instruction: set it at construction or per `embed_text` call, so queries can carry a retrieval instruction while page images keep the default. Embeddings match upstream's reference embedder (text max abs difference 7.4e-7, image cosine at least 0.99998, float32 on CPU). Weights download from the `LibreYOLO/LibreQwen3VLEmbedding2b` mirror. Inference only; `chat()`, `train()`, `val()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
 

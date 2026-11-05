@@ -543,6 +543,7 @@ extend-exclude = [
     "libreyolo/models/unimatch/_vendor",
     "libreyolo/models/neuflowv2/_vendor",
     "libreyolo/models/dpflow/_vendor",
+    "libreyolo/models/video_depth_anything/_vendor",
 ]
 
 [tool.ty.rules]
@@ -675,6 +676,7 @@ markers = [
     "midas: tests covering the MiDaS relative-depth family",
     "raft: tests covering the RAFT optical flow family",
     "memfof: tests covering the MEMFOF three-frame optical flow family",
+    "video_depth_anything: tests covering the Video Depth Anything depth sequence family",
     "searaft: tests covering the SEA-RAFT optical flow family",
     "flowseek: tests covering the FlowSeek optical flow family",
     "waft: tests covering the WAFT optical flow family",

@@ -165,6 +165,7 @@ in preflight.
 | unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |
 | unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
+| video_depth_anything | depth |  |  |  |  |  |  |  |  |  |  |  |  |
 | vit | classify | ✓ | available | available | available | available |  |  |  | available |  |  |  |
 | vitmatte | matte |  |  |  |  |  |  |  |  |  |  |  |  |
 | vjepa2 | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
@@ -2139,6 +2140,18 @@ These converter paths are callable with the recorded validation context.
 - `vgg` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `vgg` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vgg` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `video_depth_anything` / `depth` / `onnx`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `torchscript`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `executorch`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `tensorrt`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `openvino`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `paddle`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `mnn`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `rknn`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `ncnn`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `tflite`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `coreml`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `coreai`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
 - `vit` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vit` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vit` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.

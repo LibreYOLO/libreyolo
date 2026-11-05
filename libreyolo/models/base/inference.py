@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import (
@@ -496,10 +497,10 @@ class InferenceRunner:
         if source_spec is None:
             source_spec = classify_source(source)
 
-        # Optical flow reads every source as an ordered frame sequence and
-        # runs one window per consecutive pair (see _predict_flow), so none of
-        # the single-image routes below apply to it.
-        if getattr(self.model, "task", None) == "flow":
+        # Optical flow and per-frame sequence families (SEQUENCE_INPUT) read
+        # every source as an ordered frame sequence (see _predict_flow), so
+        # none of the single-image routes below apply to them.
+        if getattr(self.model, "task", None) == "flow" or self._is_frame_sequence_model():
             return self._predict_flow(
                 source_spec,
                 source,
@@ -1152,27 +1153,34 @@ class InferenceRunner:
         The family declares ``FLOW_CONTEXT = (before, after)`` and receives
         the window through ``_forward_flow`` (see ``BaseModel._forward_flow``).
         ``stream=True`` yields each pair as soon as its window is complete.
+
+        Per-frame sequence families (``SEQUENCE_INPUT = True``) share this
+        runner but not its pairing: ``N`` frames yield ``N`` results, result
+        ``t`` carrying frame ``t``, from ``BaseModel._forward_sequence``, and a
+        single image is a one-frame sequence.
         """
+        per_frame = self._is_frame_sequence_model()
+        what = "sequence models" if per_frame else "optical flow"
         if predict_input_kwargs:
             keys = ", ".join(sorted(predict_input_kwargs))
             raise ValueError(
                 f"Guided prediction input(s) {keys} are not supported for "
-                "optical flow."
+                f"{what}."
             )
         if tiling:
             raise ValueError(
-                "Tiled inference does not apply to optical flow: a window must "
+                f"Tiled inference does not apply to {what}: a window must "
                 "see whole frames. Use tiling=False."
             )
         if augment:
             raise ValueError(
-                "Test-time augmentation does not support optical flow yet. "
-                "Use augment=False for flow models."
+                f"Test-time augmentation does not support {what} yet. "
+                f"Use augment=False for {'these' if per_frame else 'flow'} models."
             )
         if batch != 1:
             raise ValueError(
-                "batch > 1 is not supported for optical flow yet: frame windows "
-                "run one pair at a time. Use batch=1."
+                f"batch > 1 is not supported for {what} yet: frames run as one "
+                "ordered sequence. Use batch=1."
             )
         before, after = validate_flow_context(
             getattr(self.model, "FLOW_CONTEXT", (0, 0))
@@ -1192,20 +1200,25 @@ class InferenceRunner:
         )
 
         kind = source_spec.kind
-        if kind == SourceKind.IMAGE:
+        if kind == SourceKind.IMAGE and not per_frame:
             raise ValueError(FLOW_MIN_FRAMES_MESSAGE)
         if kind == SourceKind.STREAMS:
             raise NotImplementedError(
-                "Optical flow runs one live source at a time: a list of streams "
-                "would need one frame window per camera. Pass a single stream."
+                f"{what.capitalize()} run one live source at a time: a list of "
+                "streams would need one frame sequence per camera. Pass a "
+                "single stream."
             )
 
-        if kind in (SourceKind.IMAGE_BATCH, SourceKind.DIRECTORY):
+        if kind in (SourceKind.IMAGE, SourceKind.IMAGE_BATCH, SourceKind.DIRECTORY):
             if kind == SourceKind.DIRECTORY:
                 images = ImageLoader.collect_images(source_spec.source)
+            elif kind == SourceKind.IMAGE:
+                images = [source_spec.source]
             else:
                 images = list(source_spec.items)
-            if len(images) < 2:
+            if per_frame and not images:
+                raise ValueError("The sequence holds no frames.")
+            if not per_frame and len(images) < 2:
                 raise ValueError(FLOW_MIN_FRAMES_MESSAGE)
             items = [
                 _FlowFrame(
@@ -1226,7 +1239,11 @@ class InferenceRunner:
                 output_file_format=output_file_format,
                 **window_options,
             )
-            return gen if stream else list(gen)
+            if stream:
+                return gen
+            results = list(gen)
+            # A single image stays a single Results, as on every other route.
+            return results[0] if kind == SourceKind.IMAGE else results
 
         if kind == SourceKind.IMAGE_SEQUENCE:
             items = (
@@ -1311,6 +1328,83 @@ class InferenceRunner:
         raise TypeError(
             f"Unsupported source kind for optical flow: {kind.value!r}."
         )
+
+    def _is_frame_sequence_model(self) -> bool:
+        """True for per-frame sequence families (``SEQUENCE_INPUT``), not flow."""
+        return bool(getattr(self.model, "SEQUENCE_INPUT", False)) and (
+            getattr(self.model, "task", None) != "flow"
+        )
+
+    def _sequence_steps(
+        self, items, before: int, after: int, window_options: Dict
+    ) -> Generator[Tuple["_FlowFrame", Results, Image.Image], None, None]:
+        """Yield ``(frame, result, image)`` for every result of a sequence.
+
+        Flow pairs consecutive frames through ``FLOW_CONTEXT`` windows
+        (``N - 1`` results); per-frame sequence families get the whole stream
+        through ``_forward_sequence`` (``N`` results).
+        """
+        if not self._is_frame_sequence_model():
+            for _, window in iter_flow_windows(items, before, after):
+                result, original_img = self._predict_flow_window(
+                    window, before, **window_options
+                )
+                yield window[before], result, original_img
+            return
+        yield from self._predict_frame_sequence(items, **window_options)
+
+    def _predict_frame_sequence(
+        self,
+        items,
+        *,
+        color_format: str,
+        input_size,
+        conf: float,
+        iou: float,
+        classes: Optional[List[int]],
+        max_det: int,
+        kwargs: Dict,
+    ) -> Generator[Tuple["_FlowFrame", Results, Image.Image], None, None]:
+        """Preprocess frames lazily, run ``_forward_sequence``, wrap each output."""
+        pending: deque = deque()
+
+        def tensors():
+            for item in items:
+                tensor, original_img, original_size, ratio = self._preprocess_model_input(
+                    item.image, color_format, input_size=input_size
+                )
+                if not isinstance(tensor, torch.Tensor) or tensor.dim() != 4:
+                    raise TypeError(
+                        f"{type(self.model).__name__}._preprocess must return a "
+                        "(1, C, H, W) tensor per frame for sequence models."
+                    )
+                pending.append((item, original_img, original_size, ratio))
+                yield tensor, original_size
+
+        for output in self.model._forward_sequence(tensors()):
+            if not pending:
+                raise RuntimeError(
+                    f"{type(self.model).__name__}._forward_sequence yielded more "
+                    "outputs than it was given frames."
+                )
+            item, original_img, original_size, ratio = pending.popleft()
+            detections = self.model._postprocess(
+                output,
+                conf,
+                iou,
+                original_size,
+                max_det=max_det,
+                ratio=ratio,
+                classes=classes,
+                **kwargs,
+            )
+            result = self._wrap_results(detections, original_size, item.label, classes)
+            yield item, result, original_img
+        if pending:
+            raise RuntimeError(
+                f"{type(self.model).__name__}._forward_sequence yielded "
+                f"{len(pending)} fewer outputs than it was given frames."
+            )
 
     def _predict_flow_window(
         self,
@@ -1418,11 +1512,9 @@ class InferenceRunner:
             import cv2
 
         try:
-            for _, window in iter_flow_windows(items, before, after):
-                anchor = window[before]
-                result, original_img = self._predict_flow_window(
-                    window, before, **window_options
-                )
+            for anchor, result, original_img in self._sequence_steps(
+                items, before, after, window_options
+            ):
                 keep_source(result, original_img, anchor.label)
                 stem = anchor.label if anchor.label is not None else f"image{anchor.frame_idx}"
                 rendered = None
@@ -1503,11 +1595,9 @@ class InferenceRunner:
                     yield _FlowFrame(image=pil_img, label=item_label, frame_idx=int(frame_idx))
 
             try:
-                for _, window in iter_flow_windows(frames(), before, after):
-                    anchor = window[before]
-                    result, original_img = self._predict_flow_window(
-                        window, before, **window_options
-                    )
+                for anchor, result, original_img in self._sequence_steps(
+                    frames(), before, after, window_options
+                ):
                     # Decoded frames have no path to reopen from: keep the
                     # pixels so plot() and the writer can draw on frame t.
                     result.orig_img = original_img

@@ -384,6 +384,17 @@ project the weights were derived from. Per-family summary:
              any-view checkpoints are not hosted. CC-BY-NC-4.0
              Large/Giant/Nested checkpoints are explicitly excluded.
 
+    Video Depth Anything (LibreVideoDepthAnythings-depth)  Apache-2.0
+    Video Depth Anything (LibreVideoDepthAnything{b,l}-depth) CC BY-NC 4.0
+             upstream: depth-anything/Video-Depth-Anything-{Small,Base,Large}
+             pinned revisions: 256875362cff76724b920335dfb4b29dd611f66e,
+               7231d0c6e260f54f103eba5005d01f6efa4f43db,
+               7aafbcb5c6af0bac741aad2b6471894fb4761afa
+             Tensors are unchanged; conversion adds LibreYOLO checkpoint
+             metadata. b and l are non-commercial. Metric checkpoints are
+             not hosted.
+             Convert with weights/convert_video_depth_anything_weights.py.
+
     SEA-RAFT (LibreSEARAFT{s,m,l}-flow)                BSD-3-Clause
              upstream: princeton-vl/SEA-RAFT, checkpoints
              MemorySlices/Tartan-C-T-TSKH-spring540x960-{S,M}
