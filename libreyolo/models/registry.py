@@ -82,6 +82,7 @@ MODEL_GROUPS: dict[str, str] = {
     "zipdepth": "g3",
     "midas": "g3",
     "moge2": "g3",
+    "moge3": "g3",
     "marigold_v2": "g3",
     "dexined": "g3",
     "teed": "g3",
@@ -96,6 +97,7 @@ MODEL_GROUPS: dict[str, str] = {
     "ben2": "g3",
     "vitmatte": "g3",
     "ppocr": "g3",
+    "ppdoclayoutv3": "g3",
     "l2cs": "g3",
     "vgg": "g3",
     "hrnet": "g3",
@@ -150,6 +152,7 @@ MODEL_GROUPS: dict[str, str] = {
     "libremodus": "s",
     "sensenovavision": "s",
     "wevisonevl": "s",
+    "deepseekocr": "s",
     "paddleocrvl": "s",
 }
 

@@ -1,0 +1,73 @@
+LibreDeepSeekOCR - third-party attribution
+==========================================
+
+The DeepSeek-OCR family is a PyTorch port of the inference path of the
+DeepSeek-OCR Hugging Face release. No upstream code is executed at runtime.
+
+    Project:  DeepSeek-OCR
+    Upstream: https://huggingface.co/deepseek-ai/DeepSeek-OCR
+              (code also at https://github.com/deepseek-ai/DeepSeek-OCR)
+    Commit:   9f30c71f441d010e5429c532364a86705536c53a (Hugging Face)
+    License:  MIT License
+    Copyright (c) 2023 DeepSeek
+
+Ported or adapted files (each header states its provenance):
+
+  * deepencoder.py <- deepencoder.py (SAM ViT-B image encoder, CLIP-L/14,
+                      linear projector)
+  * language.py    <- modeling_deepseekv2.py (RMSNorm, MLP, MoE gate and
+                      experts, decoder layer) and, for the attention and
+                      rotary embedding the checkpoint selects (use_mla false),
+                      transformers 4.46.3 models/llama/modeling_llama.py
+  * network.py     <- modeling_deepseekocr.py (image-feature layout, greedy
+                      decode with no_repeat_ngram_size)
+  * processing.py  <- modeling_deepseekocr.py (view tiling, padding, token
+                      layout), conversation.py (plain template)
+  * parsing.py     <- modeling_deepseekocr.py (grounding regex, 0-999 grid,
+                      result.mmd cleanup)
+
+Sub-component lineage carried by the upstream files:
+
+  * modeling_deepseekv2.py: Apache License 2.0, Copyright 2023 DeepSeek-AI
+    and The HuggingFace Inc. team.
+  * transformers 4.46.3 Llama attention and rotary embedding: Apache License
+    2.0, Copyright The HuggingFace Inc. team.
+  * SAM image encoder: lightly adapted by upstream from the detectron2 ViTDet
+    backbone (Apache License 2.0, Copyright Meta Platforms, Inc.); decomposed
+    relative positions from mvit (Apache License 2.0); LayerNorm2d from
+    ConvNeXt (MIT License).
+  * conversation.py: from FastChat (Apache License 2.0).
+
+Apache-2.0 text: licenses/Apache-2.0.txt in LibreYOLO.
+
+LibreYOLO adaptations: inference only (training, expert parallelism, flash
+attention and auxiliary-loss code removed), device-agnostic placement, an own
+key/value cache and greedy loop, the BOS token read from the tokenizer config,
+and the tokenizer loaded from tokenizer.json. Module and parameter names are
+unchanged so the released safetensors load strictly.
+
+DeepSeek-OCR-2 (size "2")
+-------------------------
+
+    Project:  DeepSeek-OCR-2
+    Upstream: https://huggingface.co/deepseek-ai/DeepSeek-OCR-2
+              (code also at https://github.com/deepseek-ai/DeepSeek-OCR-2)
+    Commit:   aaa02f3811945a91062062994c5c4a3f4c0af2b0 (Hugging Face)
+    License:  Apache License 2.0
+
+  * encoder2.py    <- deepencoderv2.py (Qwen2 decoder used as the vision
+                      encoder, learned queries, image/query attention mask),
+                      with the decoder layer, SDPA attention and rotary
+                      embedding of transformers 4.46.3
+                      models/qwen2/modeling_qwen2.py (Apache License 2.0)
+  * deepencoder.py, network.py, processing.py <- deepencoderv2.py and
+                      modeling_deepseekocr2.py (896-channel SAM output, 768 px
+                      crops, no newline tokens)
+
+The decoder (modeling_deepseekv2.py) is the same file in both releases.
+
+Weights: MIT (size 1) and Apache-2.0 (size 2), mirrored byte-identical at
+LibreYOLO/LibreDeepSeekOCR2 @ 9958a0a3fe52c14219cc3008d4bb85a4db875083
+(from deepseek-ai/DeepSeek-OCR-2 @ aaa02f3811945a91062062994c5c4a3f4c0af2b0) and
+LibreYOLO/LibreDeepSeekOCR1 @ a47622e3fb7279eaed206ab5d656158b71976b5b
+(from deepseek-ai/DeepSeek-OCR @ 9f30c71f441d010e5429c532364a86705536c53a).

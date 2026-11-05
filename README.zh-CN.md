@@ -113,8 +113,8 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **旋转框（OBB）** | RF-DETR、RT-DETRv2、YOLO-NAS-R |
 | **三维检测** | WildDet3D、3D-MOOD、FCOS3D、DetAny3D（独立运行环境） |
 | **分类** | MobileNetV4、ConvNeXt、EfficientNetV2、ResNet、ViT、Swin、DeiT、VGG、AlexNet、CLIP、SigLIP2、DINOv2 |
-| **深度估计** | Depth Anything 3、Depth Anything V2、ZipDepth、MiDaS |
-| **表面法线** | MoGe-2 |
+| **深度估计** | Depth Anything 3、Depth Anything V2、ZipDepth、MiDaS、MoGe-3 |
+| **表面法线** | MoGe-3、MoGe-2 |
 | **深度、法线与反照率** | Marigold V2 |
 | **边缘检测** | DexiNed、TEED |
 | **嵌入** | LibreFaceEmbedder、CLIP、SigLIP2、Perception Encoder（图像、文本、整段视频；亦支持零样本分类）、DINOv2 |
@@ -122,7 +122,8 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **人体网格** | SAM 3D Body |
 | **图像复原** | DDColor、HVI-CIDNet、LaMa、NAFNet、QuickSRNet、Real-ESRGAN、SwinIR |
 | **背景移除** | BiRefNet、FeyNobg、ViTMatte |
-| **OCR** | PP-OCR, PaddleOCR-VL |
+| **OCR** | PP-OCR、DeepSeek-OCR、DeepSeek-OCR-2、PaddleOCR-VL |
+| **文档版面分析** | PP-DocLayoutV3（版面区域及阅读顺序） |
 | **点检测** | FOMO、LocateAnything |
 | **视线估计** | L2CS |
 | **开放词汇与 VLM** | Grounding DINO、OWLv2、OmDet-Turbo、OV-DEIM、Florence-2、Kosmos-2、Qwen3-VL、InternVL3、LFM2-VL、North Micro Vision、SmolVLM2、Molmo2、WeVisOne-VL、MODUS |

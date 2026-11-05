@@ -1149,6 +1149,7 @@ def _marker_build_result(
     iou,
     classes,
     max_det,
+    reading_order=None,
 ):
     return (image_path, float(max_scores[0]))
 

@@ -57,6 +57,12 @@ OPTIONAL_MODELS = (
     ("libreyolo.models.modus.model", "LibreMODUS", "modus", "transformers"),
     ("libreyolo.models.wevisone.model", "LibreWeVisOneVL", "vlm", "transformers"),
     (
+        "libreyolo.models.deepseekocr.model",
+        "LibreDeepSeekOCR",
+        "vlm",
+        "transformers",
+    ),
+    (
         "libreyolo.models.paddleocrvl.model",
         "LibrePaddleOCRVL",
         "vlm",
