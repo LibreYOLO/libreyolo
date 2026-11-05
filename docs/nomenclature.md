@@ -176,7 +176,7 @@ The VLM and promptable SAM tiers are separate categories and do not follow this
 rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreLFM2VL`,
 `LibreSmolVLM2`, `LibreInternVL3`, `LibreFlorence2`, `LibreKosmos2`,
 `LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreDeepSeekOCR`, `LibrePaddleOCRVL`, `LibreMODUS`, `LibreSAM`,
-`LibreSAM2`, `LibreSAM3`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
+`LibreSAM2`, `LibreSAM3`, `LibreSAM31`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
 are not registered
 into the detector factory and do not emit `Libre<FAMILY><size>.pt` detector
 checkpoints. Their `FILENAME_PREFIX` is only a weights-directory prefix for a
@@ -324,6 +324,7 @@ Promptable SAM tier size aliases:
 | `sam2` | `tiny`, `small`, `base-plus`, `large` |
 | `edgetam` | `edge` (the default and only shipped size; 1024px input) |
 | `sam3` | `large` (the default and only shipped size) |
+| `sam31` | `large` (the default and only shipped size) |
 | `mobilesam` | `tiny` (the default and only shipped size) |
 | `picosam3` | `pico` (the default and only shipped size; 96px ROI input) |
 
@@ -564,6 +565,7 @@ families all expose the promptable `segment` task:
 | `sam2` | `("segment",)` | segment | SAM-2 image prompting; video deferred |
 | `edgetam` | `("segment",)` | segment | EdgeTAM image prompting; video deferred |
 | `sam3` | `("segment",)` | segment | SAM 3 visual and concept prompting |
+| `sam31` | `("segment",)` | segment | SAM 3.1 image path, same prompting as `sam3`; video deferred |
 | `mobilesam` | `("segment",)` | segment | MobileSAM image prompting |
 | `picosam3` | `("segment",)` | segment | PicoSAM3 box prompting |
 

@@ -58,6 +58,7 @@ The default family remains **SAM-1** (`facebook/sam-vit-base` / `-large` /
 | SAM-2 image | `LibreSAM("sam2-tiny")`, `LibreSAM2("tiny")` | `LibreYOLO/LibreSAM2*` | Image segmentation only in v1. |
 | EdgeTAM image | `LibreSAM("edgetam")`, `LibreEdgeTAM("edge")` | `LibreYOLO/LibreEdgeTAM` | On-device EdgeTAM profile; image segmentation only in v1. |
 | SAM 3 image | `LibreSAM("sam3")`, `LibreSAM3("large")` | `facebook/sam3` | Visual prompts plus concept text prompts; gated custom-license weights. |
+| SAM 3.1 image | `LibreSAM("sam3.1")`, `LibreSAM31("large")` | `LibreYOLO/LibreSAM31large` | SAM 3 image path with SAM 3.1 weights; gated SAM-License mirror. |
 | MobileSAM | `LibreSAM("mobilesam")`, `LibreMobileSAM()` | `LibreYOLO/LibreMobileSAM` | Native TinyViT port with converted weights. |
 | PicoSAM3 | `LibreSAM("picosam3")`, `LibrePicoSAM3()` | `LibreYOLO/LibrePicoSAM3` | Native 96px ROI CNN; box prompts only. |
 
@@ -122,7 +123,7 @@ cached embeddings when possible so interactive sessions survive device changes.
 
 | Field             | Meaning                                              |
 |-------------------|------------------------------------------------------|
-| `FAMILY`          | family id (`sam`, `sam2`, `edgetam`, `sam3`, `mobilesam`, `picosam3`) |
+| `FAMILY`          | family id (`sam`, `sam2`, `edgetam`, `sam3`, `sam31`, `mobilesam`, `picosam3`) |
 | `FILENAME_PREFIX` | `Libre`-prefixed weights-dir prefix                  |
 | `HF_REPOS`        | `{size: hf_repo_id}`; drives autodownload            |
 | `INPUT_SIZES`     | `{size: nominal_px}` (the processor/family transform owns resize)|
@@ -163,19 +164,29 @@ not redistributed by LibreYOLO. Loading logs a license notice before download.
 The SAM 3 and tracker classes first shipped in Transformers 5.0.0; LibreYOLO's
 `sam` extra already has the stricter `transformers>=5.3.0` floor.
 
-SAM 3.1 is explicitly deferred. Its custom-license implementation cannot be
-vendored into this MIT repository, and Transformers does not yet support the
-3.1 checkpoint. The implementation keeps `HF_REPOS` keyed per size so a future
-checkpoint can be added cheaply. The exact trigger is Transformers gaining SAM
-3.1 image-model support; then add the repo/alias, rerun parity and smoke tests,
-and evaluate whether image checkpoint outputs change. Object Multiplex remains
-part of a separate future video plan.
+SAM 3.1 image inference runs on the same Transformers SAM 3 classes.
+Meta publishes SAM 3.1 only as an original-format checkpoint. Its image path,
+the detector plus the interactive SAM head, keeps the SAM 3 architecture with
+retrained weights and renamed keys; the unused fourth FPN level was dropped.
+`weights/convert_sam31_weights.py` renames the keys into the SAM 3 layout and
+zero-fills that level, which the image path never reads. It then applies the
+image-path subset of the Apache-2.0 Transformers SAM 3 key mapping. Applied to
+SAM 3, that mapping reproduces the official `facebook/sam3` weights exactly.
+No Meta source is copied. The SAM License permits redistribution when the
+agreement is passed through, so the converted snapshot is mirrored at
+`LibreYOLO/LibreSAM31large`. It carries the license verbatim and an automatic
+access gate, following the SAM 3D Body precedent. The weights remain
+SAM-licensed, not MIT.
+
+SAM 3.1 Object Multiplex, its video tracker, is not supported. It has no
+permissive implementation (Transformers support is unmerged), and video
+tracking still needs the shared video-session contract below.
 
 ## Out Of Scope (v1)
 
 - SAM-2/SAM-3/EdgeTAM video and memory paths. A follow-up should add one shared
   video-session contract rather than an EdgeTAM-only tracking API.
-- SAM 3 image exemplars and SAM 3.1, subject to the trigger above.
+- SAM 3 image exemplars and SAM 3.1 Object Multiplex video tracking.
 - Mask prompts (`masks=`), `train()`, `val()`, and `track()` raise. SAM-1/2/3,
   EdgeTAM, and MobileSAM export also raise; PicoSAM3 alone exports its raw 96px
   ROI CNN to ONNX.
