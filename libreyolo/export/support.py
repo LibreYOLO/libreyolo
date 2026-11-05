@@ -3905,6 +3905,7 @@ _FAMILY_BLOCKS = {
     "paddleocrvl": "Generative VLM export is out of scope for v1.",
     "glmocr": "Generative VLM export is out of scope for v1.",
     "falconocr": "Generative VLM export is out of scope for v1.",
+    "falconperception": "Generative VLM export is out of scope for v1.",
 }
 
 _NCNN_BLOCKS = {

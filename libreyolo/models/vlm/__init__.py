@@ -139,6 +139,15 @@ _FALCONOCR_ALIASES: Dict[str, str] = {
     "falcon-ocr-270m": "270m",
 }
 
+# Falcon Perception lives in ``models/falcon_perception`` (it vendors its own
+# network) and resolves lazily for the same reason as SenseNova.
+_FALCON_ALIASES: Dict[str, str] = {
+    "falcon-perception": "600m",
+    "falconperception": "600m",
+    "falcon-perception-600m": "600m",
+    "falcon-perception-300m": "300m",
+}
+
 _DEFAULT_MODEL = "qwen3-vl-4b"
 
 
@@ -209,12 +218,16 @@ def LibreVLM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreVLMModel:
         from ..falconocr import LibreFalconOCR
 
         return LibreFalconOCR(size=_FALCONOCR_ALIASES[key], **kwargs)
+    if key in _FALCON_ALIASES:
+        from ..falcon_perception import LibreFalconPerception
+
+        return LibreFalconPerception(size=_FALCON_ALIASES[key], **kwargs)
     match = _ALIASES.get(key)
     if match is None:
         known = set(_ALIASES) | set(_LAZY_ALIASES) | set(_MODUS_ALIASES)
         known |= set(_WEVISONE_ALIASES) | set(_DEEPSEEKOCR_ALIASES)
         known |= set(_PADDLEOCRVL_ALIASES) | set(_GLMOCR_ALIASES)
-        known |= set(_FALCONOCR_ALIASES)
+        known |= set(_FALCONOCR_ALIASES) | set(_FALCON_ALIASES)
         raise ValueError(
             f"Unknown VLM model {model!r}. Known aliases: {', '.join(sorted(known))}."
         )
@@ -251,6 +264,10 @@ def __getattr__(name: str):
         from ..falconocr import LibreFalconOCR
 
         return LibreFalconOCR
+    if name == "LibreFalconPerception":
+        from ..falcon_perception import LibreFalconPerception
+
+        return LibreFalconPerception
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -275,6 +292,7 @@ __all__ = [
     "LibrePaddleOCRVL",
     "LibreGLMOCR",
     "LibreFalconOCR",
+    "LibreFalconPerception",
     "LibreMODUS",
     "LibreModus",
 ]

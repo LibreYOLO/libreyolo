@@ -168,6 +168,7 @@ MODEL_GROUPS: dict[str, str] = {
     "paddleocrvl": "s",
     "glmocr": "s",
     "falconocr": "s",
+    "falconperception": "s",
 }
 
 

@@ -51,6 +51,8 @@ in preflight.
 | eomt | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | eomt | panoptic |  |  |  |  |  |  |  |  |  |  |  |  |
 | falconocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
+| falconperception | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| falconperception | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | faster_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | fcn | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | fcos | detect | ✓ | ✓ |  |  | available |  |  |  |  |  |  |  |
@@ -1027,6 +1029,30 @@ These converter paths are callable with the recorded validation context.
 - `falconocr` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
 - `falconocr` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
 - `falconocr` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `openvino`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `paddle`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `mnn`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `rknn`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `ncnn`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `onnx`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `torchscript`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `executorch`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `openvino`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `paddle`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `mnn`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `rknn`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `ncnn`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `tflite`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `coreml`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `coreai`: Generative VLM export is out of scope for v1.
 - `faster_rcnn` / `detect` / `torchscript`: The variable-length two-stage detection graph has only been validated through the ONNX runtime contract.
 - `faster_rcnn` / `detect` / `executorch`: The variable-length two-stage detection graph has only been validated through the ONNX runtime contract.
 - `faster_rcnn` / `detect` / `tensorrt`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.

@@ -830,6 +830,27 @@
     "available": true,
     "group": "s"
   },
+  "falconperception": {
+    "class": "libreyolo.models.falcon_perception.model.LibreFalconPerception",
+    "tasks": [
+      "detect",
+      "segment"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "300m": 1024,
+      "600m": 1024
+    },
+    "default_imgsz": {
+      "300m": 1024,
+      "600m": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "faster_rcnn": {
     "class": "libreyolo.models.faster_rcnn.model.LibreFasterRCNN",
     "tasks": [
