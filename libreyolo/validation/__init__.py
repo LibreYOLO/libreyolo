@@ -10,6 +10,7 @@ from .coco_evaluator import COCOEvaluator
 from .pose_validator import PoseValidator
 from .point_validator import PointValidator
 from .depth_validator import DepthValidator
+from .flow_validator import FlowValidator
 from .normal_validator import NormalValidator
 from .albedo_validator import AlbedoValidator
 from .edge_validator import EdgeValidator
@@ -35,6 +36,7 @@ __all__ = [
     "PointValidator",
     "FOMOValidator",
     "DepthValidator",
+    "FlowValidator",
     "NormalValidator",
     "AlbedoValidator",
     "EdgeValidator",

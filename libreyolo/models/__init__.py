@@ -106,6 +106,7 @@ from .hrnet.model import LibreHRNet  # noqa: E402,F401  (top-down pose; unique s
 from .dekr.model import LibreDEKR  # noqa: E402,F401  (bottom-up pose; unique offset_final_layer stack)
 from .l2cs.model import LibreL2CS  # noqa: E402,F401  (import registers family)
 from .fomo.model import LibreFOMO  # noqa: E402,F401  (import registers family)
+from .flowseek.model import LibreFlowSeek  # noqa: E402,F401  (flow-only; can_load keyed on bnet + merge_head + dav2)
 from .midas.model import LibreMiDaS  # noqa: E402,F401  (depth-only MiDaS museum family)
 from .depth_anything.model import (  # noqa: E402,F401  (import registers family)
     LibreDepthAnythingV2,
@@ -114,12 +115,17 @@ from .zipdepth.model import LibreZipDepth  # noqa: E402,F401  (depth-only; can_l
 from .moge3.model import LibreMoGe3  # noqa: E402,F401  (depth + normal; can_load requires refiner., which MoGe-2 rejects)
 from .moge2.model import LibreMoGe2  # noqa: E402,F401  (normal-only; official Microsoft MIT checkpoint; rejects refiner.)
 from .marigold_v2.model import LibreMarigoldV2  # noqa: E402,F401 (heavy dependencies load only at construction)
+from .memfof.model import LibreMEMFOF  # noqa: E402,F401  (flow-only; can_load keyed on 9-channel cnet conv1 + att.to_qk)
 from .teed.model import LibreTEED  # noqa: E402,F401  (edge-only; MIT source)
 from .dexined.model import LibreDexiNed  # noqa: E402,F401  (edge-only; MIT source)
 from .depth_anything3.model import (  # noqa: E402,F401  (import registers family)
     LibreDepthAnything3,
 )
+from .searaft.model import LibreSEARAFT  # noqa: E402,F401  (flow-only; can_load keyed on 6-channel cnet + init_conv + 6-channel flow_head)
+from .unimatch.model import LibreUniMatch  # noqa: E402,F401  (flow-only; can_load keyed on GMFlow feature_flow_attn + transformer)
+from .dpflow.model import LibreDPFlow  # noqa: E402,F401  (flow-only; can_load keyed on the bidirectional fnet GRUs + lowres_stem)
 from .nafnet.model import LibreNAFNet  # noqa: E402,F401  (restore-only)
+from .neuflowv2.model import LibreNeuFlowv2  # noqa: E402,F401  (flow-only; can_load keyed on cross_attn_s16 + refine_s8 + upsample_s8)
 from .ddcolor.model import LibreDDColor  # noqa: E402,F401  (restore-only colorization)
 from .hvi_cidnet.model import LibreHVICIDNet  # noqa: E402,F401  (restore-only low-light enhancement)
 from .lama.model import LibreLaMa  # noqa: E402,F401  (mask-guided restore/inpainting)
@@ -183,6 +189,12 @@ from .vjepa2.model import LibreVJEPA2  # noqa: E402,F401  (import registers fami
 # dense block-causal patch tokens. Its fingerprint includes a tubelet-1 Conv3d,
 # CLS token and fused qkv weights, so it cannot collide with V-JEPA 2.
 from .levjepa.model import LibreLeVJEPA  # noqa: E402,F401  (import registers family)
+
+# Optical flow families (task ``flow``), kept in alphabetical order.
+from .raft.model import LibreRAFT  # noqa: E402,F401  (flow-only; can_load needs the closed fnet/cnet/update_block key set)
+# WAFT optical flow: can_load needs warp_linear + refine_transform + refine_net
+# ViT keys together with one of the four encoder signatures.
+from .waft.model import LibreWAFT  # noqa: E402,F401  (flow-only)
 
 
 def _ensure_rfdetr():
@@ -907,15 +919,20 @@ __all__ = [
     "LibreRTDETRv2",
     "LibreRTDETRv4",
     "LibreFOMO",
+    "LibreFlowSeek",
     "LibreMiDaS",
     "LibreDepthAnythingV2",
     "LibreMoGe2",
     "LibreMoGe3",
     "LibreMarigoldV2",
+    "LibreMEMFOF",
     "LibreTEED",
     "LibreDexiNed",
     "LibreDepthAnything3",
+    "LibreUniMatch",
+    "LibreDPFlow",
     "LibreNAFNet",
+    "LibreNeuFlowv2",
     "LibreDDColor",
     "LibreHVICIDNet",
     "LibreLaMa",
@@ -930,6 +947,7 @@ __all__ = [
     "LibreEoMT",
     "LibreDeepLabv3",
     "LibrePIDNet",
+    "LibreRAFT",
     "LibreUNet",
     "LibreSegformer",
     "LibreLingBotVision",
@@ -949,6 +967,7 @@ __all__ = [
     "LibrePPDocLayoutV3",
     "LibreVJEPA2",
     "LibreLeVJEPA",
+    "LibreWAFT",
     "LibreFaceEmbedder",
     "try_ensure_rfdetr",
 ]

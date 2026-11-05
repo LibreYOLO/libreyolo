@@ -33,7 +33,7 @@ Required field meanings:
 - `size`: model variant within the family, such as `t`, `s`, `r18`, or `atto`.
 - `task`: canonical task, one of `detect`, `segment`, `semantic`, `panoptic`,
   `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `albedo`, `restore`,
-  `matte`, `ocr`, `embed`, `mesh`, or `detect3d`. The `act` task has no
+  `matte`, `ocr`, `embed`, `mesh`, `detect3d`, or `flow`. The `act` task has no
   schema-v1 `.pt` form; its checkpoints are directories (see "Optional
   LibreVLA runtime"). The `generate` and `generate3d` tasks have none
   either (see "Optional LibreGen runtime").

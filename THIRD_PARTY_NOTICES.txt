@@ -1311,6 +1311,81 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+RAFT (princeton-vl)
+--------------------------------------------------------------------
+Source: https://github.com/princeton-vl/RAFT (commit 2888e15)
+License: BSD 3-Clause License
+Copyright (c) 2020, princeton-vl.
+Citation: Teed, Z. and Deng, J. "RAFT: Recurrent All-Pairs Field
+          Transforms for Optical Flow." ECCV 2020.
+Used for: LibreRAFT optical flow family, vendored under
+          libreyolo/models/raft/_vendor/ (raft, update, extractor, corr,
+          utils/utils). Released checkpoints (raft-things, raft-small,
+          raft-sintel, raft-kitti) are mirrored on the LibreYOLO Hugging
+          Face org under the same licence.
+
+BSD 3-Clause License
+
+Copyright (c) 2020, princeton-vl
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+MEMFOF (MSU Graphics & Media Lab)
+--------------------------------------------------------------------
+Source: https://github.com/msu-video-group/memfof
+        (commit a51de9fc59c6fe20ba08e079372c7b583d58a712)
+License: BSD 3-Clause License
+Copyright (c) 2024, Princeton Vision & Learning Lab
+Copyright (c) 2025, MSU Graphics & Media Lab
+Citation: Bargatin, V., Chistov, E., Yakovenko, A., and Vatolin, D.
+          "MEMFOF: High-Resolution Training for Memory-Efficient
+          Multi-Frame Optical Flow Estimation." ICCV 2025.
+Used for: MEMFOF optical flow family, inference code vendored under
+          libreyolo/models/memfof/_vendor/ (model, corr, extractor, gma,
+          layer, update, and the InputPadder / bilinear_sampler /
+          coords_grid helpers from utils). The BSD-3-Clause text is in
+          libreyolo/models/memfof/_vendor/LICENSE. Changes: relative
+          imports, no Hugging Face hub mixin, no torchvision ImageNet
+          download at construction, einops.rearrange written as torch
+          reshape/permute. gma.py (Attention, Aggregate) originates in
+          GMA, https://github.com/zacjiang/GMA core/gma.py, under the
+          WTFPL (text in libreyolo/models/memfof/_vendor/LICENSE-GMA);
+          upstream credits VideoFlow, whose copy is GMA's file with the
+          position-embedding branches commented out and which ships no
+          licence, so the grant relied on is GMA's.
+
+NOTE - weights: the upstream MEMFOF checkpoints (Hugging Face
+egorchistov/optical-flow-MEMFOF-*) are tagged bsd-3-clause in their card
+metadata but ship no licence file or separate weight-licence text.
+LibreYOLO mirrors the converted checkpoints (LibreYOLO/LibreMEMFOFm-flow
+and the LibreYOLO/LibreMEMFOFm-flow-<variant> repos for tartan,
+tartan-t, kitti, sintel and spring) under the BSD-3-Clause licence of the
+releasing code repository, from which the weight licence is inherited.
+
+--------------------------------------------------------------------
 Depth Anything V2 (DepthAnything / TikTok)
 --------------------------------------------------------------------
 Source: https://github.com/DepthAnything/Depth-Anything-V2
@@ -1339,6 +1414,70 @@ Giant) are for non-commercial use only. The offline conversion path
 (weights/convert_depth_anything_v2_weights.py) remains available.
 
 --------------------------------------------------------------------
+SEA-RAFT (Princeton Vision & Learning Lab)
+--------------------------------------------------------------------
+Source: https://github.com/princeton-vl/SEA-RAFT
+Pinned commit: 9137517ba24e628442aec097d3afe71d03503b75
+License: BSD 3-Clause License
+Copyright (c) 2024, Princeton Vision & Learning Lab.
+Citation: Wang, Y., Lipson, L., and Deng, J. "SEA-RAFT: Simple,
+          Efficient, Accurate RAFT for Optical Flow." ECCV 2024.
+Used for: SEA-RAFT optical flow family, inference subset of core/
+          (raft, extractor, update, corr, layer, utils) vendored under
+          libreyolo/models/searaft/_vendor/ with the BSD-3-Clause
+          LICENSE alongside. Training code, the Hugging Face mixin, the
+          optional alt_cuda_corr extension and the ImageNet initialisation
+          are dropped; the package docstring lists every change. The
+          pretrained weights (MemorySlices/Tartan-C-T-TSKH-spring540x960-
+          {S,M}) are BSD-3-Clause as well and are mirrored as
+          LibreYOLO/LibreSEARAFT{s,m,l}-flow.
+FlowSeek (University of Bologna)
+--------------------------------------------------------------------
+Source: https://github.com/mattpoggi/flowseek
+Pinned commit: ba6407370bceeb96244cad4d60d37489f6eb471e
+License: Apache License 2.0 (includes SEA-RAFT code, BSD 3-Clause License,
+         Copyright (c) 2024, Princeton Vision & Learning Lab)
+Copyright (c) 2025 Matteo Poggi and Fabio Tosi.
+Citation: Poggi, M., and Tosi, F. "FlowSeek: Optical Flow Made Easier with
+          Depth Foundation Models and Motion Bases." ICCV 2025.
+Used for: FlowSeek optical flow family vendored under
+          libreyolo/models/flowseek/_vendor/ (flowseek, corr, extractor,
+          layer, update, utils). Training code, the torchvision ResNet
+          initialisation download and the separate DAv2 weight load are
+          removed; the Depth Anything V2 encoder reuses the vendored copy in
+          libreyolo/models/depth_anything/_vendor/.
+
+Weight source: scripts/get_weights.sh at the pinned commit
+               (flowseek_T_TartanCT_TSKH.pth, flowseek_M_TartanCT_TSKH.pth).
+Weight license: the repository's Apache-2.0 licence, applied as an implied
+               grant (no separate checkpoint licence is published). The
+               checkpoints embed the Depth Anything V2 encoder: ViT-S (t, s)
+               is Apache-2.0, ViT-B (m, l) is CC BY-NC 4.0, so the hosted
+               LibreFlowSeek{m,l}-flow weights are non-commercial.
+Conversion: weights/convert_flowseek_weights.py wraps the unchanged tensors
+            (638 for t/s, 932 for m/l) in the LibreYOLO checkpoint schema.
+NeuFlow v2 (Northeastern University Field Robotics Lab)
+--------------------------------------------------------------------
+Source: https://github.com/neufieldrobotics/NeuFlow_v2
+Pinned commit: 204b5e3744461d90303b9ff82caa7a1bb56a2ca2
+License: Apache License 2.0
+Copyright (c) 2024 Zhiyong Zhang, Aniket Gupta, Huaizu Jiang, Hanumant Singh.
+Citation: Zhang, Z., Gupta, A., Jiang, H., and Singh, H. "NeuFlow v2:
+          Push High-Efficiency Optical Flow To the Limit." arXiv:2408.10161.
+Used for: NeuFlow v2 optical flow family (libreyolo/models/neuflowv2/),
+          model code vendored under libreyolo/models/neuflowv2/_vendor/
+          with the upstream LICENSE. Changes: package-relative imports,
+          the huggingface_hub mixin base dropped, out-of-place input
+          scaling, unused commented and broken helpers removed. Training,
+          dataset and evaluation code is not vendored.
+
+Weights: upstream commits neuflow_mixed.pth, neuflow_sintel.pth and
+neuflow_things.pth in the Apache-2.0 repository root with no separate
+weight licence. LibreYOLO mirrors the converted checkpoints
+(LibreYOLO/LibreNeuFlowv2s-flow, -flow-sintel, -flow-things) under that
+Apache-2.0 licence, an implied grant from the releasing project.
+
+--------------------------------------------------------------------
 Depth Anything 3 (ByteDance Seed)
 --------------------------------------------------------------------
 Source: https://github.com/ByteDance-Seed/Depth-Anything-3
@@ -1360,6 +1499,39 @@ Conversion: weights/convert_depth_anything3_weights.py removes only the
             outer model. prefix and wraps 406 unchanged tensors in the
             LibreYOLO checkpoint schema. Only DA3MONO-LARGE is hosted.
             CC-BY-NC-4.0 Large/Giant/Nested weights are excluded.
+
+--------------------------------------------------------------------
+DPFlow (ptlflow, Henrique Morimitsu)
+--------------------------------------------------------------------
+Source: https://github.com/hmorimitsu/ptlflow (ptlflow/models/dpflow)
+Pinned commit: 43cdc2b5fc7228e7090009a66e8e28e0b48e31ba
+License: Apache License 2.0
+Copyright 2025 Henrique Morimitsu.
+Citation: Morimitsu, H., Zhu, X., Cesar Jr, R. M., Ji, X., and Yin, X.-C.
+          "DPFlow: Adaptive Optical Flow Estimation with a Dual-Pyramid
+          Framework." CVPR 2025.
+Used for: DPFlow optical flow family vendored under
+          libreyolo/models/dpflow/_vendor/ (cgu, cgu_bidir_dual_encoder,
+          conv, corr, norm, pwc_modules, res_stem, update, utils,
+          local_timm/ from timm by Ross Wightman, Apache-2.0, and
+          correlation.py from ptlflow/utils, Apache-2.0). padder.py is
+          ptlflow's input padder adapted from princeton-vl/RAFT
+          (BSD-3-Clause, Copyright (c) 2020, princeton-vl; license text
+          kept in the file header). dpflow.py is an inference-only rewrite
+          of the upstream module on torch.nn.Module; einops reshapes are
+          replaced by equivalent torch ops. Learned parameters are
+          unchanged.
+
+Weight source: https://github.com/hmorimitsu/ptlflow/releases/tag/weights1
+               (dpflow-things-2012b5d6.ckpt, dpflow-sintel-b44b072c.ckpt,
+               dpflow-kitti-4e97eac6.ckpt, dpflow-spring-69bac7fa.ckpt)
+Weight license: CC BY-NC-SA 4.0 (ptlflow README: weights trained within
+                the project). Non-commercial and share-alike; mirrored with
+                the license verbatim at huggingface.co/LibreYOLO/
+                LibreDPFlowm-flow[-sintel|-kitti|-spring].
+Conversion: weights/convert_dpflow_weights.py wraps the 498 unchanged
+            tensors of the Lightning state_dict in the LibreYOLO
+            checkpoint schema.
 
 --------------------------------------------------------------------
 ZipDepth (University of Bologna)
@@ -3315,3 +3487,32 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+--------------------------------------------------------------------
+UniMatch / GMFlow (autonomousvision)
+--------------------------------------------------------------------
+Source: https://github.com/autonomousvision/unimatch
+Pinned commit: 943a99006950ab6c84ea72a72beb147fdd03c19a
+License: MIT
+Copyright (c) 2022 autonomousvision.
+Citation: Xu, H., Zhang, J., Cai, J., Rezatofighi, H., Yu, F., Tao, D.,
+          and Geiger, A. "Unifying Flow, Stereo and Depth Estimation."
+          IEEE TPAMI 2023.
+Used for: UniMatch optical flow family (LibreUniMatch). The upstream
+          unimatch/ package (unimatch, backbone, trident_conv,
+          transformer, attention, matching, geometry, reg_refine, utils,
+          position) is vendored verbatim under
+          libreyolo/models/unimatch/_vendor/ with its LICENSE. Training,
+          dataloaders and the DepthSplat modules are not vendored. The
+          LibreYOLO wrapper (libreyolo/models/unimatch/{model,utils}.py)
+          adds the flow-task preprocessing and postprocessing.
+
+Weight source: upstream MODEL_ZOO.md (gmflow-scale1-things,
+               gmflow-scale2-regrefine6-{mixdata,sintelft,kitti15}).
+Weight license: upstream publishes no separate weight licence; LibreYOLO
+                hosts the converted checkpoints on its Hugging Face org
+                under the releasing project's MIT licence. The grant is
+                implied by the releasing project and is LibreYOLO's
+                disclosed interpretation, not publisher-confirmed.
+Conversion: weights/convert_unimatch_weights.py wraps the unchanged
+            upstream tensors in the LibreYOLO checkpoint schema.

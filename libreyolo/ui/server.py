@@ -126,6 +126,9 @@ def _summarize_result(result) -> tuple[str, str]:
     if getattr(result, "depth_map", None) is not None:
         return "depth", "depth map"
 
+    if getattr(result, "flow", None) is not None:
+        return "flow", "optical flow"
+
     if getattr(result, "normal_map", None) is not None:
         return "normal", "normal map"
 

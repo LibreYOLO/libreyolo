@@ -46,6 +46,26 @@ DINOv3 (Meta DINOv3 License Agreement)
     These terms apply only to the DINOv3 subtree listed above. The
     rest of LibreYOLO remains under the MIT License.
 
+    The WAFT family (libreyolo/models/waft/) builds its size t encoder
+    from this subtree; the LibreWAFTt-flow-dinov3 weights contain a
+    fine-tuned DINOv3 ViT-S/16 and carry the DINOv3 License with them.
+
+WAFT (BSD 3-Clause License)
+    Path:    libreyolo/models/waft/_vendor/
+    License: libreyolo/models/waft/_vendor/LICENSE
+    Source:  https://github.com/princeton-vl/WAFT
+    Commit:  b152ff1cad1af8c185ee7b141997c48ff3334c87
+
+    Inference-only copy of WAFT (Warping-Alone Field Transforms, Wang and
+    Deng, Princeton Vision & Learning Lab), Copyright (c) 2025. Training
+    code is dropped; xformers and timm are replaced by plain torch with
+    F.scaled_dot_product_attention. The Twins-SVT backbone in
+    _vendor/twins.py is derived from timm (Apache License 2.0, Copyright
+    2019 Ross Wightman), itself from Meituan-AutoML/Twins (Apache License
+    2.0, Copyright 2021 Meituan); see licenses/Apache-2.0.txt. The
+    Depth Anything V2 and DINOv3 encoders are reused from the
+    depth_anything and deimv2 families and keep their own licenses.
+
 SenseNova-Vision / Bagel (Apache License 2.0 code; CC BY-NC 4.0 weights,
 mirrored under that license)
     Path:    libreyolo/models/sensenova/
@@ -260,6 +280,22 @@ LingBot-Vision (Apache License 2.0)
     LibreLingBotVision{s,b,l}-sem checkpoints combine those backbones
     with a LibreYOLO-trained ADE20K head.
 
+FlowSeek (Apache License 2.0)
+    Path:    libreyolo/models/flowseek/_vendor/
+    License: libreyolo/models/flowseek/_vendor/LICENSE.md
+    Notice:  libreyolo/models/flowseek/_vendor/NOTICE.md
+    Source:  https://github.com/mattpoggi/flowseek
+    Commit:  ba6407370bceeb96244cad4d60d37489f6eb471e
+
+    Copyright (c) 2025 Matteo Poggi and Fabio Tosi. The FlowSeek network,
+    the SEA-RAFT parts it includes (Copyright (c) 2024, Princeton Vision &
+    Learning Lab, BSD 3-Clause License, text in the vendored NOTICE.md) and
+    its motion bases are adapted for inference only. The Depth Anything V2
+    encoder reuses libreyolo/models/depth_anything/_vendor. The hosted
+    LibreFlowSeekm-flow and LibreFlowSeekl-flow checkpoints embed the Depth
+    Anything V2 Base encoder, whose weights are CC BY-NC 4.0
+    (non-commercial); t and s embed the Apache-2.0 Small encoder.
+
 Depth Anything 3 (Apache License 2.0)
     Path:    libreyolo/models/depth_anything3/_vendor/
     License: libreyolo/models/depth_anything3/NOTICE
@@ -270,6 +306,62 @@ Depth Anything 3 (Apache License 2.0)
     Seed's Apache-2.0 implementation. DINOv2 subcomponents retain Meta
     Platforms Apache-2.0 headers. Package-relative imports and dependency-free
     tensor reshapes do not alter learned parameters or monocular outputs.
+
+RAFT (BSD 3-Clause License)
+    Path:    libreyolo/models/raft/_vendor/
+    License: libreyolo/models/raft/_vendor/LICENSE  (BSD-3-Clause)
+    Source:  https://github.com/princeton-vl/RAFT
+    Commit:  2888e15
+
+    The RAFT optical flow network (feature and context encoders, correlation
+    pyramid, recurrent update block) is vendored from princeton-vl's RAFT
+    (Copyright (c) 2020, princeton-vl). Changes are package-relative imports,
+    removal of the optional alt_cuda_corr extension and the scipy training
+    helper, and warning-free torch API calls; the computation is unchanged.
+    The released raft-things, raft-small, raft-sintel and raft-kitti
+    checkpoints are distributed in the same BSD-3-Clause repository and are
+    mirrored on the LibreYOLO Hugging Face org with that licence.
+SEA-RAFT (BSD 3-Clause License)
+    Path:    libreyolo/models/searaft/_vendor/
+    License: libreyolo/models/searaft/_vendor/LICENSE  (BSD-3-Clause)
+    Source:  https://github.com/princeton-vl/SEA-RAFT
+             (commit 9137517ba24e628442aec097d3afe71d03503b75)
+             Copyright (c) 2024, Princeton Vision & Learning Lab.
+
+    The inference subset of SEA-RAFT's core/ is vendored for the
+    LibreSEARAFT optical flow family; training code and the optional CUDA
+    correlation extension are not included. The published S and M
+    checkpoints are BSD-3-Clause and mirrored on the LibreYOLO Hugging Face
+    organisation.
+NeuFlow v2 (Apache License 2.0)
+    Path:    libreyolo/models/neuflowv2/_vendor/
+    License: libreyolo/models/neuflowv2/_vendor/LICENSE
+    Source:  https://github.com/neufieldrobotics/NeuFlow_v2
+    Commit:  204b5e3744461d90303b9ff82caa7a1bb56a2ca2
+
+    The NeuFlow v2 optical flow network (Zhiyong Zhang, Aniket Gupta, Huaizu
+    Jiang, Hanumant Singh) is vendored for inference only. Package-relative
+    imports, a plain torch.nn.Module base instead of the huggingface_hub
+    mixin, and an out-of-place input scaling do not alter learned parameters
+    or outputs. The converted mixed, sintel and things checkpoints keep the
+    upstream Apache-2.0 licence.
+DPFlow / ptlflow (Apache License 2.0 code; CC BY-NC-SA 4.0 weights,
+mirrored under that license)
+    Path:    libreyolo/models/dpflow/_vendor/
+    License: libreyolo/models/dpflow/_vendor/LICENSE
+    Source:  https://github.com/hmorimitsu/ptlflow (ptlflow/models/dpflow)
+    Commit:  43cdc2b5fc7228e7090009a66e8e28e0b48e31ba
+
+    The DPFlow network is an inference-only port of Henrique Morimitsu's
+    Apache-2.0 implementation in ptlflow, with its timm-derived local_timm
+    helpers (Ross Wightman, Apache-2.0), ptlflow's pure-PyTorch correlation
+    samplers (Apache-2.0) and ptlflow's RAFT-derived input padder
+    (princeton-vl, BSD-3-Clause). The Lightning base class, training loss
+    and registry are removed; see libreyolo/models/dpflow/_vendor/NOTICE.
+    The ptlflow-trained weights are CC BY-NC-SA 4.0, mirrored at
+    huggingface.co/LibreYOLO/LibreDPFlowm-flow (and -sintel, -kitti,
+    -spring variants); the loader prints the non-commercial notice before
+    every automatic download.
 
 NAFNet (MIT License)
     Path:    libreyolo/models/nafnet/

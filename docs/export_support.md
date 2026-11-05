@@ -40,6 +40,7 @@ in preflight.
 | dinov2 | classify | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  | available |
 | dinov2 | embed | ✓ | ✓ | available | available | available |  |  |  |  | ✓ |  |  |
 | domedetr | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| dpflow | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | ec | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  | ✓ |
 | ec | pose | ✓ | ✓ | ✓ | available | available | ✓ |  |  |  |  |  |  |
 | ec | segment | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  |  |  |
@@ -55,6 +56,7 @@ in preflight.
 | fcos3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | feynobg | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |
 | florence2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| flowseek | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | flux2_klein | generate |  |  |  |  |  |  |  |  |  |  |  |  |
 | fomo | point | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
 | gemma4 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -88,6 +90,7 @@ in preflight.
 | marigold_v2 | albedo |  |  |  |  |  |  |  |  |  |  |  |  |
 | mask_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | mask_rcnn | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |
+| memfof | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | midas | depth | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
 | mobilenetv4 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | mobilesam | segment |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -98,6 +101,7 @@ in preflight.
 | moondream | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | moondream | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | nafnet | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
+| neuflowv2 | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | northmicrovision | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | omdet_turbo | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | ov_deim | detect |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -114,6 +118,7 @@ in preflight.
 | ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
 | quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
 | qwen3vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| raft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | resnet | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | retinanet | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
@@ -132,6 +137,7 @@ in preflight.
 | sam3 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam3dbody | mesh |  |  |  |  |  |  |  |  |  |  |  |  |
 | sana_sprint | generate |  |  |  |  |  |  |  |  |  |  |  |  |
+| searaft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | segformer | semantic | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
 | sensenovavision | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | sensenovavision | segment |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -154,11 +160,13 @@ in preflight.
 | trellis | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposplat | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |
+| unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
 | vit | classify | ✓ | available | available | available | available |  |  |  | available |  |  |  |
 | vitmatte | matte |  |  |  |  |  |  |  |  |  |  |  |  |
 | vjepa2 | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
 | vjepa2 | classify | available | available | available | available | available |  |  |  |  |  |  |  |
+| waft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | wevisonevl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | wevisonevl | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | wevisonevl | segment |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -920,6 +928,18 @@ These converter paths are callable with the recorded validation context.
 - `domedetr` / `detect` / `tflite`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `domedetr` / `detect` / `coreml`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `domedetr` / `detect` / `coreai`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
+- `dpflow` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `tensorrt`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `openvino`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `paddle`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `mnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `rknn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `ncnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `ec` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `ec` / `detect` / `ncnn`: NCNN export is not supported for EC: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ec` / `detect` / `tflite`: onnx2tf 2.6.7 emits an ONNX_LAYERNORMALIZATION custom operation that LiteRT 2.1.2 cannot prepare.
@@ -1052,6 +1072,18 @@ These converter paths are callable with the recorded validation context.
 - `florence2` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `florence2` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `florence2` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `flowseek` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `tensorrt`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `openvino`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `paddle`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `mnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `rknn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `ncnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `flux2_klein` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
@@ -1402,6 +1434,18 @@ These converter paths are callable with the recorded validation context.
 - `mask_rcnn` / `segment` / `tflite`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `coreml`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `coreai`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
+- `memfof` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `tensorrt`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `openvino`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `paddle`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `mnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `rknn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `ncnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `midas` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `midas` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `midas` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1493,6 +1537,18 @@ These converter paths are callable with the recorded validation context.
 - `nafnet` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `nafnet` / `restore` / `tflite`: onnx2tf 2.6.7 converts the fixed-canvas graph, but LiteRT 2.1.2 fails at invoke time because input tensor 4539 lacks data.
 - `nafnet` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `neuflowv2` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `tensorrt`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `openvino`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `paddle`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `mnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `rknn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `ncnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `northmicrovision` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `northmicrovision` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `northmicrovision` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1637,6 +1693,18 @@ These converter paths are callable with the recorded validation context.
 - `qwen3vl` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `qwen3vl` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `qwen3vl` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `raft` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `tensorrt`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `openvino`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `paddle`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `mnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `rknn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `ncnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `realesrgan` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `realesrgan` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `realesrgan` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1779,6 +1847,18 @@ These converter paths are callable with the recorded validation context.
 - `sana_sprint` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `sana_sprint` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `sana_sprint` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `searaft` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `tensorrt`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `openvino`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `paddle`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `mnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `rknn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `ncnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `segformer` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `segformer` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `segformer` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -2002,6 +2082,18 @@ These converter paths are callable with the recorded validation context.
 - `unet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unimatch` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `tensorrt`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `openvino`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `paddle`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `mnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `rknn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `ncnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `vgg` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vgg` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vgg` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -2040,6 +2132,18 @@ These converter paths are callable with the recorded validation context.
 - `vjepa2` / `classify` / `tflite`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `vjepa2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vjepa2` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `waft` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `tensorrt`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `openvino`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `paddle`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `mnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `rknn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `ncnn`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `wevisonevl` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `detect` / `executorch`: Generative VLM export is out of scope for v1.

@@ -70,6 +70,20 @@ def _exit_inference_error(
     exit_stage_error(out, stage="Inference", detail=exc)
 
 
+def _split_source_list(source: str) -> str | list[str]:
+    """Turn ``"a.jpg,b.jpg"`` into a list when every part is an existing file.
+
+    A lone path, a URL, a stream locator or a path that happens to contain a
+    comma but exists as given stays a plain string.
+    """
+    if not isinstance(source, str) or "," not in source or Path(source).exists():
+        return source
+    parts = [part.strip() for part in source.split(",")]
+    if len(parts) >= 2 and all(part and Path(part).is_file() for part in parts):
+        return parts
+    return source
+
+
 def _build_predict_kwargs(
     loaded_model,
     *,
@@ -167,6 +181,21 @@ def predict_cmd(
         False, help="FP16 inference (CUDA only, requires model support)"
     ),
     save: bool = typer.Option(False, help="Save annotated images"),
+    save_flow: bool = typer.Option(
+        False,
+        help="Optical flow only: also write each pair's raw field as a "
+        "Middlebury .flo file next to the rendered output",
+    ),
+    arrows: bool = typer.Option(
+        False,
+        help="Optical flow only: save/show the arrows view (frame with one "
+        "arrow every 16 px) instead of the colour wheel; needs --save or --show",
+    ),
+    warp: bool = typer.Option(
+        False,
+        help="Optical flow only: save/show the warp check (frame t left, "
+        "frame t+1 warped back onto it right); needs --save or --show",
+    ),
     batch: int = typer.Option(
         1,
         help="Images per forward pass for directory sources "
@@ -244,6 +273,10 @@ def predict_cmd(
     # not fall through as nonexistent image files.
     from libreyolo.utils.source import SourceKind, classify_source
 
+    # "a.jpg,b.jpg": several existing image files form one ordered list
+    # source (a frame pair for optical flow, a batch for every other task).
+    source = _split_source_list(source)
+
     try:
         source_spec = classify_source(source)
     except FileNotFoundError as exc:
@@ -252,7 +285,9 @@ def predict_cmd(
         exit_with_error(out, "config_type_error", str(exc))
 
     remote_prefixes = ("http://", "https://", "s3://", "gs://")
-    if source_spec.kind in {SourceKind.IMAGE, SourceKind.VIDEO}:
+    if source_spec.kind in {SourceKind.IMAGE, SourceKind.VIDEO} and isinstance(
+        source, str
+    ):
         source_path = Path(source)
         if not source_path.exists() and not source.startswith(remote_prefixes):
             exit_with_error(out, "source_not_found", f"Source not found: {source}")
@@ -326,6 +361,26 @@ def predict_cmd(
             "with task=embed).",
         )
 
+    # Flow-only options: reject them loudly for every other task instead of
+    # letting them parse and do nothing.
+    flow_only = {"save_flow": save_flow, "arrows": arrows, "warp": warp}
+    requested_flow = [option for option, value in flow_only.items() if value]
+    if requested_flow and getattr(loaded_model, "task", None) != "flow":
+        names = ", ".join(f"--{option.replace('_', '-')}" for option in requested_flow)
+        exit_with_error(
+            out,
+            "config_unsupported",
+            f"{names} only apply to optical flow models (task flow); "
+            f"this model's task is {getattr(loaded_model, 'task', None)!r}.",
+        )
+    if (arrows or warp) and not (save or show):
+        exit_with_error(
+            out,
+            "config_unsupported",
+            "--arrows and --warp pick the saved or shown flow view.",
+            suggestion="Add --save or --show.",
+        )
+
     # FP16 (half) precision: exported runtimes (ONNX, TensorRT, ...) accept the
     # flag and run in FP16, so forward it there. For native PyTorch inference it
     # is not yet wired (model converts to FP16 but input stays FP32 → dtype
@@ -396,6 +451,9 @@ def predict_cmd(
     if agnostic_nms:
         # Only when set: predict paths without it reject the option.
         predict_kwargs["agnostic_nms"] = True
+    for option, value in flow_only.items():
+        if value:
+            predict_kwargs[option] = True
     if gallery_obj is not None:
         predict_kwargs["gallery"] = gallery_obj
         predict_kwargs["threshold"] = gallery_threshold
@@ -469,7 +527,9 @@ def predict_cmd(
         # Count detections per class
         class_counts: dict[str, int] = {}
         h, w = r.orig_shape
-        img_name = Path(r.path or source).name
+        img_name = Path(
+            r.path or (source if isinstance(source, str) else source[0])
+        ).name
         idx = len(human_lines) + 1
         elapsed_ms = elapsed * 1000 / max(len(results), 1)
 
@@ -549,6 +609,19 @@ def predict_cmd(
                     "color_space": "linear_rgb",
                 }
                 summary = "albedo"
+            elif getattr(r, "flow", None) is not None:
+                flow = r.flow
+                flow_h, flow_w = flow.orig_shape
+                result_data["flow"] = {
+                    "shape": [int(flow_h), int(flow_w), 2],
+                    "mean_magnitude": round(float(flow.mean_magnitude), 4),
+                    "max_magnitude": round(float(flow.max_magnitude), 4),
+                    "has_confidence": flow.confidence is not None,
+                }
+                summary = (
+                    f"flow mean={flow.mean_magnitude:.4g}px "
+                    f"max={flow.max_magnitude:.4g}px"
+                )
             elif getattr(r, "depth_map", None) is not None:
                 depth_map = r.depth_map
                 result_data["depth"] = {

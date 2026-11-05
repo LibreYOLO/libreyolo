@@ -641,6 +641,24 @@
     "available": true,
     "group": "g2"
   },
+  "dpflow": {
+    "class": "libreyolo.models.dpflow.model.LibreDPFlow",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "m": 8192
+    },
+    "default_imgsz": {
+      "m": 8192
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "ec": {
     "class": "libreyolo.models.ec.model.LibreEC",
     "tasks": [
@@ -912,6 +930,30 @@
     "optional_extra": "vlm",
     "available": true,
     "group": "s"
+  },
+  "flowseek": {
+    "class": "libreyolo.models.flowseek.model.LibreFlowSeek",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "t": 8192,
+      "s": 8192,
+      "m": 8192,
+      "l": 8192
+    },
+    "default_imgsz": {
+      "t": 8192,
+      "s": 8192,
+      "m": 8192,
+      "l": 8192
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
   },
   "flux2_klein": {
     "class": "libreyolo.models.gen.flux2_klein.LibreFlux2Klein",
@@ -1434,6 +1476,24 @@
     "available": true,
     "group": "g3"
   },
+  "memfof": {
+    "class": "libreyolo.models.memfof.model.LibreMEMFOF",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "m": 1920
+    },
+    "default_imgsz": {
+      "m": 1920
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "midas": {
     "class": "libreyolo.models.midas.model.LibreMiDaS",
     "tasks": [
@@ -1599,6 +1659,30 @@
     "optional_extra": null,
     "available": true,
     "group": "g2"
+  },
+  "neuflowv2": {
+    "class": "libreyolo.models.neuflowv2.model.LibreNeuFlowv2",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "s": [
+        432,
+        768
+      ]
+    },
+    "default_imgsz": {
+      "s": [
+        432,
+        768
+      ]
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
   },
   "northmicrovision": {
     "class": "libreyolo.models.vlm.northmicro.LibreNorthMicroVision",
@@ -1934,6 +2018,26 @@
     "optional_extra": "vlm",
     "available": true,
     "group": "s"
+  },
+  "raft": {
+    "class": "libreyolo.models.raft.model.LibreRAFT",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "s": 8192,
+      "l": 8192
+    },
+    "default_imgsz": {
+      "s": 8192,
+      "l": 8192
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
   },
   "realesrgan": {
     "class": "libreyolo.models.realesrgan.model.LibreRealESRGAN",
@@ -2300,6 +2404,28 @@
     "group": "s",
     "cli_command": "generate"
   },
+  "searaft": {
+    "class": "libreyolo.models.searaft.model.LibreSEARAFT",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "s": 960,
+      "m": 960,
+      "l": 960
+    },
+    "default_imgsz": {
+      "s": 960,
+      "m": 960,
+      "l": 960
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "segformer": {
     "class": "libreyolo.models.segformer.model.LibreSegformer",
     "tasks": [
@@ -2618,6 +2744,26 @@
     "available": true,
     "group": "g2"
   },
+  "unimatch": {
+    "class": "libreyolo.models.unimatch.model.LibreUniMatch",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "s": 640,
+      "l": 640
+    },
+    "default_imgsz": {
+      "s": 640,
+      "l": 640
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "vgg": {
     "class": "libreyolo.models.vgg.model.LibreVGG",
     "tasks": [
@@ -2708,6 +2854,30 @@
     "optional_extra": null,
     "available": true,
     "group": "g2"
+  },
+  "waft": {
+    "class": "libreyolo.models.waft.model.LibreWAFT",
+    "tasks": [
+      "flow"
+    ],
+    "default_task": "flow",
+    "sizes": {
+      "t": 8192,
+      "s": 8192,
+      "m": 8192,
+      "l": 8192
+    },
+    "default_imgsz": {
+      "t": 8192,
+      "s": 8192,
+      "m": 8192,
+      "l": 8192
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
   },
   "wevisonevl": {
     "class": "libreyolo.models.wevisone.model.LibreWeVisOneVL",

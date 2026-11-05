@@ -225,6 +225,43 @@ Float `.npy` maps are used as-is and do not apply `depth_scale`.
 
 Canonical loader: `libreyolo.data.DepthDataset`.
 
+## flow
+
+Optical flow pairs consecutive frames of a sequence with a dense two-channel
+displacement field instead of a `.txt` label file. Frames live in one folder
+per sequence and are ordered by file name. The flow stored for a frame points
+from that frame to the next one, so the last frame of a sequence has no flow
+file:
+
+```text
+images/<split>/<sequence>/frame_0001.png -> <flows_dir>/<split>/<sequence>/frame_0001.flo
+```
+
+Flow rules:
+
+- Middlebury `.flo` (default), KITTI 16-bit PNG (`flow_format: kitti`, three
+  channels: `dx` and `dy` stored as `value * 64 + 2^15`, plus a valid bit) or
+  `.npy` `(H, W, 2)` float32, selected by `flow_format`;
+- field resolution must equal the paired frame resolution;
+- values are pixel displacements on the frame canvas, `+x` right, `+y` down;
+- non-finite values, KITTI invalid bits and an optional `<stem>_valid.png`
+  mask next to the flow file (zero means invalid) exclude pixels from loss
+  and metrics.
+
+YAML adds two optional keys on top of the common contract:
+
+- `flows_dir`: flow directory name substituted for `images` in each frame
+  path (default `flows`).
+- `flow_format`: `flo` (default), `kitti` or `npy`.
+- `flow_valid_suffix`: suffix of the optional validity mask stored next to
+  each flow file as `<stem><suffix>.png` (default `_valid`).
+
+Validation reports `metrics/epe` (mean end-point error), `metrics/px1` and
+`metrics/px3` (fraction of valid pixels under 1 and 3 px of error) and
+`metrics/fl_all` (KITTI outlier rate); fitness is `metrics/px1`. See ADR 0032.
+
+Canonical loader: `libreyolo.data.FlowDataset`.
+
 ## edge
 
 Edge detection pairs each RGB image with a same-stem, single-channel lossless
