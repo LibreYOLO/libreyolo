@@ -854,6 +854,40 @@ WeVisOne-VL (Apache License 2.0)
     Qwen3-VL-2B/4B-Instruct, Apache-2.0) download from Tencent at pinned
     revisions.
 
+DeepSeek-OCR (MIT License; Apache-2.0 sub-components)
+    Path:    libreyolo/models/deepseekocr/
+    License: libreyolo/models/deepseekocr/NOTICE
+    Source:  https://huggingface.co/deepseek-ai/DeepSeek-OCR
+             (commit 9f30c71f441d010e5429c532364a86705536c53a)
+             Copyright (c) 2023 DeepSeek.
+
+    The DeepEncoder (SAM ViT-B plus CLIP-L/14), the DeepSeek-V2 style MoE
+    decoder and the input/grounding handling are ported from the MIT
+    release for inference only. The decoder file carries an Apache-2.0
+    header (DeepSeek-AI and the HuggingFace team), and its attention path
+    is the transformers 4.46.3 Llama attention (Apache-2.0); the SAM encoder
+    is adapted upstream from detectron2 ViTDet (Apache-2.0). Weights (MIT)
+    download from the byte-identical LibreYOLO/LibreDeepSeekOCR1 mirror at
+    a pinned revision. DeepSeek-OCR-2 (size 2, Apache-2.0, commit
+    aaa02f3811945a91062062994c5c4a3f4c0af2b0) adds a Qwen2-based vision
+    encoder ported from its deepencoderv2.py and the transformers 4.46.3
+    Qwen2 modules (Apache-2.0); its weights (Apache-2.0) download from the
+    LibreYOLO/LibreDeepSeekOCR2 mirror.
+
+PaddleOCR-VL document-parsing pipeline (Apache License 2.0)
+    Path:    libreyolo/models/paddleocrvl/
+    License: libreyolo/models/paddleocrvl/NOTICE
+    Source:  https://github.com/PaddlePaddle/PaddleX
+             (commit 4c968d30b9d0d4a693d9eaaef0881c20f8d7d0e0)
+             Copyright (c) 2024 PaddlePaddle Authors.
+
+    The layout post-processing, region overlap filter, prompt routing,
+    content clean-up (OTSL to HTML, repetition truncation) and markdown
+    assembly are ported from PaddleX. Both networks run from Transformers
+    (Apache-2.0); no model code is copied. Weights: LibreYOLO's unmodified
+    mirror LibreYOLO/LibrePaddleOCRVL0.9b of PaddlePaddle/PaddleOCR-VL and
+    PaddlePaddle/PP-DocLayoutV2_safetensors (Apache-2.0), pinned.
+
 ------------------------------------------------------------------------
 Pretrained model weights
 ------------------------------------------------------------------------

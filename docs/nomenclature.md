@@ -130,6 +130,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `zipdepth`  | `LibreZipDepth` | CamelCase preserved (`ZipDepth` brand casing); depth-only lightweight CNN (speed/edge tier) |
 | `midas`     | `LibreMiDaS` | Upstream mixed-case brand preserved (`MiDaS`); inference-only relative-depth museum family |
 | `moge2`     | `LibreMoGe2` | Upstream brand casing preserved (`MoGe`) + version; surface-normal-only |
+| `moge3`     | `LibreMoGe3` | Upstream brand casing preserved (`MoGe`) + version; metric depth with point map and intrinsics, plus normals |
 | `marigold_v2` | `LibreMarigoldV2` | Marigold V2 depth, normals and albedo; pinned Qwen base with task adapters |
 | `teed`      | `LibreTEED` | All-caps acronym (`TEED`); edge-only tiny CNN specialist |
 | `dexined`   | `LibreDexiNed` | Upstream brand casing preserved (`DexiNed`); edge-only base CNN specialist |
@@ -138,6 +139,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `ben2`      | `LibreBEN2` | All-caps acronym plus version digit; matte-only BEN2 Base background-removal family |
 | `vitmatte`  | `LibreViTMatte` | Upstream brand casing preserved (`ViTMatte`); trimap-guided matte family |
 | `ppocr`     | `LibrePPOCR`    | All-caps acronym (PP-OCR brand, hyphen dropped); ocr-only two-stage text detection + recognition family |
+| `ppdoclayoutv3` | `LibrePPDocLayoutV3` | Upstream brand casing preserved (`PP-DocLayoutV3`, hyphen dropped); detect-only document layout family with reading order; inference-only |
 | `facerec`   | `LibreFaceEmbedder` | Descriptive family name (no upstream brand): embed-only two-stage face detection + identity-embedding family, inference-only |
 | `sam3dbody` | `LibreSAM3DBody` | All-caps acronym plus CamelCase `Body` (hyphens dropped); mesh-only family. Named in full rather than shortened so it does not collide with the `LibreSAM` promptable-segmentation tier. Sizes are backbone codes: `d3` (DINOv3 ViT-H/16+) and `h` (ViT-H). This family wraps an optional third-party package rather than porting it; see ADR 0013 |
 
@@ -165,7 +167,7 @@ exceptions being lowercase version suffixes (`DEIMv2`, `RTDETRv2`,
 The VLM and promptable SAM tiers are separate categories and do not follow this
 rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreLFM2VL`,
 `LibreSmolVLM2`, `LibreInternVL3`, `LibreFlorence2`, `LibreKosmos2`,
-`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreMODUS`, `LibreSAM`,
+`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreDeepSeekOCR`, `LibrePaddleOCRVL`, `LibreMODUS`, `LibreSAM`,
 `LibreSAM2`, `LibreSAM3`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
 are not registered
 into the detector factory and do not emit `Libre<FAMILY><size>.pt` detector
@@ -274,6 +276,7 @@ ships:
 | `zipdepth`  | `b` (base, GPU/CPU convex upsampling), `bnpu` (base capacity with the separately trained unfold-free upsampling head for NPU/edge compilers); both at short-side 384 |
 | `midas`     | `s` (MiDaS v2.1 Small, EfficientNet-Lite3, upper-bound 256), `l` (DPT-Large, ViT-L/16, minimal-resize 384) |
 | `moge2`     | `s`, `b`, `l` (official MoGe-2 ViT-S/B/L-14 normal checkpoints; all at native short side 518, `l` quality default) |
+| `moge3`     | `l`, `g` (official MoGe-3 ViT-L/14 and ViT-g/14; `imgsz` 840 sets a 3600-token budget, inputs keep native resolution) |
 | `marigold_v2` | `b` (20B Qwen base; task and depth-variant suffix select the adapter) |
 | `teed`      | `t` (tiny, 58,910 parameters; fixed 352 square) |
 | `dexined`   | `b` (base, 35.2M parameters; fixed 352 square) |
@@ -282,6 +285,7 @@ ships:
 | `ben2`      | `b` (the single public BEN2 Base checkpoint, 94M parameters) at fixed 1024 |
 | `vitmatte`  | `s` (ViT-S backbone; native image resolution with bottom/right padding to a multiple of 32; nominal checkpoint canvas 512) |
 | `ppocr`     | `t` (PP-OCRv5 mobile det + mobile rec, CPU tier), `l` (PP-OCRv5 server det + server rec, quality tier); detection long side 960 |
+| `ppdoclayoutv3` | `l` (the single released variant, HGNetV2-L backbone) at fixed 800 |
 | `clip`      | `b32`, `b16`, `l14` (ViT patch size baked in, all at 224) |
 | `siglip2`   | `b16` (base patch-16 at 256), `so400m` (shape-optimized 400M patch-14 at 384) |
 | `pe`        | `t16`, `s16` (patch-16 at 384), `b16` (patch-16 at 224), `l14` (patch-14 at 336), `g14` (gigantic patch-14 at 448) — ViT patch size baked in, resolution varies per size |
@@ -292,7 +296,9 @@ VLM snapshot families use model-specific size names:
 |---|---|
 | `molmo2` | `4b` (default), `8b`, `o-7b`; single-image point task |
 | `wevisonevl` | `2b` (default), `4b`; Qwen3-VL backbone plus the `mask_decoder.pt` pixel decoder |
+| `paddleocrvl` | `0.9b` (only size); PaddleOCR-VL-0.9B recognizer plus the PP-DocLayoutV2 layout detector under `layout/` in one mirror |
 | `libremodus` | `14b-a7b` (14B total parameters, approximately 7B active; external MODUS snapshot) |
+| `deepseekocr` | `1` (DeepSeek-OCR, default; mirror `LibreYOLO/LibreDeepSeekOCR1`), `2` (DeepSeek-OCR-2; mirror `LibreYOLO/LibreDeepSeekOCR2`); both 3B MoE |
 
 Promptable SAM tier size aliases:
 
@@ -438,6 +444,14 @@ matte filenames must carry the `-matte` suffix; task aliases such as `matting`,
 `background-removal`, `rembg`, and `dis` resolve to `matte` at the API boundary.
 See ADR 0010 for the full contract.
 
+Document layout families (`ppdoclayoutv3`) use the `detect` task: boxes over
+layout classes such as text, titles, tables and figures. Their `Results` rows
+are sorted in reading order and carry `Results.reading_order`, a one-based
+integer rank per box (the same shape and slicing rules as `track_id`). It is
+the rank among the regions kept at the requested `conf`; a `classes=` filter or
+`max_det` cut keeps the surviving boxes' ranks, so the values can have gaps.
+Other families leave `Results.reading_order` as `None`.
+
 `ocr` is the task for located text: detection quads plus transcripts. Models
 expose `Results.ocr`, a list of text regions each carrying a 4-point `polygon`
 in original-image coordinates, the recognized `text`, and recognition plus
@@ -490,6 +504,7 @@ the multi-task analysis family in that tier:
 | Family | `SUPPORTED_TASKS` | Default | Notes |
 |---|---|---|---|
 | `libremodus` | `("detect", "depth", "normal", "edge")` | detect | External `14b-a7b` snapshot; standard tasks plus image-conditioned `any2any()`; inference-only; no RGB output |
+| `deepseekocr` | `("ocr",)` | ocr | Vendored port, sizes `1` and `2`; `prompt="ocr"` / `"markdown"` / `"free"`, `resolution=` tiny to gundam; inference-only, `val()` runs the OCR validator |
 
 The promptable SAM tier is separate from the detector checkpoint factory. Its
 families all expose the promptable `segment` task:
@@ -557,6 +572,7 @@ Detector-factory family support follows:
 | `zipdepth`  | `("depth",)`                        | depth  | ZipDepth lightweight CNN (RepVGG encoder + FPN decoder, DA2-L distilled); sizes `b`/`bnpu` at short-side 384; predict + zero-shot `val` + fixed-resolution ONNX/TorchScript export; MIT code and weights; not trainable in LibreYOLO |
 | `midas`     | `("depth",)`                        | depth  | MiDaS relative inverse depth, defined only up to a per-image scale and shift; higher means closer and values have no metric unit. Sizes `s`/`l`; predict + zero-shot `val` + fixed-resolution ONNX/TorchScript/TensorRT/OpenVINO export; inference-only |
 | `moge2`     | `("normal",)`                       | normal | MoGe-2 ViT-S/B/L-14 normal models; sizes `s`/`b`/`l` at native short-side 518 (`l` quality default); OpenCV camera-frame unit normals; predict + zero-shot `val` + fixed-resolution ONNX export; official code and checkpoints are MIT; not trainable in LibreYOLO |
+| `moge3`     | `("depth", "normal")`             | depth  | MoGe-3 ViT-L/g-14 with sparse volumetric refinement; metric depth (`encoding="depth"`, `metric=True`) plus point map, pixel intrinsics, and validity mask on `Results.depth_map`, or OpenCV-frame unit normals; predict + zero-shot `val`; fixed-resolution normal export; MIT code and weights; not trainable in LibreYOLO |
 | `teed`      | `("edge",)`                         | edge   | TEED tiny edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
 | `dexined`   | `("edge",)`                         | edge   | DexiNed base edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
 | `nafnet`    | `("restore",)`                      | restore | NAFNet RGB restoration; sizes `s`/`l`; native predict runs at original resolution with reflect padding; paired PSNR/SSIM train+val; fixed-resolution ONNX v1. Published denoise weights: `LibreNAFNetl-restore-sidd.pt` (SIDD width-64, bit-exact conversion, upstream PSNR 40.3045 dB) |
@@ -567,6 +583,7 @@ Detector-factory family support follows:
 | `feynobg`   | `("matte",)`                        | matte  | FeyNobg background removal (BiRefNet architecture, deeper stage 3); size `l`, fixed 1024; same matte surface as birefnet; inference-only; fp8/nvfp4 pre-quantized checkpoints published on HF |
 | `ben2`      | `("matte",)`                        | matte  | BEN2 Base background removal; size `b`, fixed 1024; batched predict + `cutout` + transparent-PNG save + zero-shot `val`; inference-only; fixed-resolution ONNX/TorchScript export |
 | `vitmatte`  | `("matte",)`                       | matte  | ViTMatte trimap-guided alpha matting; size `s`; `predict(image, trimap=trimap)` accepts only three-level guides; validation accepts explicit trimaps or derives a deterministic guide from GT; pretrained Composition-1k weights are non-commercial; inference-only |
+| `ppdoclayoutv3` | `("detect",)`                   | detect | PP-DocLayoutV3 document layout; size `l`, fixed 800; 25 layout classes; rows sorted in reading order with `Results.reading_order`; inference-only; ONNX/TorchScript export |
 | `ppocr`     | `("ocr",)`                          | ocr    | PP-OCRv5 two-stage text detection + recognition (zh/zh-TW/en/ja/pinyin, one dictionary); sizes `t` (mobile)/`l` (server); one composite checkpoint bundles det.* and rec.* plus the charset; predict + `val` (hmean / e2e F1 / 1-NED); inference-only; export unsupported (two-network pipeline) |
 | `realesrgan` | `("restore",)`                     | restore | Real-ESRGAN super-resolution; sizes `x4`/`x2`/`x4t`; native predict at original resolution, `Results.restored` is `restore_scale` x the input; optional seam-free tiling (`predict(..., tile=512)`); inference + PSNR/SSIM `val` only (no training); dynamic-H/W ONNX |
 | `quicksrnet` | `("restore",)`                     | restore | QuickSRNet Medium 2x compact super-resolution; size `m2`; native arbitrary-resolution predict; inference + PSNR/SSIM `val` only (no training); dynamic-H/W ONNX and fixed-canvas TorchScript |
@@ -620,6 +637,7 @@ LibreSSD300.pt
 LibreEfficientDetd0.pt
 LibrePICODETs.pt
 LibreECs.pt
+LibrePPDocLayoutV3l.pt
 ```
 
 ### Pose only
@@ -748,6 +766,12 @@ LibreMiDaSl-depth.pt             # DPT-Large, ViT-L/16, 384
 LibreMoGe2s-normal.pt            # ViT-S/14, native short side 518
 LibreMoGe2b-normal.pt            # ViT-B/14, native short side 518
 LibreMoGe2l-normal.pt            # ViT-L/14, native short side 518, quality default
+
+# moge3 - MoGe-3 metric geometry (depth + point map + intrinsics) and normals, MIT weights
+LibreMoGe3l-depth.pt             # ViT-L/14, metric depth, point map, intrinsics
+LibreMoGe3l-normal.pt            # ViT-L/14, surface normals (same tensors as -depth)
+LibreMoGe3g-depth.pt             # ViT-g/14, metric depth, point map, intrinsics
+LibreMoGe3g-normal.pt            # ViT-g/14, surface normals (same tensors as -depth)
 
 # edge specialists - architecture code is MIT; no released weights are mirrored
 LibreTEEDt-edge.pt               # tiny TEED, local compatible checkpoint

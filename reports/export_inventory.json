@@ -245,6 +245,26 @@
     "available": true,
     "group": "g3"
   },
+  "deepseekocr": {
+    "class": "libreyolo.models.deepseekocr.model.LibreDeepSeekOCR",
+    "tasks": [
+      "ocr"
+    ],
+    "default_task": "ocr",
+    "sizes": {
+      "1": 1024,
+      "2": 1024
+    },
+    "default_imgsz": {
+      "1": 1024,
+      "2": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "deformable_detr": {
     "class": "libreyolo.models.deformable_detr.model.LibreDeformableDETR",
     "tasks": [
@@ -1496,6 +1516,27 @@
     "available": true,
     "group": "g3"
   },
+  "moge3": {
+    "class": "libreyolo.models.moge3.model.LibreMoGe3",
+    "tasks": [
+      "depth",
+      "normal"
+    ],
+    "default_task": "depth",
+    "sizes": {
+      "l": 840,
+      "g": 840
+    },
+    "default_imgsz": {
+      "l": 840,
+      "g": 840
+    },
+    "task_sizes": {},
+    "export_override": "custom",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "molmo2": {
     "class": "libreyolo.models.vlm.molmo2.LibreMolmo2",
     "tasks": [
@@ -1637,6 +1678,24 @@
     "available": true,
     "group": "s"
   },
+  "paddleocrvl": {
+    "class": "libreyolo.models.paddleocrvl.model.LibrePaddleOCRVL",
+    "tasks": [
+      "ocr"
+    ],
+    "default_task": "ocr",
+    "sizes": {
+      "0.9b": 800
+    },
+    "default_imgsz": {
+      "0.9b": 800
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "pe": {
     "class": "libreyolo.models.pe.model.LibrePE",
     "tasks": [
@@ -1719,6 +1778,24 @@
       "s": 1024,
       "m": 1024,
       "l": 1024
+    },
+    "task_sizes": {},
+    "export_override": "custom",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
+  "ppdoclayoutv3": {
+    "class": "libreyolo.models.ppdoclayoutv3.model.LibrePPDocLayoutV3",
+    "tasks": [
+      "detect"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "l": 800
+    },
+    "default_imgsz": {
+      "l": 800
     },
     "task_sizes": {},
     "export_override": "custom",

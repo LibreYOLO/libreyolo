@@ -626,6 +626,7 @@ markers = [
     "convnextv2: tests covering the ConvNeXt V2 classification family",
     "deeplabv3: tests covering the DeepLabv3 semantic segmentation family",
     "lwdetr: tests covering the LW-DETR model family",
+    "ppdoclayoutv3: tests covering the PP-DocLayoutV3 document layout family",
     "faster_rcnn: tests covering the Faster R-CNN model family",
     "retinanet: tests covering the RetinaNet model family",
     "ssd: tests covering the SSD model family",

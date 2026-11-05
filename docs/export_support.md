@@ -21,6 +21,7 @@ in preflight.
 | convnextv2 | classify | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
 | ddcolor | restore |  |  |  |  |  |  |  |  |  |  |  |  |
 | deeplabv3 | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
+| deepseekocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | deformable_detr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |
 | deim | detect | ✓ | ✓ |  | available | available | ✓ | ✓ |  |  |  |  | ✓ |
 | deimv2 | detect | available | ✓ |  | available | available | ✓ | available |  |  |  |  | ✓ |
@@ -91,6 +92,8 @@ in preflight.
 | mobilenetv4 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | mobilesam | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | moge2 | normal | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available |  |  |  |
+| moge3 | depth |  |  |  |  |  |  |  |  |  |  |  |  |
+| moge3 | normal | ✓ | ✓ |  |  |  |  |  |  |  |  |  |  |
 | molmo2 | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | moondream | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | moondream | point |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -99,11 +102,13 @@ in preflight.
 | omdet_turbo | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | ov_deim | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | owlv2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| paddleocrvl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | pe | classify | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
 | pe | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | ✓ |  |  | ✓ |
 | picosam3 | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
+| ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
@@ -340,6 +345,8 @@ A check mark applies only under any constraint listed here.
 - `moge2` / `normal` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed square input shape
 - `moge2` / `normal` / `tensorrt`: FP32, batch 1, fixed square input divisible by 14; TensorRT evidence uses TensorRT 10.16 and OpenVINO evidence uses OpenVINO 2026.2
 - `moge2` / `normal` / `openvino`: FP32, batch 1, fixed square input divisible by 14; TensorRT evidence uses TensorRT 10.16 and OpenVINO evidence uses OpenVINO 2026.2
+- `moge3` / `normal` / `onnx`: FP32, batch 1, fixed square input divisible by 14; exported inference rejects non-square sources
+- `moge3` / `normal` / `torchscript`: FP32, batch 1, fixed square input divisible by 14; exported inference rejects non-square sources
 - `nafnet` / `restore` / `onnx`: fixed-resolution export canvas
 - `nafnet` / `restore` / `torchscript`: fixed-resolution export canvas
 - `nafnet` / `restore` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
@@ -361,6 +368,8 @@ A check mark applies only under any constraint listed here.
 - `pidnet` / `semantic` / `openvino`: fixed square input
 - `pidnet` / `semantic` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with a fixed export canvas; two-input raw parity, factory reload, metadata, and public predict parity
 - `pidnet` / `semantic` / `coreai`: fixed family-native canvases (PIDNet 1024, LingBotVision 512); trained LibrePIDNets-sem and LibreLingBotVisions-sem checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; exported backends already implement the shared dense-logit resize and argmax contract
+- `ppdoclayoutv3` / `detect` / `onnx`: FP32, fixed 800x800 input, ONNX opset 17
+- `ppdoclayoutv3` / `detect` / `torchscript`: FP32, fixed 800x800 input
 - `ppliteseg` / `semantic` / `onnx`: fixed native rectangle per size (512x1024 for t50/b50, 768x1536 for t75/b75). All four sizes were exported and run in each format: raw-logit cosine vs eager >= 0.999994 at batch 1 and batch 2 (ONNX is exact to 8e-05 max abs diff), and original-canvas semantic-mask agreement >= 99.6% through the factory reload. TensorRT 10.x FP32 engines were built and executed, not just parsed
 - `ppliteseg` / `semantic` / `torchscript`: fixed native rectangle per size (512x1024 for t50/b50, 768x1536 for t75/b75). All four sizes were exported and run in each format: raw-logit cosine vs eager >= 0.999994 at batch 1 and batch 2 (ONNX is exact to 8e-05 max abs diff), and original-canvas semantic-mask agreement >= 99.6% through the factory reload. TensorRT 10.x FP32 engines were built and executed, not just parsed
 - `ppliteseg` / `semantic` / `tensorrt`: fixed native rectangle per size (512x1024 for t50/b50, 768x1536 for t75/b75). All four sizes were exported and run in each format: raw-logit cosine vs eager >= 0.999994 at batch 1 and batch 2 (ONNX is exact to 8e-05 max abs diff), and original-canvas semantic-mask agreement >= 99.6% through the factory reload. TensorRT 10.x FP32 engines were built and executed, not just parsed
@@ -606,6 +615,9 @@ These converter paths are callable with the recorded validation context.
 - `pe` / `embed` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `picodet` / `detect` / `rknn`: Exact small variants passed RKNN Toolkit2 2.3.2 compilation, RK3588 PC-simulator raw-output gates, and matched post-NMS detections on a real image. Support is limited to YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s; on-device latency and parity have not been measured. Constraint: RKNN Toolkit2 2.3.2, RK3588 PC simulator, vendor floating build, batch 1, fixed square input
 - `pidnet` / `semantic` / `tensorrt`: TensorRT 10.16 FP32 exports and runs, but repeated builds produced raw-logit cosine as low as 0.9970, below the 0.999 promotion gate.
+- `ppdoclayoutv3` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `ppdoclayoutv3` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
+- `ppdoclayoutv3` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `ppyoloe` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppyoloe` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `quicksrnet` / `restore` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -764,6 +776,18 @@ These converter paths are callable with the recorded validation context.
 - `deeplabv3` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `deepseekocr` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `openvino`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `paddle`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `mnn`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `rknn`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `ncnn`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
 - `deformable_detr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `deformable_detr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `deformable_detr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1406,6 +1430,28 @@ These converter paths are callable with the recorded validation context.
 - `moge2` / `normal` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct lowering cannot lower the encoder's cubic Resize because its input C/H/W signature remains dynamic.
 - `moge2` / `normal` / `coreml`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
 - `moge2` / `normal` / `coreai`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
+- `moge3` / `depth` / `onnx`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `torchscript`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `executorch`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `tensorrt`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `openvino`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `paddle`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `mnn`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `rknn`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `ncnn`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `tflite`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `coreml`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `coreai`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `normal` / `executorch`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `tensorrt`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
+- `moge3` / `normal` / `openvino`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
+- `moge3` / `normal` / `paddle`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `mnn`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `rknn`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `ncnn`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `tflite`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `coreml`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `coreai`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
 - `molmo2` / `point` / `onnx`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `molmo2` / `point` / `torchscript`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `molmo2` / `point` / `executorch`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
@@ -1495,6 +1541,18 @@ These converter paths are callable with the recorded validation context.
 - `owlv2` / `detect` / `tflite`: Open-vocabulary runtime export is out of scope for v1.
 - `owlv2` / `detect` / `coreml`: Open-vocabulary runtime export is out of scope for v1.
 - `owlv2` / `detect` / `coreai`: Open-vocabulary runtime export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `openvino`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `paddle`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `mnn`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `rknn`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `ncnn`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
 - `pe` / `classify` / `paddle`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `pe` / `classify` / `rknn`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
@@ -1528,6 +1586,13 @@ These converter paths are callable with the recorded validation context.
 - `pidnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
+- `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
+- `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
+- `ppdoclayoutv3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `ppdoclayoutv3` / `detect` / `ncnn`: NCNN export is not supported for PP-DocLayoutV3: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
+- `ppdoclayoutv3` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
+- `ppdoclayoutv3` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `ppdoclayoutv3` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
 - `ppliteseg` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.

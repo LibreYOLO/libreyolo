@@ -824,7 +824,15 @@ class DepthMap(_TensorPayload):
     Data is ``(H, W)`` on the original canvas. The default ``inverse_depth``
     encoding has larger values nearer the camera. ``depth`` and ``log_depth``
     have larger values farther away. Each is affine-relative in its named
-    space; no metric unit or cross-image scale is implied.
+    space; no metric unit or cross-image scale is implied unless ``metric`` is
+    true, in which case ``depth`` values are metres.
+
+    Families that also recover camera geometry may attach it, all on the same
+    original canvas: ``point_map`` is the ``(H, W, 3)`` camera-frame point map
+    (OpenCV axes: x right, y down, z forward; metres when ``metric``),
+    ``intrinsics`` the ``(3, 3)`` pixel-unit OpenCV calibration with pixel
+    centers at integer coordinates, and ``valid_mask`` the ``(H, W)`` boolean
+    mask of pixels with a valid prediction.
     """
 
     ENCODINGS = ("inverse_depth", "depth", "log_depth")
@@ -835,6 +843,10 @@ class DepthMap(_TensorPayload):
         orig_shape: Tuple[int, int] | None = None,
         *,
         encoding: str = "inverse_depth",
+        metric: bool = False,
+        point_map: TensorLike | None = None,
+        intrinsics: TensorLike | None = None,
+        valid_mask: TensorLike | None = None,
     ):
         if encoding not in self.ENCODINGS:
             raise ValueError(f"depth encoding must be one of {self.ENCODINGS}")
@@ -842,30 +854,64 @@ class DepthMap(_TensorPayload):
             raise ValueError(
                 f"expected (H, W) depth map but got shape {tuple(data.shape)}"
             )
+        if metric and encoding != "depth":
+            raise ValueError("metric depth maps must use encoding='depth'")
+        canvas = tuple(int(n) for n in data.shape)
+        if point_map is not None and tuple(point_map.shape) != (*canvas, 3):
+            raise ValueError(
+                f"point_map must be (H, W, 3) = {(*canvas, 3)}, got "
+                f"{tuple(point_map.shape)}"
+            )
+        if intrinsics is not None and tuple(intrinsics.shape) != (3, 3):
+            raise ValueError(
+                f"intrinsics must be (3, 3), got {tuple(intrinsics.shape)}"
+            )
+        if valid_mask is not None and tuple(valid_mask.shape) != canvas:
+            raise ValueError(
+                f"valid_mask must be (H, W) = {canvas}, got {tuple(valid_mask.shape)}"
+            )
         if orig_shape is None:
-            orig_shape = (int(data.shape[0]), int(data.shape[1]))
+            orig_shape = canvas
         super().__init__(data, orig_shape)
         self.encoding = encoding
+        self.metric = bool(metric)
+        self.point_map = point_map
+        self.intrinsics = intrinsics
+        self.valid_mask = valid_mask
 
     @property
     def near_is_high(self) -> bool:
         return self.encoding == "inverse_depth"
 
-    def to(self, *args, **kwargs):
+    def _map(self, fn, orig_shape=None) -> "DepthMap":
+        def apply(value):
+            return None if value is None else fn(value)
+
+        mask = apply(self.valid_mask)
+        if isinstance(mask, torch.Tensor) and mask.dtype != torch.bool:
+            # A dtype cast (``to(torch.float16)``) must not turn the mask numeric.
+            mask = mask.bool()
         return self.__class__(
-            _move(self.data, *args, **kwargs), self.orig_shape, encoding=self.encoding
+            fn(self.data),
+            self.orig_shape if orig_shape is None else orig_shape,
+            encoding=self.encoding,
+            metric=self.metric,
+            point_map=apply(self.point_map),
+            intrinsics=apply(self.intrinsics),
+            valid_mask=mask,
         )
+
+    def to(self, *args, **kwargs):
+        return self._map(lambda value: _move(value, *args, **kwargs))
 
     def cpu(self):
-        return self.__class__(_cpu(self.data), self.orig_shape, encoding=self.encoding)
+        return self._map(_cpu)
 
     def cuda(self):
-        return self.__class__(_cuda(self.data), self.orig_shape, encoding=self.encoding)
+        return self._map(_cuda)
 
     def numpy(self):
-        return self.__class__(
-            _numpy(self.data), self.orig_shape, encoding=self.encoding
-        )
+        return self._map(_numpy)
 
     def _finite_values(self) -> np.ndarray:
         values = np.asarray(_numpy(self.data), dtype=np.float32)
@@ -902,7 +948,7 @@ class DepthMap(_TensorPayload):
     def __getitem__(self, idx):
         # Instance indexing does not apply to a dense map; keep it intact so
         # shared Results slicing paths cannot corrupt the (H, W) layout.
-        return self.__class__(self.data, self.orig_shape, encoding=self.encoding)
+        return self._map(lambda value: value)
 
     def __repr__(self) -> str:
         return (
@@ -1650,6 +1696,13 @@ class OCRRegions(_TensorPayload):
 
     Detection quads are genuine polygons (rotated text), so they do not
     populate ``Results.boxes``; use :attr:`xyxy` for axis-aligned hulls.
+
+    Document parsers fill two optional extras: ``labels``, the per-region
+    layout category (for example ``"text"``, ``"table"``,
+    ``"display_formula"``), and ``markdown``, the whole-page document the
+    regions assemble into. Both default to empty (``None`` labels, ``""``
+    markdown) for line-level OCR. ``markdown`` is page-level, so slicing keeps
+    it unchanged.
     """
 
     def __init__(
@@ -1659,6 +1712,8 @@ class OCRRegions(_TensorPayload):
         confidence: TensorLike | None = None,
         det_confidence: TensorLike | None = None,
         orig_shape: Tuple[int, int] | None = None,
+        labels: Optional[List[str]] = None,
+        markdown: str = "",
     ):
         if isinstance(data, np.ndarray):
             data = torch.as_tensor(data)
@@ -1693,6 +1748,12 @@ class OCRRegions(_TensorPayload):
 
         self._conf = _as_scores(confidence)
         self._det_conf = _as_scores(det_confidence)
+        self.labels: Optional[List[str]] = list(labels) if labels is not None else None
+        if self.labels is not None and len(self.labels) != n:
+            raise ValueError(
+                f"expected {n} labels to match {n} polygons, got {len(self.labels)}"
+            )
+        self.markdown: str = str(markdown or "")
 
     @property
     def polygons(self) -> TensorLike:
@@ -1743,6 +1804,8 @@ class OCRRegions(_TensorPayload):
             _move(self._conf, *args, **kwargs),
             _move(self._det_conf, *args, **kwargs),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def cpu(self):
@@ -1752,6 +1815,8 @@ class OCRRegions(_TensorPayload):
             _cpu(self._conf),
             _cpu(self._det_conf),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def cuda(self):
@@ -1761,6 +1826,8 @@ class OCRRegions(_TensorPayload):
             _cuda(self._conf),
             _cuda(self._det_conf),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def numpy(self):
@@ -1770,6 +1837,8 @@ class OCRRegions(_TensorPayload):
             _numpy(self._conf),
             _numpy(self._det_conf),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def __getitem__(self, idx):
@@ -1785,6 +1854,8 @@ class OCRRegions(_TensorPayload):
             self._conf[indices],
             self._det_conf[indices],
             self.orig_shape,
+            [self.labels[i] for i in indices] if self.labels is not None else None,
+            self.markdown,
         )
 
     def __repr__(self) -> str:
@@ -2341,6 +2412,7 @@ class Results:
         orig_img: Any = None,
         generated: Optional[GeneratedImage] = None,
         gaussians: Optional[Gaussians] = None,
+        reading_order: Optional[TensorLike] = None,
     ):
         if boxes is not None and boxes.orig_shape is None:
             boxes = boxes.with_orig_shape(orig_shape)
@@ -2349,7 +2421,7 @@ class Results:
         if points is not None and points.orig_shape is None:
             points = Points(points.data, orig_shape)
         if depth_map is not None and depth_map.orig_shape is None:
-            depth_map = DepthMap(depth_map.data, orig_shape, encoding=depth_map.encoding)
+            depth_map = depth_map._map(lambda value: value, orig_shape=orig_shape)
         if albedo is not None and albedo.orig_shape != tuple(orig_shape):
             raise ValueError("albedo must match Results.orig_shape")
         if normal_map is not None and normal_map.orig_shape != tuple(orig_shape):
@@ -2361,7 +2433,15 @@ class Results:
         if matte is not None and matte.orig_shape is None:
             matte = Matte(matte.data, orig_shape)
         if ocr is not None and ocr.orig_shape is None:
-            ocr = OCRRegions(ocr.data, ocr.texts, ocr.conf, ocr.det_conf, orig_shape)
+            ocr = OCRRegions(
+                ocr.data,
+                ocr.texts,
+                ocr.conf,
+                ocr.det_conf,
+                orig_shape,
+                ocr.labels,
+                ocr.markdown,
+            )
 
         if boxes3d is not None:
             boxes3d._validate_alignment(boxes, orig_shape)
@@ -2401,6 +2481,9 @@ class Results:
         )
         self.frame_idx = frame_idx
         self.orig_img = orig_img
+        # One-based reading-order rank per box (document layout families),
+        # aligned with ``boxes`` and sliced in lockstep like ``track_id``.
+        self.reading_order = reading_order
 
     @property
     def orig_img(self) -> np.ndarray | None:
@@ -2459,6 +2542,7 @@ class Results:
             "track_id": self.track_id,
             "frame_idx": self.frame_idx,
             "orig_img": self._orig_img,
+            "reading_order": self.reading_order,
         }
         data.update(overrides)
         return Results(**data)
@@ -2488,14 +2572,16 @@ class Results:
                 getattr(value, method)(*args, **kwargs) if value is not None else None
             )
 
-        if method == "cpu":
-            overrides["track_id"] = _cpu(self.track_id)
-        elif method == "numpy":
-            overrides["track_id"] = _numpy(self.track_id)
-        elif method == "to":
-            overrides["track_id"] = _move(self.track_id, *args, **kwargs)
-        elif method == "__getitem__":
-            overrides["track_id"] = _slice_first(self.track_id, args[0])
+        for key in ("track_id", "reading_order"):
+            value = getattr(self, key)
+            if method == "cpu":
+                overrides[key] = _cpu(value)
+            elif method == "numpy":
+                overrides[key] = _numpy(value)
+            elif method == "to":
+                overrides[key] = _move(value, *args, **kwargs)
+            elif method == "__getitem__":
+                overrides[key] = _slice_first(value, args[0])
 
         return self._new(**overrides)
 
@@ -2534,6 +2620,7 @@ class Results:
         actions: Optional[Actions] = None,
         generated: Optional[GeneratedImage] = None,
         gaussians: Optional[Gaussians] = None,
+        reading_order: Optional[TensorLike] = None,
     ) -> "Results":
         aligned_cuboids = boxes3d if boxes3d is not None else self.boxes3d
         if aligned_cuboids is not None:
@@ -2603,7 +2690,13 @@ class Results:
                 ocr
                 if ocr.orig_shape is not None
                 else OCRRegions(
-                    ocr.data, ocr.texts, ocr.conf, ocr.det_conf, self.orig_shape
+                    ocr.data,
+                    ocr.texts,
+                    ocr.conf,
+                    ocr.det_conf,
+                    self.orig_shape,
+                    ocr.labels,
+                    ocr.markdown,
                 )
             )
         if restore_scale is not None:
@@ -2616,6 +2709,8 @@ class Results:
             self.track_id = track_id
             if self.boxes is not None:
                 self.boxes = self.boxes.with_id(track_id)
+        if reading_order is not None:
+            self.reading_order = reading_order
         return self
 
     @property
@@ -2897,7 +2992,7 @@ class Results:
                         polygon = polygon / np.array([w, h], dtype=float)
                     rows.append(
                         {
-                            "name": "text",
+                            "name": ocr_np.labels[i] if ocr_np.labels else "text",
                             "text": ocr_np.texts[i],
                             "confidence": round(float(ocr_np.conf[i]), decimals),
                             "det_confidence": round(
@@ -3045,6 +3140,7 @@ class Results:
         meshes_np = self.meshes.numpy() if self.meshes is not None else None
         cuboids = self.boxes3d.numpy() if self.boxes3d is not None else None
         track_ids = _numpy(self.track_id)
+        reading_order = _numpy(self.reading_order)
         rows = []
         for i in range(len(boxes_np)):
             cls_id = int(boxes_np.cls[i])
@@ -3161,6 +3257,8 @@ class Results:
                 row["mesh"] = mesh_row
             if track_ids is not None:
                 row["track_id"] = int(track_ids[i])
+            if reading_order is not None:
+                row["reading_order"] = int(reading_order[i])
             rows.append(row)
         return rows
 
@@ -3246,6 +3344,8 @@ class Results:
             parts.append(f"gaussians={self.gaussians}")
         if self.track_id is not None:
             parts.append(f"track_ids={len(self.track_id)}")
+        if self.reading_order is not None:
+            parts.append(f"reading_order={len(self.reading_order)}")
         if self.frame_idx is not None:
             parts.append(f"frame_idx={self.frame_idx}")
         return f"Results({', '.join(parts)})"

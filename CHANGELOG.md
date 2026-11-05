@@ -12,10 +12,28 @@ before 1.4.0 are documented in the
 - **TRELLIS, image to 3D Gaussians on any device: `LibreGen("trellis")`.**
   Microsoft's TRELLIS-image-large (MIT) behind the same call as Idol and TripoSplat: one image in, the object out as Gaussian splats, `libreyolo generate source=chair.jpg model=trellis`. Upstream needs CUDA-only extensions (spconv, xformers or flash-attn); LibreYOLO runs it in plain PyTorch, on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `shift`, `margin`. Weights download from LibreYOLO's mirror of `microsoft/TRELLIS-image-large`; DINOv2 from `facebook/dinov2-with-registers-large`.
 
+- **DeepSeek-OCR. (#994)**
+  `LibreVLM("deepseek-ocr")` (or `LibreDeepSeekOCR`) runs DeepSeek-OCR, a 3B mixture-of-experts document OCR model with MIT code and weights, on the `ocr` task. Default predict returns one `Results.ocr` region per text line from the grounding prompt; `prompt="markdown"` returns layout blocks and the whole page as markdown, `prompt="free"` the page text only, and `resolution=` picks the release's `tiny`, `small`, `base`, `large` or `gundam` (default) input mode. The architecture is a vendored PyTorch port that reproduces the release token for token in bf16 on CUDA and also runs in float32 on CPU and MPS; weights download from the byte-identical `LibreYOLO/LibreDeepSeekOCR1` mirror. `LibreVLM("deepseek-ocr-2")` runs DeepSeek-OCR-2 (Apache-2.0, Qwen2-based vision encoder) through the same API from the `LibreYOLO/LibreDeepSeekOCR2` mirror, with `gundam` and `base` resolutions. `val()` runs the OCR validator; `train()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+
+- **`Results.ocr.markdown` and `Results.ocr.labels`.**
+  OCR results can carry the whole page as text (`markdown`, `""` when the model emits only regions) and a per-region layout category (`labels`, `None` for line-level OCR). The JSON output of `libreyolo predict` includes both when set.
+
+- **PaddleOCR-VL document parsing on the `ocr` task. (#994)**
+  `LibreVLM("paddleocr-vl")` (or `LibrePaddleOCRVL`) runs PaddlePaddle's two-stage document parser, Apache-2.0 code and weights: PP-DocLayoutV2 finds layout regions and their reading order, and PaddleOCR-VL-0.9B reads each region as text, a table (returned as HTML) or a formula (LaTeX), with charts opt-in through `use_chart_recognition=True`. `Results.ocr` holds one region per block in reading order, and two new optional fields: `labels` (the layout class of each region) and `markdown` (the whole page). `use_layout_detection=False` with `prompt_label=` reads a pre-cropped element. `val()` runs the OCR validator. Both networks load through native transformers classes (transformers 5.3 or newer) from the pinned mirror `LibreYOLO/LibrePaddleOCRVL0.9b`; the surrounding pipeline is ported from PaddleX. Inference only; `train()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+
 - **TripoSplat, a second image-to-3D family: `LibreGen("triposplat")`.**
   TripoAI's MIT model that Speridlabs Idol builds on, behind the same call: one image in, up to 262,144 Gaussian splats out, `.ply` and `.splat` files, `libreyolo generate source=chair.jpg model=triposplat`. Knobs `steps`, `guidance`, `shift`, `gaussians`, `margin`. Weights download from LibreYOLO's mirror of the `VAST-AI/TripoSplat` snapshot; the DINOv3 and FLUX.2 VAE encoders are the ones Idol uses. Runs on CUDA, Apple MPS and CPU.
 
+- **MoGe-3 monocular geometry: `LibreMoGe3`, sizes `l` (ViT-L) and `g` (ViT-g), tasks `depth` and `normal`. (#994)**
+  `LibreYOLO("LibreMoGe3l-depth.pt").predict(img)` returns metric depth in metres on `Results.depth_map` (`encoding="depth"`, `metric=True`), with the camera-space point map, OpenCV pixel intrinsics, and validity mask attached as `depth_map.point_map`, `depth_map.intrinsics`, and `depth_map.valid_mask`; pixels outside the mask are `inf`. `LibreMoGe3l-normal.pt` returns unit normals. The sparse volumetric refiner is plain PyTorch and runs on CPU, CUDA, and MPS. `imgsz` (default 840) sets the token budget; inputs keep their resolution. The single-forward graph matches upstream bit for bit; refined depth matches to floating-point rounding (p99 relative difference 4.7e-6 for `l`, 3.7e-5 for `g`). Normal export to ONNX and TorchScript is validated; depth export is blocked. Inference only; MIT code and weights, mirrored on the LibreYOLO Hugging Face org.
+
+- **PP-DocLayoutV3 document layout detection with reading order. (#994)**
+  `LibreYOLO("LibrePPDocLayoutV3l.pt")` finds 25 kinds of page regions (text, titles, tables, figures, formulas, headers, footers, seals, ...) and returns them sorted in reading order, with the one-based rank in the new `Results.reading_order` field. Ported from PaddleOCR's PP-DocLayoutV3 (Apache-2.0 code and weights), outputs match the reference bit for bit, and ONNX and TorchScript export keep the reading order. The official `model.safetensors` also loads directly. Inference-only.
+
 ### Changed
+
+- **`DepthMap` can carry camera geometry.** New optional keyword-only fields `metric`, `point_map`, `intrinsics`, and `valid_mask` (ADR 0006 amendment). Existing depth families are unchanged.
+- **MoGe-2 no longer claims MoGe-3 checkpoints**, which share its encoder, neck, and head names.
 
 - **`libreyolo[all]` no longer includes `paddle`. (#989)**
   X2Paddle needs ONNX 1.17 or earlier while the TFLite exporter in `all` needs ONNX 1.20, so the two cannot share an environment. Install `libreyolo[paddle]` on its own; Paddle export needs Python 3.10 or 3.11.

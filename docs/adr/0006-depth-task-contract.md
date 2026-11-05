@@ -56,6 +56,18 @@ of native predict. Families opt in individually; Depth Anything V2 keeps its
 family-level export block. Tiled inference, tracking, TTA, augmented
 validation, and LoRA remain rejected.
 
+Amendment (MoGe-3, 2026-11): a family that recovers camera geometry may mark
+its prediction `DepthMap.metric = True`, which requires `encoding="depth"`
+and means the values are metres. It may also attach, on the same original
+canvas, `point_map` (`(H, W, 3)` camera-frame points, OpenCV axes: x right,
+y down, z forward), `intrinsics` (`(3, 3)` OpenCV pixel calibration, pixel
+centers at integer coordinates), and `valid_mask` (`(H, W)` bool). Invalid
+pixels may hold `inf` in `data` and `point_map`; validation already ignores
+non-finite predictions. All four fields are optional and keyword-only, so
+existing families and exported backends are unchanged. Validation still fits
+a per-image scale and shift, so metric families are scored on relative
+geometry like every other family.
+
 ## Consequences
 
 - Depth results never fabricate boxes; `Results.boxes` is `None`.
