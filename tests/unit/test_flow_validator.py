@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+from pathlib import Path
+
 import pytest
 import torch
 import torch.nn as nn
@@ -147,7 +149,7 @@ def test_perfect_prediction(tmp_path):
     assert metrics["speed/images_seen"] == 3
     # The whole sequence went through predict(frames, stream=True) once.
     assert len(model.calls) == 1
-    assert [p.rsplit("/", 1)[-1] for p in model.calls[0]] == ["f0.png", "f1.png", "f2.png", "f3.png"]
+    assert [Path(p).name for p in model.calls[0]] == ["f0.png", "f1.png", "f2.png", "f3.png"]
     assert model.kwargs[0]["stream"] is True
 
 
@@ -252,8 +254,8 @@ def test_group_sequence_frames_orders_frames_per_directory(tmp_path):
     ]
     frames = group_sequence_frames(pairs)
     assert list(frames) == [str(tmp_path / "a"), str(tmp_path / "b")]
-    assert [p.rsplit("/", 1)[-1] for p in frames[str(tmp_path / "a")]] == ["f0.png", "f1.png", "f2.png"]
-    assert [p.rsplit("/", 1)[-1] for p in frames[str(tmp_path / "b")]] == ["f0.png", "f1.png"]
+    assert [Path(p).name for p in frames[str(tmp_path / "a")]] == ["f0.png", "f1.png", "f2.png"]
+    assert [Path(p).name for p in frames[str(tmp_path / "b")]] == ["f0.png", "f1.png"]
 
 
 def test_explicit_imgsz_reaches_predict(tmp_path):
