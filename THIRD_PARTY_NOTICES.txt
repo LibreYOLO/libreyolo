@@ -3476,6 +3476,40 @@ Weights: LibreYOLO/LibreFalconOCR270m, an unmodified mirror of
 tiiuae/Falcon-OCR @ 0bc28f89c90fbe8bdb063097fab144d4ce4c19b5 (Apache-2.0).
 
 
+--------------------------------------------------------------------
+Falcon Perception network, preprocessing and generation loop
+------------------------------------------------------------
+
+Upstream: Technology Innovation Institute (TII), https://github.com/tiiuae/Falcon-Perception
+Commit: c457916c9974efbacfa91f0f6ecc2c49c6543e56
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+Used for: the LibreFalconPerception family (libreyolo/models/falcon_perception/).
+The transformer with its coordinate, size and segmentation heads, the AnyUp
+feature upsampler, rotary embeddings (falcon_perception/model.py, anyup.py,
+rope.py, attention.py, kv_cache.py), the image and prompt preprocessing
+(data.py) and the greedy decode loop with mask finalization
+(batch_inference.py, aux_output.py) are ported for inference, with
+modifications noted in each file header. Upstream data.py carries a header
+naming a "BSD-style license found in the LICENSE file in the root directory";
+that root LICENSE is Apache-2.0.
+
+The AnyUp feature upsampler (falcon_perception/anyup.py, ported into nn.py)
+is a flattened copy of AnyUp by Thomas Wimmer, Prune Truong, Marie-Julie
+Rakotosaona, Michael Oechsle, Federico Tombari, Bernt Schiele and Jan Eric
+Lenssen (https://github.com/wimmerth/anyup), licensed Creative Commons
+Attribution 4.0 International (https://creativecommons.org/licenses/by/4.0/).
+Changes: windowed cross-attention evaluated eagerly in query chunks instead
+of FlexAttention. Used only by the 600m segment task. smart_resize follows the
+Qwen2-VL image processor (Hugging Face Transformers, Apache-2.0).
+
+Weights are not redistributed; they download at runtime from
+tiiuae/Falcon-Perception @ a3e21ada0abd533393776ffab8908a728f775509 and
+tiiuae/Falcon-Perception-300M @ 36993684b3ba5945b22d01e705f8ff2e048bf0b0
+(Apache-2.0, Copyright 2026 TII). See libreyolo/models/falcon_perception/NOTICE.
+
+
 GTR (Gated Token Recurrence)
 Source: https://github.com/Intellindust-AI-Lab/GTR
 Revision: 782e737efe2e6437ac537fbdcee089673d3376c1

@@ -1022,6 +1022,24 @@ Falcon OCR (Apache License 2.0)
     Weights (Apache-2.0) download from the byte-identical
     LibreYOLO/LibreFalconOCR270m mirror at a pinned revision.
 
+Falcon Perception (Apache License 2.0)
+    Path:    libreyolo/models/falcon_perception/
+    License: libreyolo/models/falcon_perception/NOTICE
+    Source:  https://github.com/tiiuae/Falcon-Perception
+             (commit c457916c9974efbacfa91f0f6ecc2c49c6543e56)
+             Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+    The network, AnyUp feature upsampler, preprocessing and greedy
+    generation loop are ported from the Apache-2.0 Falcon Perception
+    repository for inference only (no triton, FlexAttention or paged
+    engine). Weights tiiuae/Falcon-Perception and
+    tiiuae/Falcon-Perception-300M (Apache-2.0) download from TII at pinned
+    revisions. Per the upstream NOTICE, public-facing work using Falcon
+    Perception should retain its NOTICE and cite the project. The AnyUp
+    upsampler inside it descends from https://github.com/wimmerth/anyup
+    (CC-BY-4.0, Wimmer et al.), and smart_resize follows the Qwen2-VL image
+    processor (Apache-2.0); see the family NOTICE.
+
 ------------------------------------------------------------------------
 Pretrained model weights
 ------------------------------------------------------------------------
