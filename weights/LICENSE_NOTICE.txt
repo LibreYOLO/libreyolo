@@ -1031,6 +1031,27 @@ bfloat16 mirror LibreYOLO/LibreDINOv3vith16plus under Meta's DINOv3 License
 libreyolo/models/gen/speridlabs_idol/NOTICE.
 
 
+TRELLIS (LibreTRELLIS l)                                MIT
+Image-to-3D Gaussian splats
+---------------------------
+
+Upstream: Microsoft, https://huggingface.co/microsoft/TRELLIS-image-large
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreTRELLISl @
+75c784a8fa56ebfb76f46d9b9d830caec25826a7 (with LICENSE and NOTICE), mirrored
+from microsoft/TRELLIS-image-large @ 25e0d31ffbebe4b5a97464dd851910efc3002d96.
+SHA-256 of each mirrored network file equals upstream's:
+  ckpts/ss_flow_img_dit_L_16l8_fp16.safetensors
+    96dc6bfd4136fd950af564dd16b4ae533c9ba6af8f26c670646b2a9f2789b1db
+The mirror also holds the BiRefNet weights (ZhengPeng7/BiRefNet, MIT,
+SHA-256 9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154) and
+upstream's mesh decoder, which LibreYOLO does not download yet. DINOv2 loads
+from facebook/dinov2-with-registers-large (Apache-2.0) at revision
+e4c89a4e05589de9b3e188688a303d0f3c04d0f3. Ported inference code: see
+libreyolo/models/gen/trellis/NOTICE.
+
+
 TripoSplat (LibreTripoSplat 0.6b)                       MIT
 Image-to-3D Gaussian splats
 ---------------------------

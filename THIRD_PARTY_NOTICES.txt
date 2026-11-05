@@ -131,6 +131,58 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+TRELLIS image-to-3D networks, sparse operations and sampler
+------------------------------------------------------------
+
+Upstream: Microsoft, https://github.com/microsoft/TRELLIS
+Commit: 193e0502b5cb3eb5997ec457d5340e95d09b158e
+License: MIT
+Copyright (c) Microsoft Corporation.
+Authors: Jianfeng Xiang, Zelong Lv, Sicheng Xu, Yu Deng, Ruicheng Wang,
+         Bowen Zhang, Dong Chen, Xin Tong, Jiaolong Yang.
+Citation: Xiang, J. et al. "Structured 3D Latents for Scalable and Versatile
+          3D Generation." CVPR 2025. arXiv:2412.01506.
+Used for: the TRELLIS family (libreyolo/models/gen/trellis/): the
+          sparse-structure flow and decoder, the structured-latent flow, the
+          Gaussian decoder, the sparse tensor, pooling and window partition,
+          the flow sampler and the preprocessing. Parameter names are
+          unchanged so the released safetensors load strictly. Upstream's
+          CUDA extensions (spconv, xformers, flash-attn) are replaced by
+          PyTorch code written for LibreYOLO. trellis/representations/gaussian
+          (which carries Inria's non-commercial Gaussian Splatting license in
+          general_utils.py) is not used.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+microsoft/TRELLIS-image-large (MIT, revision
+25e0d31ffbebe4b5a97464dd851910efc3002d96) is redistributed unchanged by
+LibreYOLO as LibreYOLO/LibreTRELLISl (revision
+75c784a8fa56ebfb76f46d9b9d830caec25826a7) with the BiRefNet weights (MIT).
+DINOv2 ViT-L/14 with registers loads from facebook/dinov2-with-registers-large
+(Apache-2.0, revision e4c89a4e05589de9b3e188688a303d0f3c04d0f3).
+
+MIT License (TRELLIS)
+
+Copyright (c) Microsoft Corporation.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
 TripoSplat image-to-3D networks and sampler
 -------------------------------------------
 

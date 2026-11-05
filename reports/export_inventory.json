@@ -2556,6 +2556,25 @@
     "available": true,
     "group": "g1"
   },
+  "trellis": {
+    "class": "libreyolo.models.gen.trellis.model.LibreTRELLIS",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "l": 518
+    },
+    "default_imgsz": {
+      "l": 518
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": true,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "triposplat": {
     "class": "libreyolo.models.gen.triposplat.model.LibreTripoSplat",
     "tasks": [

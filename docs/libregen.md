@@ -154,6 +154,7 @@ and records seed, camera and settings in a header comment.
 | Alias | Parameters | Knobs (defaults) | Download | License |
 | --- | --- | --- | --- | --- |
 | `speridlabs-idol` | 0.66B (plus DINOv3 ViT-H+ and the FLUX.2 VAE encoder) | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"` or `"real"`), `margin` (crop override) | about 3.1 GB, plus 1.7 GB DINOv3 and 0.2 GB VAE | Apache-2.0; the DINOv3 encoder under Meta's DINOv3 License |
+| `trellis` | 1.3B in four networks (plus DINOv2 ViT-L/14) | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) | about 2.7 GB, plus 1.2 GB DINOv2 | MIT; DINOv2 Apache-2.0 |
 | `triposplat` | 0.66B (plus the same two encoders) | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) | about 1.8 GB, plus the same DINOv3 and VAE | MIT; the DINOv3 encoder under Meta's DINOv3 License |
 
 Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
@@ -186,10 +187,25 @@ model = LibreGen("triposplat")
 model("chair.jpg", steps=20, gaussians=131072).save("chair.ply")
 ```
 
+TRELLIS by [Microsoft](https://microsoft.github.io/TRELLIS) builds the
+object as a sparse voxel structure first, then 32 Gaussians per occupied
+voxel, so the number of Gaussians follows the object (often 200,000 to
+600,000) rather than a knob. Upstream needs CUDA-only extensions (spconv,
+xformers or flash-attn); LibreYOLO runs the same weights in plain PyTorch,
+on NVIDIA GPUs, Apple silicon and CPU. A seed gives the same starting noise
+on every device. `steps` and `guidance` apply to both of its sampling
+stages; `margin` is the crop around the object (1.2 as upstream).
+
+```python
+model = LibreGen("trellis")
+model("chair.jpg", steps=12).save("chair.ply")
+```
+
 ```bash
 libreyolo generate source=chair.jpg
 libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
 libreyolo generate source=chair.jpg model=triposplat
+libreyolo generate source=chair.jpg model=trellis
 ```
 
 With `source=` the model defaults to `speridlabs-idol` and objects are saved
@@ -204,10 +220,10 @@ reserved by ADRs 0030 and 0031.
 ## Licensing
 
 LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
-Idol networks ported from the Apache-2.0 Idol SDK and the TripoSplat
-networks ported from the MIT TripoSplat repository (see each family's
-`NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
+Idol networks ported from the Apache-2.0 Idol SDK, the TripoSplat
+networks ported from the MIT TripoSplat repository and the TRELLIS networks
+adapted from the MIT TRELLIS repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
-one exception is the DINOv3 encoder both image-to-3D families read, which
+one exception is the DINOv3 encoder Idol and TripoSplat read, which
 LibreYOLO mirrors in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;
 upstream usage policies apply.

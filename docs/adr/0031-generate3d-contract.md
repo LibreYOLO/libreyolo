@@ -150,6 +150,7 @@ SDK's behaviour.
 | Alias | Upstream | License | Knobs (defaults) |
 | --- | --- | --- | --- |
 | `speridlabs-idol` | `speridlabs/idol` (code `speridlabs/idol-sdk`) | Apache-2.0 code and weights | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"`), `margin` (`None`) |
+| `trellis` | `LibreYOLO/LibreTRELLISl`, a mirror of `microsoft/TRELLIS-image-large` (code `microsoft/TRELLIS`) | MIT code and weights | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) |
 | `triposplat` | `LibreYOLO/LibreTripoSplat0.6b`, a mirror of `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
 
 Speridlabs Idol is a 0.66B rectified-flow transformer: DINOv3 ViT-H+ and
@@ -203,6 +204,29 @@ implementations order their bf16 arithmetic differently. The parity gate
 (`weights/parity_triposplat.py`) checks the encoders at that tolerance and
 the rest of the pipeline from upstream's own tokens.
 
+TRELLIS (Microsoft, `TRELLIS-image-large`) has a different architecture: a
+dense flow transformer denoises a 16^3 occupancy latent, a 3D CNN decodes it
+to the active voxels of a 64^3 grid, a sparse flow transformer denoises an
+8-channel structured latent on those voxels, and a shifted-window sparse
+transformer turns each voxel into 32 Gaussians. Both flow stages read DINOv2
+ViT-L/14 tokens of the 518px input. Upstream runs the sparse stages on
+spconv and xformers or flash-attn, CUDA-only extensions; the port replaces
+them with PyTorch (`libreyolo/models/gen/trellis/sparse.py`): the
+submanifold convolution as a gathered GEMM over the 27 neighbours (equal to
+spconv in fp32 to 2.4e-7, with spconv's weight layout unchanged), the
+variable-length attention as SDPA per batch element and over padded windows
+with a key mask. So the family runs on CUDA, MPS and CPU. Knobs follow
+upstream's samplers, shared by the two stages: `steps`, `guidance` (applied
+inside upstream's guidance interval t in [0.5, 1]), `shift`, plus `margin`.
+The Gaussian count is 32 per occupied voxel, not a knob. TRELLIS infers no
+camera, so `camera` holds only `margin`. Noise is drawn on the CPU as
+upstream does, so a seed gives the same starting noise on every device. The
+torso runs in fp16 on CUDA and MPS as upstream, and in fp32 on CPU. Two
+deliberate differences: background removal uses LibreYOLO's BiRefNet
+instead of rembg's U2Net, and DINOv2 is read through transformers
+(`facebook/dinov2-with-registers-large`) instead of `torch.hub`, the
+pre-norm last-layer tokens as upstream takes them.
+
 ## Weights
 
 Nothing is gated and no login is needed. Idol's own weights (denoiser,
@@ -238,6 +262,14 @@ under MIT as `LibreYOLO/LibreTripoSplat0.6b`, byte-identical to the pinned
 `VAST-AI/TripoSplat` snapshot and in its folder layout, downloaded into
 `weights/LibreTripoSplat0.6b/`; upstream's DINOv3 and FLUX.2 VAE copies are
 not mirrored, the two encoders above are used instead. `LibreGen(path)` loads a directory holding those three files.
+
+TRELLIS's weights are redistributed under MIT as `LibreYOLO/LibreTRELLISl`:
+upstream's `pipeline.json` and network files byte-identical to
+`microsoft/TRELLIS-image-large` (the sparse-structure flow and decoder, the
+structured-latent flow, the Gaussian and mesh decoders), plus the BiRefNet
+weights. The library downloads only the files it loads into
+`weights/LibreTRELLISl/`. DINOv2 loads from
+`facebook/dinov2-with-registers-large` (Apache-2.0) at a pinned revision.
 
 ## Reserved for later
 

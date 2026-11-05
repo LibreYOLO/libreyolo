@@ -511,7 +511,10 @@ TripoSplat loads its snapshot the same way, keeping the upstream folders:
 `diffusion_models/triposplat_fp16.safetensors`,
 `vae/triposplat_vae_decoder_fp16.safetensors` and
 `background_removal/birefnet.safetensors`; its network configuration is
-upstream's, fixed in code. See ADR 0031.
+upstream's, fixed in code. TRELLIS loads upstream's layout too:
+`pipeline.json`, then for each of the four networks it uses a
+`ckpts/<name>.json` config next to `ckpts/<name>.safetensors`, plus
+`birefnet.safetensors`. See ADR 0031.
 
 ### Optional LibreVLA runtime
 

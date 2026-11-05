@@ -801,6 +801,25 @@ Speridlabs Idol (Apache License 2.0)
     LibreYOLO/LibreDINOv3vith16plus, which ships the agreement. All at
     pinned revisions.
 
+TRELLIS (MIT License)
+    Path:    libreyolo/models/gen/trellis/
+    License: libreyolo/models/gen/trellis/NOTICE
+    Source:  https://github.com/microsoft/TRELLIS
+             (commit 193e0502b5cb3eb5997ec457d5340e95d09b158e)
+             Copyright (c) Microsoft Corporation.
+
+    The TRELLIS networks (sparse-structure flow and decoder, structured-latent
+    flow, Gaussian decoder), the sparse tensor, pooling and window partition,
+    the flow sampler and the preprocessing are adapted from the MIT TRELLIS
+    repository. Its CUDA extensions (spconv sparse convolution, xformers or
+    flash-attn attention) are replaced by PyTorch code written for LibreYOLO.
+    TRELLIS's Gaussian representation module (trellis/representations/
+    gaussian), which derives from Inria's non-commercial Gaussian Splatting
+    code, is not used: Gaussians go through LibreYOLO's own payload.
+    Weights: LibreYOLO's byte-identical mirror of microsoft/TRELLIS-image-large
+    (MIT), LibreYOLO/LibreTRELLISl; DINOv2 from
+    facebook/dinov2-with-registers-large (Apache-2.0). Pinned revisions.
+
 TripoSplat (MIT License)
     Path:    libreyolo/models/gen/triposplat/
     License: libreyolo/models/gen/triposplat/NOTICE
