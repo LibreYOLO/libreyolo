@@ -3356,6 +3356,27 @@ PaddlePaddle/PP-DocLayoutV2_safetensors @
 880e8971b88938518611c54fc0f59ad57849c9d4 (Apache-2.0, Copyright (c)
 PaddlePaddle Authors).
 
+Falcon OCR
+----------
+
+Upstream: Technology Innovation Institute (TII),
+https://huggingface.co/tiiuae/Falcon-OCR (commit
+0bc28f89c90fbe8bdb063097fab144d4ce4c19b5) and
+https://github.com/tiiuae/Falcon-Perception (commit
+c457916c9974efbacfa91f0f6ecc2c49c6543e56)
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+Used for: the LibreFalconOCR family (libreyolo/models/falconocr/). The model
+(modeling_falcon_ocr.py), rotary embeddings (rope.py), attention-mask rules
+(attention.py) and input pipeline (processing_falcon_ocr.py) are ported with
+modifications noted in each file header: dense masks instead of
+FlexAttention, PyTorch instead of the Triton kernel, single-request greedy
+decoding. Upstream NOTICE retained in libreyolo/models/falconocr/NOTICE.
+
+Weights: LibreYOLO/LibreFalconOCR270m, an unmodified mirror of
+tiiuae/Falcon-OCR @ 0bc28f89c90fbe8bdb063097fab144d4ce4c19b5 (Apache-2.0).
+
 
 GTR (Gated Token Recurrence)
 Source: https://github.com/Intellindust-AI-Lab/GTR
