@@ -164,6 +164,7 @@ MODEL_GROUPS: dict[str, str] = {
     "wevisonevl": "s",
     "deepseekocr": "s",
     "paddleocrvl": "s",
+    "glmocr": "s",
 }
 
 

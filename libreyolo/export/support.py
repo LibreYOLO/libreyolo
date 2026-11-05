@@ -3897,6 +3897,7 @@ _FAMILY_BLOCKS = {
     "wevisonevl": "Generative VLM export is out of scope for v1.",
     "deepseekocr": "Generative VLM export is out of scope for v1.",
     "paddleocrvl": "Generative VLM export is out of scope for v1.",
+    "glmocr": "Generative VLM export is out of scope for v1.",
 }
 
 _NCNN_BLOCKS = {

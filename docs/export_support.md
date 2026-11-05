@@ -60,6 +60,7 @@ in preflight.
 | flux2_klein | generate |  |  |  |  |  |  |  |  |  |  |  |  |
 | fomo | point | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
 | gemma4 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| glmocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | ground_florence2 | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | ground_qwen3vl | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | grounding_dino | detect |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -1114,6 +1115,18 @@ These converter paths are callable with the recorded validation context.
 - `gemma4` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `gemma4` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `gemma4` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `openvino`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `paddle`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `mnn`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `rknn`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `ncnn`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
 - `ground_florence2` / `point` / `onnx`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_florence2` / `point` / `torchscript`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_florence2` / `point` / `executorch`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
