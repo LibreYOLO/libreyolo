@@ -352,11 +352,12 @@ class LibreFalconOCR(LibreVLMModel):
 
     def _load_pretrained(self, snapshot_dir: str):
         net, config = build_network(snapshot_dir)
-        golden = net.freqs_cis_golden.clone()
-        net = net.to(dtype=self._resolve_dtype()).to(self.device).eval()
         # Module.to(dtype) would turn the complex 1D table real and round the
-        # 2D table: rebuild the first (complex64, as upstream) and keep the
-        # second in float32 (the rotary math runs in float32).
+        # 2D table: drop the first and rebuild it (complex64, as upstream),
+        # keep the second in float32 (the rotary math runs in float32).
+        golden = net.freqs_cis_golden.clone()
+        net.freqs_cis = None
+        net = net.to(dtype=self._resolve_dtype()).to(self.device).eval()
         net.reset_rope_cache()
         net.freqs_cis_golden = golden.to(self.device)
         tokenizer = load_tokenizer(snapshot_dir)
