@@ -46,6 +46,7 @@ size marked with `*`. The authoritative alias tables are in
 | `paddleocr-vl`, `-0.9b`*, `paddleocrvl`       | PaddleOCR-VL | Apache-2.0       | `ocr` only: layout regions plus per-region recognition and page markdown; needs transformers>=5.3 |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
 | `deepseek-ocr`*, `deepseekocr`, `deepseek-ocr-2` | DeepSeek-OCR | MIT (`1`), Apache-2.0 (`2`) | document OCR, `ocr` task only; vendored port, mirrored weights |
+| `falcon-ocr`*, `falconocr`, `falcon-ocr-270m` | Falcon OCR | Apache-2.0 | document OCR, `ocr` task only; 0.27B early-fusion; vendored port, mirrored weights |
 
 Florence-2 and Kosmos-2 do not use a chat template: they are driven by task /
 grounding prompts and decode boxes via the processor's `post_process_generation`,
@@ -478,6 +479,53 @@ LibreVLM("paddleocr-vl", use_layout_detection=False, prompt_label="formula")
   and spotting recognition, polygon layout shapes, document unwarping and
   image export. The markdown is the plain variant (no HTML centering).
 - `train()` and `export()` raise.
+
+### Falcon OCR
+
+Falcon OCR (TII, Apache-2.0 code and weights, version 1.5) is a 0.27B
+early-fusion model: one 22-layer transformer reads 16-pixel image patches
+and text tokens together, patches attending to each other bidirectionally
+and text decoding causally. It serves the `ocr` task only and writes the page
+as text, with LaTeX for formulas and HTML for tables. The release runs on
+FlexAttention and a Triton kernel through remote code; LibreYOLO runs a
+PyTorch port in `libreyolo/models/falconocr/` (dense masks, float32
+attention-sink math) from the byte-identical mirror
+`LibreYOLO/LibreFalconOCR270m`. See that package's `NOTICE`.
+
+```python
+model = LibreVLM("falcon-ocr")
+result = model.predict("page.png")
+result.ocr.markdown                   # the page text
+LibreVLM("falcon-ocr", prompt="table").predict("table.png")
+LibreVLM("falcon-ocr", layout=True).predict("page.png").ocr.labels
+```
+
+- Default (upstream `generate`): one pass over the whole page, one
+  `Results.ocr` region covering the image with label `plain`, and the same
+  text in `markdown`.
+- `layout=True` (upstream `generate_with_layout`): LibreYOLO's PP-DocLayoutV3
+  port at `layout_threshold=0.3`, nested boxes dropped, each crop read with
+  its category prompt; regions keep the layout's reading order, `det_conf` is
+  the layout score. Classes without an upstream prompt category
+  (`display_formula`, `inline_formula`, `vertical_text`, `header_image`,
+  `footer_image`) and pictures are skipped, as upstream skips them.
+- `prompt=` takes a category (`plain`, `text`, `table`, `formula`, ...) or an
+  instruction. Upstream `generate` ignores its `category` argument and always
+  sends `plain`; here the category is applied.
+- Pages are resized so both sides fall in `[64, 1536]` and snapped to
+  multiples of 16. Greedy decoding, budget `max_new_tokens` (8192) rounded up
+  to a 128-token block as upstream. `conf` is a constant 1.0.
+- CUDA runs bf16 weights under `torch.autocast`; CPU and MPS run float32
+  (about 1.1 GB of weights). Batches of one; upstream's batched left-padded
+  engine and temperature/top-k sampling are not ported. `train()` and
+  `export()` raise.
+
+Validation: on CPU in float32 the port reproduces the release code
+(tiiuae/Falcon-OCR @ 0bc28f89, run eagerly with the Triton kernel replaced by
+its PyTorch expression) token for token on six OCR fixtures and a synthetic
+1100x1400 report page; token ids, positions and pixel patches are
+bit-identical. In float64 both implementations agree on prefill logits to
+1e-6. CUDA bf16 and the layout mode were not compared against upstream.
 
 ## Known limitations (v1)
 

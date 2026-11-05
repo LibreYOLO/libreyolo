@@ -175,7 +175,7 @@ exceptions being lowercase version suffixes (`DEIMv2`, `RTDETRv2`,
 The VLM and promptable SAM tiers are separate categories and do not follow this
 rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreLFM2VL`,
 `LibreSmolVLM2`, `LibreInternVL3`, `LibreFlorence2`, `LibreKosmos2`,
-`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreDeepSeekOCR`, `LibrePaddleOCRVL`, `LibreMODUS`, `LibreSAM`,
+`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreDeepSeekOCR`, `LibrePaddleOCRVL`, `LibreFalconOCR`, `LibreMODUS`, `LibreSAM`,
 `LibreSAM2`, `LibreSAM3`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
 are not registered
 into the detector factory and do not emit `Libre<FAMILY><size>.pt` detector
@@ -313,6 +313,7 @@ VLM snapshot families use model-specific size names:
 | `molmo2` | `4b` (default), `8b`, `o-7b`; single-image point task |
 | `wevisonevl` | `2b` (default), `4b`; Qwen3-VL backbone plus the `mask_decoder.pt` pixel decoder |
 | `paddleocrvl` | `0.9b` (only size); PaddleOCR-VL-0.9B recognizer plus the PP-DocLayoutV2 layout detector under `layout/` in one mirror |
+| `falconocr` | `270m` (only size); Falcon OCR 1.5, mirror `LibreYOLO/LibreFalconOCR270m` |
 | `libremodus` | `14b-a7b` (14B total parameters, approximately 7B active; external MODUS snapshot) |
 | `deepseekocr` | `1` (DeepSeek-OCR, default; mirror `LibreYOLO/LibreDeepSeekOCR1`), `2` (DeepSeek-OCR-2; mirror `LibreYOLO/LibreDeepSeekOCR2`); both 3B MoE |
 
