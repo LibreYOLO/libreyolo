@@ -30,6 +30,7 @@ from .molmo2 import LibreMolmo2
 from .moondream import LibreMoondream
 from .northmicro import LibreNorthMicroVision
 from .qwen3vl import LibreQwen3VL
+from .qwen3vl_embedding import LibreQwen3VLEmbedding
 from .smolvlm import LibreSmolVLM2
 
 # alias -> (family class, size)
@@ -38,6 +39,8 @@ _ALIASES: Dict[str, Tuple[Type[LibreVLMModel], str]] = {
     "qwen3-vl-2b": (LibreQwen3VL, "2b"),
     "qwen3-vl-4b": (LibreQwen3VL, "4b"),
     "qwen3-vl-8b": (LibreQwen3VL, "8b"),
+    "qwen3-vl-embedding": (LibreQwen3VLEmbedding, "2b"),
+    "qwen3-vl-embedding-2b": (LibreQwen3VLEmbedding, "2b"),
     "lfm2-vl": (LibreLFM2VL, "450m"),
     "lfm2-vl-450m": (LibreLFM2VL, "450m"),
     "lfm2-vl-1.6b": (LibreLFM2VL, "1.6b"),
@@ -223,6 +226,7 @@ __all__ = [
     "LibreVLMModel",
     "LibreLFM2VL",
     "LibreQwen3VL",
+    "LibreQwen3VLEmbedding",
     "LibreSmolVLM2",
     "LibreInternVL3",
     "LibreFlorence2",
