@@ -18,6 +18,6 @@ Files and changes from upstream, all inference-neutral:
 - ``util.py`` (``utils/util.py``): verbatim; the least-squares scale/shift and
   the overlap interpolation used to stitch inference windows together.
 
-Training code, losses, benchmark scripts and the experimental streaming model
+Training code, losses, benchmark scripts and the upstream streaming-mode model
 are not vendored.
 """
