@@ -83,3 +83,12 @@ Embedding vectors remain absent from `summary()` and JSON by default.
   fingerprint.
 - A unified retrieval validator is future work. ANN indexes, vector databases,
   clustering, captioning, and general sentence embeddings remain out of scope.
+
+## Amendment: instruction-aware VLM embedders
+
+Qwen3-VL-Embedding (LibreVLM tier) is the first embed family whose vectors
+depend on an instruction. It keeps the contract above unchanged: whole-image
+`(1, D)` results and `embed_text(texts) -> (M, D)`. The instruction is an
+optional `prompt=` keyword on `embed_text` and on the constructor (the
+LibreVLM tier's existing `prompt` argument), never a new task or a new
+source modality. Families without instructions do not gain the keyword.

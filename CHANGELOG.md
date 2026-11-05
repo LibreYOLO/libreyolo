@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Qwen3-VL-Embedding, image and text retrieval on the `embed` task. (#994)**
+  `LibreVLM("qwen3-vl-embedding-2b")` (or `LibreQwen3VLEmbedding`) runs Qwen3-VL-Embedding-2B (Apache-2.0), the first VLM-based embedder. `predict(image)` returns `Results.embeddings` of shape `(1, 2048)`, `embed(source)` stacks rows, and `embed_text(texts, prompt=None)` returns text rows in the same space, as CLIP, SigLIP2 and PE do. `prompt` is the model's instruction: set it at construction or per `embed_text` call, so queries can carry a retrieval instruction while page images keep the default. Embeddings match upstream's reference embedder (text max abs difference 7.4e-7, image cosine at least 0.99998, float32 on CPU). Weights download from the `LibreYOLO/LibreQwen3VLEmbedding2b` mirror. Inference only; `chat()`, `train()`, `val()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+
 - **SAM 3.1 image segmentation: `LibreSAM("sam3.1")`. (#994)**
   `LibreSAM31` runs Meta's SAM 3.1 image path (detector plus interactive SAM head) on the existing SAM 3 pipeline: point, box and segment-everything prompts through `Sam3TrackerModel`, and `text=` concept prompts through `Sam3Model`, same API and `Results` as `LibreSAM3`. Meta ships SAM 3.1 only as an original-format checkpoint; `weights/convert_sam31_weights.py` converts its image path to the Transformers SAM 3 layout, using a key map that reproduces the official SAM 3 weights exactly. Weights download from the gated `LibreYOLO/LibreSAM31large` mirror under Meta's SAM License (not MIT). SAM 3.1 Object Multiplex video tracking is not supported. Install `libreyolo[sam]`.
 

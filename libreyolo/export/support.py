@@ -3887,6 +3887,7 @@ _FAMILY_BLOCKS = {
     "lfm2vl": "Generative VLM export is out of scope for v1.",
     "internvl3": "Generative VLM export is out of scope for v1.",
     "qwen3vl": "Generative VLM export is out of scope for v1.",
+    "qwen3vl_embedding": "VLM embedding export is out of scope for v1.",
     "smolvlm2": "Generative VLM export is out of scope for v1.",
     "locateanything": "Generative VLM export is out of scope for v1.",
     "northmicrovision": "Generative VLM export is out of scope for v1.",

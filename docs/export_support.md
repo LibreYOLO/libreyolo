@@ -119,6 +119,7 @@ in preflight.
 | ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
 | quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
 | qwen3vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| qwen3vl_embedding | embed |  |  |  |  |  |  |  |  |  |  |  |  |
 | raft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | resnet | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
@@ -1707,6 +1708,18 @@ These converter paths are callable with the recorded validation context.
 - `qwen3vl` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `qwen3vl` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `qwen3vl` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `onnx`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `torchscript`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `executorch`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `tensorrt`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `openvino`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `paddle`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `mnn`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `rknn`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `ncnn`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `tflite`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `coreml`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `coreai`: VLM embedding export is out of scope for v1.
 - `raft` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `raft` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `raft` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.

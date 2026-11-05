@@ -47,6 +47,7 @@ size marked with `*`. The authoritative alias tables are in
 | `glm-ocr`, `-0.9b`*, `glmocr`                 | GLM-OCR | MIT weights, Apache-2.0 SDK and layout | `ocr` only: PP-DocLayoutV3 regions plus per-region recognition and page markdown; needs transformers>=5.3 |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
 | `deepseek-ocr`*, `deepseekocr`, `deepseek-ocr-2` | DeepSeek-OCR | MIT (`1`), Apache-2.0 (`2`) | document OCR, `ocr` task only; vendored port, mirrored weights |
+| `qwen3-vl-embedding`, `-2b`*                 | Qwen3-VL-Embedding | Apache-2.0  | `embed` only: image and text vectors in one space; mirrored weights |
 
 Florence-2 and Kosmos-2 do not use a chat template: they are driven by task /
 grounding prompts and decode boxes via the processor's `post_process_generation`,
@@ -479,6 +480,44 @@ LibreVLM("paddleocr-vl", use_layout_detection=False, prompt_label="formula")
   and spotting recognition, polygon layout shapes, document unwarping and
   image export. The markdown is the plain variant (no HTML centering).
 - `train()` and `export()` raise.
+
+### Qwen3-VL-Embedding
+
+Qwen3-VL-Embedding-2B (Qwen, Apache-2.0) is Qwen3-VL-2B-Instruct fine-tuned
+into an embedder. It serves the `embed` task only (ADR 0015) and is the first
+VLM-based embed family. It joins this tier rather than the checkpoint factory
+because it shares the Qwen3-VL snapshot download and transformers loader; its
+output is the same embed contract as CLIP, SigLIP2 and PE.
+
+```python
+model = LibreVLM("qwen3-vl-embedding-2b")
+pages = model.embed("pages/")                  # (N, 2048), one row per page image
+r = model.predict("page.png")                  # r.embeddings is (1, 2048)
+q = model.embed_text(
+    ["total due on the invoice"],
+    prompt="Retrieve images or text relevant to the user's query.",
+)                                              # (1, 2048)
+scores = q @ pages.T                           # rows are unit length
+```
+
+- Each input is a chat: a system instruction, then the user's image or text.
+  The model's hidden state at the last token, L2-normalized, is the vector.
+- `prompt` is that instruction. The default is upstream's
+  `"Represent the user's input."`; set `prompt=` at construction to change it
+  for images and texts, or pass `prompt=` to `embed_text` per call. For
+  retrieval, give queries a task instruction and keep the default for
+  documents. A missing final punctuation mark gets a period, as upstream does.
+- Images are resized on a 32-pixel grid to between 4,096 and 1,843,200 pixels
+  with PIL bicubic, matching upstream's reference embedder
+  (`scripts/qwen3_vl_embedding.py`). The sentence-transformers path in the
+  model card caps images at 1,310,720 pixels instead, so its vectors for
+  larger images differ slightly (cosine 0.989 on a 1.8 MP photo).
+- Weights download from `LibreYOLO/LibreQwen3VLEmbedding2b`, a mirror of the
+  upstream snapshot with unchanged parameters. Install `libreyolo[vlm]`.
+- Not supported: `chat()`, `set_classes()`, `train()`, `val()`, `export()`,
+  combined image-plus-text inputs, video clips (a video is embedded frame by
+  frame), and Matryoshka truncation as an option (slice the first `k`
+  columns and re-normalize). The 8B size is not wrapped.
 
 ### GLM-OCR
 
