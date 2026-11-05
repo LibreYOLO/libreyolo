@@ -15,7 +15,13 @@ directory. Changes from upstream, all inference-neutral:
   ``coords_grid``.
 
 Training code (Lightning module, datasets, losses, augmentors) is not vendored.
-``gma.py`` carries upstream's own attribution to VideoFlow's GMA module.
+``gma.py`` (``Attention``, ``Aggregate``) originates in GMA
+(github.com/zacjiang/GMA, ``core/gma.py``, WTFPL; text in ``LICENSE-GMA``).
+MEMFOF credits VideoFlow, whose copy is GMA's file with the position-embedding
+branches commented out; VideoFlow ships no licence, so the grant relied on is
+GMA's.
+``update.py``'s ``GMAUpdateBlock`` likewise follows GMA's ``core/update.py``;
+``corr.py`` follows RAFT/SEA-RAFT (BSD-3-Clause, see LICENSE).
 """
 
 from .model import MEMFOF

@@ -1,3 +1,7 @@
+# Origin: GMA, https://github.com/zacjiang/GMA core/gma.py (WTFPL, see
+# LICENSE-GMA in this directory): Attention and Aggregate. MEMFOF took it via
+# VideoFlow, whose copy is GMA's file with the position-embedding branches
+# commented out:
 # https://github.com/XiaoyuShi97/VideoFlow/blob/main/core/Networks/BOFNet/gma.py
 
 import torch

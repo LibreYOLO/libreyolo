@@ -1318,8 +1318,12 @@ Used for: MEMFOF optical flow family, inference code vendored under
           libreyolo/models/memfof/_vendor/LICENSE. Changes: relative
           imports, no Hugging Face hub mixin, no torchvision ImageNet
           download at construction, einops.rearrange written as torch
-          reshape/permute. Upstream's gma.py names VideoFlow's GMA module
-          as its source.
+          reshape/permute. gma.py (Attention, Aggregate) originates in
+          GMA, https://github.com/zacjiang/GMA core/gma.py, under the
+          WTFPL (text in libreyolo/models/memfof/_vendor/LICENSE-GMA);
+          upstream credits VideoFlow, whose copy is GMA's file with the
+          position-embedding branches commented out and which ships no
+          licence, so the grant relied on is GMA's.
 
 NOTE - weights: the upstream MEMFOF checkpoints (Hugging Face
 egorchistov/optical-flow-MEMFOF-*) are tagged bsd-3-clause in their card
