@@ -1169,7 +1169,8 @@ class InferenceRunner:
                 ),
             )
 
-        # Depth: a dense relative inverse-depth map, no boxes.
+        # Depth: a dense relative inverse-depth map, no boxes. Families that
+        # recover camera geometry also attach it to the same payload.
         depth_data = detections.get("depth")
         if depth_data is not None:
             orig_w, orig_h = original_size
@@ -1186,6 +1187,10 @@ class InferenceRunner:
                 depth_map=DepthMap(
                     depth_t.float(), (orig_h, orig_w),
                     encoding=detections.get("depth_encoding", "inverse_depth"),
+                    metric=bool(detections.get("depth_metric", False)),
+                    point_map=detections.get("point_map"),
+                    intrinsics=detections.get("intrinsics"),
+                    valid_mask=detections.get("depth_mask"),
                 ),
             )
 
@@ -1362,6 +1367,7 @@ class InferenceRunner:
         masks_t = None
         keypoints_t = None
         obb_t = None
+        order_t = None
 
         if detections["num_detections"] == 0:
             boxes_t = torch.zeros((0, 4), dtype=torch.float32)
@@ -1369,6 +1375,8 @@ class InferenceRunner:
             cls_t = torch.zeros((0,), dtype=torch.float32)
             if "obb" in detections:
                 obb_t = torch.zeros((0, 7), dtype=torch.float32)
+            if detections.get("reading_order") is not None:
+                order_t = torch.zeros((0,), dtype=torch.int64)
         else:
             raw_boxes = detections["boxes"]
             if isinstance(raw_boxes, torch.Tensor):
@@ -1409,6 +1417,10 @@ class InferenceRunner:
                 else:
                     obb_t = torch.as_tensor(raw_obb).float()
 
+            raw_order = detections.get("reading_order")
+            if raw_order is not None:
+                order_t = torch.as_tensor(raw_order).long()
+
         # Apply class filter
         if classes is not None and len(boxes_t) > 0:
             cls_mask = torch.zeros(len(cls_t), dtype=torch.bool, device=cls_t.device)
@@ -1419,6 +1431,8 @@ class InferenceRunner:
             )
             if obb_t is not None:
                 obb_t = obb_t[cls_mask]
+            if order_t is not None:
+                order_t = order_t[cls_mask.to(order_t.device)]
 
         # Class-agnostic NMS (agnostic_nms=True); rotated IoU for OBB.
         if agnostic_iou is not None and len(boxes_t) > 1:
@@ -1434,6 +1448,8 @@ class InferenceRunner:
                     keypoints_t = keypoints_t[keep.to(keypoints_t.device)]
                 if obb_t is not None:
                     obb_t = obb_t[keep.to(obb_t.device)]
+                if order_t is not None:
+                    order_t = order_t[keep.to(order_t.device)]
 
         if (
             (classes is not None or agnostic_iou is not None)
@@ -1448,6 +1464,8 @@ class InferenceRunner:
                 keypoints_t = keypoints_t[top]
             if obb_t is not None:
                 obb_t = obb_t[top]
+            if order_t is not None:
+                order_t = order_t[top.to(order_t.device)]
 
         # original_size from preprocess is (W, H); orig_shape is (H, W)
         orig_w, orig_h = original_size
@@ -1473,6 +1491,7 @@ class InferenceRunner:
             masks=masks_obj,
             keypoints=keypoints_obj,
             obb=obb_obj,
+            reading_order=order_t,
         )
 
     def _predict_single(

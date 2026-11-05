@@ -117,6 +117,15 @@ def _f32(data):
     return np.asarray(data, dtype=np.float32)
 
 
+def _order_tensor(data):
+    """int64 reading-order vector (tensor when torch is installed), or None."""
+    if data is None:
+        return None
+    if _torch_installed():
+        return torch.as_tensor(np.asarray(data, dtype=np.int64))
+    return np.asarray(data, dtype=np.int64)
+
+
 def _zeros_f32(shape):
     """Empty-detection counterpart to :func:`_f32`."""
     if _torch_installed():
@@ -483,6 +492,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
         "faster_rcnn",
         "mask_rcnn",
         "lwdetr",
+        "ppdoclayoutv3",
         "rfdetr",
         "rtdetr",
         "rtdetrv2",
@@ -903,6 +913,11 @@ class BaseBackend(ABC):
                     image, effective_imgsz, color_format
                 )
             tensor, img, size = self._preprocess_rtdetr(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
+        elif self.model_family == "ppdoclayoutv3":
+            tensor, img, size = self._preprocess_ppdoclayoutv3(
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
@@ -1463,6 +1478,22 @@ class BaseBackend(ABC):
         return img_tensor, original_img, original_size
 
     @staticmethod
+    def _preprocess_ppdoclayoutv3(image, input_size, color_format):
+        """PP-DocLayoutV3: square cubic stretch resize, RGB in [0, 1]."""
+        from ..preprocess.ppdoclayoutv3 import preprocess_numpy
+
+        input_h, input_w = _imgsz_hw(input_size)
+        if input_h != input_w:
+            raise NotImplementedError(
+                "PP-DocLayoutV3 exported inference requires a square imgsz."
+            )
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size  # (W, H)
+        original_img = img.copy()
+        img_chw, _ = preprocess_numpy(np.array(img.convert("RGB")), input_h)
+        return as_batched_input(img_chw), original_img, original_size
+
+    @staticmethod
     def _preprocess_rtdetrv2_obb(image, input_size, color_format):
         """RT-DETRv2 OBB uniform resize with bottom/right zero padding."""
         from PIL import Image
@@ -1709,6 +1740,10 @@ class BaseBackend(ABC):
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
             return boxes, scores, cls, None
+        elif self.model_family == "ppdoclayoutv3":
+            return self._parse_ppdoclayoutv3(
+                all_outputs, orig_w, orig_h, conf, max_det=max_det
+            )
         elif self.model_family == "ppyoloe":
             boxes, scores, cls = self._parse_ppyoloe(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
@@ -2846,6 +2881,48 @@ class BaseBackend(ABC):
 
         mask = scores > conf
         return boxes[mask], scores[mask], class_ids[mask].astype(np.int64)
+
+    @staticmethod
+    def _parse_ppdoclayoutv3(all_outputs, orig_w, orig_h, conf, max_det: int = 300):
+        """Decode ``(pred_logits, pred_boxes, order_votes)`` in reading order.
+
+        NumPy twin of ``libreyolo.postprocess.ppdoclayoutv3.postprocess``.
+        Returns the 7-tuple form whose last item is the one-based
+        ``reading_order`` of each kept box.
+        """
+        logits = np.asarray(all_outputs[0][0], dtype=np.float32)
+        pred_boxes = np.asarray(all_outputs[1][0], dtype=np.float32)
+        votes = np.asarray(all_outputs[2][0], dtype=np.float32)
+        num_queries, num_classes = logits.shape
+        ranks = np.empty(num_queries, dtype=np.int64)
+        ranks[np.argsort(votes, kind="stable")] = np.arange(num_queries)
+
+        flat = (1.0 / (1.0 + np.exp(-logits))).reshape(-1)
+        top = np.argsort(-flat, kind="stable")[:num_queries]
+        scores = flat[top]
+        labels = (top % num_classes).astype(np.int64)
+        query = top // num_classes
+        keep = scores >= conf
+        scores, labels, query = scores[keep], labels[keep], query[keep]
+        order = np.argsort(ranks[query], kind="stable")
+        scores, labels, query = scores[order], labels[order], query[order]
+
+        cx, cy, w, h = pred_boxes[query].T
+        boxes = np.stack([cx - 0.5 * w, cy - 0.5 * h, cx + 0.5 * w, cy + 0.5 * h], -1)
+        boxes = (boxes * np.array([orig_w, orig_h, orig_w, orig_h], np.float32)).reshape(
+            -1, 4
+        )
+        reading_order = np.arange(1, len(scores) + 1, dtype=np.int64)
+        budget = max(int(max_det), 0)
+        if len(scores) > budget:
+            cut = np.sort(np.argsort(-scores, kind="stable")[:budget])
+            boxes, scores, labels, reading_order = (
+                boxes[cut],
+                scores[cut],
+                labels[cut],
+                reading_order[cut],
+            )
+        return boxes, scores, labels, None, None, None, reading_order
 
     def _parse_detr(self, all_outputs, orig_w, orig_h, conf, max_det: int = 100):
         """Parse vanilla DETR's softmax logits and one prediction per query."""
@@ -4127,6 +4204,7 @@ class BaseBackend(ABC):
         iou: float,
         classes: Optional[List[int]],
         max_det: int,
+        reading_order: "np.ndarray | None" = None,
     ) -> Results:
         """Apply family-appropriate suppression/max_det/filtering and wrap."""
         if self.model_family == "ssd":
@@ -4149,6 +4227,7 @@ class BaseBackend(ABC):
                 orig_shape=orig_shape,
                 path=str(image_path) if image_path else None,
                 names=self.names,
+                reading_order=_order_tensor(reading_order),
             )
 
         if obb is None and not _is_nms_free_family(self.model_family):
@@ -4200,6 +4279,8 @@ class BaseBackend(ABC):
                 obb = obb[cls_keep]
             if keypoints is not None:
                 keypoints = keypoints[cls_keep]
+            if reading_order is not None:
+                reading_order = reading_order[cls_keep]
 
         # Class-agnostic NMS (agnostic_nms=True), the same step native predict
         # applies: after the classes filter, before the max_det cut.
@@ -4215,9 +4296,15 @@ class BaseBackend(ABC):
                     obb = obb[keep]
                 if keypoints is not None:
                     keypoints = keypoints[keep]
+                if reading_order is not None:
+                    reading_order = reading_order[keep]
 
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
+            if reading_order is not None:
+                # Keep the selected boxes in reading order.
+                top_indices = np.sort(top_indices)
+                reading_order = reading_order[top_indices]
             boxes = boxes[top_indices]
             max_scores = max_scores[top_indices]
             class_ids = class_ids[top_indices]
@@ -4253,6 +4340,7 @@ class BaseBackend(ABC):
             orig_shape=orig_shape,
             path=str(image_path) if image_path else None,
             names=self.names,
+            reading_order=_order_tensor(reading_order),
         )
 
     # =========================================================================
@@ -4329,6 +4417,7 @@ class BaseBackend(ABC):
             EfficientDetValPreprocessor,
             LWDETRValPreprocessor,
             PICODETValPreprocessor,
+            PPDocLayoutV3ValPreprocessor,
             PPYOLOEValPreprocessor,
             RFDETRValPreprocessor,
             RTDETRValPreprocessor,
@@ -4372,6 +4461,7 @@ class BaseBackend(ABC):
             "efficientdet": EfficientDetValPreprocessor,
             "lwdetr": LWDETRValPreprocessor,
             "picodet": PICODETValPreprocessor,
+            "ppdoclayoutv3": PPDocLayoutV3ValPreprocessor,
             "ppyoloe": PPYOLOEValPreprocessor,
             "rfdetr": RFDETRValPreprocessor,
             "rtdetr": RTDETRValPreprocessor,
@@ -4464,7 +4554,14 @@ class BaseBackend(ABC):
         return [np.asarray(output)]
 
     @staticmethod
+    def _parsed_reading_order(parsed):
+        """The reading-order vector of a 7-tuple parse, else ``None``."""
+        return parsed[6] if len(parsed) == 7 else None
+
+    @staticmethod
     def _unpack_parsed_outputs(parsed):
+        if len(parsed) == 7:
+            return parsed[:6]
         if len(parsed) == 6:
             return parsed
         if len(parsed) == 5:
@@ -4556,6 +4653,7 @@ class BaseBackend(ABC):
             iou=iou_thres,
             classes=None,
             max_det=max_det,
+            reading_order=self._parsed_reading_order(parsed),
         )
 
         det: Dict[str, object] = {
@@ -4917,6 +5015,7 @@ class BaseBackend(ABC):
             iou=iou,
             classes=classes,
             max_det=max_det,
+            reading_order=self._parsed_reading_order(parsed),
         )
 
         if save:
@@ -5217,6 +5316,7 @@ class BaseBackend(ABC):
                     iou=iou,
                     classes=classes,
                     max_det=max_det,
+                    reading_order=self._parsed_reading_order(parsed),
                 )
 
             if save:
@@ -5540,6 +5640,7 @@ class BaseBackend(ABC):
                 iou=iou,
                 classes=classes,
                 max_det=max_det,
+                reading_order=self._parsed_reading_order(parsed),
             )
 
         def predict_frame(pil_img):

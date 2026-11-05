@@ -1,0 +1,28 @@
+LibrePPDocLayoutV3 family notice
+
+This family is an inference-only PyTorch port of PP-DocLayoutV3 (PaddleOCR
+project, Apache License 2.0), made from the Apache-2.0 PyTorch reference in
+Hugging Face Transformers.
+
+Port source: https://github.com/huggingface/transformers
+Tag/commit:  v5.22.1 / 446a570e62b04a89ea001604ada7366baac2ea67
+License:     Apache License 2.0
+Copyright:   Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team.
+
+Ported components:
+- src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
+      ported to libreyolo/models/ppdoclayoutv3/nn.py (HGNetV2 backbone)
+- src/transformers/models/pp_doclayout_v3/modeling_pp_doclayout_v3.py
+      ported to libreyolo/models/ppdoclayoutv3/nn.py (hybrid encoder, mask branch,
+         deformable decoder, global pointer, mask-to-box initialisation)
+- src/transformers/models/pp_doclayout_v3/image_processing_pp_doclayout_v3.py
+      ported to libreyolo/postprocess/ppdoclayoutv3.py (decode, reading-order ranking)
+
+LibreYOLO changes: no transformers runtime, module names mirror the official
+safetensors keys, eager attention, tied heads shared by reference, auxiliary
+heads evaluated for the last decoder layer only, a tuple export wrapper, and
+cv2 bicubic preprocessing as in the original Paddle pipeline. Training code
+(denoising, losses) is not included.
+
+Published weights (LibreYOLO/LibrePPDocLayoutV3l) are converted from
+PaddlePaddle/PP-DocLayoutV3_safetensors, declared Apache-2.0 by its model card.

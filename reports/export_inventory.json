@@ -1516,6 +1516,27 @@
     "available": true,
     "group": "g3"
   },
+  "moge3": {
+    "class": "libreyolo.models.moge3.model.LibreMoGe3",
+    "tasks": [
+      "depth",
+      "normal"
+    ],
+    "default_task": "depth",
+    "sizes": {
+      "l": 840,
+      "g": 840
+    },
+    "default_imgsz": {
+      "l": 840,
+      "g": 840
+    },
+    "task_sizes": {},
+    "export_override": "custom",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "molmo2": {
     "class": "libreyolo.models.vlm.molmo2.LibreMolmo2",
     "tasks": [
@@ -1739,6 +1760,24 @@
       "s": 1024,
       "m": 1024,
       "l": 1024
+    },
+    "task_sizes": {},
+    "export_override": "custom",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
+  "ppdoclayoutv3": {
+    "class": "libreyolo.models.ppdoclayoutv3.model.LibrePPDocLayoutV3",
+    "tasks": [
+      "detect"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "l": 800
+    },
+    "default_imgsz": {
+      "l": 800
     },
     "task_sizes": {},
     "export_override": "custom",
