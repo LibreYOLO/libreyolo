@@ -2788,6 +2788,28 @@
     "available": true,
     "group": "g3"
   },
+  "video_depth_anything": {
+    "class": "libreyolo.models.video_depth_anything.model.LibreVideoDepthAnything",
+    "tasks": [
+      "depth"
+    ],
+    "default_task": "depth",
+    "sizes": {
+      "s": 518,
+      "b": 518,
+      "l": 518
+    },
+    "default_imgsz": {
+      "s": 518,
+      "b": 518,
+      "l": 518
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "vit": {
     "class": "libreyolo.models.vit.model.LibreViT",
     "tasks": [

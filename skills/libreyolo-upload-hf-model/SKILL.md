@@ -105,6 +105,7 @@ file = name + ".pt"
 | DepthAnythingV2 | `LibreDepthAnythingV2` | `LibreDepthAnythingV2s-depth.pt` (only `s` is Apache; b/l/g are CC-BY-NC, see below) |
 | FlowSeek | `LibreFlowSeek` | `LibreFlowSeekt-flow.pt` (Apache code; t/s embed the Apache DAv2 Small encoder, m/l the CC BY-NC 4.0 Base encoder) |
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
+| VideoDepthAnything | `LibreVideoDepthAnything` | `LibreVideoDepthAnythings-depth.pt` (only `s` is Apache; b/l are CC-BY-NC-4.0) |
 | WAFT | `LibreWAFT` | `LibreWAFTm-flow.pt` (canonical); `LibreWAFTt-flow-dinov3.pt`, `LibreWAFTs-flow-dav2.pt`, `LibreWAFTl-flow-twins.pt` (BSD-3-Clause plus the encoder licence; `t` carries the DINOv3 License) |
 | MoGe3 | `LibreMoGe3` | `LibreMoGe3l-depth.pt`, `LibreMoGe3g-normal.pt` (MIT code + weights; one tensor set per size serves both tasks) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
@@ -360,6 +361,9 @@ LibreDepthAnythingV2s-depth.pt, LibreDepthAnythingV2b-depth.pt,
 LibreDepthAnythingV2l-depth.pt, LibreDepthAnythingV2g-depth.pt,
 
 LibreDepthAnything3l-depth.pt,
+
+LibreVideoDepthAnythings-depth.pt, LibreVideoDepthAnythingb-depth.pt,
+LibreVideoDepthAnythingl-depth.pt,
 
 LibreFlowSeekt-flow.pt, LibreFlowSeeks-flow.pt, LibreFlowSeekm-flow.pt,
 LibreFlowSeekl-flow.pt,

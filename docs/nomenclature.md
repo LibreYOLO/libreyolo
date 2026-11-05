@@ -129,6 +129,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `swinir`    | `LibreSwinIR`    | Upstream brand casing (`SwinIR`); restore-only transformer super-resolution family |
 | `depth_anything` | `LibreDepthAnythingV2` | CamelCase preserved + version (Depth Anything V2), depth-only |
 | `depth_anything3` | `LibreDepthAnything3` | CamelCase preserved + version (Depth Anything 3), depth-only |
+| `video_depth_anything` | `LibreVideoDepthAnything` | CamelCase preserved (Video Depth Anything); depth-only sequence family, one depth map per frame |
 | `waft` | `LibreWAFT` | All-caps acronym (Warping-Alone Field Transforms), flow-only |
 | `dpflow`    | `LibreDPFlow` | All-caps acronym `DP` (dual pyramid) + `Flow`; flow-only, inference-only. Canonical `LibreDPFlowm-flow.pt` is the FlyingThings3D stage; benchmark fine-tunes use the `WEIGHT_VARIANTS` suffixes `-sintel`, `-kitti`, `-spring` |
 | `zipdepth`  | `LibreZipDepth` | CamelCase preserved (`ZipDepth` brand casing); depth-only lightweight CNN (speed/edge tier) |
@@ -283,6 +284,7 @@ ships:
 | `swinir`    | `s`, `m`, `l` (all 4x: lightweight SwinIR-S, real-world SwinIR-M, and real-world SwinIR-L) |
 | `depth_anything` | `s`, `b`, `l`, `g` (ViT-S/B/L/G, all at 518) |
 | `depth_anything3` | `l` (DA3MONO-LARGE ViT-L, native upper-bound 504) |
+| `video_depth_anything` | `s`, `b`, `l` (ViT-S/B/L, 518 short side lower-bound, smaller for frames wider than 16:9; `b` and `l` weights are CC BY-NC 4.0) |
 | `waft` | `t`, `s`, `m`, `l` by parameter count: `t` a2 DINOv3 ViT-S/16 (56.5 M), `s` a2 Depth Anything V2 ViT-S (56.9 M), `m` a1 Depth Anything V2 ViT-S (64.2 M, upstream's recommended checkpoint), `l` a2 Twins-SVT-Large (136.0 M); native resolution by default (`imgsz` caps the long side), the backbone is the weight variant (`-dinov3`, `-dav2`, `-twins`); `m` has no variant suffix |
 | `dpflow`    | `m` (the single published DPFlow graph, 10.0M parameters; runs at the native frame size by default, pyramid depth chosen from the image diagonal; `imgsz` caps the long side) |
 | `zipdepth`  | `b` (base, GPU/CPU convex upsampling), `bnpu` (base capacity with the separately trained unfold-free upsampling head for NPU/edge compilers); both at short-side 384 |
@@ -421,6 +423,10 @@ Inverse depth is the default `DepthMap.encoding`. Marigold V2 also declares
 in their named spaces. See ADR 0025. Its default depth file is
 `LibreMarigoldV2b-depth.pt` (Log-stage2); the six other depth variants use
 `LibreMarigoldV2b-depth-<variant>.pt`. See ADR 0027 for the variant list.
+
+Video Depth Anything is a depth sequence family: every source is one ordered
+frame sequence, `N` frames give `N` depth maps in one relative scale, and a
+single image is a one-frame sequence. See ADR 0006 and ADR 0032.
 
 `flow` is the task for dense optical flow. Models expose `Results.flow`, a
 float32 `(H, W, 2)` displacement field on the original canvas of the first

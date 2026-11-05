@@ -121,6 +121,7 @@ from .dexined.model import LibreDexiNed  # noqa: E402,F401  (edge-only; MIT sour
 from .depth_anything3.model import (  # noqa: E402,F401  (import registers family)
     LibreDepthAnything3,
 )
+from .video_depth_anything.model import LibreVideoDepthAnything  # noqa: E402,F401  (depth sequence family; can_load keyed on head.motion_modules)
 from .searaft.model import LibreSEARAFT  # noqa: E402,F401  (flow-only; can_load keyed on 6-channel cnet + init_conv + 6-channel flow_head)
 from .unimatch.model import LibreUniMatch  # noqa: E402,F401  (flow-only; can_load keyed on GMFlow feature_flow_attn + transformer)
 from .dpflow.model import LibreDPFlow  # noqa: E402,F401  (flow-only; can_load keyed on the bidirectional fnet GRUs + lowres_stem)
@@ -929,6 +930,7 @@ __all__ = [
     "LibreTEED",
     "LibreDexiNed",
     "LibreDepthAnything3",
+    "LibreVideoDepthAnything",
     "LibreUniMatch",
     "LibreDPFlow",
     "LibreNAFNet",

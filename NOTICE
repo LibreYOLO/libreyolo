@@ -66,6 +66,19 @@ WAFT (BSD 3-Clause License)
     Depth Anything V2 and DINOv3 encoders are reused from the
     depth_anything and deimv2 families and keep their own licenses.
 
+Video Depth Anything (Apache License 2.0)
+    Path:    libreyolo/models/video_depth_anything/_vendor/
+    License: libreyolo/models/video_depth_anything/_vendor/LICENSE
+    Source:  https://github.com/DepthAnything/Video-Depth-Anything
+    Commit:  4f5ae23172ba60fd7bc11ef671cca678842c7072
+
+    Inference-only copy of the temporal DPT head and motion modules,
+    Copyright (2025) Bytedance Ltd. and/or its affiliates. The motion
+    module originates in AnimateDiff and the attention block in Hugging
+    Face diffusers, both Apache-2.0. EasyDict and einops are replaced by
+    plain Python/torch. The DINOv2 encoder and DPT head are reused from the
+    depth_anything family.
+
 SenseNova-Vision / Bagel (Apache License 2.0 code; CC BY-NC 4.0 weights,
 mirrored under that license)
     Path:    libreyolo/models/sensenova/
