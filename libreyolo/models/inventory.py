@@ -56,6 +56,18 @@ OPTIONAL_MODELS = (
     ),
     ("libreyolo.models.modus.model", "LibreMODUS", "modus", "transformers"),
     ("libreyolo.models.wevisone.model", "LibreWeVisOneVL", "vlm", "transformers"),
+    (
+        "libreyolo.models.deepseekocr.model",
+        "LibreDeepSeekOCR",
+        "vlm",
+        "transformers",
+    ),
+    (
+        "libreyolo.models.paddleocrvl.model",
+        "LibrePaddleOCRVL",
+        "vlm",
+        "transformers",
+    ),
     ("libreyolo.models.ground.showui", "LibreShowUI", "vlm", "transformers"),
     ("libreyolo.models.vla.smolvla", "LibreSmolVLA", "vla", "lerobot"),
     ("libreyolo.models.vla.act_policy", "LibreACT", "vla", "lerobot"),
@@ -64,6 +76,7 @@ OPTIONAL_MODELS = (
     ("libreyolo.models.gen.sana_sprint", "LibreSanaSprint", "gen", "diffusers"),
     ("libreyolo.models.gen.speridlabs_idol", "LibreSperidlabsIdol", "gen", "diffusers"),
     ("libreyolo.models.gen.triposplat", "LibreTripoSplat", "gen", "diffusers"),
+    ("libreyolo.models.gen.trellis", "LibreTRELLIS", "gen", "transformers"),
     (
         "libreyolo.models.ground.florence",
         "LibreGroundFlorence2",

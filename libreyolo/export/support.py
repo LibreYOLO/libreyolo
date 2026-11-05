@@ -2517,6 +2517,25 @@ _add(
     ),
     since="1.5",
 )
+for _fmt, _constraint in (
+    ("onnx", "FP32, fixed 800x800 input, ONNX opset 17"),
+    ("torchscript", "FP32, fixed 800x800 input"),
+):
+    _add(
+        "validated",
+        ("ppdoclayoutv3",),
+        ("detect",),
+        (_fmt,),
+        reason=(
+            "Raw logits, boxes and reading-order votes match native PyTorch "
+            "(TorchScript exactly, ONNX Runtime within fp32 noise); "
+            "exported-backend predict returns the same regions, labels and "
+            "reading order."
+        ),
+        since="1.7",
+        constraint=_constraint,
+    )
+del _fmt, _constraint
 _add(
     "validated",
     ("centernet",),
@@ -3312,6 +3331,44 @@ _add(
 )
 _add(
     "validated",
+    ("moge3",),
+    ("normal",),
+    ("onnx", "torchscript"),
+    reason=(
+        "tests/unit/test_moge3.py covers same-canvas native-versus-exported "
+        "angular normal parity, artifact reload, metadata, and unit-vector "
+        "normalization on a random-init fixture; the normal graph is the "
+        "MoGe-2 export contract and contains no sparse refiner."
+    ),
+    since="1.7",
+    constraint=(
+        "FP32, batch 1, fixed square input divisible by 14; exported "
+        "inference rejects non-square sources"
+    ),
+)
+_add(
+    "blocked",
+    ("moge3",),
+    ("normal",),
+    ("executorch", "ncnn", "tflite", "paddle", "mnn", "rknn", "coreml", "coreai"),
+    reason=(
+        "MoGe-3 normal export is validated for ONNX and TorchScript only; "
+        "this runtime has not been run for the family."
+    ),
+)
+_add(
+    "blocked",
+    ("moge3",),
+    ("depth",),
+    EXPORT_FORMATS,
+    reason=(
+        "The sparse refiner builds data-dependent voxel sets and camera "
+        "recovery runs a CPU least-squares solve, so the depth graph is not "
+        "capturable. Use the native .pt model for depth."
+    ),
+)
+_add(
+    "validated",
     ("nafnet", "realesrgan"),
     ("restore",),
     ("coreai",),
@@ -3837,6 +3894,8 @@ _FAMILY_BLOCKS = {
     "sensenovavision": "Generative VLM export is out of scope for v1.",
     "libremodus": "Generative VLM export is out of scope for v1.",
     "wevisonevl": "Generative VLM export is out of scope for v1.",
+    "deepseekocr": "Generative VLM export is out of scope for v1.",
+    "paddleocrvl": "Generative VLM export is out of scope for v1.",
 }
 
 _NCNN_BLOCKS = {
@@ -3853,6 +3912,7 @@ _NCNN_BLOCKS = {
     "rtdetrv4": "RT-DETRv4",
     "rfdetr": "RF-DETR",
     "ec": "EC",
+    "ppdoclayoutv3": "PP-DocLayoutV3",
 }
 
 

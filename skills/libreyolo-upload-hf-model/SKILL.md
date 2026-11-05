@@ -94,6 +94,7 @@ file = name + ".pt"
 | QuickSRNet | `LibreQuickSRNet` | `LibreQuickSRNetm2-restore.pt` (Medium 2x super-resolution; BSD-3-Clause) |
 | SwinIR | `LibreSwinIR` | `LibreSwinIRm-restore.pt` (4x super-resolution; sizes `s`/`m`/`l`; Apache-2.0) |
 | PPOCR | `LibrePPOCR` | `LibrePPOCRt-ocr.pt` (PP-OCRv5 text det+rec; sizes `t`/`l`; Apache-2.0) |
+| PPDocLayoutV3 | `LibrePPDocLayoutV3` | `LibrePPDocLayoutV3l.pt` (document layout + reading order; size `l`; Apache-2.0) |
 | PIDNet | `LibrePIDNet` | `LibrePIDNets-sem.pt` (semantic-only) |
 | PPLiteSeg | `LibrePPLiteSeg` | `LibrePPLiteSegt50-sem.pt` (semantic-only; sizes `t50`/`b50`/`t75`/`b75`, natively rectangular. Weights are **non-commercial** — Cityscapes dataset terms, see below) |
 | UNet | `LibreUNet` | `LibreUNets-sem.pt` (semantic-only; size `s`, evaluates at 1024x2048. Apache-2.0 weights, as mmsegmentation declares) |
@@ -105,6 +106,7 @@ file = name + ".pt"
 | FlowSeek | `LibreFlowSeek` | `LibreFlowSeekt-flow.pt` (Apache code; t/s embed the Apache DAv2 Small encoder, m/l the CC BY-NC 4.0 Base encoder) |
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
 | WAFT | `LibreWAFT` | `LibreWAFTm-flow.pt` (canonical); `LibreWAFTt-flow-dinov3.pt`, `LibreWAFTs-flow-dav2.pt`, `LibreWAFTl-flow-twins.pt` (BSD-3-Clause plus the encoder licence; `t` carries the DINOv3 License) |
+| MoGe3 | `LibreMoGe3` | `LibreMoGe3l-depth.pt`, `LibreMoGe3g-normal.pt` (MIT code + weights; one tensor set per size serves both tasks) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
 | GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
 | MEMFOF | `LibreMEMFOF` | `LibreMEMFOFm-flow.pt` (three-frame optical flow; BSD-3-Clause code, weights tagged `bsd-3-clause` upstream with no licence file; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring`, one repo each) |
@@ -319,6 +321,8 @@ LibreSwinIRl-restore.pt,
 
 LibrePPOCRt-ocr.pt, LibrePPOCRl-ocr.pt,
 
+LibrePPDocLayoutV3l.pt,
+
 LibreBEN2b-matte.pt,
 
 LibreBiRefNett-matte.pt, LibreBiRefNetl-matte.pt,
@@ -363,6 +367,9 @@ LibreWAFTt-flow-dinov3.pt, LibreWAFTs-flow-dav2.pt, LibreWAFTm-flow.pt,
 LibreWAFTl-flow-twins.pt,
 
 LibreMoGe2s-normal.pt, LibreMoGe2b-normal.pt, LibreMoGe2l-normal.pt,
+
+LibreMoGe3l-depth.pt, LibreMoGe3l-normal.pt, LibreMoGe3g-depth.pt,
+LibreMoGe3g-normal.pt,
 
 LibreZipDepthb-depth.pt, LibreZipDepthbnpu-depth.pt,
 

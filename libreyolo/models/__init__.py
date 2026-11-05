@@ -90,6 +90,7 @@ from .centernet.model import LibreCenterNet  # noqa: E402
 from .efficientdet.model import LibreEfficientDet  # noqa: E402  (BiFPN keys are unique; inference-only)
 from .picodet.model import LibrePICODET  # noqa: E402
 from .ppyoloe.model import LibrePPYOLOE  # noqa: E402  (head.pred_cls/pred_reg + CSPResNet stem keys are unique)
+from .ppdoclayoutv3.model import LibrePPDocLayoutV3  # noqa: E402  (can_load needs the reading-order pointer + order heads + mask prototypes; RT-DETR-style checkpoints carry none)
 from .rtdetr.model import LibreRTDETR  # noqa: E402  (registered before LibreRTDETRv2 so metadata-less ckpts default to v1)
 from .rtdetrv2.model import LibreRTDETRv2  # noqa: E402
 from .rtmdet.model import LibreRTMDet  # noqa: E402
@@ -111,7 +112,8 @@ from .depth_anything.model import (  # noqa: E402,F401  (import registers family
     LibreDepthAnythingV2,
 )
 from .zipdepth.model import LibreZipDepth  # noqa: E402,F401  (depth-only; can_load keyed on encoder.stem_half + decoder.convex_up)
-from .moge2.model import LibreMoGe2  # noqa: E402,F401  (normal-only; official Microsoft MIT checkpoint)
+from .moge3.model import LibreMoGe3  # noqa: E402,F401  (depth + normal; can_load requires refiner., which MoGe-2 rejects)
+from .moge2.model import LibreMoGe2  # noqa: E402,F401  (normal-only; official Microsoft MIT checkpoint; rejects refiner.)
 from .marigold_v2.model import LibreMarigoldV2  # noqa: E402,F401 (heavy dependencies load only at construction)
 from .memfof.model import LibreMEMFOF  # noqa: E402,F401  (flow-only; can_load keyed on 9-channel cnet conv1 + att.to_qk)
 from .teed.model import LibreTEED  # noqa: E402,F401  (edge-only; MIT source)
@@ -921,6 +923,7 @@ __all__ = [
     "LibreMiDaS",
     "LibreDepthAnythingV2",
     "LibreMoGe2",
+    "LibreMoGe3",
     "LibreMarigoldV2",
     "LibreMEMFOF",
     "LibreTEED",
@@ -961,6 +964,7 @@ __all__ = [
     "LibreSigLIP2",
     "LibrePE",
     "LibrePPOCR",
+    "LibrePPDocLayoutV3",
     "LibreVJEPA2",
     "LibreLeVJEPA",
     "LibreWAFT",

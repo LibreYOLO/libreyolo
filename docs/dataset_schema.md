@@ -475,9 +475,19 @@ Two layouts are accepted:
 
 The class-like YAML fields are schema placeholders: use `nc: 1` and
 `names: {0: text}`. OCR models expose `Results.ocr`, not detections.
+Document models may also fill two prediction-side extras on `Results.ocr`:
+`labels` (per-region layout category, `None` for line-level OCR) and
+`markdown` (the whole page as text, `""` when absent; a page-text-only
+prediction has zero regions). Validation scores regions only.
 
 Validation is inference-only in v1 (OCR training is out of scope). Canonical
 sample resolver: `libreyolo.data.ocr_dataset.resolve_ocr_samples`.
+
+Predictions may carry two optional extras on `Results.ocr`: `labels`, one
+layout class per region (for example `text`, `table`, `display_formula`), and
+`markdown`, the page-level document the regions assemble into. Line-level OCR
+families leave them as `None` and `""`. Validation ignores both; block-level
+parsers are scored against ground truth whose regions are blocks.
 
 ## pose
 

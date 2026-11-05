@@ -100,6 +100,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         "libreyolo.models.dexined",
         "libreyolo.models.modus",
         "libreyolo.models.wevisone",
+        "libreyolo.models.deepseekocr",
     ):
         notice = importlib.resources.files(package_name).joinpath("NOTICE")
         if not notice.is_file():
@@ -119,6 +120,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreSmolVLM2,
         LibreVLM,
         LibreWeVisOneVL,
+        LibreDeepSeekOCR,
     )
 
     from libreyolo import (
@@ -157,6 +159,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreGen,
         LibreSanaSprint,
         LibreSperidlabsIdol,
+        LibreTRELLIS,
         LibreTripoSplat,
     )
 
@@ -164,7 +167,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         raise AssertionError("LibreGen import did not resolve to a callable")
     if not all(
         isinstance(cls, type)
-        for cls in (LibreFlux2Klein, LibreSanaSprint, LibreSperidlabsIdol, LibreTripoSplat, GeneratedImage, Gaussians)
+        for cls in (LibreFlux2Klein, LibreSanaSprint, LibreSperidlabsIdol, LibreTripoSplat, LibreTRELLIS, GeneratedImage, Gaussians)
     ):
         raise AssertionError("LibreGen family/payload exports did not resolve to classes")
     for family in (
@@ -177,6 +180,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreMODUS,
         LibreMolmo2,
         LibreWeVisOneVL,
+        LibreDeepSeekOCR,
     ):
         if not isinstance(family, type):
             raise AssertionError(

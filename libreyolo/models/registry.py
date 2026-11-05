@@ -87,6 +87,7 @@ MODEL_GROUPS: dict[str, str] = {
     "neuflowv2": "g3",
     "midas": "g3",
     "moge2": "g3",
+    "moge3": "g3",
     "marigold_v2": "g3",
     "memfof": "g3",
     "dexined": "g3",
@@ -104,6 +105,7 @@ MODEL_GROUPS: dict[str, str] = {
     "ben2": "g3",
     "vitmatte": "g3",
     "ppocr": "g3",
+    "ppdoclayoutv3": "g3",
     "l2cs": "g3",
     "vgg": "g3",
     "hrnet": "g3",
@@ -153,11 +155,14 @@ MODEL_GROUPS: dict[str, str] = {
     "sana_sprint": "s",
     "speridlabs_idol": "s",
     "triposplat": "s",
+    "trellis": "s",
     "clip": "s",
     "siglip2": "s",
     "libremodus": "s",
     "sensenovavision": "s",
     "wevisonevl": "s",
+    "deepseekocr": "s",
+    "paddleocrvl": "s",
 }
 
 
