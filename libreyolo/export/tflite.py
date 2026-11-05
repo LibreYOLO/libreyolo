@@ -853,6 +853,143 @@ def _write_metadata_sidecar(output_path: Path, metadata: dict) -> None:
     logger.info("Metadata sidecar: %s", sidecar_path)
 
 
+# ── INT8: single-pass in-process quantization ─────────────────────────────────
+#
+# ``onnx2tf -oiqt`` runs two full ``TFLiteConverter.convert()`` passes: first the
+# integer model with float32 I/O (``_integer_quant``), then the same graph again
+# with int8 I/O (``_full_integer_quant``). Only the second is kept. The I/O dtype
+# does not change the calibrated scales, so the first pass is pure overhead — on
+# a 1280x800 YOLO9-t with 156 calibration images it is ~13 of ~26 minutes.
+#
+# The path below builds the SavedModel with onnx2tf (no quantization) and runs
+# the converter once, which also lets us batch the representative dataset: the
+# ``-cind`` CLI route re-batches by the ONNX batch dimension, so it can only
+# feed one image per call even though the loader yields batches.
+
+
+def _onnx2tf_env() -> dict:
+    """Environment for onnx2tf: find its console scripts, and give it threads."""
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join(
+        [str(Path(sys.executable).parent), env.get("PATH", "")]
+    )
+    # The calibration pass is CPU-bound and defaults to a single thread.
+    threads = str(max(1, os.cpu_count() or 1))
+    env.setdefault("TF_NUM_INTRAOP_THREADS", threads)
+    env.setdefault("TF_NUM_INTEROP_THREADS", "1")
+    env.setdefault("OMP_NUM_THREADS", threads)
+    return env
+
+
+def _build_saved_model(onnx_path: Path, saved_model_dir: Path, *, verbose: bool) -> None:
+    """Convert ONNX to a SavedModel with onnx2tf, without quantizing it."""
+    cmd = [
+        *_onnx2tf_command(),
+        "-i",
+        str(onnx_path),
+        "-o",
+        str(saved_model_dir),
+        "-fdosm",
+        "-v",
+        "info" if verbose else "warn",
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=not verbose,
+        text=True,
+        env=_onnx2tf_env(),
+    )
+    if result.returncode != 0:
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        raise RuntimeError(
+            f"onnx2tf failed with exit code {result.returncode}.\n"
+            f"Command: {' '.join(cmd)}\n"
+            f"stdout: {stdout}\n"
+            f"stderr: {stderr}"
+        )
+
+
+def _int8_representative_dataset(calibration_data: Any):
+    """Yield one NHWC float32 image per call, the shape the graph expects.
+
+    ``CalibrationDataLoader`` yields already-preprocessed NCHW batches. The
+    converter requires every yielded sample to match the model input shape, so
+    the exported graph's batch stays 1 and images are fed one at a time. The
+    loader pads its final batch by repeating the last image; the pad is dropped
+    rather than counted twice.
+    """
+    seen = 0
+    expected = int(getattr(calibration_data, "num_samples", 0) or 0)
+    for batch in calibration_data:
+        images = np.asarray(batch, dtype=np.float32)
+        if images.ndim != 4:
+            raise ValueError(
+                "TFLite INT8 calibration requires rank-4 NCHW batches; "
+                f"got shape {images.shape}."
+            )
+        for image in images:
+            if expected and seen >= expected:
+                return
+            seen += 1
+            yield [np.transpose(image, (1, 2, 0))[None]]
+
+
+def _convert_saved_model_int8(
+    saved_model_dir: Path,
+    output_path: Path,
+    calibration_data: Any,
+    *,
+    output_dtype: str = "int8",
+) -> None:
+    """Quantize a SavedModel once, in process, and write the .tflite file."""
+    import tensorflow as tf
+
+    if output_dtype not in {"int8", "float32"}:
+        raise ValueError(
+            f"int8_output_dtype must be 'int8' or 'float32', got {output_dtype!r}"
+        )
+
+    converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.target_spec.supported_ops = [
+        tf.lite.OpsSet.TFLITE_BUILTINS_INT8,
+        tf.lite.OpsSet.SELECT_TF_OPS,
+    ]
+    converter.representative_dataset = lambda: _int8_representative_dataset(
+        calibration_data
+    )
+    converter.inference_input_type = tf.int8
+    converter.inference_output_type = (
+        tf.int8 if output_dtype == "int8" else tf.float32
+    )
+    converter._experimental_disable_per_channel = False
+
+    output_path.write_bytes(converter.convert())
+
+
+def _export_tflite_int8_single_pass(
+    onnx_path: Path,
+    output_path: Path,
+    calibration_data: Any,
+    *,
+    output_dtype: str,
+    verbose: bool,
+) -> str:
+    logger.info("Converting ONNX to TFLite (single INT8 pass): %s", onnx_path)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        saved_model_dir = Path(tmpdir) / "saved_model"
+        _build_saved_model(onnx_path, saved_model_dir, verbose=verbose)
+        _convert_saved_model_int8(
+            saved_model_dir,
+            output_path,
+            calibration_data,
+            output_dtype=output_dtype,
+        )
+    logger.info("TFLite INT8 export complete: %s", output_path)
+    return str(output_path)
+
+
 def export_tflite(
     onnx_path: str,
     output_path: str,
@@ -863,15 +1000,27 @@ def export_tflite(
     verbose: bool = False,
     onnx2tf_args: Iterable[str] | None = None,
     metadata: dict | None = None,
+    int8_backend: str = "converter",
+    int8_output_dtype: str = "int8",
 ) -> str:
     """Convert a static ONNX model to TensorFlow Lite using onnx2tf.
 
     With ``int8=True`` the converter runs post-training quantization against
     ``calibration_data`` and the fully integer artifact is returned. The
-    calibration batches are the model's own preprocessed tensors, so onnx2tf is
-    told not to normalize them a second time (mean 0, std 1).
+    calibration batches are the model's own preprocessed tensors, so they are
+    fed to the converter unnormalized (mean 0, std 1).
 
-    Note: ``onnx2tf_args`` is forwarded only on the YOLO9 CLI path.  It is
+    ``int8_backend`` selects how the integer graph is produced:
+
+    * ``"converter"`` (default) — build the SavedModel with onnx2tf, then run
+      one in-process ``TFLiteConverter`` pass instead of the two that
+      ``onnx2tf -oiqt`` performs.
+    * ``"onnx2tf"`` — the previous ``-oiqt`` CLI route, kept as a fallback. It
+      emits a float32-I/O and an int8-I/O artifact and costs two passes, and it
+      always ships the int8-I/O one, so ``int8_output_dtype="float32"`` is only
+      available with the default backend.
+
+    Note: ``onnx2tf_args`` is forwarded only on the CLI path.  It is
     not applicable to the RF-DETR Python-API path and will be ignored there.
     """
     if half:
@@ -882,6 +1031,19 @@ def export_tflite(
         raise ValueError(
             "TFLite INT8 export requires calibration data. "
             "Pass data=<dataset.yaml> to export()."
+        )
+    if int8_backend not in {"converter", "onnx2tf"}:
+        raise ValueError(
+            f"int8_backend must be 'converter' or 'onnx2tf', got {int8_backend!r}"
+        )
+    if int8 and int8_backend == "onnx2tf" and int8_output_dtype != "int8":
+        # The CLI route picks *_full_integer_quant.tflite, which always has int8
+        # inputs and outputs. Honouring the request would need a second
+        # conversion, so reject instead of returning a differently typed graph
+        # than the caller asked for.
+        raise ValueError(
+            "int8_backend='onnx2tf' always writes int8 input and output tensors; "
+            "int8_output_dtype='float32' requires the default in-process backend."
         )
 
     check_tflite_export_available()
@@ -908,6 +1070,23 @@ def export_tflite(
     onnx_file = Path(onnx_path)
     dst = Path(output_path)
     dst.parent.mkdir(parents=True, exist_ok=True)
+
+    if int8 and int8_backend == "converter":
+        if onnx2tf_args is not None:
+            logger.warning(
+                "onnx2tf_args is not supported on the in-process INT8 path "
+                "(use int8_backend='onnx2tf' for the CLI route); ignoring."
+            )
+        _export_tflite_int8_single_pass(
+            onnx_file,
+            dst,
+            calibration_data,
+            output_dtype=int8_output_dtype,
+            verbose=verbose,
+        )
+        if metadata is not None:
+            _write_metadata_sidecar(dst, metadata)
+        return str(dst)
 
     logger.info("Converting ONNX to TFLite: %s", onnx_file)
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -947,10 +1126,7 @@ def export_tflite(
         # onnx2tf calls the ``onnxsim`` executable by name; put this
         # interpreter's scripts directory first so the one installed with the
         # tflite extra is found even when the environment is not activated.
-        env = dict(os.environ)
-        env["PATH"] = os.pathsep.join(
-            [str(Path(sys.executable).parent), env.get("PATH", "")]
-        )
+        env = _onnx2tf_env()
         result = subprocess.run(
             cmd,
             capture_output=not verbose,

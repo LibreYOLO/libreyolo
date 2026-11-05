@@ -2741,6 +2741,8 @@ class TFLiteExporter(BaseExporter):
         calibration_data,
         verbose,
         onnx2tf_args=None,
+        int8_backend: str = "converter",
+        int8_output_dtype: str = "int8",
         **kwargs,
     ):
         from .tflite import ensure_tflite_family_supported, export_tflite
@@ -2760,6 +2762,8 @@ class TFLiteExporter(BaseExporter):
             verbose=verbose,
             onnx2tf_args=onnx2tf_args,
             metadata=metadata,
+            int8_backend=int8_backend,
+            int8_output_dtype=int8_output_dtype,
         )
 
 

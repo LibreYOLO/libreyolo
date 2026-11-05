@@ -438,6 +438,7 @@ def test_tflite_int8_export_selects_full_integer_artifact(monkeypatch, tmp_path)
         int8=True,
         calibration_data=_FakeCalibration([_constant_images(1.0, 2.0)], 2),
         metadata={"model_family": "yolo9", "precision": "int8"},
+        int8_backend="onnx2tf",
     )
 
     assert result == str(dst)
@@ -480,6 +481,7 @@ def test_tflite_int8_export_rejects_float_io_integer_quant(monkeypatch, tmp_path
             str(dst),
             int8=True,
             calibration_data=_FakeCalibration([_constant_images(1.0)], 1),
+            int8_backend="onnx2tf",
         )
 
     assert not dst.exists()
@@ -513,6 +515,7 @@ def test_tflite_int8_export_never_returns_a_float_artifact(monkeypatch, tmp_path
             str(dst),
             int8=True,
             calibration_data=_FakeCalibration([_constant_images(1.0)], 1),
+            int8_backend="onnx2tf",
         )
 
     assert not dst.exists()
@@ -826,3 +829,279 @@ def test_yolo9_e2e_tflite_needs_a_validated_converter(monkeypatch, installed, re
         tflite.check_tflite_converter_version("yolo9_e2e", "detect")
     tflite.check_tflite_converter_version("yolo9", "detect")  # no minimum
 
+
+
+def test_tflite_int8_representative_dataset_is_one_nhwc_image_per_sample():
+    from libreyolo.export import tflite as tflite_module
+
+    loader = _FakeCalibration([_constant_images(1.0, 2.0, 3.0)], 3)
+    samples = list(tflite_module._int8_representative_dataset(loader))
+
+    # The converter requires every sample to match the model input shape, so a
+    # batch-1 graph is fed one image per call.
+    assert [s[0].shape for s in samples] == [(1, 2, 2, 3)] * 3
+    # NCHW -> NHWC, values preserved.
+    assert samples[0][0][0, 0, 0, 0] == pytest.approx(1.0)
+    assert samples[1][0][0, 0, 0, 0] == pytest.approx(2.0)
+
+
+def test_tflite_int8_representative_dataset_drops_loader_padding():
+    from libreyolo.export import tflite as tflite_module
+
+    # CalibrationDataLoader pads the final batch by repeating its last image;
+    # num_samples says only two are real.
+    loader = _FakeCalibration([_constant_images(1.0, 2.0, 2.0)], 2)
+    samples = list(tflite_module._int8_representative_dataset(loader))
+
+    assert len(samples) == 2
+
+
+def test_tflite_int8_export_defaults_to_single_pass(monkeypatch, tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    monkeypatch.setattr(tflite_module, "check_tflite_export_available", lambda: None)
+    calls = {"saved_model": 0, "convert": 0, "subprocess": 0}
+
+    def fake_build(onnx_path, saved_model_dir, *, verbose):
+        calls["saved_model"] += 1
+        saved_model_dir.mkdir(parents=True, exist_ok=True)
+
+    def fake_convert(saved_model_dir, output_path, calibration_data, **kwargs):
+        calls["convert"] += 1
+        calls["kwargs"] = kwargs
+        output_path.write_bytes(b"int8-single-pass")
+
+    def fake_run(*args, **kwargs):
+        calls["subprocess"] += 1
+        raise AssertionError("the default INT8 path must not shell out")
+
+    monkeypatch.setattr(tflite_module, "_build_saved_model", fake_build)
+    monkeypatch.setattr(tflite_module, "_convert_saved_model_int8", fake_convert)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    onnx_path = tmp_path / "model.onnx"
+    onnx_path.write_bytes(b"fake onnx")
+    dst = tmp_path / "model.tflite"
+
+    result = tflite_module.export_tflite(
+        str(onnx_path),
+        str(dst),
+        int8=True,
+        calibration_data=_FakeCalibration([_constant_images(1.0)], 1),
+        metadata={"model_family": "yolo9", "precision": "int8"},
+        int8_output_dtype="float32",
+    )
+
+    assert result == str(dst)
+    assert dst.read_bytes() == b"int8-single-pass"
+    assert calls == {
+        "saved_model": 1,
+        "convert": 1,
+        "subprocess": 0,
+        "kwargs": {"output_dtype": "float32"},
+    }
+    sidecar = json.loads(Path(str(dst) + ".json").read_text())
+    assert sidecar["precision"] == "int8"
+
+
+def test_tflite_int8_export_rejects_unknown_backend(tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    with pytest.raises(ValueError, match="int8_backend"):
+        tflite_module.export_tflite(
+            str(tmp_path / "model.onnx"),
+            str(tmp_path / "model.tflite"),
+            int8=True,
+            calibration_data=_FakeCalibration([_constant_images(1.0)], 1),
+            int8_backend="magic",
+        )
+
+
+def test_tflite_exporter_forwards_int8_calibration_options(monkeypatch, tmp_path):
+    import libreyolo.export.exporter as exporter_module
+
+    _mock_onnx_available(monkeypatch)
+    wrapper = _make_wrapper()
+    exporter = TFLiteExporter(wrapper)
+    output_path = tmp_path / "model.tflite"
+    captured = {}
+
+    def fake_export_onnx(_nn_model, _dummy, **kwargs):
+        Path(kwargs["output_path"]).write_bytes(b"onnx")
+        return kwargs["output_path"]
+
+    def fake_export_tflite(**kwargs):
+        captured["tflite"] = kwargs
+        Path(kwargs["output_path"]).write_bytes(b"tflite")
+        return kwargs["output_path"]
+
+    def fake_load_calibration(*_args, **_kwargs):
+        return _FakeCalibration([_constant_images(1.0)], 1)
+
+    monkeypatch.setattr(exporter_module, "export_onnx", fake_export_onnx)
+    monkeypatch.setattr(exporter, "_load_calibration", fake_load_calibration)
+    monkeypatch.setattr(
+        "libreyolo.export.tflite.check_tflite_export_available", lambda: None
+    )
+    monkeypatch.setattr(
+        "libreyolo.export.tflite.check_tflite_converter_version",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "libreyolo.export.tflite.check_tflite_int8_available", lambda: None
+    )
+    monkeypatch.setattr("libreyolo.export.tflite.export_tflite", fake_export_tflite)
+
+    exporter(
+        output_path=str(output_path),
+        imgsz=(16, 32),
+        int8=True,
+        data="coco8.yaml",
+        int8_output_dtype="float32",
+    )
+
+    assert captured["tflite"]["int8"] is True
+    assert captured["tflite"]["int8_backend"] == "converter"
+    assert captured["tflite"]["int8_output_dtype"] == "float32"
+
+
+def test_tflite_int8_onnx2tf_backend_rejects_float32_output_dtype(tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    # The CLI route ships *_full_integer_quant.tflite, which always has int8
+    # inputs and outputs; accepting float32 here would hand the caller a graph
+    # typed differently from what it asked for.
+    with pytest.raises(ValueError, match="always writes int8 input and output"):
+        tflite_module.export_tflite(
+            str(tmp_path / "model.onnx"),
+            str(tmp_path / "model.tflite"),
+            int8=True,
+            calibration_data=_FakeCalibration([_constant_images(1.0)], 1),
+            int8_backend="onnx2tf",
+            int8_output_dtype="float32",
+        )
+
+
+def test_build_saved_model_uses_fdosm_without_quantizing(monkeypatch, tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    monkeypatch.setattr(tflite_module, "_onnx2tf_command", lambda: ["onnx2tf"])
+    captured = {}
+
+    def fake_run(cmd, capture_output, text, env=None):
+        captured["cmd"] = list(cmd)
+        captured["env"] = dict(env or {})
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    onnx_path = tmp_path / "model.onnx"
+    onnx_path.write_bytes(b"fake onnx")
+    saved_model_dir = tmp_path / "saved_model"
+
+    tflite_module._build_saved_model(onnx_path, saved_model_dir, verbose=False)
+
+    cmd = captured["cmd"]
+    assert cmd[0] == "onnx2tf"
+    assert cmd[cmd.index("-i") + 1] == str(onnx_path)
+    assert cmd[cmd.index("-o") + 1] == str(saved_model_dir)
+    # SavedModel only: no -oiqt (quantization) and no -tb (tflite backend).
+    assert "-fdosm" in cmd
+    assert "-oiqt" not in cmd
+    assert "-tb" not in cmd
+    # The calibration pass is CPU-bound, so the subprocess gets thread settings.
+    assert captured["env"]["TF_NUM_INTRAOP_THREADS"]
+    assert captured["env"]["OMP_NUM_THREADS"]
+
+
+def _fake_tensorflow(monkeypatch):
+    """Install a fake tensorflow module and return the converter it creates."""
+    import types
+
+    created = {}
+
+    class _FakeConverter:
+        def __init__(self, saved_model_dir):
+            self.saved_model_dir = saved_model_dir
+            self.optimizations = None
+            self.target_spec = types.SimpleNamespace(supported_ops=None)
+            self.representative_dataset = None
+            self.inference_input_type = None
+            self.inference_output_type = None
+            self._experimental_disable_per_channel = True
+            self.convert_calls = 0
+            created["converter"] = self
+
+        def convert(self):
+            self.convert_calls += 1
+            return b"quantized-model"
+
+    class _FakeTFLiteConverter:
+        @staticmethod
+        def from_saved_model(path):
+            return _FakeConverter(path)
+
+    fake_tf = types.SimpleNamespace(
+        lite=types.SimpleNamespace(
+            TFLiteConverter=_FakeTFLiteConverter,
+            Optimize=types.SimpleNamespace(DEFAULT="DEFAULT"),
+            OpsSet=types.SimpleNamespace(
+                TFLITE_BUILTINS_INT8="TFLITE_BUILTINS_INT8",
+                SELECT_TF_OPS="SELECT_TF_OPS",
+            ),
+        ),
+        int8="tf.int8",
+        float32="tf.float32",
+    )
+    monkeypatch.setitem(sys.modules, "tensorflow", fake_tf)
+    return created
+
+
+@pytest.mark.parametrize(
+    ("output_dtype", "expected"), [("int8", "tf.int8"), ("float32", "tf.float32")]
+)
+def test_convert_saved_model_int8_converts_once(
+    monkeypatch, tmp_path, output_dtype, expected
+):
+    from libreyolo.export import tflite as tflite_module
+
+    created = _fake_tensorflow(monkeypatch)
+    saved_model_dir = tmp_path / "saved_model"
+    saved_model_dir.mkdir()
+    output_path = tmp_path / "model.tflite"
+    loader = _FakeCalibration([_constant_images(1.0, 2.0)], 2)
+
+    tflite_module._convert_saved_model_int8(
+        saved_model_dir, output_path, loader, output_dtype=output_dtype
+    )
+
+    converter = created["converter"]
+    # One quantization pass, not the two onnx2tf's -oiqt performs.
+    assert converter.convert_calls == 1
+    assert converter.saved_model_dir == str(saved_model_dir)
+    assert converter.optimizations == ["DEFAULT"]
+    assert converter.target_spec.supported_ops == [
+        "TFLITE_BUILTINS_INT8",
+        "SELECT_TF_OPS",
+    ]
+    assert converter.inference_input_type == "tf.int8"
+    assert converter.inference_output_type == expected
+    assert converter._experimental_disable_per_channel is False
+    # Representative dataset: the loader's NCHW images, as NHWC batch-1 samples.
+    samples = list(converter.representative_dataset())
+    assert [sample[0].shape for sample in samples] == [(1, 2, 2, 3)] * 2
+    assert output_path.read_bytes() == b"quantized-model"
+
+
+def test_convert_saved_model_int8_rejects_unknown_output_dtype(monkeypatch, tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    _fake_tensorflow(monkeypatch)
+
+    with pytest.raises(ValueError, match="int8_output_dtype"):
+        tflite_module._convert_saved_model_int8(
+            tmp_path,
+            tmp_path / "model.tflite",
+            _FakeCalibration([_constant_images(1.0)], 1),
+            output_dtype="float16",
+        )
