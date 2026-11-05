@@ -115,7 +115,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Oriented boxes** | RF-DETR, RT-DETRv2, YOLO-NAS-R |
 | **3D detection** | WildDet3D, 3D-MOOD, FCOS3D, DetAny3D (separate runtime) |
 | **Classification** | MobileNetV4, ConvNeXt, EfficientNetV2, ResNet, ViT, Swin, DeiT, VGG, AlexNet, CLIP, SigLIP2, DINOv2 |
-| **Depth** | Depth Anything 3, Depth Anything V2, ZipDepth, MiDaS, MoGe-3 |
+| **Depth** | Depth Anything 3, Depth Anything V2, Video Depth Anything, ZipDepth, MiDaS, MoGe-3 |
 | **Surface normals** | MoGe-3, MoGe-2 |
 | **Depth, normals and albedo** | Marigold V2 |
 | **Edges** | DexiNed, TEED |
@@ -125,7 +125,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Body mesh** | SAM 3D Body |
 | **Restoration** | DDColor, HVI-CIDNet, LaMa, NAFNet, QuickSRNet, Real-ESRGAN, SwinIR |
 | **Background removal** | BiRefNet, FeyNobg, BEN2, ViTMatte |
-| **OCR** | PP-OCR, DeepSeek-OCR, DeepSeek-OCR-2, PaddleOCR-VL, Falcon OCR |
+| **OCR** | PP-OCR, DeepSeek-OCR, DeepSeek-OCR-2, PaddleOCR-VL, GLM-OCR, Falcon OCR |
 | **Document layout** | PP-DocLayoutV3 (regions plus reading order) |
 | **Point detection** | FOMO, LocateAnything |
 | **Gaze** | L2CS |

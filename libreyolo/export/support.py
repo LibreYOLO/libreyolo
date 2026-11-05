@@ -3847,6 +3847,11 @@ _TASK_BLOCKS = {
 }
 
 _FAMILY_BLOCKS = {
+    "video_depth_anything": (
+        "Video Depth Anything rejects export for every format: the network "
+        "reads a 32-frame window and windows are stitched on the host, which "
+        "the single-image depth export contract does not describe."
+    ),
     "marigold_v2": "Marigold V2 quantized diffusion export has not been integrated or validated.",
     "depth_anything3": (
         "Depth Anything 3 currently rejects export for every format; its "
@@ -3876,6 +3881,7 @@ _FAMILY_BLOCKS = {
     "sam2": "Promptable model export is out of scope for the v1 runtime contract.",
     "edgetam": "Promptable model export is out of scope for the v1 runtime contract.",
     "sam3": "Promptable model export is out of scope for the v1 runtime contract.",
+    "sam31": "Promptable model export is out of scope for the v1 runtime contract.",
     "mobilesam": "Promptable model export is out of scope for the v1 runtime contract.",
     "grounding_dino": "Open-vocabulary runtime export is out of scope for v1.",
     "owlv2": "Open-vocabulary runtime export is out of scope for v1.",
@@ -3886,6 +3892,7 @@ _FAMILY_BLOCKS = {
     "lfm2vl": "Generative VLM export is out of scope for v1.",
     "internvl3": "Generative VLM export is out of scope for v1.",
     "qwen3vl": "Generative VLM export is out of scope for v1.",
+    "qwen3vl_embedding": "VLM embedding export is out of scope for v1.",
     "smolvlm2": "Generative VLM export is out of scope for v1.",
     "locateanything": "Generative VLM export is out of scope for v1.",
     "northmicrovision": "Generative VLM export is out of scope for v1.",
@@ -3896,6 +3903,7 @@ _FAMILY_BLOCKS = {
     "wevisonevl": "Generative VLM export is out of scope for v1.",
     "deepseekocr": "Generative VLM export is out of scope for v1.",
     "paddleocrvl": "Generative VLM export is out of scope for v1.",
+    "glmocr": "Generative VLM export is out of scope for v1.",
     "falconocr": "Generative VLM export is out of scope for v1.",
 }
 

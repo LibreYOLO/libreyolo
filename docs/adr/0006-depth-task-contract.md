@@ -68,6 +68,18 @@ existing families and exported backends are unchanged. Validation still fits
 a per-image scale and shift, so metric families are scored on relative
 geometry like every other family.
 
+Amendment (Video Depth Anything, 2026-11): a depth family may read video.
+It declares `SEQUENCE_INPUT = True` and every source becomes one ordered frame
+sequence through the runner ADR 0032 introduced for optical flow: a list or
+tuple, a directory sorted by name, a video, a stream or the screen. `N` frames
+give `N` results, result `t` holding the depth map of frame `t` on its own
+canvas. A single image is a one-frame sequence and returns one `Results`. All
+maps of one sequence share one relative scale and shift, so values are
+comparable across frames; separate `predict` calls are not aligned with each
+other. Validation and other independent-image callers go through `_forward`,
+where each image is its own one-frame sequence. Tiling, TTA, `batch > 1`,
+tracking and export stay rejected for these families.
+
 ## Consequences
 
 - Depth results never fabricate boxes; `Results.boxes` is `None`.

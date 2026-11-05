@@ -61,6 +61,7 @@ in preflight.
 | flux2_klein | generate |  |  |  |  |  |  |  |  |  |  |  |  |
 | fomo | point | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
 | gemma4 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| glmocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | ground_florence2 | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | ground_qwen3vl | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | grounding_dino | detect |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -119,6 +120,7 @@ in preflight.
 | ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
 | quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
 | qwen3vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| qwen3vl_embedding | embed |  |  |  |  |  |  |  |  |  |  |  |  |
 | raft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | resnet | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
@@ -136,6 +138,7 @@ in preflight.
 | sam | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam2 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam3 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
+| sam31 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam3dbody | mesh |  |  |  |  |  |  |  |  |  |  |  |  |
 | sana_sprint | generate |  |  |  |  |  |  |  |  |  |  |  |  |
 | searaft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -163,6 +166,7 @@ in preflight.
 | unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |
 | unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
+| video_depth_anything | depth |  |  |  |  |  |  |  |  |  |  |  |  |
 | vit | classify | ✓ | available | available | available | available |  |  |  | available |  |  |  |
 | vitmatte | matte |  |  |  |  |  |  |  |  |  |  |  |  |
 | vjepa2 | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
@@ -1126,6 +1130,18 @@ These converter paths are callable with the recorded validation context.
 - `gemma4` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `gemma4` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `gemma4` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `openvino`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `paddle`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `mnn`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `rknn`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `ncnn`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
 - `ground_florence2` / `point` / `onnx`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_florence2` / `point` / `torchscript`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_florence2` / `point` / `executorch`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
@@ -1706,6 +1722,18 @@ These converter paths are callable with the recorded validation context.
 - `qwen3vl` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `qwen3vl` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `qwen3vl` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `onnx`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `torchscript`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `executorch`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `tensorrt`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `openvino`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `paddle`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `mnn`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `rknn`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `ncnn`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `tflite`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `coreml`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `coreai`: VLM embedding export is out of scope for v1.
 - `raft` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `raft` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `raft` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -1836,6 +1864,18 @@ These converter paths are callable with the recorded validation context.
 - `sam3` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `onnx`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `torchscript`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `executorch`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `tensorrt`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `openvino`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `paddle`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `mnn`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `rknn`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `ncnn`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3dbody` / `mesh` / `onnx`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sam3dbody` / `mesh` / `torchscript`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sam3dbody` / `mesh` / `executorch`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
@@ -2113,6 +2153,18 @@ These converter paths are callable with the recorded validation context.
 - `vgg` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `vgg` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vgg` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `video_depth_anything` / `depth` / `onnx`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `torchscript`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `executorch`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `tensorrt`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `openvino`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `paddle`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `mnn`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `rknn`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `ncnn`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `tflite`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `coreml`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `coreai`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
 - `vit` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vit` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vit` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.

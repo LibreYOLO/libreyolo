@@ -1,0 +1,27 @@
+LibreVideoDepthAnything includes code ported from Video Depth Anything:
+
+Source: https://github.com/DepthAnything/Video-Depth-Anything
+Commit: 4f5ae23172ba60fd7bc11ef671cca678842c7072
+License: Apache-2.0 (text in _vendor/LICENSE)
+Copyright (2025) Bytedance Ltd. and/or its affiliates.
+
+Video Depth Anything citation:
+Sili Chen, Hengkai Guo, Shengnan Zhu, Feihu Zhang, Zilong Huang, Jiashi Feng,
+and Bingyi Kang. "Video Depth Anything: Consistent Depth Estimation for
+Super-Long Videos." CVPR 2025.
+
+Vendored sub-components, all Apache-2.0:
+- motion_module/motion_module.py originates in AnimateDiff
+  (https://github.com/guoyww/AnimateDiff), modified by ByteDance.
+- motion_module/attention.py originates in Hugging Face diffusers,
+  Copyright 2022 The HuggingFace Team.
+- The DINOv2 encoder (Meta Platforms, Inc.) and the DPT head are reused from
+  the Depth Anything V2 family (libreyolo/models/depth_anything/_vendor/); the
+  upstream Video Depth Anything copies are identical.
+
+utils.py stitch_video_depth is a streaming rewrite of upstream
+VideoDepthAnything.infer_video_depth (same arithmetic, frames read lazily).
+
+Weights: Video-Depth-Anything-Small is Apache-2.0. Video-Depth-Anything-Base
+and -Large are CC-BY-NC-4.0 (non-commercial). LibreYOLO mirrors the converted
+checkpoints with their licence; users are responsible for complying with it.

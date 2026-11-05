@@ -1034,6 +1034,24 @@
     "available": true,
     "group": "s"
   },
+  "glmocr": {
+    "class": "libreyolo.models.glmocr.model.LibreGLMOCR",
+    "tasks": [
+      "ocr"
+    ],
+    "default_task": "ocr",
+    "sizes": {
+      "0.9b": 800
+    },
+    "default_imgsz": {
+      "0.9b": 800
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "ground_florence2": {
     "class": "libreyolo.models.ground.florence.LibreGroundFlorence2",
     "tasks": [
@@ -2037,6 +2055,24 @@
     "available": true,
     "group": "s"
   },
+  "qwen3vl_embedding": {
+    "class": "libreyolo.models.vlm.qwen3vl_embedding.LibreQwen3VLEmbedding",
+    "tasks": [
+      "embed"
+    ],
+    "default_task": "embed",
+    "sizes": {
+      "2b": 1024
+    },
+    "default_imgsz": {
+      "2b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "raft": {
     "class": "libreyolo.models.raft.model.LibreRAFT",
     "tasks": [
@@ -2367,6 +2403,24 @@
   },
   "sam3": {
     "class": "libreyolo.models.sam.sam3.LibreSAM3",
+    "tasks": [
+      "segment"
+    ],
+    "default_task": "segment",
+    "sizes": {
+      "large": 1008
+    },
+    "default_imgsz": {
+      "large": 1008
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "sam",
+    "available": true,
+    "group": "s"
+  },
+  "sam31": {
+    "class": "libreyolo.models.sam.sam3.LibreSAM31",
     "tasks": [
       "segment"
     ],
@@ -2802,6 +2856,28 @@
     },
     "task_sizes": {},
     "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
+  "video_depth_anything": {
+    "class": "libreyolo.models.video_depth_anything.model.LibreVideoDepthAnything",
+    "tasks": [
+      "depth"
+    ],
+    "default_task": "depth",
+    "sizes": {
+      "s": 518,
+      "b": 518,
+      "l": 518
+    },
+    "default_imgsz": {
+      "s": 518,
+      "b": 518,
+      "l": 518
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
     "optional_extra": null,
     "available": true,
     "group": "g3"

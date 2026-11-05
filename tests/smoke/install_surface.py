@@ -101,6 +101,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         "libreyolo.models.modus",
         "libreyolo.models.wevisone",
         "libreyolo.models.deepseekocr",
+        "libreyolo.models.glmocr",
         "libreyolo.models.falconocr",
     ):
         notice = importlib.resources.files(package_name).joinpath("NOTICE")
@@ -122,6 +123,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreVLM,
         LibreWeVisOneVL,
         LibreDeepSeekOCR,
+        LibreGLMOCR,
     )
 
     from libreyolo import (
@@ -182,6 +184,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreMolmo2,
         LibreWeVisOneVL,
         LibreDeepSeekOCR,
+        LibreGLMOCR,
     ):
         if not isinstance(family, type):
             raise AssertionError(

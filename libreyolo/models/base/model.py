@@ -22,6 +22,7 @@ from typing import (
     ClassVar,
     Dict,
     Generator,
+    Iterable,
     Iterator,
     List,
     Optional,
@@ -352,6 +353,11 @@ class BaseModel(ABC):
     # model (MEMFOF) declares ``(1, 1)``. Windows are edge padded at sequence
     # boundaries, so every source of N frames still yields N - 1 results.
     FLOW_CONTEXT: ClassVar[tuple[int, int]] = (0, 0)
+    # Per-frame sequence families (Video Depth Anything): every source is read
+    # as one ordered frame sequence, as for optical flow, and the runner feeds
+    # the frames to ``_forward_sequence``, which returns one output per frame.
+    # N frames yield N results; a single image is a one-frame sequence.
+    SEQUENCE_INPUT: ClassVar[bool] = False
 
     # TTA policy — subclasses may override
     TTA_ENABLED: ClassVar[bool] = True
@@ -612,6 +618,27 @@ class BaseModel(ABC):
         raise NotImplementedError(
             f"The '{self.family}' family does not implement _forward_flow(window); "
             "optical flow needs a family that consumes a frame window."
+        )
+
+    def _forward_sequence(
+        self, frames: Iterable[Tuple[torch.Tensor, Tuple[int, int]]]
+    ) -> Iterator[Any]:
+        """Run a per-frame sequence family over an ordered frame stream.
+
+        Called once per sequence when the family declares
+        ``SEQUENCE_INPUT = True``. ``frames`` lazily yields, in source order,
+        ``(tensor, original_size)``: the ``(1, C, H, W)`` tensor returned by
+        ``_preprocess`` (on the CPU) and that frame's ``(width, height)``. The
+        family pulls as many frames as it needs (a temporal window, a memory
+        bank) and must yield exactly one raw output per input frame, in the
+        same order, as soon as that frame's output is final; the runner pairs
+        output ``t`` with frame ``t`` and passes it to ``_postprocess`` with
+        that frame's ``original_size``. Pulling lazily keeps videos and live
+        sources streaming with a bounded lag.
+        """
+        raise NotImplementedError(
+            f"The '{self.family}' family does not implement _forward_sequence; "
+            "set SEQUENCE_INPUT only on families that consume a frame sequence."
         )
 
     # =========================================================================

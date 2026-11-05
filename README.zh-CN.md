@@ -122,7 +122,7 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **人体网格** | SAM 3D Body |
 | **图像复原** | DDColor、HVI-CIDNet、LaMa、NAFNet、QuickSRNet、Real-ESRGAN、SwinIR |
 | **背景移除** | BiRefNet、FeyNobg、ViTMatte |
-| **OCR** | PP-OCR、DeepSeek-OCR、DeepSeek-OCR-2、PaddleOCR-VL、Falcon OCR |
+| **OCR** | PP-OCR、DeepSeek-OCR、DeepSeek-OCR-2、PaddleOCR-VL、GLM-OCR、Falcon OCR |
 | **文档版面分析** | PP-DocLayoutV3（版面区域及阅读顺序） |
 | **点检测** | FOMO、LocateAnything |
 | **视线估计** | L2CS |

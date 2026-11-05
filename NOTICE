@@ -66,6 +66,19 @@ WAFT (BSD 3-Clause License)
     Depth Anything V2 and DINOv3 encoders are reused from the
     depth_anything and deimv2 families and keep their own licenses.
 
+Video Depth Anything (Apache License 2.0)
+    Path:    libreyolo/models/video_depth_anything/_vendor/
+    License: libreyolo/models/video_depth_anything/_vendor/LICENSE
+    Source:  https://github.com/DepthAnything/Video-Depth-Anything
+    Commit:  4f5ae23172ba60fd7bc11ef671cca678842c7072
+
+    Inference-only copy of the temporal DPT head and motion modules,
+    Copyright (2025) Bytedance Ltd. and/or its affiliates. The motion
+    module originates in AnimateDiff and the attention block in Hugging
+    Face diffusers, both Apache-2.0. EasyDict and einops are replaced by
+    plain Python/torch. The DINOv2 encoder and DPT head are reused from the
+    depth_anything family.
+
 SenseNova-Vision / Bagel (Apache License 2.0 code; CC BY-NC 4.0 weights,
 mirrored under that license)
     Path:    libreyolo/models/sensenova/
@@ -979,6 +992,20 @@ PaddleOCR-VL document-parsing pipeline (Apache License 2.0)
     (Apache-2.0); no model code is copied. Weights: LibreYOLO's unmodified
     mirror LibreYOLO/LibrePaddleOCRVL0.9b of PaddlePaddle/PaddleOCR-VL and
     PaddlePaddle/PP-DocLayoutV2_safetensors (Apache-2.0), pinned.
+
+GLM-OCR document-parsing pipeline (Apache License 2.0)
+    Path:    libreyolo/models/glmocr/
+    License: libreyolo/models/glmocr/NOTICE
+    Source:  https://github.com/zai-org/GLM-OCR
+             (commit 0288f96bb9e78cb439883eaa725eeae90bd177c5)
+             Copyright (c) Z.ai (zai-org).
+
+    The layout post-processing, label routing, region crops and resize, and
+    the result formatter (content clean-up, block merges, markdown) are
+    ported from the GLM-OCR SDK. Both networks run from Transformers
+    (Apache-2.0); no model code is copied. Weights: LibreYOLO's unmodified
+    mirror LibreYOLO/LibreGLMOCR0.9b of zai-org/GLM-OCR (MIT, per its model
+    card) and PaddlePaddle/PP-DocLayoutV3_safetensors (Apache-2.0), pinned.
 
 Falcon OCR (Apache License 2.0)
     Path:    libreyolo/models/falconocr/

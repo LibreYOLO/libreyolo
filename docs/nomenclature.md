@@ -129,6 +129,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `swinir`    | `LibreSwinIR`    | Upstream brand casing (`SwinIR`); restore-only transformer super-resolution family |
 | `depth_anything` | `LibreDepthAnythingV2` | CamelCase preserved + version (Depth Anything V2), depth-only |
 | `depth_anything3` | `LibreDepthAnything3` | CamelCase preserved + version (Depth Anything 3), depth-only |
+| `video_depth_anything` | `LibreVideoDepthAnything` | CamelCase preserved (Video Depth Anything); depth-only sequence family, one depth map per frame |
 | `waft` | `LibreWAFT` | All-caps acronym (Warping-Alone Field Transforms), flow-only |
 | `dpflow`    | `LibreDPFlow` | All-caps acronym `DP` (dual pyramid) + `Flow`; flow-only, inference-only. Canonical `LibreDPFlowm-flow.pt` is the FlyingThings3D stage; benchmark fine-tunes use the `WEIGHT_VARIANTS` suffixes `-sintel`, `-kitti`, `-spring` |
 | `zipdepth`  | `LibreZipDepth` | CamelCase preserved (`ZipDepth` brand casing); depth-only lightweight CNN (speed/edge tier) |
@@ -173,10 +174,10 @@ exceptions being lowercase version suffixes (`DEIMv2`, `RTDETRv2`,
 `RTDETRv4`) and preserved upstream brand casing (`RTMDet`).
 
 The VLM and promptable SAM tiers are separate categories and do not follow this
-rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreLFM2VL`,
+rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreQwen3VLEmbedding`, `LibreLFM2VL`,
 `LibreSmolVLM2`, `LibreInternVL3`, `LibreFlorence2`, `LibreKosmos2`,
-`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreDeepSeekOCR`, `LibrePaddleOCRVL`, `LibreFalconOCR`, `LibreMODUS`, `LibreSAM`,
-`LibreSAM2`, `LibreSAM3`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
+`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreDeepSeekOCR`, `LibrePaddleOCRVL`, `LibreGLMOCR`, `LibreFalconOCR`, `LibreMODUS`, `LibreSAM`,
+`LibreSAM2`, `LibreSAM3`, `LibreSAM31`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
 are not registered
 into the detector factory and do not emit `Libre<FAMILY><size>.pt` detector
 checkpoints. Their `FILENAME_PREFIX` is only a weights-directory prefix for a
@@ -283,6 +284,7 @@ ships:
 | `swinir`    | `s`, `m`, `l` (all 4x: lightweight SwinIR-S, real-world SwinIR-M, and real-world SwinIR-L) |
 | `depth_anything` | `s`, `b`, `l`, `g` (ViT-S/B/L/G, all at 518) |
 | `depth_anything3` | `l` (DA3MONO-LARGE ViT-L, native upper-bound 504) |
+| `video_depth_anything` | `s`, `b`, `l` (ViT-S/B/L, 518 short side lower-bound, smaller for frames wider than 16:9; `b` and `l` weights are CC BY-NC 4.0) |
 | `waft` | `t`, `s`, `m`, `l` by parameter count: `t` a2 DINOv3 ViT-S/16 (56.5 M), `s` a2 Depth Anything V2 ViT-S (56.9 M), `m` a1 Depth Anything V2 ViT-S (64.2 M, upstream's recommended checkpoint), `l` a2 Twins-SVT-Large (136.0 M); native resolution by default (`imgsz` caps the long side), the backbone is the weight variant (`-dinov3`, `-dav2`, `-twins`); `m` has no variant suffix |
 | `dpflow`    | `m` (the single published DPFlow graph, 10.0M parameters; runs at the native frame size by default, pyramid depth chosen from the image diagonal; `imgsz` caps the long side) |
 | `zipdepth`  | `b` (base, GPU/CPU convex upsampling), `bnpu` (base capacity with the separately trained unfold-free upsampling head for NPU/edge compilers); both at short-side 384 |
@@ -313,6 +315,7 @@ VLM snapshot families use model-specific size names:
 | `molmo2` | `4b` (default), `8b`, `o-7b`; single-image point task |
 | `wevisonevl` | `2b` (default), `4b`; Qwen3-VL backbone plus the `mask_decoder.pt` pixel decoder |
 | `paddleocrvl` | `0.9b` (only size); PaddleOCR-VL-0.9B recognizer plus the PP-DocLayoutV2 layout detector under `layout/` in one mirror |
+| `glmocr` | `0.9b` (only size); GLM-OCR recognizer plus the PP-DocLayoutV3 layout detector under `layout/` in one mirror |
 | `falconocr` | `270m` (only size); Falcon OCR 1.5, mirror `LibreYOLO/LibreFalconOCR270m` |
 | `libremodus` | `14b-a7b` (14B total parameters, approximately 7B active; external MODUS snapshot) |
 | `deepseekocr` | `1` (DeepSeek-OCR, default; mirror `LibreYOLO/LibreDeepSeekOCR1`), `2` (DeepSeek-OCR-2; mirror `LibreYOLO/LibreDeepSeekOCR2`); both 3B MoE |
@@ -325,6 +328,7 @@ Promptable SAM tier size aliases:
 | `sam2` | `tiny`, `small`, `base-plus`, `large` |
 | `edgetam` | `edge` (the default and only shipped size; 1024px input) |
 | `sam3` | `large` (the default and only shipped size) |
+| `sam31` | `large` (the default and only shipped size) |
 | `mobilesam` | `tiny` (the default and only shipped size) |
 | `picosam3` | `pico` (the default and only shipped size; 96px ROI input) |
 
@@ -422,6 +426,10 @@ Inverse depth is the default `DepthMap.encoding`. Marigold V2 also declares
 in their named spaces. See ADR 0025. Its default depth file is
 `LibreMarigoldV2b-depth.pt` (Log-stage2); the six other depth variants use
 `LibreMarigoldV2b-depth-<variant>.pt`. See ADR 0027 for the variant list.
+
+Video Depth Anything is a depth sequence family: every source is one ordered
+frame sequence, `N` frames give `N` depth maps in one relative scale, and a
+single image is a one-frame sequence. See ADR 0006 and ADR 0032.
 
 `flow` is the task for dense optical flow. Models expose `Results.flow`, a
 float32 `(H, W, 2)` displacement field on the original canvas of the first
@@ -565,6 +573,7 @@ families all expose the promptable `segment` task:
 | `sam2` | `("segment",)` | segment | SAM-2 image prompting; video deferred |
 | `edgetam` | `("segment",)` | segment | EdgeTAM image prompting; video deferred |
 | `sam3` | `("segment",)` | segment | SAM 3 visual and concept prompting |
+| `sam31` | `("segment",)` | segment | SAM 3.1 image path, same prompting as `sam3`; video deferred |
 | `mobilesam` | `("segment",)` | segment | MobileSAM image prompting |
 | `picosam3` | `("segment",)` | segment | PicoSAM3 box prompting |
 

@@ -81,6 +81,7 @@ MODEL_GROUPS: dict[str, str] = {
     "depth_anything": "g3",
     "flowseek": "g3",
     "depth_anything3": "g3",
+    "video_depth_anything": "g3",
     "waft": "g3",
     "dpflow": "g3",
     "zipdepth": "g3",
@@ -123,6 +124,7 @@ MODEL_GROUPS: dict[str, str] = {
     "sam": "s",
     "sam2": "s",
     "sam3": "s",
+    "sam31": "s",
     "detany3d": "s",
     "fcos3d": "s",
     "wilddet3d": "s",
@@ -144,6 +146,7 @@ MODEL_GROUPS: dict[str, str] = {
     "moondream": "s",
     "molmo2": "s",
     "qwen3vl": "s",
+    "qwen3vl_embedding": "s",
     "ground_florence2": "s",
     "ground_qwen3vl": "s",
     "showui": "s",
@@ -163,6 +166,7 @@ MODEL_GROUPS: dict[str, str] = {
     "wevisonevl": "s",
     "deepseekocr": "s",
     "paddleocrvl": "s",
+    "glmocr": "s",
     "falconocr": "s",
 }
 

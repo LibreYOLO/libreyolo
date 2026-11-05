@@ -30,6 +30,7 @@ from .molmo2 import LibreMolmo2
 from .moondream import LibreMoondream
 from .northmicro import LibreNorthMicroVision
 from .qwen3vl import LibreQwen3VL
+from .qwen3vl_embedding import LibreQwen3VLEmbedding
 from .smolvlm import LibreSmolVLM2
 
 # alias -> (family class, size)
@@ -38,6 +39,8 @@ _ALIASES: Dict[str, Tuple[Type[LibreVLMModel], str]] = {
     "qwen3-vl-2b": (LibreQwen3VL, "2b"),
     "qwen3-vl-4b": (LibreQwen3VL, "4b"),
     "qwen3-vl-8b": (LibreQwen3VL, "8b"),
+    "qwen3-vl-embedding": (LibreQwen3VLEmbedding, "2b"),
+    "qwen3-vl-embedding-2b": (LibreQwen3VLEmbedding, "2b"),
     "lfm2-vl": (LibreLFM2VL, "450m"),
     "lfm2-vl-450m": (LibreLFM2VL, "450m"),
     "lfm2-vl-1.6b": (LibreLFM2VL, "1.6b"),
@@ -120,6 +123,14 @@ _PADDLEOCRVL_ALIASES: Dict[str, str] = {
     "paddleocr-vl-0.9b": "0.9b",
 }
 
+# GLM-OCR lives in ``models/glmocr`` (it ports the GLM-OCR SDK pipeline around
+# its two networks) and resolves lazily for the same reason.
+_GLMOCR_ALIASES: Dict[str, str] = {
+    "glm-ocr": "0.9b",
+    "glmocr": "0.9b",
+    "glm-ocr-0.9b": "0.9b",
+}
+
 # Falcon OCR lives in ``models/falconocr`` (vendored architecture) and
 # resolves lazily for the same reason as SenseNova.
 _FALCONOCR_ALIASES: Dict[str, str] = {
@@ -190,6 +201,10 @@ def LibreVLM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreVLMModel:
         from ..paddleocrvl import LibrePaddleOCRVL
 
         return LibrePaddleOCRVL(size=_PADDLEOCRVL_ALIASES[key], **kwargs)
+    if key in _GLMOCR_ALIASES:
+        from ..glmocr import LibreGLMOCR
+
+        return LibreGLMOCR(size=_GLMOCR_ALIASES[key], **kwargs)
     if key in _FALCONOCR_ALIASES:
         from ..falconocr import LibreFalconOCR
 
@@ -198,7 +213,8 @@ def LibreVLM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreVLMModel:
     if match is None:
         known = set(_ALIASES) | set(_LAZY_ALIASES) | set(_MODUS_ALIASES)
         known |= set(_WEVISONE_ALIASES) | set(_DEEPSEEKOCR_ALIASES)
-        known |= set(_PADDLEOCRVL_ALIASES) | set(_FALCONOCR_ALIASES)
+        known |= set(_PADDLEOCRVL_ALIASES) | set(_GLMOCR_ALIASES)
+        known |= set(_FALCONOCR_ALIASES)
         raise ValueError(
             f"Unknown VLM model {model!r}. Known aliases: {', '.join(sorted(known))}."
         )
@@ -227,6 +243,10 @@ def __getattr__(name: str):
         from ..paddleocrvl import LibrePaddleOCRVL
 
         return LibrePaddleOCRVL
+    if name == "LibreGLMOCR":
+        from ..glmocr import LibreGLMOCR
+
+        return LibreGLMOCR
     if name == "LibreFalconOCR":
         from ..falconocr import LibreFalconOCR
 
@@ -239,6 +259,7 @@ __all__ = [
     "LibreVLMModel",
     "LibreLFM2VL",
     "LibreQwen3VL",
+    "LibreQwen3VLEmbedding",
     "LibreSmolVLM2",
     "LibreInternVL3",
     "LibreFlorence2",
@@ -252,6 +273,7 @@ __all__ = [
     "LibreWeVisOneVL",
     "LibreDeepSeekOCR",
     "LibrePaddleOCRVL",
+    "LibreGLMOCR",
     "LibreFalconOCR",
     "LibreMODUS",
     "LibreModus",
