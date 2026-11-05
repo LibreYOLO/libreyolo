@@ -47,6 +47,12 @@ OPTIONAL_MODELS = (
     ("libreyolo.models.vlm.molmo2", "LibreMolmo2", "molmo2", "transformers"),
     ("libreyolo.models.vlm.moondream", "LibreMoondream", "vlm", "transformers"),
     ("libreyolo.models.vlm.qwen3vl", "LibreQwen3VL", "vlm", "transformers"),
+    (
+        "libreyolo.models.vlm.qwen3vl_embedding",
+        "LibreQwen3VLEmbedding",
+        "vlm",
+        "transformers",
+    ),
     ("libreyolo.models.vlm.smolvlm", "LibreSmolVLM2", "vlm", "transformers"),
     (
         "libreyolo.models.sensenova.model",

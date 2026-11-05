@@ -2019,6 +2019,24 @@
     "available": true,
     "group": "s"
   },
+  "qwen3vl_embedding": {
+    "class": "libreyolo.models.vlm.qwen3vl_embedding.LibreQwen3VLEmbedding",
+    "tasks": [
+      "embed"
+    ],
+    "default_task": "embed",
+    "sizes": {
+      "2b": 1024
+    },
+    "default_imgsz": {
+      "2b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "raft": {
     "class": "libreyolo.models.raft.model.LibreRAFT",
     "tasks": [

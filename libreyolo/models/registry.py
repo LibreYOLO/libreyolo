@@ -144,6 +144,7 @@ MODEL_GROUPS: dict[str, str] = {
     "moondream": "s",
     "molmo2": "s",
     "qwen3vl": "s",
+    "qwen3vl_embedding": "s",
     "ground_florence2": "s",
     "ground_qwen3vl": "s",
     "showui": "s",
