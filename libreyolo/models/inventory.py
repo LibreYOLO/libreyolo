@@ -19,6 +19,7 @@ OPTIONAL_MODELS = (
     ("libreyolo.models.sam.sam2", "LibreSAM2", "sam", "transformers"),
     ("libreyolo.models.sam.edgetam", "LibreEdgeTAM", "sam", "transformers"),
     ("libreyolo.models.sam.sam3", "LibreSAM3", "sam", "transformers"),
+    ("libreyolo.models.sam.sam3", "LibreSAM31", "sam", "transformers"),
     ("libreyolo.models.mobilesam.model", "LibreMobileSAM", "sam", None),
     ("libreyolo.models.picosam3.model", "LibrePicoSAM3", "sam", None),
     (
@@ -47,6 +48,12 @@ OPTIONAL_MODELS = (
     ("libreyolo.models.vlm.molmo2", "LibreMolmo2", "molmo2", "transformers"),
     ("libreyolo.models.vlm.moondream", "LibreMoondream", "vlm", "transformers"),
     ("libreyolo.models.vlm.qwen3vl", "LibreQwen3VL", "vlm", "transformers"),
+    (
+        "libreyolo.models.vlm.qwen3vl_embedding",
+        "LibreQwen3VLEmbedding",
+        "vlm",
+        "transformers",
+    ),
     ("libreyolo.models.vlm.smolvlm", "LibreSmolVLM2", "vlm", "transformers"),
     (
         "libreyolo.models.sensenova.model",
@@ -65,6 +72,12 @@ OPTIONAL_MODELS = (
     (
         "libreyolo.models.paddleocrvl.model",
         "LibrePaddleOCRVL",
+        "vlm",
+        "transformers",
+    ),
+    (
+        "libreyolo.models.glmocr.model",
+        "LibreGLMOCR",
         "vlm",
         "transformers",
     ),

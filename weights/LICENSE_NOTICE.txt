@@ -605,6 +605,21 @@ project the weights were derived from. Per-family summary:
              requires accepting Meta's terms. LibreYOLO downloads the weights
              directly and does not distribute them under the MIT license.
 
+    SAM 3.1 (LibreYOLO/LibreSAM31large)               SAM License (restricted)
+             upstream: facebook/sam3.1 revision
+             daa63191845a41281374e725f4c9e51c7a824460, sam3.1_multiplex.pt
+             (SHA-256 0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6).
+             Image path only (detector and interactive SAM head), converted to
+             the Transformers SAM 3 layout by weights/convert_sam31_weights.py:
+             key renames, QKV split, class-token position embedding dropped,
+             CLIP projection transposed, point embeddings concatenated, and
+             the unused fourth FPN level zero-filled. No learned value is
+             changed; the Object Multiplex video weights are not mirrored.
+             The SAM License permits redistribution when its terms are passed
+             through, so the mirror carries the license verbatim and an
+             automatic access gate (SAM 3D Body precedent). The weights are
+             NOT covered by LibreYOLO's MIT license.
+
     EdgeTAM (LibreYOLO/LibreEdgeTAM)                   Apache-2.0
              Converted from facebook/EdgeTAM revision
              14d7ecc48c656b94e5184519f698cd5386c5a2bf (edgetam.pt
@@ -798,6 +813,13 @@ mirrored or bundled by LibreYOLO.
              google/gemma-4-E4B-it @
              ee0ef6023621cff504d758262d4e04895a5af4a2.
              Learned parameters unchanged.
+
+    Qwen3-VL-Embedding 2B (LibreQwen3VLEmbedding2b)  Apache-2.0
+             mirrored snapshot of Qwen/Qwen3-VL-Embedding-2B @
+             9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda. The upstream
+             repo ships no LICENSE file; the Apache-2.0 text is from
+             QwenLM/Qwen3-VL-Embedding @ 393e2978. Learned parameters
+             unchanged.
 
     Moondream 2 (LibreMoondream2)                      Apache-2.0
              mirrored snapshot of vikhyatk/moondream2 @ 9a7d402
@@ -1032,6 +1054,26 @@ PaddlePaddle/PP-DocLayoutV2_safetensors @ 880e8971b88938518611c54fc0f59ad57849c9
 The recognizer's language model is initialized from ERNIE-4.5-0.3B (Baidu,
 Apache-2.0), per the upstream model card. The mirror ships LICENSE and NOTICE.
 Ported pipeline code: see libreyolo/models/paddleocrvl/NOTICE.
+
+GLM-OCR (LibreGLMOCR 0.9b)                    MIT (recognizer), Apache-2.0 (layout)
+GLM-OCR recognizer plus PP-DocLayoutV3 layout detector
+------------------------------------------------------
+
+Upstream: Z.ai (zai-org), https://huggingface.co/zai-org/GLM-OCR
+License: MIT, as declared by the upstream model card ("The GLM-OCR model is
+released under the MIT License."); upstream ships no license file or
+copyright line. The layout detector is Apache-2.0 (full text:
+licenses/Apache-2.0.txt in LibreYOLO), Copyright (c) PaddlePaddle Authors.
+
+Mirrored, unmodified, at LibreYOLO/LibreGLMOCR0.9b
+(@ 196bf843d3b7e8b8e7bc55edd1580c2455a7fb02) from:
+
+zai-org/GLM-OCR @ 2e85a62840ccac27daa451df36c736c4636b8628 (root)
+PaddlePaddle/PP-DocLayoutV3_safetensors @ e4f489dc536556fc1be02b973ba06756e0d4a2ac
+(layout/)
+
+The mirror ships LICENSE and NOTICE. Ported pipeline code: see
+libreyolo/models/glmocr/NOTICE.
 
 
 Speridlabs Idol (LibreSperidlabsIdol 0.6b)              Apache-2.0

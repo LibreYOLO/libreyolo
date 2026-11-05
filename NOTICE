@@ -993,6 +993,20 @@ PaddleOCR-VL document-parsing pipeline (Apache License 2.0)
     mirror LibreYOLO/LibrePaddleOCRVL0.9b of PaddlePaddle/PaddleOCR-VL and
     PaddlePaddle/PP-DocLayoutV2_safetensors (Apache-2.0), pinned.
 
+GLM-OCR document-parsing pipeline (Apache License 2.0)
+    Path:    libreyolo/models/glmocr/
+    License: libreyolo/models/glmocr/NOTICE
+    Source:  https://github.com/zai-org/GLM-OCR
+             (commit 0288f96bb9e78cb439883eaa725eeae90bd177c5)
+             Copyright (c) Z.ai (zai-org).
+
+    The layout post-processing, label routing, region crops and resize, and
+    the result formatter (content clean-up, block merges, markdown) are
+    ported from the GLM-OCR SDK. Both networks run from Transformers
+    (Apache-2.0); no model code is copied. Weights: LibreYOLO's unmodified
+    mirror LibreYOLO/LibreGLMOCR0.9b of zai-org/GLM-OCR (MIT, per its model
+    card) and PaddlePaddle/PP-DocLayoutV3_safetensors (Apache-2.0), pinned.
+
 ------------------------------------------------------------------------
 Pretrained model weights
 ------------------------------------------------------------------------

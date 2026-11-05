@@ -2459,6 +2459,31 @@ The full Apache License 2.0 text is included at
 libreyolo/models/picosam3/LICENSE.
 
 --------------------------------------------------------------------
+SAM 3.1 / Hugging Face Transformers SAM 3 converters
+--------------------------------------------------------------------
+Converter source: https://github.com/huggingface/transformers
+Converter files and commits:
+  src/transformers/models/sam3/convert_sam3_to_hf.py
+    22278df3198c4219f033f2a4b0931da3e5c21af4
+  src/transformers/models/sam3_video/convert_sam3_video_to_hf.py
+    92d02b508707d6e190e358171c2eece10817f7e1
+License: Apache License 2.0
+Copyright 2025 The Meta AI Authors and The HuggingFace Inc. team
+Used for: the SAM 3 to Transformers key mapping, QKV split, position-embedding
+          class-token strip, CLIP projection transpose and point-embedding
+          concatenation in weights/convert_sam31_weights.py, restricted to the
+          image path. The SAM 3.1 to SAM 3 key renames are LibreYOLO's own.
+          No Meta SAM source code (facebookresearch/sam3, SAM License) is
+          copied, adapted or vendored; LibreSAM31 calls the Apache-2.0
+          Transformers SAM 3 model classes.
+Model weights: facebook/sam3.1 revision
+          daa63191845a41281374e725f4c9e51c7a824460 (sam3.1_multiplex.pt) is
+          under Meta's SAM License, which is NOT a permissive license. The
+          converted image path is mirrored at
+          huggingface.co/LibreYOLO/LibreSAM31large with the SAM License text
+          and an automatic access gate; those weights remain SAM-licensed.
+
+--------------------------------------------------------------------
 EdgeTAM / Hugging Face Transformers EdgeTAM converter
 --------------------------------------------------------------------
 Model source: https://github.com/facebookresearch/EdgeTAM
@@ -3286,6 +3311,25 @@ include the SigLIP vision backbone and their tokenizer assets. Upstream model
 cards declare Apache-2.0 for all three snapshots.
 
 --------------------------------------------------------------------
+Qwen3-VL-Embedding adapter (instruction format and last-token pooling)
+------------------------------------------------------------------
+
+Upstream: Tongyi Lab, Alibaba Group, https://github.com/QwenLM/Qwen3-VL-Embedding
+Commit: 393e2978d27852b0d0230d6994f37f9c15bed73c
+Reference file: scripts/qwen3_vl_embedding.py in Qwen/Qwen3-VL-Embedding-2B
+(Hugging Face revision 9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda)
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+
+libreyolo/models/vlm/qwen3vl_embedding.py adapts the reference embedder's
+input conventions: the system-instruction chat layout with the default
+instruction "Represent the user's input.", the trailing-punctuation rule for
+instructions, the image pixel budget (4,096 to 1,843,200 pixels on a 32-pixel
+grid), and last-non-padding-token pooling with right padding. The Qwen3-VL
+architecture runs from transformers; no model source is copied. Weights are
+the Apache-2.0 Qwen/Qwen3-VL-Embedding-2B snapshot with unmodified learned
+parameters.
+
+--------------------------------------------------------------------
 WeVisOne-VL pixel decoder, prompts and output parser
 ----------------------------------------------------
 
@@ -3385,6 +3429,29 @@ Weights: LibreYOLO/LibrePaddleOCRVL0.9b, an unmodified mirror of
 PaddlePaddle/PaddleOCR-VL @ 7fa00a8c55b735ba51ba49a9058f3f9c57a99a11 and
 PaddlePaddle/PP-DocLayoutV2_safetensors @
 880e8971b88938518611c54fc0f59ad57849c9d4 (Apache-2.0, Copyright (c)
+PaddlePaddle Authors).
+
+GLM-OCR document-parsing pipeline
+---------------------------------
+
+Upstream: Z.ai (zai-org), https://github.com/zai-org/GLM-OCR
+Commit: 0288f96bb9e78cb439883eaa725eeae90bd177c5
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright (c) Z.ai (zai-org).
+
+Used for: the LibreGLMOCR family (libreyolo/models/glmocr/). The SDK's
+layout post-processing (glmocr/utils/layout_postprocess_utils.py, the label
+routing of glmocr/layout/layout_detector.py and the layout section of
+glmocr/config.yaml), region crops and resize (glmocr/utils/image_utils.py,
+glmocr/dataloader/page_loader.py) and result formatting
+(glmocr/postprocess/result_formatter.py,
+glmocr/utils/result_postprocess_utils.py) are ported with modifications
+noted in each file header. See libreyolo/models/glmocr/NOTICE.
+
+Weights: LibreYOLO/LibreGLMOCR0.9b, an unmodified mirror of zai-org/GLM-OCR @
+2e85a62840ccac27daa451df36c736c4636b8628 (MIT, per the model card) and
+PaddlePaddle/PP-DocLayoutV3_safetensors @
+e4f489dc536556fc1be02b973ba06756e0d4a2ac (Apache-2.0, Copyright (c)
 PaddlePaddle Authors).
 
 

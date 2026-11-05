@@ -19,3 +19,21 @@ allenai/Molmo2-O-7B @ 784410650d12be9bc086118fdefa32d2c3bced86
 4B/8B use Qwen3 language backbones; O-7B uses OLMo 3. The released snapshots
 include the SigLIP vision backbone and their tokenizer assets. Upstream model
 cards declare Apache-2.0 for all three snapshots.
+
+Qwen3-VL-Embedding adapter (instruction format and last-token pooling)
+------------------------------------------------------------------
+
+Upstream: Tongyi Lab, Alibaba Group, https://github.com/QwenLM/Qwen3-VL-Embedding
+Commit: 393e2978d27852b0d0230d6994f37f9c15bed73c
+Reference file: scripts/qwen3_vl_embedding.py in Qwen/Qwen3-VL-Embedding-2B
+(Hugging Face revision 9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda)
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+
+libreyolo/models/vlm/qwen3vl_embedding.py adapts the reference embedder's
+input conventions: the system-instruction chat layout with the default
+instruction "Represent the user's input.", the trailing-punctuation rule for
+instructions, the image pixel budget (4,096 to 1,843,200 pixels on a 32-pixel
+grid), and last-non-padding-token pooling with right padding. The Qwen3-VL
+architecture runs from transformers; no model source is copied. Weights are
+the Apache-2.0 Qwen/Qwen3-VL-Embedding-2B snapshot with unmodified learned
+parameters.

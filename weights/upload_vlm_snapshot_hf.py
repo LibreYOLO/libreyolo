@@ -70,7 +70,52 @@ MIRRORS = (
         "license": "bsl-1.1",
         "upstream_license_file": "LICENSE.md",
     },
+    {
+        "local": "LibreQwen3VLEmbedding2b",
+        "repo": "LibreYOLO/LibreQwen3VLEmbedding2b",
+        "upstream": "Qwen/Qwen3-VL-Embedding-2B",
+        "upstream_sha": "9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda",
+        "title": "LibreQwen3VLEmbedding2b",
+        "blurb": (
+            "Qwen3-VL-Embedding-2B weights mirrored for LibreYOLO's embed task "
+            "(LibreVLM tier)."
+        ),
+        "authors": "Tongyi Lab, Alibaba Group",
+        "alias": "qwen3-vl-embedding-2b",
+        "tags": ("sentence-similarity", "image-text-to-text", "libreyolo", "vlm"),
+        # The HF repo ships no LICENSE; this is the upstream project's file.
+        "license_url": (
+            "https://raw.githubusercontent.com/QwenLM/Qwen3-VL-Embedding/"
+            "393e2978d27852b0d0230d6994f37f9c15bed73c/LICENSE"
+        ),
+        "skip": ("scripts",),
+        "usage": """from libreyolo import LibreVLM
+
+model = LibreVLM("qwen3-vl-embedding-2b")
+pages = model.embed("pages/")  # (N, 2048), one unit row per image
+query = model.embed_text(
+    ["total due on the invoice"],
+    prompt="Retrieve images or text relevant to the user's query.",
 )
+scores = query @ pages.T""",
+    },
+)
+
+
+def _usage(spec: dict) -> str:
+    return spec.get("usage") or (
+        "from libreyolo import LibreVLM\n\n"
+        f'model = LibreVLM("{spec["alias"]}")\n'
+        'model.set_classes(["person", "helmet"])\n'
+        'results = model.predict("image.jpg")'
+    )
+
+
+def _tags(spec: dict) -> str:
+    tags = spec.get(
+        "tags", ("object-detection", "image-text-to-text", "libreyolo", "vlm")
+    )
+    return "\n".join(f"  - {tag}" for tag in tags)
 
 
 def _readme(spec: dict) -> str:
@@ -138,10 +183,7 @@ license: apache-2.0
 library_name: libreyolo
 base_model: {spec["upstream"]}
 tags:
-  - object-detection
-  - image-text-to-text
-  - libreyolo
-  - vlm
+{_tags(spec)}
 ---
 
 # {spec["title"]}
@@ -163,11 +205,7 @@ with LibreYOLO-specific loading notes.
 ## Usage
 
 ```python
-from libreyolo import LibreVLM
-
-model = LibreVLM("{spec["alias"]}")
-model.set_classes(["person", "helmet"])
-results = model.predict("image.jpg")
+{_usage(spec)}
 ```
 
 ## License
@@ -212,8 +250,9 @@ def stage_one(spec: dict) -> Path:
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
+    skip = SKIP_NAMES | set(spec.get("skip", ()))
     for path in src.iterdir():
-        if path.name in SKIP_NAMES or path.suffix in SKIP_SUFFIXES:
+        if path.name in skip or path.suffix in SKIP_SUFFIXES:
             continue
         target = dest / path.name
         if path.is_dir():
@@ -235,6 +274,11 @@ def stage_one(spec: dict) -> Path:
                 )
             )
         shutil.copy2(src_license, dest / "LICENSE")
+    elif spec.get("license_url"):
+        from urllib.request import urlopen
+
+        with urlopen(spec["license_url"]) as response:
+            (dest / "LICENSE").write_bytes(response.read())
     else:
         shutil.copy2(hf_hub_download(TEMPLATE_REPO, "LICENSE"), dest / "LICENSE")
     (dest / "README.md").write_text(_readme(spec), encoding="utf-8")

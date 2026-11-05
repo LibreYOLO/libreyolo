@@ -44,8 +44,10 @@ size marked with `*`. The authoritative alias tables are in
 | `sensenova-vision`, `-7b`*                    | SenseNova-Vision | Apache-2.0 code, CC BY-NC 4.0 weights | unified multimodal; 7 tasks, vendored port, heavy |
 | `wevisone-vl`, `-2b`*, `-4b`                  | WeVisOne-VL | Apache-2.0        | Qwen3-VL perception fine-tune; 5 tasks; ported pixel decoder |
 | `paddleocr-vl`, `-0.9b`*, `paddleocrvl`       | PaddleOCR-VL | Apache-2.0       | `ocr` only: layout regions plus per-region recognition and page markdown; needs transformers>=5.3 |
+| `glm-ocr`, `-0.9b`*, `glmocr`                 | GLM-OCR | MIT weights, Apache-2.0 SDK and layout | `ocr` only: PP-DocLayoutV3 regions plus per-region recognition and page markdown; needs transformers>=5.3 |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
 | `deepseek-ocr`*, `deepseekocr`, `deepseek-ocr-2` | DeepSeek-OCR | MIT (`1`), Apache-2.0 (`2`) | document OCR, `ocr` task only; vendored port, mirrored weights |
+| `qwen3-vl-embedding`, `-2b`*                 | Qwen3-VL-Embedding | Apache-2.0  | `embed` only: image and text vectors in one space; mirrored weights |
 
 Florence-2 and Kosmos-2 do not use a chat template: they are driven by task /
 grounding prompts and decode boxes via the processor's `post_process_generation`,
@@ -477,6 +479,85 @@ LibreVLM("paddleocr-vl", use_layout_detection=False, prompt_label="formula")
 - Not ported: adjacent text-block merging, figures embedded in tables, seal
   and spotting recognition, polygon layout shapes, document unwarping and
   image export. The markdown is the plain variant (no HTML centering).
+- `train()` and `export()` raise.
+
+### Qwen3-VL-Embedding
+
+Qwen3-VL-Embedding-2B (Qwen, Apache-2.0) is Qwen3-VL-2B-Instruct fine-tuned
+into an embedder. It serves the `embed` task only (ADR 0015) and is the first
+VLM-based embed family. It joins this tier rather than the checkpoint factory
+because it shares the Qwen3-VL snapshot download and transformers loader; its
+output is the same embed contract as CLIP, SigLIP2 and PE.
+
+```python
+model = LibreVLM("qwen3-vl-embedding-2b")
+pages = model.embed("pages/")                  # (N, 2048), one row per page image
+r = model.predict("page.png")                  # r.embeddings is (1, 2048)
+q = model.embed_text(
+    ["total due on the invoice"],
+    prompt="Retrieve images or text relevant to the user's query.",
+)                                              # (1, 2048)
+scores = q @ pages.T                           # rows are unit length
+```
+
+- Each input is a chat: a system instruction, then the user's image or text.
+  The model's hidden state at the last token, L2-normalized, is the vector.
+- `prompt` is that instruction. The default is upstream's
+  `"Represent the user's input."`; set `prompt=` at construction to change it
+  for images and texts, or pass `prompt=` to `embed_text` per call. For
+  retrieval, give queries a task instruction and keep the default for
+  documents. A missing final punctuation mark gets a period, as upstream does.
+- Images are resized on a 32-pixel grid to between 4,096 and 1,843,200 pixels
+  with PIL bicubic, matching upstream's reference embedder
+  (`scripts/qwen3_vl_embedding.py`). The sentence-transformers path in the
+  model card caps images at 1,310,720 pixels instead, so its vectors for
+  larger images differ slightly (cosine 0.989 on a 1.8 MP photo).
+- Weights download from `LibreYOLO/LibreQwen3VLEmbedding2b`, a mirror of the
+  upstream snapshot with unchanged parameters. Install `libreyolo[vlm]`.
+- Not supported: `chat()`, `set_classes()`, `train()`, `val()`, `export()`,
+  combined image-plus-text inputs, video clips (a video is embedded frame by
+  frame), and Matryoshka truncation as an option (slice the first `k`
+  columns and re-normalize). The 8B size is not wrapped.
+
+### GLM-OCR
+
+GLM-OCR (Z.ai; MIT weights per the model card, Apache-2.0 SDK) is a two-stage
+document parser serving the `ocr` task only. PP-DocLayoutV3 finds 25 kinds of
+layout region and their reading order; GLM-OCR-0.9B (CogViT encoder plus a
+GLM-0.5B decoder) then reads each region from a task prompt:
+`Text Recognition:` for text, titles and seals, `Table Recognition:` (HTML)
+and `Formula Recognition:` (LaTeX). Both networks load through native
+transformers classes (no remote code) from one pinned mirror,
+`LibreYOLO/LibreGLMOCR0.9b`. The pipeline around them (layout NMS and merges,
+label routing, crops, resize and JPEG round trip, decoding settings, content
+clean-up, formula-number and hyphen merges, markdown) is ported from the
+official GLM-OCR SDK in `libreyolo/models/glmocr/`; see that package's
+`NOTICE`.
+
+```python
+model = LibreVLM("glm-ocr")
+result = model.predict("page.png")
+result.ocr.texts, result.ocr.labels   # one transcript and layout class per block
+result.ocr.markdown                   # the page as markdown, reading order
+LibreVLM("glm-ocr", use_layout_detection=False, prompt_label="table")
+model.chat("id.png", 'Extract as JSON: {"name": "", "date": ""}')  # information extraction
+```
+
+- Regions are axis-aligned layout boxes written as 4-point quads, one per
+  recognized block. Headers, footers, page numbers, footnotes and side text
+  are dropped, as upstream does; pictures and charts are not read and are
+  left out of `Results.ocr` and the markdown.
+- Decoding follows the SDK request: greedy, repetition penalty 1.1, up to
+  8192 new tokens. Each crop is resized to multiples of 28 pixels and
+  round-tripped through JPEG before recognition, as the SDK sends it
+  (`image_format=None` skips the round trip).
+- `Results.ocr.conf` is the geometric mean of the generated tokens'
+  probabilities; `det_conf` is the layout score. `conf=` does not gate
+  regions; the layout uses the upstream threshold 0.3 (override with
+  `layout_threshold=`).
+- Not ported: PDF input, polygon crops, picture export and the hosted-API
+  client. `use_layout_detection=False` is a LibreYOLO convenience with no SDK
+  counterpart.
 - `train()` and `export()` raise.
 
 ## Known limitations (v1)
