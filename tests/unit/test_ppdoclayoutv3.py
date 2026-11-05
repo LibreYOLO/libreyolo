@@ -250,7 +250,10 @@ def test_export_reload_keeps_regions_and_reading_order(tmp_path, export_format):
     raw = backend._run_inference(chw[None])
     with torch.no_grad():
         expected = PPDocLayoutV3ExportWrapper(model.model)(torch.from_numpy(chw[None]))
-    tolerances = (1e-3, 1e-4, 5e-2) if export_format == "onnx" else (0.0, 0.0, 0.0)
+    # Random weights leave near-tied query scores; ONNX Runtime can rank two
+    # adjacent queries in the other order, which swaps their logit rows
+    # (observed: 6 of 7500 values, up to 2.9e-3, on Linux, macOS and Windows).
+    tolerances = (5e-3, 1e-4, 5e-2) if export_format == "onnx" else (0.0, 0.0, 0.0)
     for got, want, atol in zip(raw, expected, tolerances):
         np.testing.assert_allclose(got, want.numpy(), rtol=0, atol=atol)
 
