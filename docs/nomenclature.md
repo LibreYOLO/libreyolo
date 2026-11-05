@@ -173,7 +173,7 @@ exceptions being lowercase version suffixes (`DEIMv2`, `RTDETRv2`,
 `RTDETRv4`) and preserved upstream brand casing (`RTMDet`).
 
 The VLM and promptable SAM tiers are separate categories and do not follow this
-rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreLFM2VL`,
+rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreQwen3VLEmbedding`, `LibreLFM2VL`,
 `LibreSmolVLM2`, `LibreInternVL3`, `LibreFlorence2`, `LibreKosmos2`,
 `LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreDeepSeekOCR`, `LibrePaddleOCRVL`, `LibreMODUS`, `LibreSAM`,
 `LibreSAM2`, `LibreSAM3`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
