@@ -222,6 +222,14 @@ class LibreRFDETR(BaseModel):
         if any(k.startswith("encoder.DeFE.") for k in weights_dict):
             return False
 
+        # PP-DocLayoutV3 carries a training-only ``denoising_class_embed``
+        # (matched by the "class_embed" token) but is its own family; reject
+        # its reading-order pointer, native or ``model.``-prefixed upstream.
+        if any(
+            k.endswith("decoder_global_pointer.dense.weight") for k in weights_dict
+        ):
+            return False
+
         keys_lower = [k.lower() for k in weights_dict]
         if any(
             "detr" in k

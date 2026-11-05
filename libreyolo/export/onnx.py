@@ -50,6 +50,7 @@ def _requires_onnx_opset17(model_family) -> bool:
     """Whether the family needs opset 17 for ONNX auto-opset selection."""
     return model_family in _DETR_TUPLE_OUTPUT_FAMILIES or model_family in {
         "deit",
+        "ppdoclayoutv3",
         "midas",
         "moge2",
         # V-JEPA 2 attention lowers to aten::scaled_dot_product_attention,
@@ -281,6 +282,7 @@ def export_onnx(
     is_retinanet = model_family == "retinanet"
     is_ssd = model_family == "ssd"
     is_fcos = model_family == "fcos"
+    is_doclayout = model_family == "ppdoclayoutv3"
     known_detr_detection = _uses_dfine_style_export_wrapper(model_family)
     num_outputs = None
     if (
@@ -291,6 +293,7 @@ def export_onnx(
         and not is_retinanet
         and not is_ssd
         and not is_fcos
+        and not is_doclayout
         and not is_restore
         and not is_matte
         and not is_depth
@@ -573,6 +576,20 @@ def export_onnx(
                 input_name: {0: "batch"},
                 "dets": {0: "batch"},
                 "labels": {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
+    elif is_doclayout:
+        # Set-prediction head plus one reading-order vote per query; the
+        # backend ranks queries by vote (no NMS).
+        output_names = ["pred_logits", "pred_boxes", "order_votes"]
+        dynamic_axes = (
+            {
+                "images": {0: "batch"},
+                "pred_logits": {0: "batch"},
+                "pred_boxes": {0: "batch"},
+                "order_votes": {0: "batch"},
             }
             if dynamic
             else None

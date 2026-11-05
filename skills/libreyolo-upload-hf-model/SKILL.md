@@ -92,6 +92,7 @@ file = name + ".pt"
 | QuickSRNet | `LibreQuickSRNet` | `LibreQuickSRNetm2-restore.pt` (Medium 2x super-resolution; BSD-3-Clause) |
 | SwinIR | `LibreSwinIR` | `LibreSwinIRm-restore.pt` (4x super-resolution; sizes `s`/`m`/`l`; Apache-2.0) |
 | PPOCR | `LibrePPOCR` | `LibrePPOCRt-ocr.pt` (PP-OCRv5 text det+rec; sizes `t`/`l`; Apache-2.0) |
+| PPDocLayoutV3 | `LibrePPDocLayoutV3` | `LibrePPDocLayoutV3l.pt` (document layout + reading order; size `l`; Apache-2.0) |
 | PIDNet | `LibrePIDNet` | `LibrePIDNets-sem.pt` (semantic-only) |
 | PPLiteSeg | `LibrePPLiteSeg` | `LibrePPLiteSegt50-sem.pt` (semantic-only; sizes `t50`/`b50`/`t75`/`b75`, natively rectangular. Weights are **non-commercial** — Cityscapes dataset terms, see below) |
 | UNet | `LibreUNet` | `LibreUNets-sem.pt` (semantic-only; size `s`, evaluates at 1024x2048. Apache-2.0 weights, as mmsegmentation declares) |
@@ -308,6 +309,8 @@ LibreSwinIRs-restore.pt, LibreSwinIRm-restore.pt,
 LibreSwinIRl-restore.pt,
 
 LibrePPOCRt-ocr.pt, LibrePPOCRl-ocr.pt,
+
+LibrePPDocLayoutV3l.pt,
 
 LibreBEN2b-matte.pt,
 

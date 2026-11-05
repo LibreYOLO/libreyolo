@@ -104,6 +104,7 @@ in preflight.
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | ✓ |  |  | ✓ |
 | picosam3 | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
+| ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
@@ -360,6 +361,8 @@ A check mark applies only under any constraint listed here.
 - `pidnet` / `semantic` / `openvino`: fixed square input
 - `pidnet` / `semantic` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with a fixed export canvas; two-input raw parity, factory reload, metadata, and public predict parity
 - `pidnet` / `semantic` / `coreai`: fixed family-native canvases (PIDNet 1024, LingBotVision 512); trained LibrePIDNets-sem and LibreLingBotVisions-sem checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; exported backends already implement the shared dense-logit resize and argmax contract
+- `ppdoclayoutv3` / `detect` / `onnx`: FP32, fixed 800x800 input, ONNX opset 17
+- `ppdoclayoutv3` / `detect` / `torchscript`: FP32, fixed 800x800 input
 - `ppliteseg` / `semantic` / `onnx`: fixed native rectangle per size (512x1024 for t50/b50, 768x1536 for t75/b75). All four sizes were exported and run in each format: raw-logit cosine vs eager >= 0.999994 at batch 1 and batch 2 (ONNX is exact to 8e-05 max abs diff), and original-canvas semantic-mask agreement >= 99.6% through the factory reload. TensorRT 10.x FP32 engines were built and executed, not just parsed
 - `ppliteseg` / `semantic` / `torchscript`: fixed native rectangle per size (512x1024 for t50/b50, 768x1536 for t75/b75). All four sizes were exported and run in each format: raw-logit cosine vs eager >= 0.999994 at batch 1 and batch 2 (ONNX is exact to 8e-05 max abs diff), and original-canvas semantic-mask agreement >= 99.6% through the factory reload. TensorRT 10.x FP32 engines were built and executed, not just parsed
 - `ppliteseg` / `semantic` / `tensorrt`: fixed native rectangle per size (512x1024 for t50/b50, 768x1536 for t75/b75). All four sizes were exported and run in each format: raw-logit cosine vs eager >= 0.999994 at batch 1 and batch 2 (ONNX is exact to 8e-05 max abs diff), and original-canvas semantic-mask agreement >= 99.6% through the factory reload. TensorRT 10.x FP32 engines were built and executed, not just parsed
@@ -605,6 +608,9 @@ These converter paths are callable with the recorded validation context.
 - `pe` / `embed` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `picodet` / `detect` / `rknn`: Exact small variants passed RKNN Toolkit2 2.3.2 compilation, RK3588 PC-simulator raw-output gates, and matched post-NMS detections on a real image. Support is limited to YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s; on-device latency and parity have not been measured. Constraint: RKNN Toolkit2 2.3.2, RK3588 PC simulator, vendor floating build, batch 1, fixed square input
 - `pidnet` / `semantic` / `tensorrt`: TensorRT 10.16 FP32 exports and runs, but repeated builds produced raw-logit cosine as low as 0.9970, below the 0.999 promotion gate.
+- `ppdoclayoutv3` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `ppdoclayoutv3` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
+- `ppdoclayoutv3` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `ppyoloe` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppyoloe` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `quicksrnet` / `restore` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -1527,6 +1533,13 @@ These converter paths are callable with the recorded validation context.
 - `pidnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
+- `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
+- `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
+- `ppdoclayoutv3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `ppdoclayoutv3` / `detect` / `ncnn`: NCNN export is not supported for PP-DocLayoutV3: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
+- `ppdoclayoutv3` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
+- `ppdoclayoutv3` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `ppdoclayoutv3` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
 - `ppliteseg` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.

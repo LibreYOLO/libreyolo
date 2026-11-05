@@ -2517,6 +2517,25 @@ _add(
     ),
     since="1.5",
 )
+for _fmt, _constraint in (
+    ("onnx", "FP32, fixed 800x800 input, ONNX opset 17"),
+    ("torchscript", "FP32, fixed 800x800 input"),
+):
+    _add(
+        "validated",
+        ("ppdoclayoutv3",),
+        ("detect",),
+        (_fmt,),
+        reason=(
+            "Raw logits, boxes and reading-order votes match native PyTorch "
+            "(TorchScript exactly, ONNX Runtime within fp32 noise); "
+            "exported-backend predict returns the same regions, labels and "
+            "reading order."
+        ),
+        since="1.7",
+        constraint=_constraint,
+    )
+del _fmt, _constraint
 _add(
     "validated",
     ("centernet",),
@@ -3848,6 +3867,7 @@ _NCNN_BLOCKS = {
     "rtdetrv4": "RT-DETRv4",
     "rfdetr": "RF-DETR",
     "ec": "EC",
+    "ppdoclayoutv3": "PP-DocLayoutV3",
 }
 
 
