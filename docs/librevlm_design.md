@@ -45,6 +45,7 @@ size marked with `*`. The authoritative alias tables are in
 | `wevisone-vl`, `-2b`*, `-4b`                  | WeVisOne-VL | Apache-2.0        | Qwen3-VL perception fine-tune; 5 tasks; ported pixel decoder |
 | `paddleocr-vl`, `-0.9b`*, `paddleocrvl`       | PaddleOCR-VL | Apache-2.0       | `ocr` only: layout regions plus per-region recognition and page markdown; needs transformers>=5.3 |
 | `glm-ocr`, `-0.9b`*, `glmocr`                 | GLM-OCR | MIT weights, Apache-2.0 SDK and layout | `ocr` only: PP-DocLayoutV3 regions plus per-region recognition and page markdown; needs transformers>=5.3 |
+| `falcon-perception`, `-600m`*, `-300m`        | Falcon Perception | Apache-2.0 | text-query detect and segment; vendored network; `-300m` is detect only |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
 | `deepseek-ocr`*, `deepseekocr`, `deepseek-ocr-2` | DeepSeek-OCR | MIT (`1`), Apache-2.0 (`2`) | document OCR, `ocr` task only; vendored port, mirrored weights |
 | `qwen3-vl-embedding`, `-2b`*                 | Qwen3-VL-Embedding | Apache-2.0  | `embed` only: image and text vectors in one space; mirrored weights |
@@ -313,6 +314,29 @@ checkpoint stays external and is never mirrored. The supported matrix,
 precision tiers, and terms distinction are documented in
 [`libremodus.md`](libremodus.md) and
 [`adr/0016-libremodus-analysis-contract.md`](adr/0016-libremodus-analysis-contract.md).
+
+### Falcon Perception
+
+Falcon Perception (TII, Apache-2.0 code and weights) is an early-fusion
+transformer: image patches and text share one sequence, and for each matching
+instance the model emits `<|coord|>`, `<|size|>` and `<|seg|>` tokens. Small
+heads on the hidden state decode the box centre and extent; the `<|seg|>`
+embedding is dotted with AnyUp-upsampled image features to give the mask. The
+network is vendored in `libreyolo/models/falcon_perception/` (no remote code,
+pinned `HF_REVISIONS`); see that package's `NOTICE`.
+
+```python
+model = LibreVLM("falcon-perception", names=["cat", "the dog on the left"])
+model.predict("image.jpg")                    # Results.boxes
+model.set_task("segment").predict("image.jpg")  # Results.boxes + Results.masks
+LibreVLM("falcon-perception-300m", names=["cat"])  # detect only, no mask head
+```
+
+Each vocabulary entry is one query and one generation, so cost grows with the
+number of entries; every instance found for an entry gets that entry's class
+id. `set_classes` (or `names=`) is required. Confidence is a constant 1.0 and
+there is no NMS (upstream's coordinate de-duplication runs inside decoding).
+On MPS the family runs on CPU because the RoPE tables are complex64.
 
 ### WeVisOne-VL
 
