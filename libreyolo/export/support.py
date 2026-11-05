@@ -3876,6 +3876,7 @@ _FAMILY_BLOCKS = {
     "sam2": "Promptable model export is out of scope for the v1 runtime contract.",
     "edgetam": "Promptable model export is out of scope for the v1 runtime contract.",
     "sam3": "Promptable model export is out of scope for the v1 runtime contract.",
+    "sam31": "Promptable model export is out of scope for the v1 runtime contract.",
     "mobilesam": "Promptable model export is out of scope for the v1 runtime contract.",
     "grounding_dino": "Open-vocabulary runtime export is out of scope for v1.",
     "owlv2": "Open-vocabulary runtime export is out of scope for v1.",

@@ -135,6 +135,7 @@ in preflight.
 | sam | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam2 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam3 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
+| sam31 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam3dbody | mesh |  |  |  |  |  |  |  |  |  |  |  |  |
 | sana_sprint | generate |  |  |  |  |  |  |  |  |  |  |  |  |
 | searaft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -1823,6 +1824,18 @@ These converter paths are callable with the recorded validation context.
 - `sam3` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `onnx`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `torchscript`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `executorch`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `tensorrt`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `openvino`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `paddle`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `mnn`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `rknn`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `ncnn`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3dbody` / `mesh` / `onnx`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sam3dbody` / `mesh` / `torchscript`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sam3dbody` / `mesh` / `executorch`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
