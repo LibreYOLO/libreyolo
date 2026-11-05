@@ -570,6 +570,15 @@ project the weights were derived from. Per-family summary:
              metadata (Apache-2.0, attribution in
              libreyolo/models/ppocr/NOTICE).
 
+    PP-DocLayoutV3 (LibreYOLO/LibrePPDocLayoutV3l)       Apache-2.0
+             upstream: PaddlePaddle/PP-DocLayoutV3_safetensors revision
+             e4f489dc536556fc1be02b973ba06756e0d4a2ac (model card declares
+             Apache-2.0; the weight repository ships no LICENSE file, so the
+             mirror carries the Apache-2.0 text of the releasing PaddleOCR
+             project). Conversion removes the "model." key prefix and adds
+             LibreYOLO metadata (weights/convert_ppdoclayoutv3_weights.py);
+             learned parameters are unchanged.
+
     SAM 3    (facebook/sam3 snapshot; not rehosted)   custom SAM License
              upstream: facebook/sam3 on Hugging Face. Access is gated and
              requires accepting Meta's terms. LibreYOLO downloads the weights

@@ -1747,6 +1747,24 @@
     "available": true,
     "group": "g3"
   },
+  "ppdoclayoutv3": {
+    "class": "libreyolo.models.ppdoclayoutv3.model.LibrePPDocLayoutV3",
+    "tasks": [
+      "detect"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "l": 800
+    },
+    "default_imgsz": {
+      "l": 800
+    },
+    "task_sizes": {},
+    "export_override": "custom",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "ppliteseg": {
     "class": "libreyolo.models.ppliteseg.model.LibrePPLiteSeg",
     "tasks": [

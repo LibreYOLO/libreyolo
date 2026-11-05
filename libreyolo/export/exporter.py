@@ -227,6 +227,7 @@ _FIXED_SQUARE_EXPORT_FAMILIES = {
     "lwdetr",
     "moge2",
     "moge3",
+    "ppdoclayoutv3",
     "rtdetr",
     "rtdetrv2",
     "rtdetrv4",
@@ -1267,6 +1268,12 @@ class BaseExporter(ABC):
             # the decoded (boxes, scores) pair and drops the training-only
             # auxiliaries.
             nn_model = _YOLONASExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "ppdoclayoutv3":
+            from ..models.ppdoclayoutv3.nn import PPDocLayoutV3ExportWrapper
+
+            nn_model = PPDocLayoutV3ExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
         elif family in {"rtdetr", "rtdetrv2", "rtdetrv4"}:

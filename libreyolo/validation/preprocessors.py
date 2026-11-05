@@ -307,6 +307,20 @@ class DETRValPreprocessor(RFDETRValPreprocessor):
         return preprocess_numpy
 
 
+class PPDocLayoutV3ValPreprocessor(RFDETRValPreprocessor):
+    """PP-DocLayoutV3 preprocessor: fixed square cubic resize, RGB in [0, 1]."""
+
+    # No mean/std normalization (used by the non-square fallback branch).
+    MEAN = np.zeros(3, dtype=np.float32)
+    STD = np.ones(3, dtype=np.float32)
+
+    @staticmethod
+    def _family_preprocess_numpy():
+        from ..preprocess.ppdoclayoutv3 import preprocess_numpy
+
+        return preprocess_numpy
+
+
 class FasterRCNNValPreprocessor(BaseValPreprocessor):
     """Keep source resolution for the model's in-graph detection transform."""
 

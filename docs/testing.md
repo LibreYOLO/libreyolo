@@ -60,6 +60,14 @@ Contract:
 - Tests that intentionally require non-local network access must use
   `@pytest.mark.network` and remain outside the PR-gate marker expression.
 
+Platform rule: the shared unit job runs on Linux, macOS, and Windows, but a
+development PR into `dev` is considered passing when that job is green on any
+one of the three. A failure of the same job on another platform is recorded in
+the PR and fixed as a follow-up. The rule applies only to that shared unit job:
+every other check (the Linux-only `distributed` job, provenance, the install
+smoke matrix, wheel and sdist checks) must pass as usual. Release PRs are the exception and require
+all three platforms green.
+
 New unit tests are in the PR gate by default. If a test cannot satisfy this
 contract, prefer a local fixture or mock. If real external data is essential,
 move the coverage to the appropriate e2e, nightly, or manual suite.

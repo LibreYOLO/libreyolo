@@ -139,6 +139,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `ben2`      | `LibreBEN2` | All-caps acronym plus version digit; matte-only BEN2 Base background-removal family |
 | `vitmatte`  | `LibreViTMatte` | Upstream brand casing preserved (`ViTMatte`); trimap-guided matte family |
 | `ppocr`     | `LibrePPOCR`    | All-caps acronym (PP-OCR brand, hyphen dropped); ocr-only two-stage text detection + recognition family |
+| `ppdoclayoutv3` | `LibrePPDocLayoutV3` | Upstream brand casing preserved (`PP-DocLayoutV3`, hyphen dropped); detect-only document layout family with reading order; inference-only |
 | `facerec`   | `LibreFaceEmbedder` | Descriptive family name (no upstream brand): embed-only two-stage face detection + identity-embedding family, inference-only |
 | `sam3dbody` | `LibreSAM3DBody` | All-caps acronym plus CamelCase `Body` (hyphens dropped); mesh-only family. Named in full rather than shortened so it does not collide with the `LibreSAM` promptable-segmentation tier. Sizes are backbone codes: `d3` (DINOv3 ViT-H/16+) and `h` (ViT-H). This family wraps an optional third-party package rather than porting it; see ADR 0013 |
 
@@ -284,6 +285,7 @@ ships:
 | `ben2`      | `b` (the single public BEN2 Base checkpoint, 94M parameters) at fixed 1024 |
 | `vitmatte`  | `s` (ViT-S backbone; native image resolution with bottom/right padding to a multiple of 32; nominal checkpoint canvas 512) |
 | `ppocr`     | `t` (PP-OCRv5 mobile det + mobile rec, CPU tier), `l` (PP-OCRv5 server det + server rec, quality tier); detection long side 960 |
+| `ppdoclayoutv3` | `l` (the single released variant, HGNetV2-L backbone) at fixed 800 |
 | `clip`      | `b32`, `b16`, `l14` (ViT patch size baked in, all at 224) |
 | `siglip2`   | `b16` (base patch-16 at 256), `so400m` (shape-optimized 400M patch-14 at 384) |
 | `pe`        | `t16`, `s16` (patch-16 at 384), `b16` (patch-16 at 224), `l14` (patch-14 at 336), `g14` (gigantic patch-14 at 448) — ViT patch size baked in, resolution varies per size |
@@ -440,6 +442,14 @@ matte filenames must carry the `-matte` suffix; task aliases such as `matting`,
 `background-removal`, `rembg`, and `dis` resolve to `matte` at the API boundary.
 See ADR 0010 for the full contract.
 
+Document layout families (`ppdoclayoutv3`) use the `detect` task: boxes over
+layout classes such as text, titles, tables and figures. Their `Results` rows
+are sorted in reading order and carry `Results.reading_order`, a one-based
+integer rank per box (the same shape and slicing rules as `track_id`). It is
+the rank among the regions kept at the requested `conf`; a `classes=` filter or
+`max_det` cut keeps the surviving boxes' ranks, so the values can have gaps.
+Other families leave `Results.reading_order` as `None`.
+
 `ocr` is the task for located text: detection quads plus transcripts. Models
 expose `Results.ocr`, a list of text regions each carrying a 4-point `polygon`
 in original-image coordinates, the recognized `text`, and recognition plus
@@ -570,6 +580,7 @@ Detector-factory family support follows:
 | `feynobg`   | `("matte",)`                        | matte  | FeyNobg background removal (BiRefNet architecture, deeper stage 3); size `l`, fixed 1024; same matte surface as birefnet; inference-only; fp8/nvfp4 pre-quantized checkpoints published on HF |
 | `ben2`      | `("matte",)`                        | matte  | BEN2 Base background removal; size `b`, fixed 1024; batched predict + `cutout` + transparent-PNG save + zero-shot `val`; inference-only; fixed-resolution ONNX/TorchScript export |
 | `vitmatte`  | `("matte",)`                       | matte  | ViTMatte trimap-guided alpha matting; size `s`; `predict(image, trimap=trimap)` accepts only three-level guides; validation accepts explicit trimaps or derives a deterministic guide from GT; pretrained Composition-1k weights are non-commercial; inference-only |
+| `ppdoclayoutv3` | `("detect",)`                   | detect | PP-DocLayoutV3 document layout; size `l`, fixed 800; 25 layout classes; rows sorted in reading order with `Results.reading_order`; inference-only; ONNX/TorchScript export |
 | `ppocr`     | `("ocr",)`                          | ocr    | PP-OCRv5 two-stage text detection + recognition (zh/zh-TW/en/ja/pinyin, one dictionary); sizes `t` (mobile)/`l` (server); one composite checkpoint bundles det.* and rec.* plus the charset; predict + `val` (hmean / e2e F1 / 1-NED); inference-only; export unsupported (two-network pipeline) |
 | `realesrgan` | `("restore",)`                     | restore | Real-ESRGAN super-resolution; sizes `x4`/`x2`/`x4t`; native predict at original resolution, `Results.restored` is `restore_scale` x the input; optional seam-free tiling (`predict(..., tile=512)`); inference + PSNR/SSIM `val` only (no training); dynamic-H/W ONNX |
 | `quicksrnet` | `("restore",)`                     | restore | QuickSRNet Medium 2x compact super-resolution; size `m2`; native arbitrary-resolution predict; inference + PSNR/SSIM `val` only (no training); dynamic-H/W ONNX and fixed-canvas TorchScript |
@@ -623,6 +634,7 @@ LibreSSD300.pt
 LibreEfficientDetd0.pt
 LibrePICODETs.pt
 LibreECs.pt
+LibrePPDocLayoutV3l.pt
 ```
 
 ### Pose only
