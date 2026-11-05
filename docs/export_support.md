@@ -60,6 +60,7 @@ in preflight.
 | flux2_klein | generate |  |  |  |  |  |  |  |  |  |  |  |  |
 | fomo | point | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
 | gemma4 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| glmocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | ground_florence2 | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | ground_qwen3vl | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | grounding_dino | detect |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -136,6 +137,7 @@ in preflight.
 | sam | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam2 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam3 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
+| sam31 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam3dbody | mesh |  |  |  |  |  |  |  |  |  |  |  |  |
 | sana_sprint | generate |  |  |  |  |  |  |  |  |  |  |  |  |
 | searaft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -1114,6 +1116,18 @@ These converter paths are callable with the recorded validation context.
 - `gemma4` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `gemma4` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `gemma4` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `openvino`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `paddle`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `mnn`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `rknn`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `ncnn`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
 - `ground_florence2` / `point` / `onnx`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_florence2` / `point` / `torchscript`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_florence2` / `point` / `executorch`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
@@ -1836,6 +1850,18 @@ These converter paths are callable with the recorded validation context.
 - `sam3` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `onnx`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `torchscript`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `executorch`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `tensorrt`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `openvino`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `paddle`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `mnn`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `rknn`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `ncnn`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3dbody` / `mesh` / `onnx`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sam3dbody` / `mesh` / `torchscript`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sam3dbody` / `mesh` / `executorch`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.

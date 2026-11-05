@@ -123,6 +123,7 @@ MODEL_GROUPS: dict[str, str] = {
     "sam": "s",
     "sam2": "s",
     "sam3": "s",
+    "sam31": "s",
     "detany3d": "s",
     "fcos3d": "s",
     "wilddet3d": "s",
@@ -164,6 +165,7 @@ MODEL_GROUPS: dict[str, str] = {
     "wevisonevl": "s",
     "deepseekocr": "s",
     "paddleocrvl": "s",
+    "glmocr": "s",
 }
 
 

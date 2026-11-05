@@ -1016,6 +1016,24 @@
     "available": true,
     "group": "s"
   },
+  "glmocr": {
+    "class": "libreyolo.models.glmocr.model.LibreGLMOCR",
+    "tasks": [
+      "ocr"
+    ],
+    "default_task": "ocr",
+    "sizes": {
+      "0.9b": 800
+    },
+    "default_imgsz": {
+      "0.9b": 800
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "ground_florence2": {
     "class": "libreyolo.models.ground.florence.LibreGroundFlorence2",
     "tasks": [
@@ -2367,6 +2385,24 @@
   },
   "sam3": {
     "class": "libreyolo.models.sam.sam3.LibreSAM3",
+    "tasks": [
+      "segment"
+    ],
+    "default_task": "segment",
+    "sizes": {
+      "large": 1008
+    },
+    "default_imgsz": {
+      "large": 1008
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "sam",
+    "available": true,
+    "group": "s"
+  },
+  "sam31": {
+    "class": "libreyolo.models.sam.sam3.LibreSAM31",
     "tasks": [
       "segment"
     ],

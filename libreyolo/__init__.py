@@ -245,6 +245,7 @@ def __getattr__(name):
         "LibreWeVisOneVL": (".models.wevisone", "LibreWeVisOneVL"),
         "LibreDeepSeekOCR": (".models.deepseekocr", "LibreDeepSeekOCR"),
         "LibrePaddleOCRVL": (".models.paddleocrvl", "LibrePaddleOCRVL"),
+        "LibreGLMOCR": (".models.glmocr", "LibreGLMOCR"),
         "LibreMODUS": (".models.modus", "LibreMODUS"),
         "LibreModus": (".models.modus", "LibreModus"),
         "LibreDetAny3D": (".models.detany3d", "LibreDetAny3D"),
@@ -256,6 +257,7 @@ def __getattr__(name):
         "LibreSAM2": (".models.sam", "LibreSAM2"),
         "LibreEdgeTAM": (".models.sam", "LibreEdgeTAM"),
         "LibreSAM3": (".models.sam", "LibreSAM3"),
+        "LibreSAM31": (".models.sam", "LibreSAM31"),
         "LibreMobileSAM": (".models.mobilesam", "LibreMobileSAM"),
         "LibrePicoSAM3": (".models.picosam3", "LibrePicoSAM3"),
         "LibreOpenVocab": (".models.openvocab", "LibreOpenVocab"),
@@ -410,6 +412,7 @@ __all__ = [
     "LibreWeVisOneVL",
     "LibreDeepSeekOCR",
     "LibrePaddleOCRVL",
+    "LibreGLMOCR",
     "LibreMODUS",
     "LibreModus",
     # OpenAI-compatible LLM client (optional, requires libreyolo[llm])
@@ -438,6 +441,7 @@ __all__ = [
     "LibreSAM2",
     "LibreEdgeTAM",
     "LibreSAM3",
+    "LibreSAM31",
     "LibreMobileSAM",
     "LibrePicoSAM3",
     # Open-vocabulary detector tier (optional, requires libreyolo[openvocab])
