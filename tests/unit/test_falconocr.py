@@ -380,3 +380,30 @@ def test_pins_inventory_and_registry():
     assert MODEL_GROUPS["falconocr"] == "s"
     entry = collect_model_inventory()["falconocr"]
     assert entry["optional_extra"] == "vlm" and entry["tasks"] == ["ocr"]
+
+
+def test_bf16_autocast_path_keeps_rotary_and_attention_in_float32():
+    """The CUDA path runs bf16 weights under autocast; CPU autocast exercises it."""
+    net, cfg = _tiny()
+    golden = net.freqs_cis_golden.clone()
+    net.freqs_cis = None
+    net = net.to(torch.bfloat16)
+    net.reset_rope_cache()
+    net.freqs_cis_golden = golden
+    ids, pos_t, pos_hw, patches = _tiny_inputs(cfg)
+    with torch.no_grad():
+        out = net.generate(
+            ids,
+            pos_t,
+            pos_hw,
+            patches,
+            max_new_tokens=1,
+            stop_ids=[],
+            autocast_dtype=torch.bfloat16,
+        )
+    assert len(out) == 128 - len(ids)
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        q = torch.randn(1, 2, 5, 8, dtype=torch.bfloat16)
+        mask = SequenceMask(torch.tensor([7, 8, 9, 10, 11]), cfg)
+        _, lse = sink_attention(q, q, q, mask, 0)
+        assert lse.dtype == torch.float32

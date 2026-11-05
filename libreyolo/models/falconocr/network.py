@@ -76,10 +76,16 @@ def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
     return out.type_as(x)
 
 
+def _full_precision(device: torch.device):
+    """Autocast off: the rotary and attention-sink math must stay float32."""
+    return torch.autocast(device_type=device.type, enabled=False)
+
+
 def golden_freqs(freqs_hfp: torch.Tensor, pos_tp: torch.Tensor) -> torch.Tensor:
     """Angles of the 2D rotation for each image patch: ``(T, H, F)`` complex."""
-    theta = torch.einsum("tp,hfp->thf", pos_tp.float(), freqs_hfp.float())
-    return torch.polar(torch.ones_like(theta), theta)
+    with _full_precision(pos_tp.device):
+        theta = torch.einsum("tp,hfp->thf", pos_tp.float(), freqs_hfp.float())
+        return torch.polar(torch.ones_like(theta), theta)
 
 
 def apply_golden_rotary_emb(
@@ -161,22 +167,25 @@ def sink_attention(
     Float32 scores and softmax, scale ``1/sqrt(head_dim)`` as FlexAttention's
     default. Rows with no allowed key give a zero output and ``-inf`` LSE.
     """
-    scale = q.shape[-1] ** -0.5
-    acc = torch.promote_types(q.dtype, torch.float32)
-    kf, vf = k.to(acc), v.to(acc)
-    outs, lses = [], []
-    s = q.shape[2]
-    for start in range(0, s, _ATTN_CHUNK):
-        stop = min(start + _ATTN_CHUNK, s)
-        scores = torch.matmul(q[:, :, start:stop].to(acc), kf.transpose(-1, -2)) * scale
-        allowed = mask.dense(q_offset + start, q_offset + stop, k.shape[2])
-        scores = scores.masked_fill(~allowed, float("-inf"))
-        lse = torch.logsumexp(scores, dim=-1)
-        probs = torch.exp(scores - lse.unsqueeze(-1).nan_to_num(neginf=0.0))
-        out = torch.matmul(probs.nan_to_num(0.0), vf)
-        outs.append(out)
-        lses.append(lse)
-    return torch.cat(outs, dim=2).to(q.dtype), torch.cat(lses, dim=2)
+    with _full_precision(q.device):
+        scale = q.shape[-1] ** -0.5
+        acc = torch.promote_types(q.dtype, torch.float32)
+        kf, vf = k.to(acc), v.to(acc)
+        outs, lses = [], []
+        s = q.shape[2]
+        for start in range(0, s, _ATTN_CHUNK):
+            stop = min(start + _ATTN_CHUNK, s)
+            scores = (
+                torch.matmul(q[:, :, start:stop].to(acc), kf.transpose(-1, -2)) * scale
+            )
+            allowed = mask.dense(q_offset + start, q_offset + stop, k.shape[2])
+            scores = scores.masked_fill(~allowed, float("-inf"))
+            lse = torch.logsumexp(scores, dim=-1)
+            probs = torch.exp(scores - lse.unsqueeze(-1).nan_to_num(neginf=0.0))
+            out = torch.matmul(probs.nan_to_num(0.0), vf)
+            outs.append(out)
+            lses.append(lse)
+        return torch.cat(outs, dim=2).to(q.dtype), torch.cat(lses, dim=2)
 
 
 class KVCache:
