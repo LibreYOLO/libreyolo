@@ -167,7 +167,7 @@ exceptions being lowercase version suffixes (`DEIMv2`, `RTDETRv2`,
 The VLM and promptable SAM tiers are separate categories and do not follow this
 rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreLFM2VL`,
 `LibreSmolVLM2`, `LibreInternVL3`, `LibreFlorence2`, `LibreKosmos2`,
-`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreMODUS`, `LibreSAM`,
+`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreDeepSeekOCR`, `LibreMODUS`, `LibreSAM`,
 `LibreSAM2`, `LibreSAM3`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
 are not registered
 into the detector factory and do not emit `Libre<FAMILY><size>.pt` detector
@@ -297,6 +297,7 @@ VLM snapshot families use model-specific size names:
 | `molmo2` | `4b` (default), `8b`, `o-7b`; single-image point task |
 | `wevisonevl` | `2b` (default), `4b`; Qwen3-VL backbone plus the `mask_decoder.pt` pixel decoder |
 | `libremodus` | `14b-a7b` (14B total parameters, approximately 7B active; external MODUS snapshot) |
+| `deepseekocr` | `1` (DeepSeek-OCR, default; mirror `LibreYOLO/LibreDeepSeekOCR1`), `2` (DeepSeek-OCR-2; mirror `LibreYOLO/LibreDeepSeekOCR2`); both 3B MoE |
 
 Promptable SAM tier size aliases:
 
@@ -502,6 +503,7 @@ the multi-task analysis family in that tier:
 | Family | `SUPPORTED_TASKS` | Default | Notes |
 |---|---|---|---|
 | `libremodus` | `("detect", "depth", "normal", "edge")` | detect | External `14b-a7b` snapshot; standard tasks plus image-conditioned `any2any()`; inference-only; no RGB output |
+| `deepseekocr` | `("ocr",)` | ocr | Vendored port, sizes `1` and `2`; `prompt="ocr"` / `"markdown"` / `"free"`, `resolution=` tiny to gundam; inference-only, `val()` runs the OCR validator |
 
 The promptable SAM tier is separate from the detector checkpoint factory. Its
 families all expose the promptable `segment` task:

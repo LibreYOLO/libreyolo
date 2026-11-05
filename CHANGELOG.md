@@ -9,6 +9,10 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **DeepSeek-OCR. (#994)**
+  `LibreVLM("deepseek-ocr")` (or `LibreDeepSeekOCR`) runs DeepSeek-OCR, a 3B mixture-of-experts document OCR model with MIT code and weights, on the `ocr` task. Default predict returns one `Results.ocr` region per text line from the grounding prompt; `prompt="markdown"` returns layout blocks and the whole page as markdown, `prompt="free"` the page text only, and `resolution=` picks the release's `tiny`, `small`, `base`, `large` or `gundam` (default) input mode. The architecture is a vendored PyTorch port that reproduces the release token for token in bf16 on CUDA and also runs in float32 on CPU and MPS; weights download from the byte-identical `LibreYOLO/LibreDeepSeekOCR1` mirror. `LibreVLM("deepseek-ocr-2")` runs DeepSeek-OCR-2 (Apache-2.0, Qwen2-based vision encoder) through the same API from the `LibreYOLO/LibreDeepSeekOCR2` mirror, with `gundam` and `base` resolutions. `val()` runs the OCR validator; `train()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+- **`Results.ocr.markdown` and `Results.ocr.labels`.**
+  OCR results can carry the whole page as text (`markdown`, `""` when the model emits only regions) and a per-region layout category (`labels`, `None` for line-level OCR). The JSON output of `libreyolo predict` includes both when set.
 - **TripoSplat, a second image-to-3D family: `LibreGen("triposplat")`.**
   TripoAI's MIT model that Speridlabs Idol builds on, behind the same call: one image in, up to 262,144 Gaussian splats out, `.ply` and `.splat` files, `libreyolo generate source=chair.jpg model=triposplat`. Knobs `steps`, `guidance`, `shift`, `gaussians`, `margin`. Weights download from LibreYOLO's mirror of the `VAST-AI/TripoSplat` snapshot; the DINOv3 and FLUX.2 VAE encoders are the ones Idol uses. Runs on CUDA, Apple MPS and CPU.
 

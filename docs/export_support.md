@@ -21,6 +21,7 @@ in preflight.
 | convnextv2 | classify | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
 | ddcolor | restore |  |  |  |  |  |  |  |  |  |  |  |  |
 | deeplabv3 | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
+| deepseekocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | deformable_detr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |
 | deim | detect | ✓ | ✓ |  | available | available | ✓ | ✓ |  |  |  |  | ✓ |
 | deimv2 | detect | available | ✓ |  | available | available | ✓ | available |  |  |  |  | ✓ |
@@ -773,6 +774,18 @@ These converter paths are callable with the recorded validation context.
 - `deeplabv3` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `deepseekocr` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `openvino`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `paddle`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `mnn`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `rknn`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `ncnn`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
 - `deformable_detr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `deformable_detr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `deformable_detr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.

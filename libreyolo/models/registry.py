@@ -152,6 +152,7 @@ MODEL_GROUPS: dict[str, str] = {
     "libremodus": "s",
     "sensenovavision": "s",
     "wevisonevl": "s",
+    "deepseekocr": "s",
 }
 
 

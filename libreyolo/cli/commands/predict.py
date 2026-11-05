@@ -495,7 +495,11 @@ def predict_cmd(
                             ],
                         }
                     )
+                    if ocr_np.labels is not None:
+                        regions[-1]["label"] = ocr_np.labels[i]
                 result_data["ocr"] = regions
+                if ocr_np.markdown:
+                    result_data["markdown"] = ocr_np.markdown
                 n = len(regions)
                 summary = f"{n} text region{'s' if n != 1 else ''}"
             elif getattr(r, "points", None) is not None:

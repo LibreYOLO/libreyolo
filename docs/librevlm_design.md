@@ -44,6 +44,7 @@ size marked with `*`. The authoritative alias tables are in
 | `sensenova-vision`, `-7b`*                    | SenseNova-Vision | Apache-2.0 code, CC BY-NC 4.0 weights | unified multimodal; 7 tasks, vendored port, heavy |
 | `wevisone-vl`, `-2b`*, `-4b`                  | WeVisOne-VL | Apache-2.0        | Qwen3-VL perception fine-tune; 5 tasks; ported pixel decoder |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
+| `deepseek-ocr`*, `deepseekocr`, `deepseek-ocr-2` | DeepSeek-OCR | MIT (`1`), Apache-2.0 (`2`) | document OCR, `ocr` task only; vendored port, mirrored weights |
 
 Florence-2 and Kosmos-2 do not use a chat template: they are driven by task /
 grounding prompts and decode boxes via the processor's `post_process_generation`,
@@ -377,6 +378,65 @@ FP32, and the ported decoder loads the released sidecar strictly and matches
 the upstream module's logits to within 1e-4. The 4B decoder sidecar loads
 strictly against the 4B config and tokenizer, but the 4B backbone and CUDA
 were not run.
+
+### DeepSeek-OCR
+
+DeepSeek-OCR (deepseek-ai, MIT code and weights) is a 3B mixture-of-experts
+document OCR model: a SAM ViT-B plus CLIP-L encoder compresses the page into a
+few hundred visual tokens and a DeepSeek-V2 style decoder (about 570M active
+parameters) writes the text. LibreYOLO runs a vendored PyTorch port of the
+release's inference path (`libreyolo/models/deepseekocr/`, no remote code),
+loaded strictly from the byte-identical mirror `LibreYOLO/LibreDeepSeekOCR1`
+at a pinned revision. It serves the `ocr` task only.
+
+```python
+model = LibreVLM("deepseek-ocr")                       # resolution="gundam"
+result = model.predict("page.png")                    # Results.ocr, one region per line
+LibreVLM("deepseek-ocr", prompt="markdown").predict("page.png").ocr.markdown
+model.set_prompt("free").predict("page.png").ocr.markdown   # plain text, no regions
+model.chat("page.png", "Parse the figure.")           # any prompt, raw text
+model.val(data="ocr_dataset/")                        # det hmean, e2e F1, 1-NED
+```
+
+| `prompt` | Release prompt | `Results.ocr` |
+|---|---|---|
+| `"ocr"` (default) | `<|grounding|>OCR this image.` | one region per text line, `labels` all `text`, `markdown` empty |
+| `"markdown"` | `<|grounding|>Convert the document to markdown.` | one region per layout block (block markdown as transcript, layout category in `labels`; figures dropped) and the page in `markdown` |
+| `"free"` | `Free OCR.` | no regions, the page text in `markdown` |
+| any other string | as given (`<image>` is prepended if missing) | whatever grounding it emits, plus `markdown` |
+
+- Boxes come on a 0 to 999 grid and are scaled with `x / 999 * width` to
+  original-image pixels as axis-aligned quads, then sorted top to bottom and
+  left to right as the OCR contract specifies. `markdown` keeps the model's
+  own reading order.
+- `resolution`: `tiny` (512), `small` (640), `base` (1024), `large` (1280),
+  or `gundam` (default: a 1024 global view plus 2 to 9 local 640 crops for
+  pages larger than 640 px), as documented by the release.
+- Decoding follows the release: greedy, up to 8192 new tokens,
+  `no_repeat_ngram_size=20` (constructor option).
+- Confidence is a constant 1.0. `train()` and `export()` raise.
+- CUDA runs bf16 weights under `torch.autocast`, as the release does (fp16 on
+  GPUs without bf16). CPU and MPS run float32 with eager attention (about 13
+  GB of memory); MPS has not been run on hardware.
+- DeepSeek-OCR-2 (`LibreVLM("deepseek-ocr-2")`, size `2`, Apache-2.0 code and
+  weights, mirror `LibreYOLO/LibreDeepSeekOCR2`) keeps the decoder and the SAM
+  stage and replaces CLIP with a 24-layer Qwen2 encoder that reads the SAM
+  tokens bidirectionally and emits one learned query per visual token
+  causally. Its views are 1024 px global plus up to 6 local 768 px crops
+  (`resolution="gundam"`, default) or a single 1024 view (`"base"`); the
+  other resolutions have no learned queries and raise. Same prompts, same
+  outputs.
+- EXIF orientation is not applied (LibreYOLO's image loader convention); the
+  release transposes EXIF-rotated photos first.
+
+Validation: on an RTX 3090 the port reproduces the release (transformers
+4.46.3 remote code, bf16 autocast, greedy) token for token on 17 cases: six
+synthetic pages with the OCR and markdown prompts in Gundam mode, one page at
+each of the other four resolutions, and the free prompt; the parsed boxes are
+identical. DeepSeek-OCR-2 reproduces its release the same way on 14 cases (the
+six pages with both prompts in Gundam mode, one Base page, the free prompt).
+Upstream-reported benchmark numbers are in the release papers (arXiv
+2510.18234, 2601.20552) and are not reproduced here.
 
 ## Known limitations (v1)
 
