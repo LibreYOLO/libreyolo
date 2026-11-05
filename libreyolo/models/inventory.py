@@ -81,6 +81,12 @@ OPTIONAL_MODELS = (
         "vlm",
         "transformers",
     ),
+    (
+        "libreyolo.models.falconocr.model",
+        "LibreFalconOCR",
+        "vlm",
+        "transformers",
+    ),
     ("libreyolo.models.ground.showui", "LibreShowUI", "vlm", "transformers"),
     ("libreyolo.models.vla.smolvla", "LibreSmolVLA", "vla", "lerobot"),
     ("libreyolo.models.vla.act_policy", "LibreACT", "vla", "lerobot"),

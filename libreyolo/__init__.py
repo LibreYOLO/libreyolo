@@ -247,6 +247,7 @@ def __getattr__(name):
         "LibreDeepSeekOCR": (".models.deepseekocr", "LibreDeepSeekOCR"),
         "LibrePaddleOCRVL": (".models.paddleocrvl", "LibrePaddleOCRVL"),
         "LibreGLMOCR": (".models.glmocr", "LibreGLMOCR"),
+        "LibreFalconOCR": (".models.falconocr", "LibreFalconOCR"),
         "LibreMODUS": (".models.modus", "LibreMODUS"),
         "LibreModus": (".models.modus", "LibreModus"),
         "LibreDetAny3D": (".models.detany3d", "LibreDetAny3D"),
@@ -415,6 +416,7 @@ __all__ = [
     "LibreDeepSeekOCR",
     "LibrePaddleOCRVL",
     "LibreGLMOCR",
+    "LibreFalconOCR",
     "LibreMODUS",
     "LibreModus",
     # OpenAI-compatible LLM client (optional, requires libreyolo[llm])

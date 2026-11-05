@@ -131,6 +131,14 @@ _GLMOCR_ALIASES: Dict[str, str] = {
     "glm-ocr-0.9b": "0.9b",
 }
 
+# Falcon OCR lives in ``models/falconocr`` (vendored architecture) and
+# resolves lazily for the same reason as SenseNova.
+_FALCONOCR_ALIASES: Dict[str, str] = {
+    "falcon-ocr": "270m",
+    "falconocr": "270m",
+    "falcon-ocr-270m": "270m",
+}
+
 _DEFAULT_MODEL = "qwen3-vl-4b"
 
 
@@ -197,11 +205,16 @@ def LibreVLM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreVLMModel:
         from ..glmocr import LibreGLMOCR
 
         return LibreGLMOCR(size=_GLMOCR_ALIASES[key], **kwargs)
+    if key in _FALCONOCR_ALIASES:
+        from ..falconocr import LibreFalconOCR
+
+        return LibreFalconOCR(size=_FALCONOCR_ALIASES[key], **kwargs)
     match = _ALIASES.get(key)
     if match is None:
         known = set(_ALIASES) | set(_LAZY_ALIASES) | set(_MODUS_ALIASES)
         known |= set(_WEVISONE_ALIASES) | set(_DEEPSEEKOCR_ALIASES)
         known |= set(_PADDLEOCRVL_ALIASES) | set(_GLMOCR_ALIASES)
+        known |= set(_FALCONOCR_ALIASES)
         raise ValueError(
             f"Unknown VLM model {model!r}. Known aliases: {', '.join(sorted(known))}."
         )
@@ -234,6 +247,10 @@ def __getattr__(name: str):
         from ..glmocr import LibreGLMOCR
 
         return LibreGLMOCR
+    if name == "LibreFalconOCR":
+        from ..falconocr import LibreFalconOCR
+
+        return LibreFalconOCR
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -257,6 +274,7 @@ __all__ = [
     "LibreDeepSeekOCR",
     "LibrePaddleOCRVL",
     "LibreGLMOCR",
+    "LibreFalconOCR",
     "LibreMODUS",
     "LibreModus",
 ]

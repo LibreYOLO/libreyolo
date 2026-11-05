@@ -125,7 +125,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Body mesh** | SAM 3D Body |
 | **Restoration** | DDColor, HVI-CIDNet, LaMa, NAFNet, QuickSRNet, Real-ESRGAN, SwinIR |
 | **Background removal** | BiRefNet, FeyNobg, BEN2, ViTMatte |
-| **OCR** | PP-OCR, DeepSeek-OCR, DeepSeek-OCR-2, PaddleOCR-VL, GLM-OCR |
+| **OCR** | PP-OCR, DeepSeek-OCR, DeepSeek-OCR-2, PaddleOCR-VL, GLM-OCR, Falcon OCR |
 | **Document layout** | PP-DocLayoutV3 (regions plus reading order) |
 | **Point detection** | FOMO, LocateAnything |
 | **Gaze** | L2CS |

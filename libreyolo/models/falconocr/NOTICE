@@ -1,0 +1,52 @@
+LibreFalconOCR - third-party attribution
+=========================================
+
+The Falcon OCR family is a PyTorch port of the Falcon OCR inference code
+released by the Technology Innovation Institute (TII).
+
+    Project:  Falcon OCR (Hugging Face release)
+    Upstream: https://huggingface.co/tiiuae/Falcon-OCR
+    Commit:   0bc28f89c90fbe8bdb063097fab144d4ce4c19b5
+    License:  Apache License 2.0 (model card)
+
+    Project:  Falcon Perception (same architecture and inference code, with
+              the LICENSE and NOTICE files)
+    Upstream: https://github.com/tiiuae/Falcon-Perception
+    Commit:   c457916c9974efbacfa91f0f6ecc2c49c6543e56
+    License:  Apache License 2.0
+    Copyright 2026 Technology Innovation Institute (TII), UAE
+
+Upstream NOTICE (Falcon Perception), retained as it asks:
+
+    Falcon Perception
+    Copyright 2026 Technology Innovation Institute (TII), UAE
+    https://github.com/tiiuae/falcon-perception
+
+    This product includes software developed at the Technology Innovation
+    Institute (TII), Abu Dhabi, UAE.
+
+Ported or adapted files (each keeps an SPDX header with this provenance):
+
+  * network.py    <- modeling_falcon_ocr.py (Attention, FeedForward,
+                     TransformerBlock, KVCache, FalconOCRForCausalLM forward
+                     and decode loop), rope.py (1D and 2D "golden" rotary),
+                     attention.py (the mask rules)
+  * processing.py <- processing_falcon_ocr.py (resize_image_if_necessary,
+                     smart_resize, normalization, tokenize_inputs,
+                     get_pos_thw)
+  * model.py      <- modeling_falcon_ocr.py (CATEGORY_PROMPTS,
+                     LAYOUT_TO_OCR_CATEGORY, the nested-box filter and the
+                     crop rules of generate_with_layout)
+
+LibreYOLO adaptations: FlexAttention block masks are evaluated as a dense
+boolean mask with the attention-sink log-sum-exp computed in float32 query
+chunks; the Triton squared-ReLU kernel is plain PyTorch; torch.compile, the
+batched left-padded engine and sampling (temperature/top-k) are dropped;
+images are patchified unpadded (equivalent to the release's padded grid plus
+mask); the tokenizer loads through transformers' fast tokenizer class without
+remote code; the layout stage uses LibreYOLO's PP-DocLayoutV3 port instead of
+the transformers one.
+
+Model weights: LibreYOLO/LibreFalconOCR270m on Hugging Face mirrors,
+unmodified, tiiuae/Falcon-OCR @ 0bc28f89c90fbe8bdb063097fab144d4ce4c19b5
+(Falcon OCR 1.5), Apache-2.0, Copyright 2026 Technology Innovation Institute.

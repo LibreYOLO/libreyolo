@@ -812,6 +812,24 @@
     "available": true,
     "group": "g3"
   },
+  "falconocr": {
+    "class": "libreyolo.models.falconocr.model.LibreFalconOCR",
+    "tasks": [
+      "ocr"
+    ],
+    "default_task": "ocr",
+    "sizes": {
+      "270m": 1536
+    },
+    "default_imgsz": {
+      "270m": 1536
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "faster_rcnn": {
     "class": "libreyolo.models.faster_rcnn.model.LibreFasterRCNN",
     "tasks": [

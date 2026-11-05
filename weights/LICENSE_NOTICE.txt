@@ -1075,6 +1075,22 @@ PaddlePaddle/PP-DocLayoutV3_safetensors @ e4f489dc536556fc1be02b973ba06756e0d4a2
 The mirror ships LICENSE and NOTICE. Ported pipeline code: see
 libreyolo/models/glmocr/NOTICE.
 
+Falcon OCR (LibreFalconOCR 270m)                       Apache-2.0
+Early-fusion document OCR model, version 1.5
+------------------------------------------------------------
+
+Upstream: Technology Innovation Institute, https://huggingface.co/tiiuae/Falcon-OCR
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+Mirrored, unmodified, at LibreYOLO/LibreFalconOCR270m
+(@ 00657b06ef217f0eb87120141adf0ea2971c9b41) from tiiuae/Falcon-OCR @
+0bc28f89c90fbe8bdb063097fab144d4ce4c19b5. The upstream repository declares
+Apache-2.0 in its model card; the license text and NOTICE come from TII's
+code repository https://github.com/tiiuae/Falcon-Perception, whose NOTICE
+covers the model weights. The mirror ships LICENSE and NOTICE.
+Ported inference code: see libreyolo/models/falconocr/NOTICE.
+
 
 Speridlabs Idol (LibreSperidlabsIdol 0.6b)              Apache-2.0
 Image-to-3D Gaussian splats

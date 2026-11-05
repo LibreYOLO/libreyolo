@@ -102,6 +102,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         "libreyolo.models.wevisone",
         "libreyolo.models.deepseekocr",
         "libreyolo.models.glmocr",
+        "libreyolo.models.falconocr",
     ):
         notice = importlib.resources.files(package_name).joinpath("NOTICE")
         if not notice.is_file():

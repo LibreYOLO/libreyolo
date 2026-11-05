@@ -50,6 +50,7 @@ in preflight.
 | eomt | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | eomt | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | eomt | panoptic |  |  |  |  |  |  |  |  |  |  |  |  |
+| falconocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | faster_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | fcn | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | fcos | detect | ✓ | ✓ |  |  | available |  |  |  |  |  |  |  |
@@ -1014,6 +1015,18 @@ These converter paths are callable with the recorded validation context.
 - `eomt` / `panoptic` / `tflite`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `panoptic` / `coreml`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `panoptic` / `coreai`: EoMT instance and panoptic export do not yet have runtime parsing.
+- `falconocr` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `openvino`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `paddle`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `mnn`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `rknn`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `ncnn`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
 - `faster_rcnn` / `detect` / `torchscript`: The variable-length two-stage detection graph has only been validated through the ONNX runtime contract.
 - `faster_rcnn` / `detect` / `executorch`: The variable-length two-stage detection graph has only been validated through the ONNX runtime contract.
 - `faster_rcnn` / `detect` / `tensorrt`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.

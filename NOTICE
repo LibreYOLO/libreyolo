@@ -1007,6 +1007,21 @@ GLM-OCR document-parsing pipeline (Apache License 2.0)
     mirror LibreYOLO/LibreGLMOCR0.9b of zai-org/GLM-OCR (MIT, per its model
     card) and PaddlePaddle/PP-DocLayoutV3_safetensors (Apache-2.0), pinned.
 
+Falcon OCR (Apache License 2.0)
+    Path:    libreyolo/models/falconocr/
+    License: libreyolo/models/falconocr/NOTICE
+    Source:  https://huggingface.co/tiiuae/Falcon-OCR
+             (commit 0bc28f89c90fbe8bdb063097fab144d4ce4c19b5) and
+             https://github.com/tiiuae/Falcon-Perception
+             (commit c457916c9974efbacfa91f0f6ecc2c49c6543e56)
+             Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+    The early-fusion transformer, its rotary embeddings and attention-mask
+    rules, the input pipeline and the layout crop rules are ported from the
+    Apache-2.0 release for inference only (no Triton or FlexAttention).
+    Weights (Apache-2.0) download from the byte-identical
+    LibreYOLO/LibreFalconOCR270m mirror at a pinned revision.
+
 ------------------------------------------------------------------------
 Pretrained model weights
 ------------------------------------------------------------------------
