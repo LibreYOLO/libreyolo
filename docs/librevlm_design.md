@@ -43,6 +43,7 @@ size marked with `*`. The authoritative alias tables are in
 | `molmo2`, `-4b`*, `-8b`, `-o-7b` | Molmo2 | Apache-2.0 | point-only; pinned LibreYOLO mirrors; separate `molmo2` extra |
 | `sensenova-vision`, `-7b`*                    | SenseNova-Vision | Apache-2.0 code, CC BY-NC 4.0 weights | unified multimodal; 7 tasks, vendored port, heavy |
 | `wevisone-vl`, `-2b`*, `-4b`                  | WeVisOne-VL | Apache-2.0        | Qwen3-VL perception fine-tune; 5 tasks; ported pixel decoder |
+| `paddleocr-vl`, `-0.9b`*, `paddleocrvl`       | PaddleOCR-VL | Apache-2.0       | `ocr` only: layout regions plus per-region recognition and page markdown; needs transformers>=5.3 |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
 | `deepseek-ocr`*, `deepseekocr`, `deepseek-ocr-2` | DeepSeek-OCR | MIT (`1`), Apache-2.0 (`2`) | document OCR, `ocr` task only; vendored port, mirrored weights |
 
@@ -437,6 +438,46 @@ identical. DeepSeek-OCR-2 reproduces its release the same way on 14 cases (the
 six pages with both prompts in Gundam mode, one Base page, the free prompt).
 Upstream-reported benchmark numbers are in the release papers (arXiv
 2510.18234, 2601.20552) and are not reproduced here.
+
+### PaddleOCR-VL
+
+PaddleOCR-VL (PaddlePaddle, Apache-2.0 code and weights) is a two-stage
+document parser serving the `ocr` task only. PP-DocLayoutV2 finds 25 kinds of
+layout region and their reading order; PaddleOCR-VL-0.9B (NaViT-style vision
+encoder plus ERNIE-4.5-0.3B) then reads each region from a task prompt:
+`OCR:` for text and titles, `Table Recognition:` (OTSL, returned as HTML),
+`Formula Recognition:` (LaTeX) and, with `use_chart_recognition=True`,
+`Chart Recognition:`. Both networks load through native transformers classes
+(no remote code) from one pinned mirror, `LibreYOLO/LibrePaddleOCRVL0.9b`. The
+pipeline around them (layout thresholds, NMS and merges, overlap filter,
+prompt routing, pixel budgets, content clean-up, markdown) is ported from
+PaddleX in `libreyolo/models/paddleocrvl/`; see that package's `NOTICE`.
+
+```python
+model = LibreVLM("paddleocr-vl")
+result = model.predict("page.png")
+result.ocr.texts, result.ocr.labels   # one transcript and layout class per region
+result.ocr.markdown                   # the page as markdown, reading order
+model.val(data="ocr_dataset/")        # OCR validator: hmean, end-to-end F1, 1-NED
+LibreVLM("paddleocr-vl", use_layout_detection=False, prompt_label="formula")
+```
+
+- Regions are axis-aligned layout boxes written as 4-point quads, one per
+  recognized block (a paragraph, a title, a table), not one per text line.
+  Pictures, and charts and seals by default, are not recognized and are left
+  out of `Results.ocr` and the markdown.
+- `Results.ocr.conf` is the geometric mean of the generated tokens'
+  probabilities; `det_conf` is the layout score. `conf=` does not gate
+  regions; the layout keeps the upstream per-class thresholds (override with
+  `layout_threshold=`).
+- Recognition is greedy with up to 4096 new tokens and no repetition penalty,
+  as upstream runs it locally, and each region is resized within
+  `min_pixels`/`max_pixels` (default 112896 / 1003520). The image processor
+  uses the PIL backend, which matches upstream's resize exactly.
+- Not ported: adjacent text-block merging, figures embedded in tables, seal
+  and spotting recognition, polygon layout shapes, document unwarping and
+  image export. The markdown is the plain variant (no HTML centering).
+- `train()` and `export()` raise.
 
 ## Known limitations (v1)
 

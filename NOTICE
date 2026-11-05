@@ -855,6 +855,20 @@ DeepSeek-OCR (MIT License; Apache-2.0 sub-components)
     Qwen2 modules (Apache-2.0); its weights (Apache-2.0) download from the
     LibreYOLO/LibreDeepSeekOCR2 mirror.
 
+PaddleOCR-VL document-parsing pipeline (Apache License 2.0)
+    Path:    libreyolo/models/paddleocrvl/
+    License: libreyolo/models/paddleocrvl/NOTICE
+    Source:  https://github.com/PaddlePaddle/PaddleX
+             (commit 4c968d30b9d0d4a693d9eaaef0881c20f8d7d0e0)
+             Copyright (c) 2024 PaddlePaddle Authors.
+
+    The layout post-processing, region overlap filter, prompt routing,
+    content clean-up (OTSL to HTML, repetition truncation) and markdown
+    assembly are ported from PaddleX. Both networks run from Transformers
+    (Apache-2.0); no model code is copied. Weights: LibreYOLO's unmodified
+    mirror LibreYOLO/LibrePaddleOCRVL0.9b of PaddlePaddle/PaddleOCR-VL and
+    PaddlePaddle/PP-DocLayoutV2_safetensors (Apache-2.0), pinned.
+
 ------------------------------------------------------------------------
 Pretrained model weights
 ------------------------------------------------------------------------

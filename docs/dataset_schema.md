@@ -446,6 +446,12 @@ prediction has zero regions). Validation scores regions only.
 Validation is inference-only in v1 (OCR training is out of scope). Canonical
 sample resolver: `libreyolo.data.ocr_dataset.resolve_ocr_samples`.
 
+Predictions may carry two optional extras on `Results.ocr`: `labels`, one
+layout class per region (for example `text`, `table`, `display_formula`), and
+`markdown`, the page-level document the regions assemble into. Line-level OCR
+families leave them as `None` and `""`. Validation ignores both; block-level
+parsers are scored against ground truth whose regions are blocks.
+
 ## pose
 
 YAML adds:

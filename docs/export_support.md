@@ -102,6 +102,7 @@ in preflight.
 | omdet_turbo | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | ov_deim | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | owlv2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| paddleocrvl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | pe | classify | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
 | pe | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | ✓ |  |  | ✓ |
@@ -1539,6 +1540,18 @@ These converter paths are callable with the recorded validation context.
 - `owlv2` / `detect` / `tflite`: Open-vocabulary runtime export is out of scope for v1.
 - `owlv2` / `detect` / `coreml`: Open-vocabulary runtime export is out of scope for v1.
 - `owlv2` / `detect` / `coreai`: Open-vocabulary runtime export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `tensorrt`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `openvino`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `paddle`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `mnn`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `rknn`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `ncnn`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
 - `pe` / `classify` / `paddle`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `pe` / `classify` / `rknn`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
