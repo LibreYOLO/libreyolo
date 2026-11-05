@@ -291,8 +291,14 @@ class CoreMLBackend(BaseBackend):
             # the traced graph applies those transforms internally).
             arr = np.array(img)
             orig_h, orig_w = arr.shape[:2]
+            if orig_h == 0 or orig_w == 0:
+                raise ValueError(
+                    f"Image has an empty dimension: {orig_w}x{orig_h} (WxH)."
+                )
             ratio = min(input_h / orig_h, input_w / orig_w)
-            new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
+            # Clamp so extreme aspect ratios (e.g. 1x2000) don't truncate to a 0-px side.
+            new_w = max(1, int(orig_w * ratio))
+            new_h = max(1, int(orig_h * ratio))
             resized = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
             padded = Image.new("RGB", (input_w, input_h), (114, 114, 114))
             padded.paste(resized, (0, 0))

@@ -31,8 +31,11 @@ def preprocess_numpy(
     min(input/orig_h, input/orig_w)``.
     """
     orig_h, orig_w = img_rgb_hwc.shape[:2]
+    if orig_h == 0 or orig_w == 0:
+        raise ValueError(f"Image has an empty dimension: {orig_w}x{orig_h} (WxH).")
     ratio = min(input_size / orig_h, input_size / orig_w)
-    new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
+    # Clamp so extreme aspect ratios (e.g. 1x2000) don't truncate to a 0-px side.
+    new_w, new_h = max(1, int(orig_w * ratio)), max(1, int(orig_h * ratio))
 
     img_resized = Image.fromarray(img_rgb_hwc).resize(
         (new_w, new_h), Image.Resampling.BILINEAR
