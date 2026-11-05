@@ -84,6 +84,19 @@ Middlebury `.flo` file next to it, named `<frame stem>_<frame index>.flo` so
 pairs stay unique across folders; `FlowField.save(path)` writes `.flo` or
 `.npy` directly.
 
+Amendment (Video Depth Anything, 2026-11): the sequence runner is shared with
+per-frame sequence families of other tasks. A family that sets
+`SEQUENCE_INPUT = True` gets the same source handling (ordering, `vid_stride`,
+lazy reading, `stream=True`, saving), but no pairing: the runner hands
+`_forward_sequence` an iterator of `(preprocessed frame, original size)` in
+source order, and the family yields exactly one raw output per frame, in
+order, as soon as it is final. The runner pairs output `t` with frame `t`,
+calls `_postprocess` and raises if the counts differ. How many frames a family
+reads ahead (a fixed window, a memory bank) is the family's business; pulling
+frames lazily keeps live sources streaming. A single image is a one-frame
+sequence for these families, unlike flow. The task keeps its own result
+contract; flow itself is unchanged.
+
 ## Consequences
 
 - Flow results never fabricate boxes; `Results.boxes` is `None`.
