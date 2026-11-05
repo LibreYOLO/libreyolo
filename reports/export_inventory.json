@@ -1016,6 +1016,24 @@
     "available": true,
     "group": "s"
   },
+  "glmocr": {
+    "class": "libreyolo.models.glmocr.model.LibreGLMOCR",
+    "tasks": [
+      "ocr"
+    ],
+    "default_task": "ocr",
+    "sizes": {
+      "0.9b": 800
+    },
+    "default_imgsz": {
+      "0.9b": 800
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vlm",
+    "available": true,
+    "group": "s"
+  },
   "ground_florence2": {
     "class": "libreyolo.models.ground.florence.LibreGroundFlorence2",
     "tasks": [

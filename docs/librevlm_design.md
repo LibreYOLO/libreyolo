@@ -44,6 +44,7 @@ size marked with `*`. The authoritative alias tables are in
 | `sensenova-vision`, `-7b`*                    | SenseNova-Vision | Apache-2.0 code, CC BY-NC 4.0 weights | unified multimodal; 7 tasks, vendored port, heavy |
 | `wevisone-vl`, `-2b`*, `-4b`                  | WeVisOne-VL | Apache-2.0        | Qwen3-VL perception fine-tune; 5 tasks; ported pixel decoder |
 | `paddleocr-vl`, `-0.9b`*, `paddleocrvl`       | PaddleOCR-VL | Apache-2.0       | `ocr` only: layout regions plus per-region recognition and page markdown; needs transformers>=5.3 |
+| `glm-ocr`, `-0.9b`*, `glmocr`                 | GLM-OCR | MIT weights, Apache-2.0 SDK and layout | `ocr` only: PP-DocLayoutV3 regions plus per-region recognition and page markdown; needs transformers>=5.3 |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
 | `deepseek-ocr`*, `deepseekocr`, `deepseek-ocr-2` | DeepSeek-OCR | MIT (`1`), Apache-2.0 (`2`) | document OCR, `ocr` task only; vendored port, mirrored weights |
 
@@ -477,6 +478,47 @@ LibreVLM("paddleocr-vl", use_layout_detection=False, prompt_label="formula")
 - Not ported: adjacent text-block merging, figures embedded in tables, seal
   and spotting recognition, polygon layout shapes, document unwarping and
   image export. The markdown is the plain variant (no HTML centering).
+- `train()` and `export()` raise.
+
+### GLM-OCR
+
+GLM-OCR (Z.ai; MIT weights per the model card, Apache-2.0 SDK) is a two-stage
+document parser serving the `ocr` task only. PP-DocLayoutV3 finds 25 kinds of
+layout region and their reading order; GLM-OCR-0.9B (CogViT encoder plus a
+GLM-0.5B decoder) then reads each region from a task prompt:
+`Text Recognition:` for text, titles and seals, `Table Recognition:` (HTML)
+and `Formula Recognition:` (LaTeX). Both networks load through native
+transformers classes (no remote code) from one pinned mirror,
+`LibreYOLO/LibreGLMOCR0.9b`. The pipeline around them (layout NMS and merges,
+label routing, crops, resize and JPEG round trip, decoding settings, content
+clean-up, formula-number and hyphen merges, markdown) is ported from the
+official GLM-OCR SDK in `libreyolo/models/glmocr/`; see that package's
+`NOTICE`.
+
+```python
+model = LibreVLM("glm-ocr")
+result = model.predict("page.png")
+result.ocr.texts, result.ocr.labels   # one transcript and layout class per block
+result.ocr.markdown                   # the page as markdown, reading order
+LibreVLM("glm-ocr", use_layout_detection=False, prompt_label="table")
+model.chat("id.png", 'Extract as JSON: {"name": "", "date": ""}')  # information extraction
+```
+
+- Regions are axis-aligned layout boxes written as 4-point quads, one per
+  recognized block. Headers, footers, page numbers, footnotes and side text
+  are dropped, as upstream does; pictures and charts are not read and are
+  left out of `Results.ocr` and the markdown.
+- Decoding follows the SDK request: greedy, repetition penalty 1.1, up to
+  8192 new tokens. Each crop is resized to multiples of 28 pixels and
+  round-tripped through JPEG before recognition, as the SDK sends it
+  (`image_format=None` skips the round trip).
+- `Results.ocr.conf` is the geometric mean of the generated tokens'
+  probabilities; `det_conf` is the layout score. `conf=` does not gate
+  regions; the layout uses the upstream threshold 0.3 (override with
+  `layout_threshold=`).
+- Not ported: PDF input, polygon crops, picture export and the hosted-API
+  client. `use_layout_detection=False` is a LibreYOLO convenience with no SDK
+  counterpart.
 - `train()` and `export()` raise.
 
 ## Known limitations (v1)
