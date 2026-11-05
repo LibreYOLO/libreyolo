@@ -91,6 +91,8 @@ in preflight.
 | mobilenetv4 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | mobilesam | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | moge2 | normal | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available |  |  |  |
+| moge3 | depth |  |  |  |  |  |  |  |  |  |  |  |  |
+| moge3 | normal | ✓ | ✓ |  |  |  |  |  |  |  |  |  |  |
 | molmo2 | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | moondream | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | moondream | point |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -340,6 +342,8 @@ A check mark applies only under any constraint listed here.
 - `moge2` / `normal` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed square input shape
 - `moge2` / `normal` / `tensorrt`: FP32, batch 1, fixed square input divisible by 14; TensorRT evidence uses TensorRT 10.16 and OpenVINO evidence uses OpenVINO 2026.2
 - `moge2` / `normal` / `openvino`: FP32, batch 1, fixed square input divisible by 14; TensorRT evidence uses TensorRT 10.16 and OpenVINO evidence uses OpenVINO 2026.2
+- `moge3` / `normal` / `onnx`: FP32, batch 1, fixed square input divisible by 14; exported inference rejects non-square sources
+- `moge3` / `normal` / `torchscript`: FP32, batch 1, fixed square input divisible by 14; exported inference rejects non-square sources
 - `nafnet` / `restore` / `onnx`: fixed-resolution export canvas
 - `nafnet` / `restore` / `torchscript`: fixed-resolution export canvas
 - `nafnet` / `restore` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
@@ -1411,6 +1415,28 @@ These converter paths are callable with the recorded validation context.
 - `moge2` / `normal` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct lowering cannot lower the encoder's cubic Resize because its input C/H/W signature remains dynamic.
 - `moge2` / `normal` / `coreml`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
 - `moge2` / `normal` / `coreai`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
+- `moge3` / `depth` / `onnx`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `torchscript`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `executorch`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `tensorrt`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `openvino`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `paddle`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `mnn`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `rknn`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `ncnn`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `tflite`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `coreml`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `coreai`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `normal` / `executorch`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `tensorrt`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
+- `moge3` / `normal` / `openvino`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
+- `moge3` / `normal` / `paddle`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `mnn`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `rknn`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `ncnn`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `tflite`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `coreml`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `coreai`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
 - `molmo2` / `point` / `onnx`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `molmo2` / `point` / `torchscript`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `molmo2` / `point` / `executorch`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.

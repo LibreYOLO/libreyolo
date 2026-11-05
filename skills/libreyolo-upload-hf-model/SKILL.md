@@ -102,6 +102,7 @@ file = name + ".pt"
 | DINOv2 | `LibreDINOv2` | `LibreDINOv2n.pt` (semantic default), `LibreDINOv2n-cls.pt` |
 | DepthAnythingV2 | `LibreDepthAnythingV2` | `LibreDepthAnythingV2s-depth.pt` (only `s` is Apache; b/l/g are CC-BY-NC, see below) |
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
+| MoGe3 | `LibreMoGe3` | `LibreMoGe3l-depth.pt`, `LibreMoGe3g-normal.pt` (MIT code + weights; one tensor set per size serves both tasks) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
 | GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
 | FOMO | `LibreFOMO` | `LibreFOMOs-point.pt` (hosted s/m/l are randomly initialised MIT weights; upstream FOMO weights are cc-by-nc-4.0 and not mirrored) |
@@ -351,6 +352,9 @@ LibreDepthAnythingV2l-depth.pt, LibreDepthAnythingV2g-depth.pt,
 LibreDepthAnything3l-depth.pt,
 
 LibreMoGe2s-normal.pt, LibreMoGe2b-normal.pt, LibreMoGe2l-normal.pt,
+
+LibreMoGe3l-depth.pt, LibreMoGe3l-normal.pt, LibreMoGe3g-depth.pt,
+LibreMoGe3g-normal.pt,
 
 LibreZipDepthb-depth.pt, LibreZipDepthbnpu-depth.pt,
 

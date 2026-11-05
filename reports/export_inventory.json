@@ -1496,6 +1496,27 @@
     "available": true,
     "group": "g3"
   },
+  "moge3": {
+    "class": "libreyolo.models.moge3.model.LibreMoGe3",
+    "tasks": [
+      "depth",
+      "normal"
+    ],
+    "default_task": "depth",
+    "sizes": {
+      "l": 840,
+      "g": 840
+    },
+    "default_imgsz": {
+      "l": 840,
+      "g": 840
+    },
+    "task_sizes": {},
+    "export_override": "custom",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "molmo2": {
     "class": "libreyolo.models.vlm.molmo2.LibreMolmo2",
     "tasks": [

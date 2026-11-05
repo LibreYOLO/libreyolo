@@ -226,6 +226,7 @@ _FIXED_SQUARE_EXPORT_FAMILIES = {
     "ec",
     "lwdetr",
     "moge2",
+    "moge3",
     "ppdoclayoutv3",
     "rtdetr",
     "rtdetrv2",
@@ -1182,7 +1183,7 @@ class BaseExporter(ABC):
         rfdetr_inner = None
         family = self.model._get_model_name()
         task = getattr(self.model, "task", "detect")
-        moge2_onnx_mode = family == "moge2" and hasattr(
+        moge2_onnx_mode = family in ("moge2", "moge3") and hasattr(
             root_model, "set_onnx_compatible_mode"
         )
         original_moge2_onnx_mode = bool(

@@ -53,6 +53,7 @@ def _requires_onnx_opset17(model_family) -> bool:
         "ppdoclayoutv3",
         "midas",
         "moge2",
+        "moge3",
         # V-JEPA 2 attention lowers to aten::scaled_dot_product_attention,
         # which ONNX only supports from opset 14.
         "vjepa2",

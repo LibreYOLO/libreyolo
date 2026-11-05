@@ -3331,6 +3331,44 @@ _add(
 )
 _add(
     "validated",
+    ("moge3",),
+    ("normal",),
+    ("onnx", "torchscript"),
+    reason=(
+        "tests/unit/test_moge3.py covers same-canvas native-versus-exported "
+        "angular normal parity, artifact reload, metadata, and unit-vector "
+        "normalization on a random-init fixture; the normal graph is the "
+        "MoGe-2 export contract and contains no sparse refiner."
+    ),
+    since="1.7",
+    constraint=(
+        "FP32, batch 1, fixed square input divisible by 14; exported "
+        "inference rejects non-square sources"
+    ),
+)
+_add(
+    "blocked",
+    ("moge3",),
+    ("normal",),
+    ("executorch", "ncnn", "tflite", "paddle", "mnn", "rknn", "coreml", "coreai"),
+    reason=(
+        "MoGe-3 normal export is validated for ONNX and TorchScript only; "
+        "this runtime has not been run for the family."
+    ),
+)
+_add(
+    "blocked",
+    ("moge3",),
+    ("depth",),
+    EXPORT_FORMATS,
+    reason=(
+        "The sparse refiner builds data-dependent voxel sets and camera "
+        "recovery runs a CPU least-squares solve, so the depth graph is not "
+        "capturable. Use the native .pt model for depth."
+    ),
+)
+_add(
+    "validated",
     ("nafnet", "realesrgan"),
     ("restore",),
     ("coreai",),
