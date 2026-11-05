@@ -2383,6 +2383,24 @@
     "available": true,
     "group": "s"
   },
+  "sam31": {
+    "class": "libreyolo.models.sam.sam3.LibreSAM31",
+    "tasks": [
+      "segment"
+    ],
+    "default_task": "segment",
+    "sizes": {
+      "large": 1008
+    },
+    "default_imgsz": {
+      "large": 1008
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "sam",
+    "available": true,
+    "group": "s"
+  },
   "sam3dbody": {
     "class": "libreyolo.models.sam3dbody.model.LibreSAM3DBody",
     "tasks": [

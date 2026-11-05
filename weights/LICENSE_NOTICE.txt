@@ -594,6 +594,21 @@ project the weights were derived from. Per-family summary:
              requires accepting Meta's terms. LibreYOLO downloads the weights
              directly and does not distribute them under the MIT license.
 
+    SAM 3.1 (LibreYOLO/LibreSAM31large)               SAM License (restricted)
+             upstream: facebook/sam3.1 revision
+             daa63191845a41281374e725f4c9e51c7a824460, sam3.1_multiplex.pt
+             (SHA-256 0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6).
+             Image path only (detector and interactive SAM head), converted to
+             the Transformers SAM 3 layout by weights/convert_sam31_weights.py:
+             key renames, QKV split, class-token position embedding dropped,
+             CLIP projection transposed, point embeddings concatenated, and
+             the unused fourth FPN level zero-filled. No learned value is
+             changed; the Object Multiplex video weights are not mirrored.
+             The SAM License permits redistribution when its terms are passed
+             through, so the mirror carries the license verbatim and an
+             automatic access gate (SAM 3D Body precedent). The weights are
+             NOT covered by LibreYOLO's MIT license.
+
     EdgeTAM (LibreYOLO/LibreEdgeTAM)                   Apache-2.0
              Converted from facebook/EdgeTAM revision
              14d7ecc48c656b94e5184519f698cd5386c5a2bf (edgetam.pt

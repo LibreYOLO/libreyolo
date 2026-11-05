@@ -8,7 +8,14 @@ from __future__ import annotations
 
 from . import transformers_compat as _transformers_compat
 from .base import LibreSAMModel
-from .model import LibreEdgeTAM, LibreSAM, LibreSAM1, LibreSAM2, LibreSAM3
+from .model import (
+    LibreEdgeTAM,
+    LibreSAM,
+    LibreSAM1,
+    LibreSAM2,
+    LibreSAM3,
+    LibreSAM31,
+)
 
 # Makes the upstream vision attention capture-safe. Declines quietly if a
 # future transformers release restructures it, in which case SAM keeps working
@@ -22,6 +29,7 @@ __all__ = [
     "LibreSAM2",
     "LibreEdgeTAM",
     "LibreSAM3",
+    "LibreSAM31",
     "LibreMobileSAM",
     "LibrePicoSAM3",
 ]
