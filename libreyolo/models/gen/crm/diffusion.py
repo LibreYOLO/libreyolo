@@ -845,6 +845,16 @@ def run_stage(
         schedule = alphas_cumprod(torch.float16 if half else torch.float32)
         x = ddim_sample(denoise, noise["latents"].to(device), steps, guidance, schedule)
         images = vae.decode(x / SCALE_FACTOR)
+    if not torch.isfinite(images).all():
+        # The fp16 decoder can overflow on some latents (upstream then casts
+        # NaN to uint8); decode those in fp32 instead.
+        dtype = next(vae.parameters()).dtype
+        vae.float()
+        try:
+            images = vae.decode(x.float() / SCALE_FACTOR)
+        finally:
+            vae.to(dtype)
+    with autocast(device, half):
         images = torch.clamp((images + 1.0) / 2.0, 0.0, 1.0)
         images = (255.0 * images.permute(0, 2, 3, 1).float().cpu().numpy()).astype(np.uint8)
     return images

@@ -209,7 +209,10 @@ coordinate maps, a convolutional UNet turns them into a triplane, and
 FlexiCubes extracts the surface. Upstream needs xformers, nvdiffrast (NVIDIA,
 non-commercial) and a GPL mesh library; LibreYOLO runs the same weights in
 plain PyTorch on NVIDIA GPUs, Apple silicon and CPU, in fp16 on the GPUs as
-upstream. A seed gives the same starting noise on every device.
+upstream. A seed gives the same starting noise on every device; on CUDA a
+repeat call gives the same views and triangles, with vertices that can move
+by about 1e-7 (FlexiCubes accumulates with atomic adds, as upstream). An
+object takes about 12 s and 12 GB on an RTX 3090.
 
 ```python
 model = LibreGen("crm")

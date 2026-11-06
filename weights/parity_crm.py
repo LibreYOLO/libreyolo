@@ -7,20 +7,32 @@ the OpenCLIP text and image tokens, the first diffusion stage (six views,
 CCMs), the reconstruction UNet's triplane from upstream's views and CCMs,
 the FlexiCubes grid and raw mesh, the cleaned mesh and the vertex colours.
 
-Upstream needs xformers (its attention asserts it). Its renderer constructs
-an nvdiffrast context at import and its cleanup calls kiui/pymeshlab; this
-gate stubs nvdiffrast (no rasterization is compared) and runs the cleanup
-only when pymeshlab is installed. Upstream reads SD 2.1's scheduler config
-from a Hugging Face repo that no longer exists; the gate builds the same
-scheduler from its published values.
+Measured on an RTX 3090 (torch 2.8.0, xformers 0.0.32.post2, seed 0): the
+preprocessed image, the prompt tokens, the cameras, the FlexiCubes grid, the
+triplane input and its noising are bitwise equal; the OpenCLIP tokens differ
+by fp16 noise (mean 1.5e-3); the six views and six CCMs by mean 0.06 and 0.11
+of 255 (max 3); the triplane features and the colours are bitwise equal; the
+raw mesh has the same triangles (vertices within 1.2e-7; FlexiCubes lists
+them in another order). Upstream's cleanup and the port's merge vertices in a
+different order: 9161 vs 7865 vertices, Chamfer distance 0.0011 (mean) and
+0.020 (max) in CRM's [-1, 1] frame. End to end on the same GPU the port takes
+11 s per object with texture=True.
 
-Prereqs (a CUDA machine; throwaway env, do NOT install into the main .venv):
-    pip install -e ".[gen]" xformers omegaconf einops open-clip-torch kiui trimesh pymeshlab
+Upstream needs xformers (its attention asserts it). Its renderer constructs
+an nvdiffrast context at import; this gate stubs nvdiffrast (no
+rasterization is compared). Upstream reads SD 2.1's scheduler config from a
+Hugging Face repo that no longer exists; the gate builds the same scheduler
+from its published values.
+
+Prereqs (a CUDA machine; throwaway env, do NOT install into the main .venv;
+apt install libgl1 libglib2.0-0 for pymeshlab):
+    pip install -e ".[gen]" xformers omegaconf einops open-clip-torch==2.7.0 \
+        kiui==0.2.7 pymeshlab absl-py wandb rich xatlas opencv-python-headless
     git clone https://github.com/thu-ml/CRM && git -C CRM checkout 4964e36a593070a3045eb0f300935a771ff5c172
-    hf download Zhengyi/CRM --revision 36283fd567b9a3120a166dfe2f2e0965d96261b0 --local-dir weights/LibreCRMl
+    hf download Zhengyi/CRM --revision 36283fd567b9a3120a166dfe2f2e0965d96261b0 --local-dir weights/LibreCRM
 
 Run:
-    python weights/parity_crm.py --upstream CRM --weights weights/LibreCRMl
+    python weights/parity_crm.py --upstream CRM --weights weights/LibreCRM
 """
 
 import argparse
@@ -388,4 +400,7 @@ failures += [k for k, lim in LIMITS.items() if "mean" not in ROW[k] or ROW[k]["m
 ROW["failures"] = failures
 ROW["seconds"] = time.time() - t0
 print(json.dumps(ROW, indent=1))
-json.dump(ROW, open(ARGS.out, "w"), indent=1)
+with open(ARGS.out, "w") as handle:
+    json.dump(ROW, handle, indent=1)
+if failures:
+    sys.exit(f"parity failures: {failures}")
