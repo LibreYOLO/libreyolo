@@ -9,6 +9,7 @@ size, on CPU and, when available, on Apple MPS.
 
 from __future__ import annotations
 
+import importlib.util
 import math
 from types import SimpleNamespace
 
@@ -27,6 +28,12 @@ from libreyolo.models.gen.direct3d_s2 import pipeline as dpipe
 from libreyolo.models.gen.direct3d_s2 import sparse as ds
 
 pytestmark = [pytest.mark.unit, pytest.mark.gen]
+
+
+needs_diffusers = pytest.mark.skipif(
+    importlib.util.find_spec("diffusers") is None,
+    reason="the flow-matching scheduler comes from diffusers (gen extra)",
+)
 
 
 def _coords(side=12, count=300, seed=0, batch=1):
@@ -61,7 +68,11 @@ def test_defaults_follow_upstream():
         "guidance": 7.0,
     }
     assert model._resolve_knobs({"steps": np.int64(12)})["steps"] == (12, 12, 12)
-    assert model._resolve_knobs({"steps": [4, 5, 6], "resolution": 512})["steps"] == (4, 5, 6)
+    assert model._resolve_knobs({"steps": [4, 5, 6], "resolution": 512})["steps"] == (
+        4,
+        5,
+        6,
+    )
 
 
 @pytest.mark.parametrize(
@@ -151,7 +162,9 @@ def test_conv_chunks_give_the_same_rows(monkeypatch):
 
 
 def test_mean_pool_counts_the_zero_it_starts_from_like_upstream():
-    coords = torch.tensor([[0, 0, 0, 0], [0, 1, 1, 1], [0, 2, 0, 0], [0, 0, 0, 3]]).int()
+    coords = torch.tensor(
+        [[0, 0, 0, 0], [0, 1, 1, 1], [0, 2, 0, 0], [0, 0, 0, 3]]
+    ).int()
     feats = torch.tensor([[1.0], [3.0], [5.0], [7.0]])
     pooled = ds.sparse_mean_pool(ds.SparseTensor(feats, coords), 2)
     assert pooled.coords.tolist() == [[0, 0, 0, 0], [0, 0, 0, 1], [0, 1, 0, 0]]
@@ -160,7 +173,9 @@ def test_mean_pool_counts_the_zero_it_starts_from_like_upstream():
 
 
 def test_subdivide_makes_eight_children_z_fastest():
-    x = ds.SparseTensor(torch.tensor([[1.0], [2.0]]), torch.tensor([[0, 0, 0, 0], [0, 1, 2, 3]]).int())
+    x = ds.SparseTensor(
+        torch.tensor([[1.0], [2.0]]), torch.tensor([[0, 0, 0, 0], [0, 1, 2, 3]]).int()
+    )
     out = ds.sparse_subdivide(x)
     assert out.coords[:8].tolist() == [
         [0, a, b, c] for a in (0, 1) for b in (0, 1) for c in (0, 1)
@@ -172,7 +187,10 @@ def test_subdivide_makes_eight_children_z_fastest():
 def test_sort_block_orders_by_block_then_position():
     coords = torch.tensor([[0, 5, 0, 0], [0, 0, 0, 5], [0, 1, 0, 0], [0, 0, 0, 0]])
     assert ds.sort_block(coords, 4).tolist() == [
-        [0, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 5], [0, 5, 0, 0]
+        [0, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 5],
+        [0, 5, 0, 0],
     ]
 
 
@@ -190,8 +208,17 @@ def test_spatial_sparse_attention_matches_per_query_loops():
     ck = ck.replace(ck.feats.view(-1, groups, channels))
     cv = cv.replace(cv.feats.view(-1, groups, channels))
     compressed, selected, windowed = ds.spatial_sparse_attention(
-        x, q, k, v, ck, cv, topk=topk, selection_block_size=block,
-        compression_block_size=block, window_size=4, shift=2,
+        x,
+        q,
+        k,
+        v,
+        ck,
+        cv,
+        topk=topk,
+        selection_block_size=block,
+        compression_block_size=block,
+        window_size=4,
+        shift=2,
     )
     scale = 1 / math.sqrt(channels)
     blocks = coords[:, 1:].long() // block
@@ -209,7 +236,9 @@ def test_spatial_sparse_attention_matches_per_query_loops():
                 (ck.feats[:, g] @ q[i, hh] * scale).softmax(0)
                 for hh in range(g * per_group, (g + 1) * per_group)
             )
-            chosen = torch.isin(block_id, compressed_id[score.topk(topk).indices].long())
+            chosen = torch.isin(
+                block_id, compressed_id[score.topk(topk).indices].long()
+            )
             p = (k[chosen, g] @ q[i, h] * scale).softmax(0)
             assert torch.allclose(p @ v[chosen, g], selected[i, h], atol=1e-5)
             mine = window_id == window_id[i]
@@ -230,8 +259,17 @@ def test_attention_chunks_give_the_same_outputs(monkeypatch):
     def run():
         x = ds.SparseTensor(torch.zeros(n, 1), coords)
         return ds.spatial_sparse_attention(
-            x, q, k, v, ck, cv, topk=2, selection_block_size=4,
-            compression_block_size=4, window_size=4, shift=0,
+            x,
+            q,
+            k,
+            v,
+            ck,
+            cv,
+            topk=2,
+            selection_block_size=4,
+            compression_block_size=4,
+            window_size=4,
+            shift=0,
         )
 
     whole = run()
@@ -257,13 +295,19 @@ def test_mesh_voxelisation_matches_a_brute_force_distance_field():
     faces = rng.integers(0, 30, (20, 3))
     faces[0] = [3, 3, 7]  # a degenerate edge-triangle
     size = 48
-    voxels = dpipe.mesh_to_voxels(vertices, faces, "cpu", size=size, threshold=4.0, factor=8)
-    grid = torch.stack(torch.meshgrid(*[torch.arange(size)] * 3, indexing="ij"), -1).view(-1, 3)
+    voxels = dpipe.mesh_to_voxels(
+        vertices, faces, "cpu", size=size, threshold=4.0, factor=8
+    )
+    grid = torch.stack(
+        torch.meshgrid(*[torch.arange(size)] * 3, indexing="ij"), -1
+    ).view(-1, 3)
     points = grid.float() / (size - 1) - 0.5
     corners = torch.tensor(vertices, dtype=torch.float32)[torch.tensor(faces)] * 0.5
     best = torch.full((points.shape[0],), 1e9)
     for tri in corners:
-        d = dpipe._point_triangle_distance(points[None], tri[None, 0:1], tri[None, 1:2], tri[None, 2:3])[0]
+        d = dpipe._point_triangle_distance(
+            points[None], tri[None, 0:1], tri[None, 1:2], tri[None, 2:3]
+        )[0]
         best = torch.minimum(best, d)
     expected = torch.unique(grid[best < 4.0 / size] // 8, dim=0)
     assert torch.equal(voxels[:, 1:], expected) and (voxels[:, 0] == 0).all()
@@ -271,8 +315,12 @@ def test_mesh_voxelisation_matches_a_brute_force_distance_field():
 
 def test_point_triangle_distance_is_exact_on_simple_cases():
     tri = torch.tensor([[0.0, 0, 0], [1, 0, 0], [0, 1, 0]])
-    points = torch.tensor([[[0.25, 0.25, 2.0], [-1.0, 0, 0], [0.5, -3, 0], [2.0, 2.0, 0]]])
-    d = dpipe._point_triangle_distance(points, tri[None, 0:1], tri[None, 1:2], tri[None, 2:3])[0]
+    points = torch.tensor(
+        [[[0.25, 0.25, 2.0], [-1.0, 0, 0], [0.5, -3, 0], [2.0, 2.0, 0]]]
+    )
+    d = dpipe._point_triangle_distance(
+        points, tri[None, 0:1], tri[None, 1:2], tri[None, 2:3]
+    )[0]
     assert torch.allclose(d, torch.tensor([2.0, 1.0, 3.0, math.sqrt(4.5)]))
 
 
@@ -310,32 +358,72 @@ def test_object_mesh_frame_and_winding():
 
 TINY = {
     "dense_dit": dict(
-        resolution=4, in_channels=2, model_channels=32, cond_channels=16, out_channels=2,
-        num_blocks=1, num_heads=2, patch_size=1, qk_rms_norm=True, latent_shape=[2, 4, 4, 4],
+        resolution=4,
+        in_channels=2,
+        model_channels=32,
+        cond_channels=16,
+        out_channels=2,
+        num_blocks=1,
+        num_heads=2,
+        patch_size=1,
+        qk_rms_norm=True,
+        latent_shape=[2, 4, 4, 4],
     ),
     "dense_vae": dict(
-        embed_dim=2, model_channels_decoder=[16, 8], num_res_blocks_decoder=1,
+        embed_dim=2,
+        model_channels_decoder=[16, 8],
+        num_res_blocks_decoder=1,
         num_res_blocks_middle_decoder=1,
     ),
     "sparse_dit_512": dict(
-        resolution=8, in_channels=4, model_channels=32, cond_channels=16, out_channels=4,
-        num_blocks=2, num_heads=4, num_kv_heads=2, compression_block_size=4,
-        selection_block_size=4, topk=2, compression_version="v1", window_size=4,
+        resolution=8,
+        in_channels=4,
+        model_channels=32,
+        cond_channels=16,
+        out_channels=4,
+        num_blocks=2,
+        num_heads=4,
+        num_kv_heads=2,
+        compression_block_size=4,
+        selection_block_size=4,
+        topk=2,
+        compression_version="v1",
+        window_size=4,
     ),
     "sparse_vae_512": dict(
-        embed_dim=4, resolution=8, model_channels_decoder=64, num_blocks_decoder=1,
+        embed_dim=4,
+        resolution=8,
+        model_channels_decoder=64,
+        num_blocks_decoder=1,
         num_heads_decoder=4,
     ),
     "sparse_dit_1024": dict(
-        resolution=16, in_channels=4, model_channels=32, cond_channels=16, out_channels=4,
-        num_blocks=2, num_heads=4, num_kv_heads=2, compression_block_size=4,
-        selection_block_size=4, topk=2, compression_version="v1", window_size=4, factor=0.5,
+        resolution=16,
+        in_channels=4,
+        model_channels=32,
+        cond_channels=16,
+        out_channels=4,
+        num_blocks=2,
+        num_heads=4,
+        num_kv_heads=2,
+        compression_block_size=4,
+        selection_block_size=4,
+        topk=2,
+        compression_version="v1",
+        window_size=4,
+        factor=0.5,
     ),
     "sparse_vae_1024": dict(
-        embed_dim=4, resolution=16, model_channels_decoder=64, num_blocks_decoder=1,
-        num_heads_decoder=4, chunk_size=2,
+        embed_dim=4,
+        resolution=16,
+        model_channels_decoder=64,
+        num_blocks_decoder=1,
+        num_heads_decoder=4,
+        chunk_size=2,
     ),
-    "refiner": dict(res=64, patch_size=24, feat_channels=4, block_out_channels=(8, 8, 8, 8)),
+    "refiner": dict(
+        res=64, patch_size=24, feat_channels=4, block_out_channels=(8, 8, 8, 8)
+    ),
     "refiner_1024": dict(res=64, patch_size=32, block_out_channels=(8, 8, 8, 8)),
 }
 
@@ -426,6 +514,7 @@ def test_preprocess_crops_and_pads_on_white():
     assert pixels[259, 60].tolist() == [255, 255, 255]  # square padding
 
 
+@needs_diffusers
 def test_sampler_uses_upstream_flow_matching_and_guidance():
     calls = []
 
@@ -434,7 +523,14 @@ def test_sampler_uses_upstream_flow_matching_and_guidance():
             calls.append((float(t[0]), bool(cond.abs().sum() == 0)))
             return torch.ones_like(x) * (1.0 if cond.abs().sum() else 0.0)
 
-    out = dpipe.sample(Recorder(), torch.zeros(1, 2), torch.ones(1, 3, 4), steps=4, guidance=2.0, shift=1.0)
+    out = dpipe.sample(
+        Recorder(),
+        torch.zeros(1, 2),
+        torch.ones(1, 3, 4),
+        steps=4,
+        guidance=2.0,
+        shift=1.0,
+    )
     # diffusers' FlowMatchEulerDiscreteScheduler: sigmas from 1 to 1/1000.
     assert [round(t) for t, zero in calls if not zero] == [1000, 667, 334, 1]
     assert len([1 for _, zero in calls if zero]) == 4
@@ -442,11 +538,16 @@ def test_sampler_uses_upstream_flow_matching_and_guidance():
     assert torch.allclose(out, torch.full((1, 2), -2.0))
 
 
+@needs_diffusers
 def test_tiny_pipeline_end_to_end():
     modules = _tiny_modules()
     prepared = dpipe.preprocess_image(_image(), modules.birefnet)
     out = dpipe.run_stages(
-        modules, prepared, torch.Generator().manual_seed(7), steps=(2, 2, 2), guidance=3.0
+        modules,
+        prepared,
+        torch.Generator().manual_seed(7),
+        steps=(2, 2, 2),
+        guidance=3.0,
     )
     voxels = out["voxels512"]
     assert voxels.shape[0] > 0 and (voxels[:, 1:] < 8).all()
@@ -458,11 +559,19 @@ def test_tiny_pipeline_end_to_end():
     assert vertices.shape[1] == 3 and faces.shape[1] == 3 and len(faces) > 0
     assert np.abs(vertices).max() <= 1.0
     again = dpipe.run_stages(
-        modules, prepared, torch.Generator().manual_seed(7), steps=(2, 2, 2), guidance=3.0
+        modules,
+        prepared,
+        torch.Generator().manual_seed(7),
+        steps=(2, 2, 2),
+        guidance=3.0,
     )
     assert torch.equal(again["sparse1024_latent"], out["sparse1024_latent"])
     other = dpipe.run_stages(
-        modules, prepared, torch.Generator().manual_seed(8), steps=(2, 2, 2), guidance=3.0,
+        modules,
+        prepared,
+        torch.Generator().manual_seed(8),
+        steps=(2, 2, 2),
+        guidance=3.0,
         stop_after="dense",
     )
     assert not torch.equal(other["dense_latent"], out["dense_latent"])
@@ -478,12 +587,13 @@ def test_chunked_decoding_covers_the_same_voxels_as_whole_decoding():
     with torch.no_grad():
         a = whole.decoder(latent, factor=1.0)
         b = chunked.decoder(ds.SparseTensor(latent.feats, coords), factor=1.0)
-    key = lambda c: ((c[:, 1].long() * 128 + c[:, 2]) * 128 + c[:, 3])  # noqa: E731
+    key = lambda c: (c[:, 1].long() * 128 + c[:, 2]) * 128 + c[:, 3]  # noqa: E731
     # Upstream's crop bound (end * 8 + 7) repeats voxels at chunk borders.
     assert b.coords.shape[0] > a.coords.shape[0]
     assert torch.equal(torch.unique(key(a.coords)), torch.unique(key(b.coords)))
 
 
+@needs_diffusers
 def test_generate_through_the_public_call(tmp_path):
     model = LibreDirect3DS2(device="cpu")
     model._pipeline = _tiny_modules()
@@ -503,7 +613,14 @@ def test_generate_through_the_public_call(tmp_path):
     text = (tmp_path / "object.obj").read_text()
     assert text.count("\nv ") == mesh.vertices.shape[1]
     with pytest.raises(ValueError, match=".obj"):
-        model(_image(), seed=3, steps=2, resolution=512, save=True, output_path=str(tmp_path / "x.ply"))
+        model(
+            _image(),
+            seed=3,
+            steps=2,
+            resolution=512,
+            save=True,
+            output_path=str(tmp_path / "x.ply"),
+        )
 
 
 def _mps_runs_conv3d() -> bool:
@@ -524,21 +641,31 @@ def _mps_runs_conv3d() -> bool:
 @pytest.mark.skipif(
     not _mps_runs_conv3d(), reason="needs an Apple GPU that runs Conv3d on MPS"
 )
+@needs_diffusers
 def test_tiny_pipeline_runs_on_mps_like_on_cpu():
     prepared = dpipe.preprocess_image(_image(), _CentreBlob())
     noise = {
         "dense": torch.randn(1, 2, 4, 4, 4, generator=torch.Generator().manual_seed(0)),
     }
     kwargs = dict(steps=(2, 2, 2), guidance=3.0, stop_after="dense", noise=noise)
-    cpu = dpipe.run_stages(_tiny_modules("cpu"), prepared, torch.Generator().manual_seed(0), **kwargs)
+    cpu = dpipe.run_stages(
+        _tiny_modules("cpu"), prepared, torch.Generator().manual_seed(0), **kwargs
+    )
     mps = dpipe.run_stages(
-        _tiny_modules("mps"), prepared, torch.Generator(device="mps").manual_seed(0), **kwargs
+        _tiny_modules("mps"),
+        prepared,
+        torch.Generator(device="mps").manual_seed(0),
+        **kwargs,
     )
     assert torch.allclose(cpu["dense_latent"], mps["dense_latent"].cpu(), atol=1e-3)
     # The whole fp16 pipeline runs on MPS, as it does on CUDA.
     half = _tiny_modules("mps", use_fp16=True)
     out = dpipe.run_stages(
-        half, prepared, torch.Generator(device="mps").manual_seed(0), steps=(2, 2, 2), guidance=3.0
+        half,
+        prepared,
+        torch.Generator(device="mps").manual_seed(0),
+        steps=(2, 2, 2),
+        guidance=3.0,
     )
     assert out["sparse1024_latent"].dtype == torch.float16
     assert torch.isfinite(out["sparse1024_latent"]).all() and len(out["mesh"][1]) > 0

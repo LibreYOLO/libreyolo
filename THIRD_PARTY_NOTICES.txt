@@ -304,6 +304,61 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+TRELLIS.2 image-to-3D networks, sampler and dual-grid meshing
+--------------------------------------------------------------
+
+Upstream: Microsoft, https://github.com/microsoft/TRELLIS.2
+Commit: 75fbf0183001ed9876c8dbb35de6b68552ee08bd
+License: MIT (the repository's single LICENSE; o-voxel sources carry
+         "Copyright (C) 2025, Jianfeng XIANG ... Licensed under The MIT License")
+Copyright (c) Microsoft Corporation.
+Authors: Jianfeng Xiang, Xiaoxue Chen, Sicheng Xu, Ruicheng Wang, Zelong Lv,
+         Yu Deng, Hongyuan Zhu, Yue Dong, Hao Zhao, Nicholas Jing Yuan,
+         Jiaolong Yang.
+Citation: Xiang, J. et al. "Native and Compact Structured Latents for 3D
+          Generation." arXiv:2512.14692.
+Used for: the TRELLIS.2 family (libreyolo/models/gen/trellis2/): the
+          sparse-structure flow, the shape-latent flows, the flexible-dual-grid
+          decoder and their blocks, the 3D rotary embedding, the
+          channel-to-space upsampling, the flow sampler, the preprocessing and
+          the dual-grid meshing (o-voxel). Parameter names are unchanged so
+          the released safetensors load strictly. Upstream's CUDA extensions
+          (FlexGEMM, MIT, https://github.com/JeffreyXiang/FlexGEMM; flash-attn;
+          o-voxel's hash map) are replaced by PyTorch code written for
+          LibreYOLO; FlexGEMM's weight layout and neighbour order are kept.
+          nvdiffrast, nvdiffrec (NVIDIA, non-commercial) and BRIA's RMBG-2.0
+          (non-commercial) are not used.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+microsoft/TRELLIS.2-4B (MIT, revision af44b45f2e35a493886929c6d786e563ec68364d)
+geometry files are redistributed unchanged by LibreYOLO as
+LibreYOLO/LibreTRELLIS2-4b. DINOv3 ViT-L/16 (Meta DINOv3 License) is
+redistributed unchanged as LibreYOLO/LibreDINOv3vitl16 (revision
+7f681024a32a03b7f56a1732455b373834d3ee76) with the agreement.
+
+MIT License (TRELLIS.2)
+
+Copyright (c) Microsoft Corporation.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
 TripoSR image-to-3D networks and mesh extraction
 ------------------------------------------------
 

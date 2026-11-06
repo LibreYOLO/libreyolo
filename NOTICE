@@ -944,6 +944,26 @@ TRELLIS (MIT License)
     (MIT), LibreYOLO/LibreTRELLISl; DINOv2 from
     facebook/dinov2-with-registers-large (Apache-2.0). Pinned revisions.
 
+TRELLIS.2 (MIT License)
+    Path:    libreyolo/models/gen/trellis2/
+    License: libreyolo/models/gen/trellis2/NOTICE
+    Source:  https://github.com/microsoft/TRELLIS.2
+             (commit 75fbf0183001ed9876c8dbb35de6b68552ee08bd)
+             Copyright (c) Microsoft Corporation.
+
+    The TRELLIS.2 geometry networks (sparse-structure flow, shape-latent
+    flows, flexible-dual-grid decoder), the 3D rotary embedding, the
+    channel-to-space upsampling, the flow sampler, the preprocessing and the
+    dual-grid meshing (o-voxel, same repository) are adapted from the MIT
+    TRELLIS.2 repository. Its CUDA extensions (FlexGEMM sparse convolution,
+    flash-attn attention, the o-voxel hash map) are replaced by PyTorch code
+    written for LibreYOLO. nvdiffrast, nvdiffrec and BRIA's RMBG-2.0
+    (non-commercial) are not used; the texture stage is not ported.
+    Weights: LibreYOLO's byte-identical mirror of the microsoft/TRELLIS.2-4B
+    geometry networks (MIT), LibreYOLO/LibreTRELLIS2-4b; the DINOv3 ViT-L/16
+    encoder (Meta DINOv3 License) from LibreYOLO's byte-identical mirror
+    LibreYOLO/LibreDINOv3vitl16, which ships the agreement. Pinned revisions.
+
 TripoSR (MIT License)
     Path:    libreyolo/models/gen/triposr/
     License: libreyolo/models/gen/triposr/NOTICE

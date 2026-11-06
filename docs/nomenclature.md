@@ -1212,6 +1212,16 @@ aliases and coverage group as Idol. Its weights are LibreYOLO's mirror
 `LibreYOLO/LibreImageDream` of `ashawkey/imagedream-ipmv-diffusers`, at a
 pinned revision.
 
+`LibreTRELLIS2` (`trellis2`, size `4b` for upstream's `TRELLIS.2-4B`,
+aliases `trellis2`, `trellis2-4b`, `trellis.2` and `trellis.2-4b`) is an
+image-to-3D family that returns a mesh (`Results.meshes`); the class keeps
+upstream's capitalisation. Same task and coverage group as Idol. Its
+geometry weights are LibreYOLO's mirror `LibreYOLO/LibreTRELLIS2-4b`
+(byte-identical to the pinned `microsoft/TRELLIS.2-4B` files, upstream
+layout under `ckpts/`) in `weights/LibreTRELLIS2-4b/`; the sparse-structure
+decoder and BiRefNet load from `LibreYOLO/LibreTRELLISl`, the DINOv3 ViT-L/16
+encoder from `LibreYOLO/LibreDINOv3vitl16`, at pinned revisions.
+
 `LibreTripoSR` (`triposr`, alias `triposr`; one published model, so no size
 code) is an image-to-3D family that returns a mesh (`Results.meshes`)
 instead of Gaussians. Same task and coverage group as
