@@ -203,6 +203,25 @@
     "available": true,
     "group": "g2"
   },
+  "crm": {
+    "class": "libreyolo.models.gen.crm.model.LibreCRM",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "": 256
+    },
+    "default_imgsz": {
+      "": 256
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "ddcolor": {
     "class": "libreyolo.models.ddcolor.model.LibreDDColor",
     "tasks": [

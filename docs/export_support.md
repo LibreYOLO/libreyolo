@@ -19,6 +19,7 @@ in preflight.
 | clip | embed | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
 | convnext | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | convnextv2 | classify | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
+| crm | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | ddcolor | restore |  |  |  |  |  |  |  |  |  |  |  |  |
 | deeplabv3 | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | deepseekocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -781,6 +782,18 @@ These converter paths are callable with the recorded validation context.
 - `convnextv2` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `convnextv2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `convnextv2` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `crm` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `tensorrt`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `openvino`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `paddle`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `mnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `rknn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `ncnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `ddcolor` / `restore` / `onnx`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `ddcolor` / `restore` / `torchscript`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `ddcolor` / `restore` / `executorch`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
