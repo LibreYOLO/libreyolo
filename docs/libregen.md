@@ -173,6 +173,7 @@ and records seed, camera and settings in a header comment.
 | --- | --- | --- | --- | --- |
 | `speridlabs-idol` | 0.66B (plus DINOv3 ViT-H+ and the FLUX.2 VAE encoder) | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"` or `"real"`), `margin` (crop override) | about 3.1 GB, plus 1.7 GB DINOv3 and 0.2 GB VAE | Apache-2.0; the DINOv3 encoder under Meta's DINOv3 License |
 | `trellis` | 1.3B in four networks (plus DINOv2 ViT-L/14) | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) | about 2.7 GB, plus 1.2 GB DINOv2 | MIT; DINOv2 Apache-2.0 |
+| `trellis2` | 4B in five networks (plus DINOv3 ViT-L/16) | `steps` (12), `guidance` (7.5), `resolution` (1024: 512, 1024 or 1536), `margin` (1.0), `max_tokens` (49152) | about 8.7 GB, plus 1.2 GB DINOv3 and 1.3 GB from the TRELLIS mirror | MIT; the DINOv3 encoder under Meta's DINOv3 License |
 | `triposr` | 0.42B | `resolution` (256), `threshold` (25.0), `margin` (1/0.85) | about 1.7 GB, plus 0.4 GB BiRefNet | MIT |
 | `triposplat` | 0.66B (plus the same two encoders) | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) | about 1.8 GB, plus the same DINOv3 and VAE | MIT; the DINOv3 encoder under Meta's DINOv3 License |
 | `lgm` | 0.42B (plus the 1.3B ImageDream multi-view stage and its two CLIP encoders) | `steps` (30), `guidance` (5.0), `elevation` (0) | about 0.8 GB, plus 4.0 GB ImageDream | MIT; ImageDream under OpenRAIL (CreativeML OpenRAIL++-M) |
@@ -292,8 +293,35 @@ object filling the frame. The diffusion weights descend from Stable
 Diffusion 2.1, so the CreativeML OpenRAIL++-M use restrictions shipped with
 [`LibreYOLO/LibreCRM`](https://huggingface.co/LibreYOLO/LibreCRM) apply.
 
+TRELLIS.2 by [Microsoft](https://microsoft.github.io/TRELLIS.2) returns
+the object's shape as a mesh, up to a 1536^3 grid: a structure stage places
+the occupied voxels, shape stages fill in a latent on them (at 512, then
+again at 1024 or 1536), and a decoder turns it into a dual-grid mesh.
+Upstream needs CUDA-only extensions (FlexGEMM, flash-attn, o-voxel);
+LibreYOLO runs the same weights in plain PyTorch on NVIDIA GPUs, Apple
+silicon and CPU. A seed gives the same starting noise on every device.
+
+```python
+model = LibreGen("trellis2")
+result = model("chair.png", seed=0)
+result.save("chair.obj")
+m = result.meshes
+m.vertices[0], m.faces, m.seed           # (V, 3) z-up in [-0.5, 0.5]^3, (F, 3)
+model("chair.png", resolution=512)       # one shape stage, faster
+```
+
+Geometry only: upstream's texture stage bakes with nvdiffrast, a
+non-commercial NVIDIA library, and is not part of LibreYOLO. The mesh is the
+raw dual grid, before upstream's CuMesh clean-up: faces are not consistently
+wound and some vertices are unused. On an A100 a 1024 object took 19.5 s and
+14.3 GB of GPU memory at peak (512: 5.5 s, 11.6 GB). The DINOv3 encoder comes from
+LibreYOLO's mirror
+[`LibreYOLO/LibreDINOv3vitl16`](https://huggingface.co/LibreYOLO/LibreDINOv3vitl16)
+under Meta's DINOv3 License; read it before use.
+
 ```bash
 libreyolo generate source=chair.jpg
+libreyolo generate source=chair.png model=trellis2
 libreyolo generate source=chair.png model=triposr
 libreyolo generate source=chair.png model=crm texture=true
 libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
@@ -303,7 +331,7 @@ libreyolo generate source=chair.jpg model=lgm
 ```
 
 With `source=` the model defaults to `speridlabs-idol` and objects are saved
-as `.ply` (`.obj` for `triposr` and `crm`).
+as `.ply` (`.obj` for `triposr`, `crm` and `trellis2`).
 
 ## Not supported yet
 
@@ -322,7 +350,12 @@ repository with FlexiCubes from NVIDIA's Apache-2.0 release (see each
 family's `NOTICE`). LGM's networks and its ImageDream sampler are adapted
 from the MIT LGM repository. Text-to-image models load through the
 Apache-2.0 `diffusers` API.
+
+adapted from the MIT TRELLIS repository, the TRELLIS.2 networks adapted from
+the MIT TRELLIS.2 repository and the TripoSR networks adapted from
+the MIT TripoSR repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
-one exception is the DINOv3 encoder Idol and TripoSplat read, which
-LibreYOLO mirrors in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;
+exceptions are the DINOv3 encoders Idol and TripoSplat (ViT-H+, mirrored in
+bf16) and TRELLIS.2 (ViT-L, mirrored unchanged) read, which LibreYOLO
+redistributes under Meta's DINOv3 License. LibreYOLO adds no content filter;
 upstream usage policies apply.

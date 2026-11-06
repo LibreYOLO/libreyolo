@@ -32,6 +32,8 @@ import torch.nn.functional as F
 
 # Rows of the gathered GEMM per chunk; bounds the [rows, 27 * C_in] buffer.
 _CONV_CHUNK_ROWS = 4096
+# Above this many cells the neighbour lookup uses sorted keys, not a dense grid.
+_DENSE_LOOKUP_CELLS = 1 << 27
 
 
 def _layout(coords: torch.Tensor, batch_size: int) -> List[slice]:
@@ -160,6 +162,11 @@ def _neighbour_rows(coords: torch.Tensor, batch_size: int) -> torch.Tensor:
     device = coords.device
     xyz = coords[:, 1:].long()
     size = (xyz.max(dim=0).values + 3).tolist() if coords.shape[0] else [3, 3, 3]
+    if batch_size * size[0] * size[1] * size[2] > _DENSE_LOOKUP_CELLS:
+        # A dense lookup grid would not fit (TRELLIS.2 decodes at up to
+        # 1024^3); look the neighbours up in the sorted voxel keys instead.
+        # Same rows, other memory cost.
+        return _neighbour_rows_sorted(coords, size)
     grid = torch.full((batch_size, *size), -1, dtype=torch.long, device=device)
     b = coords[:, 0].long()
     rows = torch.arange(coords.shape[0], device=device)
@@ -168,6 +175,34 @@ def _neighbour_rows(coords: torch.Tensor, batch_size: int) -> torch.Tensor:
     for index in range(27):
         dx, dy, dz = index // 9, index // 3 % 3, index % 3
         out[index] = grid[b, xyz[:, 0] + dx, xyz[:, 1] + dy, xyz[:, 2] + dz]
+    return out
+
+
+def voxel_keys(coords: torch.Tensor, size: List[int]) -> torch.Tensor:
+    """One int64 key per ``(batch, x, y, z)`` row, for coordinates shifted by +1 into ``size``."""
+    sx, sy, sz = size
+    c = coords.long()
+    return ((c[:, 0] * sx + c[:, 1] + 1) * sy + c[:, 2] + 1) * sz + c[:, 3] + 1
+
+
+def lookup_rows(
+    sorted_keys: torch.Tensor, order: torch.Tensor, query: torch.Tensor
+) -> torch.Tensor:
+    """Row of each ``query`` key among the voxels whose keys sort as ``sorted_keys``, or -1."""
+    if sorted_keys.numel() == 0:
+        return torch.full_like(query, -1)
+    found = torch.searchsorted(sorted_keys, query).clamp_(max=sorted_keys.numel() - 1)
+    return torch.where(sorted_keys[found] == query, order[found], -1)
+
+
+def _neighbour_rows_sorted(coords: torch.Tensor, size: List[int]) -> torch.Tensor:
+    keys = voxel_keys(coords, size)
+    sorted_keys, order = torch.sort(keys)
+    sx, sy, sz = size
+    out = torch.empty(27, coords.shape[0], dtype=torch.long, device=coords.device)
+    for index in range(27):
+        dx, dy, dz = index // 9 - 1, index // 3 % 3 - 1, index % 3 - 1
+        out[index] = lookup_rows(sorted_keys, order, keys + (dx * sy + dy) * sz + dz)
     return out
 
 

@@ -32,6 +32,7 @@ from .prx import LibrePRX, LibrePRXPixel
 from .sana_sprint import LibreSanaSprint
 from .speridlabs_idol import LibreSperidlabsIdol
 from .trellis import LibreTRELLIS
+from .trellis2 import LibreTRELLIS2
 from .triposplat import LibreTripoSplat
 from .triposr import LibreTripoSR
 
@@ -58,6 +59,10 @@ _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
     "lgm-0.4b": (LibreLGM, "0.4b"),
     "triposr": (LibreTripoSR, ""),
     "crm": (LibreCRM, ""),
+    "trellis2": (LibreTRELLIS2, "4b"),
+    "trellis2-4b": (LibreTRELLIS2, "4b"),
+    "trellis.2": (LibreTRELLIS2, "4b"),
+    "trellis.2-4b": (LibreTRELLIS2, "4b"),
 }
 
 _DEFAULT_MODEL = "flux2-klein-4b"
@@ -80,7 +85,7 @@ def LibreGen(model: str = _DEFAULT_MODEL, **kwargs) -> LibreGenModel:
     Args:
         model: Alias (``"flux2-klein-4b"``, ``"sana-sprint-0.6b"``,
             ``"prx-1024-beta"`` and the other ``prx-*`` checkpoints,
-            ``"prxpixel-7b"``, ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``, ``"crm"``) or a path to a local model directory in a
+            ``"prxpixel-7b"``, ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``, ``"crm"``, ``"trellis2"``) or a path to a local model directory in a
             supported family's upstream format, such as a fine-tune or an
             offline copy.
         **kwargs: Forwarded to the family constructor: ``device``, ``dtype``
@@ -130,4 +135,5 @@ __all__ = [
     "LibreLGM",
     "LibreTripoSR",
     "LibreCRM",
+    "LibreTRELLIS2",
 ]

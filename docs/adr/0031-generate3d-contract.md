@@ -175,6 +175,7 @@ SDK's behaviour.
 | --- | --- | --- | --- |
 | `speridlabs-idol` | `speridlabs/idol` (code `speridlabs/idol-sdk`) | Apache-2.0 code and weights | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"`), `margin` (`None`) |
 | `trellis` | `LibreYOLO/LibreTRELLISl`, a mirror of `microsoft/TRELLIS-image-large` (code `microsoft/TRELLIS`) | MIT code and weights | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) |
+| `trellis2` | `LibreYOLO/LibreTRELLIS2-4b`, a mirror of the geometry files of `microsoft/TRELLIS.2-4B` (code `microsoft/TRELLIS.2`) | MIT code and weights; DINOv3 encoder under Meta's DINOv3 License | `steps` (12), `guidance` (7.5), `resolution` (1024), `margin` (1.0), `max_tokens` (49152) |
 | `triposr` | `LibreYOLO/LibreTripoSR`, a mirror of `stabilityai/TripoSR` (code `VAST-AI-Research/TripoSR`) | MIT code and weights | `resolution` (256), `threshold` (25.0), `margin` (1/0.85) |
 | `triposplat` | `LibreYOLO/LibreTripoSplat0.6b`, a mirror of `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
 | `lgm` | `LibreYOLO/LibreLGM0.4b`, a mirror of `ashawkey/LGM`, and `LibreYOLO/LibreImageDream`, a mirror of `ashawkey/imagedream-ipmv-diffusers` (code `3DTopia/LGM`) | MIT code; MIT LGM weights; OpenRAIL ImageDream weights | `steps` (30), `guidance` (5.0), `elevation` (0) |
@@ -305,6 +306,41 @@ triplane features, the FlexiCubes grid and the raw mesh are equal, the
 colours bitwise; the cleanup merges vertices in a different order than
 upstream's library (Chamfer distance 0.001 in CRM units).
 
+TRELLIS.2 (Microsoft, `TRELLIS.2-4B`) returns a mesh in `Results.meshes`.
+A dense flow transformer with 3D rotary positions denoises a 16^3 occupancy
+latent, TRELLIS's 3D CNN decodes it to the occupied voxels of a 32^3 grid,
+a sparse flow transformer denoises a 32-channel shape latent on them at 512,
+and for `resolution` 1024 or 1536 a second one denoises it again on the
+voxels the first latent's decoder predicts (fewer when they exceed
+`max_tokens`, as upstream). A sparse ConvNeXt decoder upsamples the latent
+16 times into a flexible dual grid, one vertex per voxel and a quad around
+every crossed voxel edge. Both flow stages read DINOv3 ViT-L/16 tokens (512px,
+and 1024px for the second stage). Upstream's CUDA-only extensions (FlexGEMM
+sparse convolution, flash-attn, o-voxel's hash map) are replaced by the
+TRELLIS family's PyTorch operations, with neighbours found by binary search
+in sorted voxel keys on grids too large for a dense table; so the family
+runs on CUDA, MPS and CPU. `steps` and `guidance` apply to every sampling
+stage; each keeps upstream's guidance interval, guidance rescale and time
+shift. Noise is drawn on the CPU as upstream does. The networks run in their
+published precision (bf16 transformers, fp16 decoders) on CUDA and MPS and in
+fp32 on CPU. The mesh is the dual grid's output before upstream's CuMesh
+post-processing: it keeps one vertex per voxel, some unreferenced, and its
+faces are not consistently wound (the dual grid carries no inside or
+outside), so the `Meshes` winding rule above does not hold for this family.
+`Meshes.seed` and `Meshes.generation_params` record the seed and the call
+(model and knobs), as for CRM.
+Upstream's texture stage is not ported: it bakes PBR voxels into a UV texture
+with nvdiffrast, a non-commercial NVIDIA library. Background removal uses
+LibreYOLO's BiRefNet instead of upstream's RMBG-2.0 (non-commercial).
+The parity gate (`weights/parity_trellis2.py`, end to end
+`weights/parity_trellis2_e2e.py`) runs each stage from upstream's inputs:
+the preprocessing, the DINOv3 tokens, the structure stage with upstream's
+SDPA attention backend, the structure decoder and the meshing of upstream's
+decoder fields are bitwise equal; the stages that run on flash-attn and
+FlexGEMM upstream differ by kernel noise of the same size as upstream's own
+distance to an fp32 run of the same weights (within a few percent either
+way, on two examples).
+
 ## Weights
 
 Nothing is gated and no login is needed. Idol's own weights (denoiser,
@@ -361,6 +397,17 @@ declares it `openrail`; it descends from Stable Diffusion 2.1, so the mirror
 ships the CreativeML OpenRAIL++-M License and its use restrictions.
 `LibreGen(path)` loads a directory holding `model_fp16_fixrot.safetensors`,
 optionally with `birefnet.safetensors` and an `imagedream/` copy.
+
+TRELLIS.2's geometry networks (the sparse-structure flow, the two shape
+flows, the shape decoder) and `pipeline.json` are redistributed under MIT as
+`LibreYOLO/LibreTRELLIS2-4b`, byte-identical to `microsoft/TRELLIS.2-4B` in
+upstream's layout, downloaded into `weights/LibreTRELLIS2-4b/`; the texture
+networks are not mirrored. The sparse-structure decoder TRELLIS.2 reuses and
+the BiRefNet weights come from `LibreYOLO/LibreTRELLISl`. DINOv3 ViT-L/16
+comes from LibreYOLO's mirror `LibreYOLO/LibreDINOv3vitl16`, byte-identical
+(fp32) to Meta's gated `facebook/dinov3-vitl16-pretrain-lvd1689m`, with the
+agreement. `LibreGen(path)` loads a local copy of upstream's TRELLIS.2-4B
+layout.
 
 ## Reserved for later
 
