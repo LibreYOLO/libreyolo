@@ -679,3 +679,27 @@ def test_texture_refuses_foreign_sidecar(tmp_path, name):
         _textured_meshes().save_obj(tmp_path / "chair.obj")
     assert foreign.read_bytes() == before
     assert not (tmp_path / "chair.obj").exists()
+
+
+def test_texture_updates_an_export_from_an_earlier_release(tmp_path):
+    from PIL import Image
+
+    # Earlier releases wrote chair.mtl unmarked and the texture as chair.png.
+    old_mtl = tmp_path / "chair.mtl"
+    old_mtl.write_text(
+        "newmtl material_0\nKd 1 1 1\nKa 1 1 1\nKs 0 0 0\nillum 1\nmap_Kd chair.png\n",
+        encoding="utf-8",
+    )
+    old_png = tmp_path / "chair.png"
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(old_png)
+    before = old_png.read_bytes()
+    _textured_meshes().save_obj(tmp_path / "chair.obj")
+    assert "map_Kd chair_texture.png" in old_mtl.read_text()
+    assert old_png.read_bytes() == before
+    # The same material pointing elsewhere is not ours to replace.
+    old_mtl.write_text(
+        "newmtl material_0\nKd 1 1 1\nKa 1 1 1\nKs 0 0 0\nillum 1\nmap_Kd wood.png\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(FileExistsError):
+        _textured_meshes().save_obj(tmp_path / "chair.obj")

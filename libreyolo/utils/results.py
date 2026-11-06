@@ -2419,14 +2419,18 @@ class Identities:
 
 
 _SIDECAR_MARK = "LibreYOLO mesh texture"
+_MATERIAL = "newmtl material_0\nKd 1 1 1\nKa 1 1 1\nKs 0 0 0\nillum 1\n"
 
 
 def _written_by_libreyolo(path: Path) -> bool:
     """True when ``path`` is a .mtl or texture .png that ``Meshes.save_obj`` wrote."""
     try:
         if path.suffix == ".mtl":
-            with open(path, encoding="utf-8") as fh:
-                return fh.readline().strip() == f"# {_SIDECAR_MARK}"
+            text = path.read_text(encoding="utf-8")
+            # Earlier releases wrote the same material, unmarked, pointing at <stem>.png.
+            return text.startswith(f"# {_SIDECAR_MARK}\n") or text == (
+                f"{_MATERIAL}map_Kd {path.stem}.png\n"
+            )
         from PIL import Image
 
         with Image.open(path) as image:
@@ -2614,9 +2618,7 @@ class Meshes:
             info.add_text("Software", _SIDECAR_MARK)
             Image.fromarray(np.ascontiguousarray(image)).save(png_path, pnginfo=info)
             mtl_path.write_text(
-                f"# {_SIDECAR_MARK}\n"
-                "newmtl material_0\nKd 1 1 1\nKa 1 1 1\nKs 0 0 0\nillum 1\n"
-                f"map_Kd {png_path.name}\n",
+                f"# {_SIDECAR_MARK}\n{_MATERIAL}map_Kd {png_path.name}\n",
                 encoding="utf-8",
             )
             colors = None
