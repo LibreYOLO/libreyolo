@@ -1,0 +1,77 @@
+LibreFalconPerception - third-party attribution
+===============================================
+
+Falcon Perception is ported natively: the network, preprocessing and
+generation loop are vendored in this package for inference.
+
+    Project:  Falcon Perception
+    Upstream: https://github.com/tiiuae/Falcon-Perception
+    Commit:   c457916c9974efbacfa91f0f6ecc2c49c6543e56
+    License:  Apache License 2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+    Copyright 2026 Technology Innovation Institute (TII), UAE
+
+Ported or adapted files (each keeps an SPDX header with this provenance):
+
+  * nn.py         <- falcon_perception/{model,anyup,rope,attention,kv_cache,__init__}.py
+  * preprocess.py <- falcon_perception/{data,__init__}.py
+  * generate.py   <- falcon_perception/{batch_inference,aux_output,attention,
+                     visualization_utils}.py and demo/perception_single.py
+  * model.py      box and mask conversion follow falcon_perception/
+                     visualization_utils.py; the rest is original adapter code
+
+LibreYOLO adaptations: inference only. The triton gate kernel, FlexAttention,
+the paged engine, MLX backend, server and OCR path are not ported. Attention
+runs through an eager masked softmax that mirrors torch's FlexAttention
+reference, and AnyUp's windowed cross-attention is evaluated in query chunks.
+Module and parameter names are unchanged so the released safetensors load
+strictly. Parity against the upstream engine is checked by
+weights/parity_falcon_perception.py.
+
+Third-party material inside the upstream sources (flagged for maintainer review)
+-------------------------------------------------------------------------------
+
+  * AnyUp feature upsampler (nn.py: ResBlock, LearnedFeatureUnification,
+    AnyUpRoPE, window2d, AttentionWrapper, FlexCrossAttention,
+    CrossAttentionBlock, AnyUp). Upstream anyup.py states it is AnyUp
+    "flattened into a single module". AnyUp is by Thomas Wimmer, Prune
+    Truong, Marie-Julie Rakotosaona, Michael Oechsle, Federico Tombari,
+    Bernt Schiele and Jan Eric Lenssen, https://github.com/wimmerth/anyup,
+    licensed Creative Commons Attribution 4.0 International (CC-BY-4.0,
+    https://creativecommons.org/licenses/by/4.0/). Not MIT, Apache or BSD;
+    whether CC-BY-4.0 is acceptable here is a maintainer decision.
+    Changes made in this port: windowed cross-attention is evaluated eagerly
+    in query chunks instead of with FlexAttention; the block-mask builder is
+    not ported. It is used only by the 600m segment task.
+  * data.py smart_resize (preprocess.py) matches the Qwen2-VL image
+    processor's smart_resize (Hugging Face Transformers, Apache-2.0,
+    Copyright Alibaba Group and The HuggingFace Inc. team), which the
+    upstream sources do not credit.
+  * The Falcon Perception README lists torchtitan (BSD-3-Clause), nanochat
+    (MIT), attention-gym (BSD-3-Clause), flex-nano-vllm (MIT), moondream
+    (Apache-2.0) and roboflow/trackers (Apache-2.0) as sources it builds on.
+    The paged engine, FlexAttention mask helpers and server that those
+    relate to are not ported; no code from them was read or copied here.
+
+Upstream data.py carries a header referring to a "BSD-style license found in the
+LICENSE file in the root directory"; the root LICENSE of the upstream
+repository is Apache-2.0, which is the license applied here.
+
+Model weights are not redistributed by LibreYOLO. They download at runtime from
+the upstream Hugging Face repositories, pinned to:
+
+    tiiuae/Falcon-Perception       a3e21ada0abd533393776ffab8908a728f775509  (600m)
+    tiiuae/Falcon-Perception-300M  36993684b3ba5945b22d01e705f8ff2e048bf0b0  (300m)
+
+Both model cards declare Apache-2.0, Copyright 2026 TII. The 300m checkpoint has
+no mask head (detect only).
+
+Per the upstream NOTICE, public-facing work that uses Falcon Perception should
+retain this notice and cite:
+
+    @preprint{falcon-perception2026,
+      title  = {Falcon Perception: Natively Multimodal Dense Autoregressive
+                Vision-Language Transformer},
+      author = {TII Falcon Perception Team},
+      year   = {2025},
+      url    = {https://github.com/tiiuae/falcon-perception}
+    }

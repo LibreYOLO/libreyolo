@@ -1010,6 +1010,23 @@ and Qwen3-VL-4B-Instruct (Apache-2.0, Copyright 2024 Alibaba Cloud), as stated
 in each repository's LICENSE. Ported inference code: see
 libreyolo/models/wevisone/NOTICE.
 
+Falcon Perception (LibreFalconPerception 300m / 600m)    Apache-2.0
+Early-fusion text-query detection and segmentation
+---------------------------------------------------
+
+Upstream: Technology Innovation Institute (TII), https://github.com/tiiuae/Falcon-Perception
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+tiiuae/Falcon-Perception      @ a3e21ada0abd533393776ffab8908a728f775509  (600m)
+tiiuae/Falcon-Perception-300M @ 36993684b3ba5945b22d01e705f8ff2e048bf0b0  (300m)
+
+The 300m checkpoint has no mask head (detect only). Both model cards declare
+Apache-2.0. Ported inference code: see libreyolo/models/falcon_perception/NOTICE.
+
+
 
 DeepSeek-OCR (LibreDeepSeekOCR 1)                    MIT
 3B MoE document OCR vision-language model
