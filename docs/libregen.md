@@ -283,7 +283,7 @@ result.save("chair.obj")                 # vertex colours as `v x y z r g b`
 m = result.meshes
 m.vertices[0], m.faces                   # (V, 3) z-up in [-0.5, 0.5]^3, (F, 3)
 m.extras["vertex_colors"][0]             # (V, 3) RGB in [0, 1]
-model("chair.png", texture=True).save("chair.obj")   # + chair.mtl, chair.png
+model("chair.png", texture=True).save("chair.obj")   # + chair.mtl, chair_texture.png
 ```
 
 `steps` (1 to 499) and `guidance` apply to both diffusion stages. `texture=True` bakes a

@@ -108,7 +108,7 @@ def test_textured_obj(tmp_path):
     assert out["texture"].shape == (1024, 1024, 3) and out["uv_faces"].shape == out["faces"].shape
     mesh = mesh_payload(out, seed=0, params={})
     Results(None, (80, 120), meshes=mesh, names={}).save(str(tmp_path / "t.obj"))
-    assert (tmp_path / "t.png").is_file() and (tmp_path / "t.mtl").is_file()
+    assert (tmp_path / "t_texture.png").is_file() and (tmp_path / "t.mtl").is_file()
     assert "vt " in (tmp_path / "t.obj").read_text()
 
 

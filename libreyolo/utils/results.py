@@ -2418,6 +2418,23 @@ class Identities:
         return f"Identities(n={len(self)}, known={known})"
 
 
+_SIDECAR_MARK = "LibreYOLO mesh texture"
+
+
+def _written_by_libreyolo(path: Path) -> bool:
+    """True when ``path`` is a .mtl or texture .png that ``Meshes.save_obj`` wrote."""
+    try:
+        if path.suffix == ".mtl":
+            with open(path, encoding="utf-8") as fh:
+                return fh.readline().strip() == f"# {_SIDECAR_MARK}"
+        from PIL import Image
+
+        with Image.open(path) as image:
+            return image.format == "PNG" and image.info.get("Software") == _SIDECAR_MARK
+    except Exception:
+        return False
+
+
 class Meshes:
     """Parametric human body meshes for a single image.
 
@@ -2572,26 +2589,41 @@ class Meshes:
 
         # A textured object carries ``uv`` (1, T, 2), ``uv_faces`` (1, F, 3)
         # and ``texture`` (1, H, W, 3) uint8 with row 0 at v = 0; it is
-        # written with a .mtl and a .png next to the .obj.
+        # written with ``<stem>.mtl`` and ``<stem>_texture.png`` next to the
+        # .obj. Neither may replace a file LibreYOLO did not write: the input
+        # photo often sits next to the output with the same stem.
         texture = self.extras.get("texture")
         path = Path(path)
+        mtl_path = path.with_suffix(".mtl")
+        png_path = path.with_name(f"{path.stem}_texture.png")
+        if texture is not None:
+            for sidecar in (mtl_path, png_path):
+                if sidecar.exists() and not _written_by_libreyolo(sidecar):
+                    raise FileExistsError(
+                        f"{sidecar} exists and was not written by LibreYOLO; saving "
+                        f"{path.name} with its texture would replace it. Choose "
+                        "another output name or move that file."
+                    )
         if path.parent and path.parent != Path("."):
             path.parent.mkdir(parents=True, exist_ok=True)
         if texture is not None:
-            from PIL import Image
+            from PIL import Image, PngImagePlugin
 
             image = np.asarray(_numpy(texture))[index][::-1]
-            Image.fromarray(np.ascontiguousarray(image)).save(path.with_suffix(".png"))
-            path.with_suffix(".mtl").write_text(
+            info = PngImagePlugin.PngInfo()
+            info.add_text("Software", _SIDECAR_MARK)
+            Image.fromarray(np.ascontiguousarray(image)).save(png_path, pnginfo=info)
+            mtl_path.write_text(
+                f"# {_SIDECAR_MARK}\n"
                 "newmtl material_0\nKd 1 1 1\nKa 1 1 1\nKs 0 0 0\nillum 1\n"
-                f"map_Kd {path.with_suffix('.png').name}\n",
+                f"map_Kd {png_path.name}\n",
                 encoding="utf-8",
             )
             colors = None
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(f"# LibreYOLO mesh ({self.body_model})\n")
             if texture is not None:
-                fh.write(f"mtllib {path.with_suffix('.mtl').name}\nusemtl material_0\n")
+                fh.write(f"mtllib {mtl_path.name}\nusemtl material_0\n")
             for i, v in enumerate(verts):
                 rgb = (
                     ""

@@ -625,3 +625,57 @@ class TestSurfaceRenderer:
         with_skeleton = np.asarray(draw_mesh(img, joints2d=joints, draw_skeleton=True))
         assert without.sum() == 0
         assert with_skeleton.sum() > 0
+
+
+# -- Textured objects (generate3d families such as CRM) ------------------------
+
+
+def _textured_meshes() -> Meshes:
+    from PIL import Image  # noqa: F401  (save_obj writes the texture with PIL)
+
+    return Meshes(
+        np.zeros((1, 0), np.float32),
+        np.zeros((1, 0), np.float32),
+        np.zeros((1, 0), np.float32),
+        np.zeros((1, 3), np.float32),
+        body_model="object",
+        vertices=np.array([[[0, 0, 0], [1, 0, 0], [0, 1, 0]]], np.float32),
+        faces=np.array([[0, 1, 2]], np.int64),
+        extras={
+            "uv": np.array([[[0, 0], [1, 0], [0, 1]]], np.float32),
+            "uv_faces": np.array([[[0, 1, 2]]], np.int64),
+            "texture": np.full((1, 4, 4, 3), 200, np.uint8),
+        },
+    )
+
+
+def test_texture_never_replaces_source_photo(tmp_path):
+    from PIL import Image
+
+    # The documented call: model("chair.png", texture=True).save("chair.obj").
+    photo = tmp_path / "chair.png"
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(photo)
+    before = photo.read_bytes()
+    meshes = _textured_meshes()
+    meshes.save_obj(tmp_path / "chair.obj")
+    assert photo.read_bytes() == before
+    assert "map_Kd chair_texture.png" in (tmp_path / "chair.mtl").read_text()
+    assert Image.open(tmp_path / "chair_texture.png").size == (4, 4)
+    meshes.save_obj(tmp_path / "chair.obj")  # its own sidecars are replaced
+    assert photo.read_bytes() == before
+
+
+@pytest.mark.parametrize("name", ["chair_texture.png", "chair.mtl"])
+def test_texture_refuses_foreign_sidecar(tmp_path, name):
+    from PIL import Image
+
+    foreign = tmp_path / name
+    if name.endswith(".png"):
+        Image.new("RGB", (8, 8), (1, 2, 3)).save(foreign)
+    else:
+        foreign.write_text("newmtl mine\n")
+    before = foreign.read_bytes()
+    with pytest.raises(FileExistsError, match=name):
+        _textured_meshes().save_obj(tmp_path / "chair.obj")
+    assert foreign.read_bytes() == before
+    assert not (tmp_path / "chair.obj").exists()
