@@ -10,7 +10,7 @@ the FlexiCubes grid and raw mesh, the cleaned mesh and the vertex colours.
 Measured on an RTX 3090 (torch 2.8.0, xformers 0.0.32.post2, seed 0): the
 preprocessed image, the prompt tokens, the cameras, the FlexiCubes grid, the
 triplane input and its noising are bitwise equal; the OpenCLIP tokens differ
-by fp16 noise (mean 1.5e-3); the six views and six CCMs by mean 0.06 and 0.11
+by fp16 noise (mean 1.5e-3); the six views and six CCMs by mean 0.05 and 0.11
 of 255 (max 3); the triplane features and the colours are bitwise equal; the
 raw mesh has the same triangles (vertices within 1.2e-7; FlexiCubes lists
 them in another order). Upstream's cleanup and the port's merge vertices in a
@@ -232,7 +232,8 @@ port_views = P.run_stage(
     guidance=5.0,
     half=True,
 )
-ROW["stage1_views"] = cmp(port_views, up_views)
+# The seventh frame is the input view's slot; both sides drop it.
+ROW["stage1_views"] = cmp(port_views[:6], up_views[:6])
 ROW["stage1_cameras"] = cmp(P.cameras(P.STAGE1_VIEWS, 6).to(DEV), up_sampler.camera)
 del up_model, up_sampler, port_model
 torch.cuda.empty_cache()

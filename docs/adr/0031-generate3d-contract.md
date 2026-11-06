@@ -249,7 +249,7 @@ cleanup (same operations) for kiui/pymeshlab, LibreYOLO's BiRefNet for rembg.
 The diffusion models run in fp16 on CUDA and MPS as upstream and in fp32 on
 CPU. Every random draw comes from one CPU generator. The parity gate
 (`weights/parity_crm.py`) feeds both sides the same image and noise: the
-views and CCMs differ by fp16 kernel noise (mean 0.06 and 0.11 of 255), the
+views and CCMs differ by fp16 kernel noise (mean 0.05 and 0.11 of 255), the
 triplane features, the FlexiCubes grid and the raw mesh are equal, the
 colours bitwise; the cleanup merges vertices in a different order than
 upstream's library (Chamfer distance 0.001 in CRM units).
