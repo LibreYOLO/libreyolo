@@ -577,7 +577,17 @@ class _Resampler(nn.Module):
         self.conv = conv
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(x)
+        conv = self.conv
+        if isinstance(conv, nn.ConvTranspose3d) and x.device.type == "mps":
+            # MPS has no fp16 ConvTranspose3d; a 2x2x2 stride-2 transposed
+            # convolution is one matmul per output offset, interleaved.
+            b, _, d, h, w = x.shape
+            out = torch.einsum("bidhw,ioxyz->boxyzdhw", x, conv.weight)
+            out = out.permute(0, 1, 5, 2, 6, 3, 7, 4).reshape(
+                b, conv.out_channels, 2 * d, 2 * h, 2 * w
+            )
+            return out + conv.bias.view(1, -1, 1, 1, 1)
+        return conv(x)
 
 
 class DownBlock3D(nn.Module):
@@ -747,7 +757,11 @@ def _adaptive_branch() -> nn.Sequential:
 
 
 class VoxelRefiner(nn.Module):
-    """Upstream's ``Voxel_RefinerXL``: the 512^3 SDF far from the surface, from the sparse SDF and features."""
+    """Upstream's ``Voxel_RefinerXL``: the dense 512^3 SDF from the sparse SDF and decoder features.
+
+    The grid is tiled with three overlapping patches per axis (192 voxels at
+    stride 160 for the released model), blended linearly over the overlaps.
+    """
 
     def __init__(
         self,
@@ -758,12 +772,21 @@ class VoxelRefiner(nn.Module):
         patch_size: int = 192,
         res: int = 512,
         use_fp16: bool = False,
+        feat_channels: int = 32,
+        block_out_channels: Sequence[int] = (8, 32, 128, 512),
         **_unused,
     ):
         super().__init__()
-        self.unet3d1 = UNet3DModel(16, layers_per_block=layers_per_block, layers_mid_block=layers_mid_block)
+        if (res - patch_size) % 2 or patch_size <= (res - patch_size) // 2:
+            raise ValueError("The refiner tiles its grid with three overlapping patches per axis.")
+        self.unet3d1 = UNet3DModel(
+            16,
+            block_out_channels=block_out_channels,
+            layers_per_block=layers_per_block,
+            layers_mid_block=layers_mid_block,
+        )
         self.conv_in = nn.Conv3d(in_channels, 8, 3, padding=1)
-        self.latent_mlp = GeoDecoder(32)
+        self.latent_mlp = GeoDecoder(feat_channels)
         self.adaptive_conv1 = _adaptive_branch()
         self.adaptive_conv2 = _adaptive_branch()
         self.adaptive_conv3 = _adaptive_branch()
@@ -787,15 +810,14 @@ class VoxelRefiner(nn.Module):
 
     @torch.no_grad()
     def refine(self, sdf: SparseTensor, feat: SparseTensor) -> torch.Tensor:
-        """Sparse SDF and decoder features at 512^3 -> dense SDF ``[B, 1, 512, 512, 512]``.
+        """Sparse SDF and decoder features -> dense SDF ``[B, 1, res, res, res]``.
 
-        Upstream densifies the 32-channel features over the whole grid; here
-        each 192^3 patch is filled from the sparse features directly, which
-        gives the same values with a fraction of the memory.
+        Upstream densifies the decoder features over the whole grid; here
+        each patch is filled from the sparse features directly, which gives
+        the same values with a fraction of the memory.
         """
-        res, patch, stride, steps = self.res, self.patch_size, 160, 3
-        if patch != 192 or res != 512:
-            raise ValueError("The 512 refiner tiles a 512^3 grid with 192^3 patches.")
+        res, patch = self.res, self.patch_size
+        stride = (res - patch) // 2
         values, coords = sdf.feats, sdf.coords.long()
         device, dtype = values.device, values.dtype
         batch = sdf.batch_size
@@ -803,25 +825,40 @@ class VoxelRefiner(nn.Module):
         grid[coords[:, 0], 0, coords[:, 1], coords[:, 2], coords[:, 3]] = values[:, 0]
         features = feat.feats.to(dtype)
         patches = []
-        for i, j, k in itertools.product(range(steps), repeat=3):
+        for i, j, k in itertools.product(range(3), repeat=3):
             lo = torch.tensor([stride * i, stride * j, stride * k], device=device)
             inside = ((coords[:, 1:] >= lo) & (coords[:, 1:] < lo + patch)).all(dim=1)
             local = coords[inside, 1:] - lo
-            crop = torch.zeros(batch, features.shape[1], patch, patch, patch, device=device, dtype=dtype)
-            crop[coords[inside, 0], :, local[:, 0], local[:, 1], local[:, 2]] = features[inside]
+            crop = torch.zeros(
+                batch, features.shape[1], patch, patch, patch, device=device, dtype=dtype
+            )
+            crop[coords[inside, 0], :, local[:, 0], local[:, 1], local[:, 2]] = features[
+                inside
+            ]
             window = grid[
-                :, :, stride * i : stride * i + patch, stride * j : stride * j + patch,
+                :,
+                :,
+                stride * i : stride * i + patch,
+                stride * j : stride * j + patch,
                 stride * k : stride * k + patch,
             ]
             patches.append(self._patch(window, crop))
-        return _blend_patches(patches, batch, res, device, dtype)
+        return blend_patches(patches, batch, res, patch, device, dtype)
 
 
-def _blend_patches(patches, batch, res, device, dtype) -> torch.Tensor:
-    """Upstream's stitching of 3x3x3 patches of 192 at stride 160, blending 32-voxel overlaps linearly."""
-    weights = torch.linspace(0, 1, steps=32, device=device, dtype=dtype)
+def blend_patches(patches, batch, res, patch, device, dtype) -> torch.Tensor:
+    """Upstream's stitching of 3x3x3 patches (k fastest): linear blends over each overlap.
 
-    def join(parts, shape, dim):
+    Each axis is joined in upstream's order (along z, then y, then x), so the
+    fp16 arithmetic is the same.
+    """
+    stride = (res - patch) // 2
+    overlap = patch - stride
+    weights = torch.linspace(0, 1, steps=overlap, device=device, dtype=dtype)
+
+    def join(parts, dim):
+        shape = list(parts[0].shape)
+        shape[dim] = res
         out = torch.ones(shape, dtype=dtype, device=device) * 2
         w = weights.view([1] * dim + [-1] + [1] * (4 - dim))
 
@@ -836,22 +873,31 @@ def _blend_patches(patches, batch, res, device, dtype) -> torch.Tensor:
             out[tuple(index)] = value
 
         first, second, third = parts
-        put(0, 160, cut(first, 0, 160))
-        put(192, 320, cut(second, 32, 160))
-        put(352, res, cut(third, 32, None))
-        put(160, 192, cut(first, 160, None) * (1 - w) + cut(second, 0, 32) * w)
-        put(320, 352, cut(second, 160, None) * (1 - w) + cut(third, 0, 32) * w)
+        put(0, stride, cut(first, 0, stride))
+        put(patch, 2 * stride, cut(second, overlap, stride))
+        put(stride + patch, res, cut(third, overlap, None))
+        put(stride, patch, cut(first, stride, None) * (1 - w) + cut(second, 0, overlap) * w)
+        put(
+            2 * stride,
+            stride + patch,
+            cut(second, stride, None) * (1 - w) + cut(third, 0, overlap) * w,
+        )
         return out
 
-    lines = [
-        join(patches[3 * n : 3 * n + 3], [batch, 1, 192, 192, res], 4) for n in range(9)
-    ]
-    layers = [join(lines[3 * n : 3 * n + 3], [batch, 1, 192, res, res], 3) for n in range(3)]
-    return join(layers, [batch, 1, res, res, res], 2)
+    lines = [join(patches[3 * n : 3 * n + 3], 4) for n in range(9)]
+    layers = [join(lines[3 * n : 3 * n + 3], 3) for n in range(3)]
+    return join(layers, 2)
 
 
 class VoxelSignRefiner(nn.Module):
-    """Upstream's ``Voxel_RefinerXL_sign``: the inside/outside sign of the 1024^3 SDF, predicted at 512^3."""
+    """Upstream's ``Voxel_RefinerXL_sign``: the inside/outside sign of the 1024^3 SDF, predicted at 512^3.
+
+    The sparse SDF is mean-pooled to half resolution, the UNet classifies
+    each coarse voxel as inside or outside in three overlapping patches per
+    axis (256 voxels at stride 128 for the released model; a later patch
+    overwrites the overlap), and the sign is applied to the SDF magnitude away
+    from the decoded voxels.
+    """
 
     def __init__(
         self,
@@ -862,34 +908,44 @@ class VoxelSignRefiner(nn.Module):
         patch_size: int = 192,
         res: int = 512,
         use_fp16: bool = False,
+        block_out_channels: Sequence[int] = (8, 32, 128, 512),
         **_unused,
     ):
         super().__init__()
-        self.unet3d1 = UNet3DModel(8, layers_per_block=layers_per_block, layers_mid_block=layers_mid_block)
+        self.unet3d1 = UNet3DModel(
+            8,
+            block_out_channels=block_out_channels,
+            layers_per_block=layers_per_block,
+            layers_mid_block=layers_mid_block,
+        )
         self.conv_in = nn.Conv3d(in_channels, 8, 3, padding=1)
         self.conv_out = nn.Conv3d(8, out_channels, 3, padding=1)
         self.patch_size = patch_size
+        self.res = res
         if use_fp16:
             self.apply(convert_module_to_f16)
 
     @torch.no_grad()
     def refine(self, sdf: SparseTensor) -> torch.Tensor:
-        """Sparse SDF at 1024^3 -> dense signed SDF ``[B, 1, 1024, 1024, 1024]``."""
-        full, coarse_res, stride, steps = 1024, 512, 128, 3
+        """Sparse SDF at ``2 * res`` -> dense signed SDF ``[B, 1, 2 res, 2 res, 2 res]``."""
+        coarse_res = self.res
+        full = 2 * coarse_res
+        stride = coarse_res // 4
         values, coords = sdf.feats, sdf.coords.long()
         device, dtype = values.device, values.dtype
         batch = sdf.batch_size
-        dense = torch.ones(batch, 1, full, full, full, device=device, dtype=dtype)
-        dense[coords[:, 0], 0, coords[:, 1], coords[:, 2], coords[:, 3]] = values[:, 0]
         coarse = sparse_mean_pool(sdf, 2)
         cc = coarse.coords.long()
-        grid = torch.ones(batch, 1, coarse_res, coarse_res, coarse_res, device=device, dtype=dtype)
+        grid = torch.ones(
+            batch, 1, coarse_res, coarse_res, coarse_res, device=device, dtype=dtype
+        )
         grid[cc[:, 0], 0, cc[:, 1], cc[:, 2], cc[:, 3]] = coarse.feats[:, 0]
         sign = torch.ones_like(grid)
         patch = self.patch_size
-        for i, j, k in itertools.product(range(steps), repeat=3):
+        for i, j, k in itertools.product(range(3), repeat=3):
             view = (
-                slice(None), slice(None),
+                slice(None),
+                slice(None),
                 slice(stride * i, stride * i + patch),
                 slice(stride * j, stride * j + patch),
                 slice(stride * k, stride * k + patch),
@@ -899,10 +955,11 @@ class VoxelSignRefiner(nn.Module):
             out[out < 0.5] = -1
             sign[view] = out
         del grid
-        signed = dense.abs()
         for axis in (2, 3, 4):
             sign = sign.repeat_interleave(2, dim=axis)
-        signed.mul_(sign)
+        signed = torch.ones(batch, 1, full, full, full, device=device, dtype=dtype)
+        signed[coords[:, 0], 0, coords[:, 1], coords[:, 2], coords[:, 3]] = values[:, 0]
+        signed = signed.abs_().mul_(sign)
         del sign
         signed[coords[:, 0], 0, coords[:, 1], coords[:, 2], coords[:, 3]] = values[:, 0]
         return signed

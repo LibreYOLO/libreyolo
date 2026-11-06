@@ -37,7 +37,6 @@ IMAGE_SIZE = 518
 # Upstream's per-call constants (Direct3DS2Pipeline.__call__ and inference).
 _DENSE_OCCUPANCY = 0.1
 _SDF_LEVEL = 0.2
-_UDF_RESOLUTION = 1024
 _UDF_VOXELS = 4.0
 _UDF_FACTOR = 8
 
@@ -197,7 +196,7 @@ def mesh_to_voxels(
     vertices: np.ndarray,
     faces: np.ndarray,
     device,
-    size: int = _UDF_RESOLUTION,
+    size: int = 1024,
     threshold: float = _UDF_VOXELS,
     factor: int = _UDF_FACTOR,
 ) -> torch.Tensor:
@@ -210,8 +209,8 @@ def mesh_to_voxels(
     kernel over every triangle's bounding box widened by ``threshold + 1``
     points; this does the same in chunks of triangles.
     """
-    verts = torch.as_tensor(vertices, dtype=torch.float32, device=device) * 0.5
-    tris = torch.as_tensor(np.asarray(faces), dtype=torch.long, device=device)
+    verts = torch.as_tensor(np.ascontiguousarray(vertices), dtype=torch.float32, device=device) * 0.5
+    tris = torch.as_tensor(np.ascontiguousarray(faces), dtype=torch.long, device=device)
     corners = verts[tris]  # [F, 3, 3]
     scale = size - 1
     reach = int(threshold + 1)
@@ -318,7 +317,9 @@ def run_stages(
         out["mesh"] = (vertices, faces)
         return out
 
-    voxels = mesh_to_voxels(normalize_vertices(vertices), faces, device)
+    # Upstream voxelises at 1024^3: the 1024 decoder's latent grid times its 8x upsampling.
+    size = modules.sparse_vae_1024.resolution * _UDF_FACTOR
+    voxels = mesh_to_voxels(normalize_vertices(vertices), faces, device, size=size)
     voxels = sort_block(voxels, modules.sparse_dit_1024.selection_block_size)
     out["voxels1024"] = voxels
     vertices, faces, _ = _sparse_stage(

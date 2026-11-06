@@ -160,8 +160,10 @@ def _float64_capable(device: torch.device) -> bool:
 def sparse_mean_pool(x: SparseTensor, factor: int) -> SparseTensor:
     """Upstream's ``SparseDownsample``: average the voxels that share a coarse voxel.
 
-    Coarse voxels come out in ``(batch, x, y, z)`` order. The mean is
-    accumulated in float64 as upstream does, float32 on MPS.
+    Coarse voxels come out in ``(batch, x, y, z)`` order. As upstream's
+    ``scatter_reduce`` into zeros, the zero it starts from counts in the mean
+    (a coarse voxel of ``n`` voxels divides their sum by ``n + 1``). The mean
+    is accumulated in float64 as upstream does, float32 on MPS.
     """
     coord = list(x.coords.unbind(dim=-1))
     for i in range(1, 4):
