@@ -154,6 +154,7 @@ class CoreMLBackend(BaseBackend):
             supported_tasks=supported_tasks,
             default_task=default_task,
             letterbox_pad=meta.get("letterbox_pad"),
+            channels=meta.get("channels"),
             **pose_metadata,
         )
 

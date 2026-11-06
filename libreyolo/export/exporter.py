@@ -1534,7 +1534,13 @@ class BaseExporter(ABC):
             # geometry are fixed per graph; only batch may be dynamic.
             dummy = torch.randn(batch, video_export_frames, 3, h, w, device=device)
         else:
-            channels = 2 if isinstance(getattr(self.model, "input_profile", None), dict) else 3
+            from ..utils.input_channels import model_channels
+
+            channels = (
+                2
+                if isinstance(getattr(self.model, "input_profile", None), dict)
+                else model_channels(self.model)
+            )
             dummy = torch.randn(batch, channels, h, w, device=device)
 
         if apply_half:
@@ -1747,6 +1753,10 @@ class BaseExporter(ABC):
         from ..utils.event_histogram import input_metadata
         for key, value in input_metadata(self.model).items():
             meta[key] = json.dumps(value) if isinstance(value, dict) else str(value)
+        from ..utils.input_channels import channels_metadata
+
+        for key, value in channels_metadata(self.model).items():
+            meta[key] = str(value)
         meta.update(_letterbox_pad_metadata(self.model))
         # Classification eval preprocessing — lets exported-backend inference
         # and validation match native predict()/val() (#886).

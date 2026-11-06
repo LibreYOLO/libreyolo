@@ -333,6 +333,8 @@ def _read_runtime_metadata(meta: dict) -> dict[str, Any]:
         runtime_meta["offset_deg"] = float(meta["offset_deg"])
     if meta.get("letterbox_pad") is not None:
         runtime_meta["letterbox_pad"] = str(meta["letterbox_pad"])
+    if meta.get("channels") not in (None, ""):
+        runtime_meta["channels"] = int(meta["channels"])
     return runtime_meta
 
 
@@ -640,8 +642,14 @@ class BaseBackend(ABC):
         bin_width_deg: float | None = None,
         offset_deg: float | None = None,
         letterbox_pad: str | None = None,
+        channels: int | str | None = None,
     ):
         self.model_path = model_path
+        from ..utils.input_channels import validate_channels
+
+        # Grayscale exports (dataset ``channels: 1``) consume one channel;
+        # artifacts without the key are RGB.
+        self.input_channels = validate_channels(int(channels)) if channels not in (None, "") else 3
         self.nb_classes = nb_classes
         self.device = device
         self.imgsz = _normalize_imgsz(imgsz)
@@ -731,6 +739,14 @@ class BaseBackend(ABC):
     # Preprocessing
     # =========================================================================
 
+    def _fold_channels(self, blob):
+        """Grayscale graphs take one channel; preprocessing yields three equal ones."""
+        if getattr(self, "input_channels", 3) != 1:
+            return blob
+        from ..utils.input_channels import fold_input_channels
+
+        return fold_input_channels(blob, 1)
+
     def _preprocess(self, image, effective_imgsz, color_format):
         """Dispatch to model-family-specific preprocessing.
 
@@ -741,6 +757,10 @@ class BaseBackend(ABC):
             from ..utils.event_histogram import predict_histogram
             tensor, preview, size, ratio = predict_histogram(self, image, effective_imgsz, color_format, as_numpy=True)
             return tensor, preview, size, ratio
+        if getattr(self, "input_channels", 3) == 1:
+            from ..utils.input_channels import gray_pil
+
+            image, color_format = gray_pil(image, color_format), "rgb"
 
         if self.task == "restore" or self.model_family == "nafnet":
             if self.model_family in {"realesrgan", "quicksrnet"} and not getattr(
@@ -4537,12 +4557,12 @@ class BaseBackend(ABC):
     def _forward(self, input_tensor: torch.Tensor):
         blob = _to_blob(input_tensor)
         try:
-            outputs = self._run_inference(blob)
+            outputs = self._run_inference(self._fold_channels(blob))
         except Exception:
             if blob.shape[0] <= 1:
                 raise
             per_image_outputs = [
-                self._run_inference(blob[i : i + 1]) for i in range(blob.shape[0])
+                self._run_inference(self._fold_channels(blob[i : i + 1])) for i in range(blob.shape[0])
             ]
             outputs = [
                 np.concatenate(
@@ -4852,7 +4872,7 @@ class BaseBackend(ABC):
 
         blob = _to_blob(input_tensor)
 
-        all_outputs = self._run_inference(blob)
+        all_outputs = self._run_inference(self._fold_channels(blob))
 
         orig_w, orig_h = original_size
         orig_shape = (orig_h, orig_w)
@@ -5191,7 +5211,7 @@ class BaseBackend(ABC):
         if stackable and not getattr(self, "_batched_inference_failed", False):
             blob = np.concatenate([_to_blob(t) for t in tensors], axis=0)
             try:
-                all_outputs = self._run_inference(blob)
+                all_outputs = self._run_inference(self._fold_channels(blob))
             except Exception as e:
                 self._batched_inference_failed = True
                 logger.warning(
@@ -5556,7 +5576,7 @@ class BaseBackend(ABC):
                 pil_img, effective_imgsz, "rgb"
             )
             blob = _to_blob(input_tensor)
-            all_outputs = self._run_inference(blob)
+            all_outputs = self._run_inference(self._fold_channels(blob))
             orig_w, orig_h = original_size
             orig_shape = (orig_h, orig_w)
             if self.task == "classify":

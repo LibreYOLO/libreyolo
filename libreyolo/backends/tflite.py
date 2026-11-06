@@ -113,6 +113,7 @@ class TFLiteBackend(BaseBackend):
             default_task=default_task,
             **classify_eval_kwargs(metadata),
             letterbox_pad=metadata.get("letterbox_pad"),
+            channels=metadata.get("channels"),
             **_read_pose_metadata(metadata),
         )
 

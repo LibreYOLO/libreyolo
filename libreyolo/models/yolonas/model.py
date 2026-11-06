@@ -617,6 +617,9 @@ class LibreYOLONAS(BaseModel):
                 if ckpt_names is not None:
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
 
+            from ...utils.input_channels import restore_channels
+
+            restore_channels(self, loaded)
             self._load_state_dict_logged(state_dict, source=str(model_path))
         except Exception as e:
             raise RuntimeError(

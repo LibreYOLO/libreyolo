@@ -18,6 +18,9 @@ Applies to `detect`, `segment`, `pose`, and `obb`.
 - `download`: optional; Python download scripts require explicit opt-in.
 - `annotations`: optional mapping of split names to native COCO JSON files for
   detection, instance segmentation, and OBB.
+- `channels`: optional, `1` or `3` (default). `1` trains a grayscale model;
+  see [Grayscale input](#grayscale-input). `2` is reserved for event
+  histograms with an `input_profile`.
 
 `train`, `val`, and `test` may be image directories, image-list `.txt` files,
 or lists of those values. Label paths follow:
@@ -43,6 +46,34 @@ class names; those names define the model label IDs. Without `names`, COCO
 category IDs are sorted and mapped densely to `0..N-1`.
 
 Do not require `task` in dataset YAML. Explicit model/task selection wins.
+
+### Grayscale input
+
+`channels: 1` is the same key Ultralytics uses. Images stay ordinary files,
+colour or gray: every image is converted to luma when it is read, for
+training, validation and prediction, so no separate grayscale copy of the
+dataset is needed. The image caches hold the decoded colour image, so RGB and
+grayscale runs can share a dataset folder.
+
+The model's input convolution is replaced with a one-channel convolution.
+Starting from pretrained weights, its weights are the RGB weights summed,
+which gives the same response to a gray image. The checkpoint stores
+`channels: 1`; loading it restores the one-channel model, and `predict()`
+converts every input image to gray. Exports trace with a one-channel input,
+so the exported graph consumes `(N, 1, H, W)` and its metadata carries
+`channels: 1`. Preprocessing is otherwise the family's usual one, applied to
+the gray plane. Runtimes outside LibreYOLO feed the luma plane
+(`0.299 R + 0.587 G + 0.114 B`) with the family's scaling. Families that
+divide by 255 take `gray / 255`. Families with per-channel mean and std take
+the average of the three normalized planes, which is one mean and std: for
+ImageNet statistics, `(gray / 255 - 0.4488) / 0.2260`.
+
+Supported on YOLO9 (and YOLO9-E2E, YOLO9-P2), YOLO7, YOLOX, YOLO-NAS,
+RTMDet, PP-YOLOE, PicoDet, D-FINE, DEIM, DEIMv2, RT-DETR, RT-DETRv2,
+RT-DETRv4, RF-DETR, EC and FOMO, for every task, training mode and export
+format each family already supports.
+A dataset declaring `channels: 3` cannot train a grayscale model; omit the
+key to keep the model's channels.
 
 Common label rules:
 
