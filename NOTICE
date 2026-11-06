@@ -944,6 +944,23 @@ TRELLIS (MIT License)
     (MIT), LibreYOLO/LibreTRELLISl; DINOv2 from
     facebook/dinov2-with-registers-large (Apache-2.0). Pinned revisions.
 
+TripoSR (MIT License)
+    Path:    libreyolo/models/gen/triposr/
+    License: libreyolo/models/gen/triposr/NOTICE
+    Source:  https://github.com/VAST-AI-Research/TripoSR
+             (commit 107cefdc244c39106fa830359024f6a2f1c78871)
+             Copyright (c) 2024 Tripo AI & Stability AI.
+
+    The TripoSR networks (DINO image encoder, triplane transformer, upsampler,
+    NeRF MLP), the mesh extraction and the preprocessing are adapted from the
+    MIT TripoSR repository; its transformer files are HuggingFace diffusers
+    code (Apache-2.0) and the image encoder follows HuggingFace transformers'
+    ViT (Apache-2.0). Marching cubes runs through scikit-image (BSD-3-Clause)
+    instead of upstream's torchmcubes (MPL-2.0), which is not used.
+    Weights: LibreYOLO's byte-identical mirror of stabilityai/TripoSR (MIT),
+    LibreYOLO/LibreTripoSR; BiRefNet from LibreYOLO/LibreTRELLISl (MIT).
+    Pinned revisions.
+
 TripoSplat (MIT License)
     Path:    libreyolo/models/gen/triposplat/
     License: libreyolo/models/gen/triposplat/NOTICE

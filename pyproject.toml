@@ -158,8 +158,9 @@ gen = [
     # the floor stays at 0.38 so this extra installs next to marigold. PRX
     # and PRXPixel clean prompts with ftfy (Apache-2.0).
     # Speridlabs Idol reads DINOv3 through transformers and the FLUX.2 VAE
-    # through diffusers.
+    # through diffusers. TripoSR meshes through scikit-image's marching cubes.
     "diffusers>=0.38.0",
+    "scikit-image>=0.19",
     "transformers>=5.1.0",
     "accelerate>=1.7.0",
     "ftfy>=6.0",

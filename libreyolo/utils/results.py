@@ -2440,6 +2440,14 @@ class Meshes:
     carry different degrees of freedom), and ``betas`` are identity blendshape
     coefficients. Model-specific extras such as skeleton scale, hand pose and
     facial expression live in ``extras``.
+
+    LibreGen image-to-3D families that return a mesh reuse this payload for
+    the generated object (ADR 0031), with no person boxes: one row,
+    ``body_model="object"``, empty ``global_orient``/``body_pose``/``betas``
+    (shape ``(1, 0)``), zero ``transl``, ``vertices`` ``(1, V, 3)`` in the
+    object frame (z up, inside ``[-0.5, 0.5]^3``), shared ``faces``
+    ``(F, 3)`` wound counter-clockwise seen from outside, and optional
+    ``extras["vertex_colors"]`` ``(1, V, 3)`` RGB in ``[0, 1]``.
     """
 
     def __init__(
@@ -2549,14 +2557,25 @@ class Meshes:
             raise IndexError(f"index {index} is out of range for {len(self)} mesh(es)")
         verts = np.asarray(_numpy(self.vertices))[index]
         faces = np.asarray(_numpy(self.faces))
+        # Generated objects carry per-vertex RGB in [0, 1], written as the
+        # common ``v x y z r g b`` OBJ extension.
+        colors = self.extras.get("vertex_colors")
+        colors = None if colors is None else np.asarray(_numpy(colors))[index]
 
         path = Path(path)
         if path.parent and path.parent != Path("."):
             path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
-            fh.write(f"# LibreYOLO body mesh ({self.body_model})\n")
-            for v in verts:
-                fh.write(f"v {float(v[0]):.6f} {float(v[1]):.6f} {float(v[2]):.6f}\n")
+            fh.write(f"# LibreYOLO mesh ({self.body_model})\n")
+            for i, v in enumerate(verts):
+                rgb = (
+                    ""
+                    if colors is None
+                    else " {:.4f} {:.4f} {:.4f}".format(*(float(c) for c in colors[i]))
+                )
+                fh.write(
+                    f"v {float(v[0]):.6f} {float(v[1]):.6f} {float(v[2]):.6f}{rgb}\n"
+                )
             # OBJ vertex indices are 1-based.
             for f in faces:
                 fh.write(f"f {int(f[0]) + 1} {int(f[1]) + 1} {int(f[2]) + 1}\n")
@@ -3248,8 +3267,8 @@ class Results:
         """Save a generated image or 3D object, or a matte result as a transparent RGBA PNG.
 
         Returns the written path. Generated Gaussians go to ``.ply`` or
-        ``.splat``. A matte cutout requires the source image (via ``image``
-        or ``self.path``).
+        ``.splat``, a generated mesh to ``.obj``. A matte cutout requires the
+        source image (via ``image`` or ``self.path``).
         """
         from PIL import Image
 
@@ -3258,6 +3277,12 @@ class Results:
             return str(path)
         if self.gaussians is not None:
             self.gaussians.save(path)
+            return str(path)
+        if self.meshes is not None and self.boxes is None:
+            # A generated object (one row, no person boxes).
+            if Path(path).suffix.lower() != ".obj":
+                raise ValueError(f"A generated mesh saves as .obj, got {path!r}.")
+            self.meshes.save_obj(path)
             return str(path)
         if self.matte is None:
             raise NotImplementedError(
@@ -3285,6 +3310,17 @@ class Results:
                 return [self.generated.to_dict()]
             if self.gaussians is not None:
                 return [self.gaussians.to_dict()]
+            if self.meshes is not None:
+                return [
+                    {
+                        "name": "mesh",
+                        "body_model": self.meshes.body_model,
+                        "num_vertices": self.meshes.num_vertices,
+                        "num_faces": 0
+                        if self.meshes.faces is None
+                        else int(self.meshes.faces.shape[0]),
+                    }
+                ]
             if self.embeddings is not None:
                 emb = (
                     self.embeddings.numpy()

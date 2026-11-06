@@ -32,6 +32,7 @@ from .sana_sprint import LibreSanaSprint
 from .speridlabs_idol import LibreSperidlabsIdol
 from .trellis import LibreTRELLIS
 from .triposplat import LibreTripoSplat
+from .triposr import LibreTripoSR
 
 # alias -> (family class, size)
 _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
@@ -54,6 +55,7 @@ _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
     "trellis-image-large": (LibreTRELLIS, "l"),
     "lgm": (LibreLGM, "0.4b"),
     "lgm-0.4b": (LibreLGM, "0.4b"),
+    "triposr": (LibreTripoSR, ""),
 }
 
 _DEFAULT_MODEL = "flux2-klein-4b"
@@ -76,7 +78,7 @@ def LibreGen(model: str = _DEFAULT_MODEL, **kwargs) -> LibreGenModel:
     Args:
         model: Alias (``"flux2-klein-4b"``, ``"sana-sprint-0.6b"``,
             ``"prx-1024-beta"`` and the other ``prx-*`` checkpoints,
-            ``"prxpixel-7b"``, ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``) or a path to a local model directory in a
+            ``"prxpixel-7b"``, ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``) or a path to a local model directory in a
             supported family's upstream format, such as a fine-tune or an
             offline copy.
         **kwargs: Forwarded to the family constructor: ``device``, ``dtype``
@@ -124,4 +126,5 @@ __all__ = [
     "LibreTripoSplat",
     "LibreTRELLIS",
     "LibreLGM",
+    "LibreTripoSR",
 ]
