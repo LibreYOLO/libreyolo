@@ -295,7 +295,7 @@ Diffusion 2.1, so the CreativeML OpenRAIL++-M use restrictions shipped with
 ```bash
 libreyolo generate source=chair.jpg
 libreyolo generate source=chair.png model=triposr
-libreyolo generate source=chair.png model=crm
+libreyolo generate source=chair.png model=crm texture=true
 libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
 libreyolo generate source=chair.jpg model=triposplat
 libreyolo generate source=chair.jpg model=trellis

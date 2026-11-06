@@ -53,6 +53,9 @@ def generate_cmd(
     elevation: float | None = typer.Option(
         None, help="Input camera elevation in degrees, negative above (family knob)"
     ),
+    texture: bool | None = typer.Option(
+        None, help="Bake a UV texture into the mesh (family knob, crm)"
+    ),
     device: str = typer.Option("auto", help="auto, cpu, mps, or a CUDA device"),
     dtype: str = typer.Option("auto", help="auto, bf16, fp16, or fp32"),
     offload: bool = typer.Option(False, help="Keep idle components off the GPU"),
@@ -138,6 +141,7 @@ def generate_cmd(
                 ("mode", mode),
                 ("margin", margin),
                 ("elevation", elevation),
+                ("texture", texture),
             )
             if value is not None
         }
