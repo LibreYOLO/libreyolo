@@ -135,6 +135,41 @@ def test_recenter_fits_the_object_into_eighty_percent():
     assert result[50, 50, :3].tolist() == [200, 50, 25]
 
 
+@pytest.mark.parametrize(
+    "box",
+    [(30, 31, 40, 41), (30, 31, 10, 90), (10, 50, 40, 41)],
+    ids=["single-pixel", "one-row", "one-column"],
+)
+def test_recenter_keeps_thin_cutouts(box):
+    top, bottom, left, right = box
+    image = np.zeros((60, 100, 4), dtype=np.uint8)
+    image[top:bottom, left:right] = (200, 50, 25, 255)
+    result = lpipe.recenter(image, image[..., 3] > 0)
+    assert result.shape == (100, 100, 4)
+    assert result[..., 3].any()
+
+
+def test_recenter_matches_upstream_arithmetic_on_ordinary_cutouts():
+    import cv2
+
+    rng = np.random.default_rng(0)
+    image = rng.integers(0, 256, (70, 50, 4), dtype=np.uint8)
+    mask = np.zeros((70, 50), dtype=bool)
+    mask[12:61, 7:33] = True
+    # Upstream's recenter, written out: exclusive extents, INTER_AREA resize.
+    pixels = image.astype(np.float32) / 255
+    expected = np.zeros((70, 70, 4), dtype=np.float32)
+    top, bottom, left, right = 12, 60, 7, 32
+    scale = int(70 * 0.8) / max(bottom - top, right - left)
+    h2, w2 = int((bottom - top) * scale), int((right - left) * scale)
+    y0, x0 = (70 - h2) // 2, (70 - w2) // 2
+    expected[y0 : y0 + h2, x0 : x0 + w2] = cv2.resize(
+        pixels[top:bottom, left:right], (w2, h2), interpolation=cv2.INTER_AREA
+    )
+    expected = (expected * 255).astype(np.uint8)
+    assert np.array_equal(lpipe.recenter(image, mask), expected)
+
+
 class _CentreBlob(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -352,6 +387,22 @@ def test_guidance_one_runs_the_conditional_pass_only():
         elevation=0.0,
     )
     assert batches == [5, 5, 10, 10]
+
+
+def test_sampling_leaves_the_shared_scheduler_untouched():
+    modules = _tiny_modules()
+    before = modules.scheduler.timesteps.clone()
+    prepared = lpipe.preprocess_image(_image(), modules.birefnet)
+    lpipe.sample_views(
+        modules,
+        prepared,
+        torch.Generator().manual_seed(0),
+        steps=3,
+        guidance=5.0,
+        elevation=0.0,
+    )
+    assert torch.equal(modules.scheduler.timesteps, before)
+    assert modules.scheduler.num_inference_steps is None
 
 
 def test_generate_through_the_public_call(tmp_path):

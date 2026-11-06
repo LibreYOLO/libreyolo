@@ -19,6 +19,8 @@ object after ``kiui.seed_everything(seed)``.
 
 from __future__ import annotations
 
+import copy
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -114,13 +116,15 @@ def recenter(
     result = np.zeros((size, size, channels), dtype=np.float32)
     rows, cols = np.nonzero(mask)
     top, bottom, left, right = rows.min(), rows.max(), cols.min(), cols.max()
-    h, w = bottom - top, right - left
+    # Upstream's exclusive extents, kept so normal crops stay bit-identical;
+    # a one-pixel-thin object keeps a one-pixel span instead of an empty crop.
+    h, w = max(bottom - top, 1), max(right - left, 1)
     scale = int(size * (1 - border_ratio)) / max(h, w)
-    h2, w2 = int(h * scale), int(w * scale)
+    h2, w2 = max(int(h * scale), 1), max(int(w * scale), 1)
     y0, x0 = (size - h2) // 2, (size - w2) // 2
     result[y0 : y0 + h2, x0 : x0 + w2] = cv2.resize(
-        pixels[top:bottom, left:right], (w2, h2), interpolation=cv2.INTER_AREA
-    )
+        pixels[top : top + h, left : left + w], (w2, h2), interpolation=cv2.INTER_AREA
+    ).reshape(h2, w2, channels)
     return (result * 255).astype(np.uint8)
 
 
@@ -204,6 +208,8 @@ def sample_views(
         modules.vae,
         modules.scheduler,
     )
+    # set_timesteps mutates the scheduler; each call samples with its own copy.
+    scheduler = copy.deepcopy(scheduler)
     dtype = next(unet.parameters()).dtype
     frames = 5  # four views plus the input image's slot
     if image_tokens is None:
