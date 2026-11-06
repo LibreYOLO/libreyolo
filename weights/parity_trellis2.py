@@ -18,11 +18,13 @@ swaps the port's sparse attention into upstream, which isolates the
 convolutions (FlexGEMM vs the gathered GEMM) and the glue.
 
 Measured on an A100 40 GB (torch 2.6.0+cu124, flash-attn 2.7.3, transformers
-4.57.1): every stage in BITWISE is bitwise equal; the flash-attn / FlexGEMM
-stages are as close to the fp32 reference as upstream is (sparse-structure
-sampler mean |diff| to fp32: port 0.018, upstream 0.023; 1024 shape sampler:
-0.0518 vs 0.0520); the decoder's predicted voxels overlap upstream's at IoU
-0.998, as upstream's overlap the fp32 run's.
+4.57.1), two examples: every stage in BITWISE is bitwise equal; the
+flash-attn / FlexGEMM stages are as far from the fp32 reference as upstream
+is, within a few percent either way (mean |diff| to fp32, port vs upstream:
+structure sampler 0.018 / 0.023 and 0.076 / 0.077, 512 shape sampler 0.045 /
+0.047 and 0.067 / 0.064, 1024 shape sampler 0.052 / 0.052 and 0.065 /
+0.066); the decoder's predicted voxels overlap upstream's at IoU 0.998 and
+0.996, as upstream's overlap the fp32 run's.
 
 Prereqs (a CUDA machine with nvcc; throwaway env, NOT the main .venv):
     pip install -e ".[gen]" transformers==4.57.1 flash-attn==2.7.3 easydict opencv-python-headless trimesh zstandard plyfile

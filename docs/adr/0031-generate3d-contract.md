@@ -337,8 +337,9 @@ The parity gate (`weights/parity_trellis2.py`, end to end
 the preprocessing, the DINOv3 tokens, the structure stage with upstream's
 SDPA attention backend, the structure decoder and the meshing of upstream's
 decoder fields are bitwise equal; the stages that run on flash-attn and
-FlexGEMM upstream differ by kernel noise no larger than upstream's own
-distance to an fp32 run of the same weights.
+FlexGEMM upstream differ by kernel noise of the same size as upstream's own
+distance to an fp32 run of the same weights (within a few percent either
+way, on two examples).
 
 ## Weights
 
