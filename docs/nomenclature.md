@@ -1148,12 +1148,18 @@ Apache-2.0 defaults and the upstream license-change history.
 
 `LibreFlux2Klein` (`flux2_klein`, size `4b`, aliases `flux2-klein` and
 `flux2-klein-4b`) and `LibreSanaSprint` (`sana_sprint`, size `0.6b`, aliases
-`sana-sprint` and `sana-sprint-0.6b`) are a sibling API behind the
+`sana-sprint` and `sana-sprint-0.6b`), `LibrePRX` (`prx`, sizes
+`1024-beta`, `512-sft-distilled`, `512-sft`, `512`, `512-dc-ae-sft-distilled`,
+`512-dc-ae-sft`, `512-dc-ae`, `256-sft` and `256`, aliases `prx-<size>` and
+`prx` for `1024-beta`) and `LibrePRXPixel` (`prxpixel`, size `7b`, aliases
+`prxpixel`, `prxpixel-7b` and `prx-pixel`) are a sibling API behind the
 `LibreGen(...)` factory, wrapping `diffusers` pipelines through the optional
 `libreyolo[gen]` runtime. They use `generate`, with aliases `generation`,
 `image-generation`, `text-to-image`, `text2image`, `txt2img` and `t2i`, and
 coverage group `s`. Base weights are pinned Hub snapshots downloaded into
-`weights/LibreFlux2Klein4b/` and `weights/LibreSanaSprint0.6b/` as pipeline
+`weights/LibreFlux2Klein4b/`, `weights/LibreSanaSprint0.6b/`,
+`weights/LibrePRX<size>/` (for example `weights/LibrePRX512-sft-distilled/`)
+and `weights/LibrePRXPixel7b/` as pipeline
 directories; they are not `.pt` files and are not registered in the
 `LibreYOLO(...)` state-dict factory.
 

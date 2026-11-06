@@ -35,6 +35,9 @@ def generate_cmd(
     n: int = typer.Option(1, help="Images per prompt"),
     steps: int | None = typer.Option(None, help="Sampling steps (family knob)"),
     guidance: float | None = typer.Option(None, help="Prompt guidance (family knob)"),
+    negative: str | None = typer.Option(
+        None, help="Negative prompt: what to steer away from (family knob)"
+    ),
     shift: float | None = typer.Option(
         None, help="Flow time shift toward high noise (family knob)"
     ),
@@ -129,6 +132,7 @@ def generate_cmd(
             for key, value in (
                 ("steps", steps),
                 ("guidance", guidance),
+                ("negative", negative),
                 ("shift", shift),
                 ("gaussians", gaussians),
                 ("mode", mode),
