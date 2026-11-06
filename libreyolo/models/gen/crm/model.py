@@ -44,6 +44,7 @@ class LibreCRM(LibreGen3DModel):
     HF_REVISIONS: ClassVar[Dict[str, str]] = {"l": ""}
     INPUT_SIZES: ClassVar[Dict[str, int]] = {"l": 256}
     SNAPSHOT_ALLOW_PATTERNS: ClassVar[Tuple[str, ...]] = _WEIGHT_FILES
+    SAVE_SUFFIXES: ClassVar[Tuple[str, ...]] = (".obj",)
     KNOBS = ("steps", "guidance", "texture")
     DEFAULTS: ClassVar[Dict[str, Any]] = {"steps": 50, "guidance": 5.0, "texture": False}
     _LICENSE_NOTICE = (
@@ -179,14 +180,13 @@ class LibreCRM(LibreGen3DModel):
                         "model": self.model_path if self._checkpoint_dir else self.model_name,
                         **knobs,
                     },
-                    input_image=prepared,
                 )
             )
         return objects
 
 
-def mesh_payload(out: Dict[str, Any], *, seed: int, params: Dict[str, Any], input_image) -> Meshes:
-    """One generated object as a ``Meshes`` payload (one row, no body parameters)."""
+def mesh_payload(out: Dict[str, Any], *, seed: int, params: Dict[str, Any]) -> Meshes:
+    """One generated object as a one-row ``Meshes`` payload (ADR 0031)."""
     import numpy as np
 
     extras = {"vertex_colors": out["vertex_colors"][None]}
@@ -199,11 +199,12 @@ def mesh_payload(out: Dict[str, Any], *, seed: int, params: Dict[str, Any], inpu
         np.zeros((1, 0), np.float32),
         np.zeros((1, 0), np.float32),
         np.zeros((1, 3), np.float32),
-        body_model="generated",
+        body_model="object",
         vertices=out["vertices"][None],
         faces=out["faces"],
         extras=extras,
-        generation={"seed": int(seed), "params": params, "input_image": input_image},
+        seed=int(seed),
+        generation_params=params,
     )
 
 

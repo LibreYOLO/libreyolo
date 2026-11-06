@@ -307,6 +307,8 @@ class MultiViewUNet(nn.Module):
         context_dim: int = 1024,
         camera_dim: int = 16,
         ip_dim: int = 16,
+        image_dim: int = 1280,
+        resampler_heads: int = 12,
         stage2: bool = False,
     ):
         super().__init__()
@@ -323,9 +325,9 @@ class MultiViewUNet(nn.Module):
             dim=context_dim,
             depth=4,
             dim_head=64,
-            heads=12,
+            heads=resampler_heads,
             num_queries=ip_dim,
-            embedding_dim=1280,
+            embedding_dim=image_dim,
             output_dim=context_dim,
         )
 
@@ -613,7 +615,9 @@ class VisionTower(nn.Module):
 class OpenCLIP(nn.Module):
     """OpenCLIP ViT-H/14: the text tower (penultimate layer, then ln_final) and the vision tower."""
 
-    def __init__(self, width=1024, layers=24, heads=16, context_length=77, vocab_size=49408):
+    def __init__(
+        self, width=1024, layers=24, heads=16, context_length=77, vocab_size=49408, vision=None
+    ):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, width)
         self.positional_embedding = nn.Parameter(torch.zeros(context_length, width))
@@ -621,7 +625,7 @@ class OpenCLIP(nn.Module):
         self.ln_final = nn.LayerNorm(width)
         self.text_projection = nn.Parameter(torch.zeros(width, 1024))
         self.logit_scale = nn.Parameter(torch.zeros(()))
-        self.visual = VisionTower()
+        self.visual = VisionTower(**(vision or {}))
 
     def encode_text(self, tokens: torch.Tensor) -> torch.Tensor:
         x = self.token_embedding(tokens) + self.positional_embedding
@@ -631,26 +635,32 @@ class OpenCLIP(nn.Module):
 
 
 class _CLIPHolder(nn.Module):
-    def __init__(self):
+    def __init__(self, **config):
         super().__init__()
-        self.model = OpenCLIP()
+        self.model = OpenCLIP(**config)
 
 
 class _UNetHolder(nn.Module):
-    def __init__(self, stage2: bool):
+    def __init__(self, stage2: bool, **config):
         super().__init__()
-        self.diffusion_model = MultiViewUNet(in_channels=8 if stage2 else 4, stage2=stage2)
+        self.diffusion_model = MultiViewUNet(
+            in_channels=8 if stage2 else 4, stage2=stage2, **config
+        )
 
 
 class MultiViewDiffusion(nn.Module):
-    """One of CRM's two diffusion checkpoints: UNet, OpenCLIP and VAE under upstream's names."""
+    """One of CRM's two diffusion checkpoints: UNet, OpenCLIP and VAE under upstream's names.
 
-    def __init__(self, stage2: bool):
+    The defaults are the released sizes; the config arguments exist for
+    small random test networks.
+    """
+
+    def __init__(self, stage2: bool, unet=None, clip=None, vae_ch: int = 128):
         super().__init__()
-        self.model = _UNetHolder(stage2)
-        self.clip_model = _CLIPHolder()
+        self.model = _UNetHolder(stage2, **(unet or {}))
+        self.clip_model = _CLIPHolder(**(clip or {}))
         self.vae_model = AutoencoderKL(
-            embed_dim=4, ch=128, ch_mult=(1, 2, 4, 4), num_res_blocks=2, z_channels=4
+            embed_dim=4, ch=vae_ch, ch_mult=(1, 2, 4, 4), num_res_blocks=2, z_channels=4
         )
 
 

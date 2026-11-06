@@ -36,7 +36,7 @@ NOISE_STEP = 20
 
 
 class _UNetPP(nn.Module):
-    def __init__(self, in_channels: int = 32):
+    def __init__(self, in_channels: int = 32, block_out_channels=(64, 128, 128, 256, 256, 512, 512)):
         super().__init__()
         from diffusers import UNet2DModel
 
@@ -46,7 +46,7 @@ class _UNetPP(nn.Module):
             in_channels=in_channels,
             out_channels=32,
             layers_per_block=2,
-            block_out_channels=(64, 128, 128, 256, 256, 512, 512),
+            block_out_channels=tuple(block_out_channels),
             down_block_types=(
                 "DownBlock2D",
                 "DownBlock2D",
@@ -99,9 +99,9 @@ def sample_triplane(features: torch.Tensor, points: torch.Tensor) -> torch.Tenso
 class CRMNet(nn.Module):
     """``CRM.pth``: the triplane UNet and the SDF, colour and FlexiCubes-weight MLPs."""
 
-    def __init__(self):
+    def __init__(self, **unet):
         super().__init__()
-        self.unet2 = _UNetPP(32)
+        self.unet2 = _UNetPP(32, **unet)
         self.weightMlp = nn.Sequential(nn.Linear(32 * 8, 512), nn.SiLU(), nn.Linear(512, 21))
         self.sdfMlp = _MLP(32, 512, 4)
         self.rgbMlp = _MLP(32, 512, 3)

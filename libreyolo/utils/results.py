@@ -1486,7 +1486,7 @@ class GeneratedImage(_TensorPayload):
             self.orig_shape,
             prompt=self.prompt,
             seed=self.seed,
-            params=self.params,
+            generation_params=self.generation_params,
         )
 
     @property
@@ -1642,7 +1642,7 @@ class Gaussians:
             *(fn(getattr(self, name)) for name in self._FIELDS),
             camera=self.camera,
             seed=self.seed,
-            params=self.params,
+            generation_params=self.generation_params,
             input_image=self.input_image,
         )
 
@@ -2440,6 +2440,14 @@ class Meshes:
     carry different degrees of freedom), and ``betas`` are identity blendshape
     coefficients. Model-specific extras such as skeleton scale, hand pose and
     facial expression live in ``extras``.
+
+    LibreGen image-to-3D families that return a mesh reuse this payload for
+    the generated object (ADR 0031), with no person boxes: one row,
+    ``body_model="object"``, empty ``global_orient``/``body_pose``/``betas``
+    (shape ``(1, 0)``), zero ``transl``, ``vertices`` ``(1, V, 3)`` in the
+    object frame (z up, inside ``[-0.5, 0.5]^3``), shared ``faces``
+    ``(F, 3)`` wound counter-clockwise seen from outside, and optional
+    ``extras["vertex_colors"]`` ``(1, V, 3)`` RGB in ``[0, 1]``.
     """
 
     def __init__(
@@ -2458,7 +2466,8 @@ class Meshes:
         focal_length: TensorLike | None = None,
         extras: Optional[Dict[str, TensorLike]] = None,
         orig_shape: Tuple[int, int] | None = None,
-        generation: Optional[Dict[str, Any]] = None,
+        seed: Optional[int] = None,
+        generation_params: Optional[Dict[str, Any]] = None,
     ):
         self.global_orient = global_orient
         self.body_pose = body_pose
@@ -2475,12 +2484,10 @@ class Meshes:
         self.focal_length = focal_length
         self.extras = dict(extras) if extras else {}
         self.orig_shape = orig_shape
-        # A generated object (``LibreGen`` image-to-3D, ADR 0031) has no body
-        # parameters: one row whose vertices are in the object frame (z up,
-        # in [-0.5, 0.5]^3), ``extras["vertex_colors"]`` RGB in [0, 1] and,
-        # when textured, ``uv``, ``uv_faces`` and ``texture``. ``generation``
-        # holds its ``seed``, ``params`` and ``input_image``.
-        self.generation = generation
+        # A generated object from a sampling family: the seed that reproduces
+        # it and the rest of the call (model and knobs), as Gaussians.params.
+        self.seed = seed
+        self.generation_params = dict(generation_params) if generation_params else {}
 
     # Per-row tensors, in the order they are rebuilt by _rebuild().
     _ROW_FIELDS = (
@@ -2514,7 +2521,8 @@ class Meshes:
             faces=shared_fn(self.faces),
             extras={k: fn(v) for k, v in self.extras.items()},
             orig_shape=self.orig_shape,
-            generation=self.generation,
+            seed=self.seed,
+            generation_params=self.generation_params,
             **values,
         )
 
@@ -2557,102 +2565,56 @@ class Meshes:
             raise IndexError(f"index {index} is out of range for {len(self)} mesh(es)")
         verts = np.asarray(_numpy(self.vertices))[index]
         faces = np.asarray(_numpy(self.faces))
+        # Generated objects carry per-vertex RGB in [0, 1], written as the
+        # common ``v x y z r g b`` OBJ extension.
+        colors = self.extras.get("vertex_colors")
+        colors = None if colors is None else np.asarray(_numpy(colors))[index]
 
+        # A textured object carries ``uv`` (1, T, 2), ``uv_faces`` (1, F, 3)
+        # and ``texture`` (1, H, W, 3) uint8 with row 0 at v = 0; it is
+        # written with a .mtl and a .png next to the .obj.
+        texture = self.extras.get("texture")
         path = Path(path)
         if path.parent and path.parent != Path("."):
             path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(f"# LibreYOLO body mesh ({self.body_model})\n")
-            for v in verts:
-                fh.write(f"v {float(v[0]):.6f} {float(v[1]):.6f} {float(v[2]):.6f}\n")
-            # OBJ vertex indices are 1-based.
-            for f in faces:
-                fh.write(f"f {int(f[0]) + 1} {int(f[1]) + 1} {int(f[2]) + 1}\n")
-
-    def to_dict(self) -> Dict[str, Any]:
-        """One JSON-ready record of a generated object: its size and how to reproduce it."""
-        generation = self.generation or {}
-        return {
-            "name": "mesh",
-            "vertices": self.num_vertices,
-            "faces": 0 if self.faces is None else int(len(self.faces)),
-            "textured": "texture" in self.extras,
-            "seed": generation.get("seed"),
-            **generation.get("params", {}),
-        }
-
-    def save(self, path: str | Path, index: int = 0) -> None:
-        """Write a generated object: ``.obj`` (with ``.mtl`` and ``.png`` when textured) or ``.ply``.
-
-        Both are turned y-up, as viewers expect; without a texture, vertex
-        colours are written (OBJ ``v x y z r g b``, PLY ``red green blue``).
-        """
-        path = Path(path)
-        suffix = path.suffix.lower()
-        if suffix not in (".obj", ".ply"):
-            raise ValueError(f"Meshes save to .obj or .ply, got {path.name!r}.")
-        if suffix == ".ply" and self.body_model != "generated":
-            raise ValueError("Body meshes save to .obj; use save_obj().")
-        if suffix == ".obj" and self.body_model != "generated":
-            self.save_obj(path, index)
-            return
-        verts = np.asarray(_numpy(self.vertices))[index].astype(np.float32)
-        faces = np.asarray(_numpy(self.faces)).astype(np.int64)
-        extras = {k: np.asarray(_numpy(v))[index] for k, v in self.extras.items()}
-        verts = np.stack([verts[:, 0], verts[:, 2], -verts[:, 1]], axis=1)
-        colors = extras.get("vertex_colors")
-        if path.parent and path.parent != Path("."):
-            path.parent.mkdir(parents=True, exist_ok=True)
-        comment = json.dumps(self.to_dict(), ensure_ascii=True, default=str)
-        if suffix == ".ply":
-            header = ["ply", "format binary_little_endian 1.0", f"comment libreyolo {comment}"]
-            header += [f"element vertex {len(verts)}", "property float x", "property float y", "property float z"]
-            record = [("xyz", "<f4", 3)]
-            if colors is not None:
-                header += ["property uchar red", "property uchar green", "property uchar blue"]
-                record.append(("rgb", "u1", 3))
-            header += [f"element face {len(faces)}", "property list uchar int vertex_indices", "end_header"]
-            table = np.zeros(len(verts), dtype=record)
-            table["xyz"] = verts
-            if colors is not None:
-                table["rgb"] = np.clip(np.round(colors * 255), 0, 255).astype(np.uint8)
-            face_table = np.zeros(len(faces), dtype=[("n", "u1"), ("idx", "<i4", 3)])
-            face_table["n"] = 3
-            face_table["idx"] = faces
-            with open(path, "wb") as handle:
-                handle.write(("\n".join(header) + "\n").encode("ascii"))
-                handle.write(table.tobytes())
-                handle.write(face_table.tobytes())
-            return
-        lines = [f"# libreyolo {comment}"]
-        textured = "texture" in extras
-        if textured:
+        if texture is not None:
             from PIL import Image
 
-            Image.fromarray(np.ascontiguousarray(extras["texture"][::-1])).save(path.with_suffix(".png"))
+            image = np.asarray(_numpy(texture))[index][::-1]
+            Image.fromarray(np.ascontiguousarray(image)).save(path.with_suffix(".png"))
             path.with_suffix(".mtl").write_text(
                 "newmtl material_0\nKd 1 1 1\nKa 1 1 1\nKs 0 0 0\nillum 1\n"
                 f"map_Kd {path.with_suffix('.png').name}\n",
                 encoding="utf-8",
             )
-            lines += [f"mtllib {path.with_suffix('.mtl').name}", "usemtl material_0"]
-        if colors is not None and not textured:
-            lines += [
-                f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f} {c[0]:.4f} {c[1]:.4f} {c[2]:.4f}"
-                for v, c in zip(verts, colors)
-            ]
-        else:
-            lines += [f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}" for v in verts]
-        if textured:
-            lines += [f"vt {t[0]:.6f} {t[1]:.6f}" for t in extras["uv"]]
-            uv_faces = extras["uv_faces"].astype(np.int64)
-            lines += [
-                f"f {f[0] + 1}/{t[0] + 1} {f[1] + 1}/{t[1] + 1} {f[2] + 1}/{t[2] + 1}"
-                for f, t in zip(faces, uv_faces)
-            ]
-        else:
-            lines += [f"f {f[0] + 1} {f[1] + 1} {f[2] + 1}" for f in faces]
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            colors = None
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(f"# LibreYOLO mesh ({self.body_model})\n")
+            if texture is not None:
+                fh.write(f"mtllib {path.with_suffix('.mtl').name}\nusemtl material_0\n")
+            for i, v in enumerate(verts):
+                rgb = (
+                    ""
+                    if colors is None
+                    else " {:.4f} {:.4f} {:.4f}".format(*(float(c) for c in colors[i]))
+                )
+                fh.write(
+                    f"v {float(v[0]):.6f} {float(v[1]):.6f} {float(v[2]):.6f}{rgb}\n"
+                )
+            # OBJ vertex indices are 1-based.
+            if texture is not None:
+                for t in np.asarray(_numpy(self.extras["uv"]))[index]:
+                    fh.write(f"vt {float(t[0]):.6f} {float(t[1]):.6f}\n")
+                uv_faces = np.asarray(_numpy(self.extras["uv_faces"]))[index]
+                for f, t in zip(faces, uv_faces):
+                    fh.write(
+                        "f "
+                        + " ".join(f"{int(a) + 1}/{int(b) + 1}" for a, b in zip(f, t))
+                        + "\n"
+                    )
+                return
+            for f in faces:
+                fh.write(f"f {int(f[0]) + 1} {int(f[1]) + 1} {int(f[2]) + 1}\n")
 
     def to(self, *args, **kwargs) -> "Meshes":
         return self._rebuild(lambda d: _move(d, *args, **kwargs))
@@ -3341,8 +3303,8 @@ class Results:
         """Save a generated image or 3D object, or a matte result as a transparent RGBA PNG.
 
         Returns the written path. Generated Gaussians go to ``.ply`` or
-        ``.splat``. A matte cutout requires the source image (via ``image``
-        or ``self.path``).
+        ``.splat``, a generated mesh to ``.obj``. A matte cutout requires the
+        source image (via ``image`` or ``self.path``).
         """
         from PIL import Image
 
@@ -3353,7 +3315,10 @@ class Results:
             self.gaussians.save(path)
             return str(path)
         if self.meshes is not None and self.boxes is None:
-            self.meshes.save(path)
+            # A generated object (one row, no person boxes).
+            if Path(path).suffix.lower() != ".obj":
+                raise ValueError(f"A generated mesh saves as .obj, got {path!r}.")
+            self.meshes.save_obj(path)
             return str(path)
         if self.matte is None:
             raise NotImplementedError(
@@ -3382,7 +3347,21 @@ class Results:
             if self.gaussians is not None:
                 return [self.gaussians.to_dict()]
             if self.meshes is not None:
-                return [self.meshes.to_dict()]
+                return [
+                    {
+                        "name": "mesh",
+                        "body_model": self.meshes.body_model,
+                        "num_vertices": self.meshes.num_vertices,
+                        "num_faces": 0
+                        if self.meshes.faces is None
+                        else int(self.meshes.faces.shape[0]),
+                        **(
+                            {"seed": self.meshes.seed, **self.meshes.generation_params}
+                            if self.meshes.seed is not None
+                            else {}
+                        ),
+                    }
+                ]
             if self.embeddings is not None:
                 emb = (
                     self.embeddings.numpy()

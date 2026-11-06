@@ -4,7 +4,8 @@ An image-to-3D model takes one picture of an object and returns the whole
 object. This base owns the call shape (``model(source)``, sources as YOLO
 predict takes them), the shared arguments (``seed``, ``n``, ``save``,
 ``stream``), the family-knob rule from ADR 0030, and the ``Results`` with a
-``Gaussians`` payload. Families implement ``_load`` and ``_generate_3d``.
+``Gaussians`` payload, or a ``Meshes`` payload for families that return a
+mesh. Families implement ``_load`` and ``_generate_3d``.
 """
 
 from __future__ import annotations
@@ -30,8 +31,6 @@ from .base import _SEED_RANGE, LibreGenModel
 
 logger = logging.getLogger(__name__)
 
-_SAVE_SUFFIXES = (".ply", ".splat", ".obj")
-
 
 class LibreGen3DModel(LibreGenModel):
     """Image-to-3D model behind the LibreYOLO call surface."""
@@ -40,6 +39,8 @@ class LibreGen3DModel(LibreGenModel):
     DEFAULT_TASK: ClassVar[str] = "generate3d"
     # The input size is fixed, so ``imgsz`` is not a shared argument here.
     SHARED_ARGS: ClassVar[Tuple[str, ...]] = ("seed", "n")
+    # Formats ``output_path`` accepts; ``save=True`` writes the first.
+    SAVE_SUFFIXES: ClassVar[Tuple[str, ...]] = (".ply", ".splat")
 
     def __init__(
         self,
@@ -77,8 +78,8 @@ class LibreGen3DModel(LibreGenModel):
 
     def _generate_3d(
         self, image, seeds: Sequence[int], knobs: Dict[str, Any]
-    ) -> List[Gaussians]:
-        """Return one ``Gaussians`` per seed for one source image (PIL, RGB or RGBA)."""
+    ) -> List[Union[Gaussians, Meshes]]:
+        """Return one ``Gaussians`` (or one-row ``Meshes``) per seed for one source image (PIL, RGB or RGBA)."""
         raise NotImplementedError
 
     # ------------------------------------------------------------------
@@ -204,14 +205,17 @@ class LibreGen3DModel(LibreGenModel):
                 fresh seed, recorded on the result.
             n: Objects per source.
             stream: Return a generator instead of a list.
-            save: Write each object as ``.ply`` under ``runs/generate/predict``.
-            output_path: Explicit ``.ply`` or ``.splat`` file for one object.
+            save: Write each object under ``runs/generate/predict``, as ``.ply``
+                (``.obj`` for mesh families).
+            output_path: Explicit file for one object, in one of the family's
+                ``SAVE_SUFFIXES`` (``.ply`` or ``.splat``; ``.obj`` for meshes).
             **knobs: Family settings such as ``steps``, ``guidance`` or
                 ``gaussians``. A name the family does not have raises.
 
         Returns:
             ``Results`` for one source with ``n=1``, a list otherwise, a
-            generator with ``stream=True``. Each carries ``Results.gaussians``.
+            generator with ``stream=True``. Each carries ``Results.gaussians``
+            (``Results.meshes`` for mesh families).
         """
         if prompt is not None:
             raise TypeError(
@@ -249,10 +253,11 @@ class LibreGen3DModel(LibreGenModel):
             raise ValueError("output_path names one file; it needs one source and n=1.")
         if (
             output_path is not None
-            and Path(output_path).suffix.lower() not in _SAVE_SUFFIXES
+            and Path(output_path).suffix.lower() not in self.SAVE_SUFFIXES
         ):
             raise ValueError(
-                f"output_path needs a .ply, .splat or .obj extension, got {output_path!r}."
+                f"output_path needs a {' or '.join(self.SAVE_SUFFIXES)} extension, "
+                f"got {output_path!r}."
             )
 
         def run() -> Generator[Results, None, None]:
@@ -271,9 +276,12 @@ class LibreGen3DModel(LibreGenModel):
                     raise RuntimeError(
                         f"{type(self).__name__} returned {len(objects)} objects for {len(seeds)} seeds."
                     )
-                for payload in objects:
-                    # Splat families return Gaussians, mesh families Meshes.
-                    slot = "meshes" if isinstance(payload, Meshes) else "gaussians"
+                for obj, obj_seed in zip(objects, seeds):
+                    payload = (
+                        {"meshes": obj}
+                        if isinstance(obj, Meshes)
+                        else {"gaussians": obj}
+                    )
                     result = Results(
                         None,
                         (int(image.height), int(image.width)),
@@ -281,11 +289,11 @@ class LibreGen3DModel(LibreGenModel):
                         names={},
                         speed={"inference": elapsed_ms},
                         orig_img=image.convert("RGB"),
-                        **{slot: payload},
+                        **payload,
                     )
                     if save:
                         save_dir = self._save_object(
-                            result, index, output_path, save_dir
+                            result, index, output_path, save_dir, obj_seed
                         )
                     index += 1
                     yield result
@@ -304,6 +312,7 @@ class LibreGen3DModel(LibreGenModel):
         index: int,
         output_path: Optional[str],
         save_dir: Optional[Path],
+        seed: int,
     ) -> Optional[Path]:
         """Write one object; return the call's run directory once it exists."""
         from ...utils.general import increment_path, log_saved_result
@@ -315,12 +324,8 @@ class LibreGen3DModel(LibreGenModel):
                 save_dir = increment_path(Path("runs/generate/predict"), mkdir=True)
                 self._save_dir = save_dir
             stem = Path(result.path).stem if result.path else "image"
-            seed = (
-                result.gaussians.seed
-                if result.gaussians is not None
-                else result.meshes.generation["seed"]
-            )
-            destination = save_dir / f"{index:03d}_{stem}_{seed}.ply"
+            suffix = self.SAVE_SUFFIXES[0]
+            destination = save_dir / f"{index:03d}_{stem}_{seed}{suffix}"
         result.save(destination)
         log_saved_result(result, destination)
         return save_dir
