@@ -968,6 +968,28 @@ TripoSplat (MIT License)
              (commit d8db9e018b413dd9c4a9fe22463781bf98e8e68d)
              Copyright (c) 2026 VAST.
 
+CRM (MIT License)
+    Path:    libreyolo/models/gen/crm/
+    License: libreyolo/models/gen/crm/NOTICE
+    Source:  https://github.com/thu-ml/CRM
+             (commit 4964e36a593070a3045eb0f300935a771ff5c172)
+             Copyright (c) 2024 TSAIL group.
+
+    The CRM multi-view diffusion networks (ImageDream lineage, Apache-2.0 and
+    MIT), OpenCLIP towers, DDIM sampler, reconstruction model, triplane
+    decoder and preprocessing are adapted from the MIT CRM repository.
+    FlexiCubes (libreyolo/models/gen/crm/flexicubes.py and
+    _flexicubes_tables.py) is adapted from NVIDIA's FlexiCubes,
+    https://github.com/nv-tlabs/FlexiCubes (commit
+    eac497031e5138aa544065f357d093f9f3e101e9), Apache-2.0, Copyright (c) 2025
+    NVIDIA CORPORATION & AFFILIATES; CRM's own FlexiCubes files carry
+    NVIDIA's proprietary header and are not used. nvdiffrast (NVIDIA,
+    non-commercial), xformers, rembg, kiui and pymeshlab (GPL-3.0) are not
+    used. Weights: LibreYOLO's byte-identical mirror of Zhengyi/CRM (MIT,
+    diffusion weights carrying SD 2.1's CreativeML OpenRAIL++-M use
+    restrictions), LibreYOLO/LibreCRM; BiRefNet from LibreYOLO/LibreTRELLISl
+    (MIT). Pinned revisions.
+
     The TripoSplat denoiser, octree and Gaussian decoders, configuration
     constants, flow sampler and Gaussian activation are ported from the MIT
     TripoSplat repository (TripoAI). Preprocessing, encoder tokenization and

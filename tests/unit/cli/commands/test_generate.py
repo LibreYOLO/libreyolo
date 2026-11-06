@@ -289,3 +289,10 @@ def test_negative_prompt_is_forwarded(calls):
     )
     assert result.exit_code == 0, result.output
     assert calls[1][2]["negative"] == "blurry"
+
+
+def test_texture_reaches_the_family(calls3d):
+    args = ["source=chair.png", "model=crm", "texture=true"]
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 0, result.output
+    assert calls3d[1][2]["texture"] is True

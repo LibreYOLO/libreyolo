@@ -2466,6 +2466,8 @@ class Meshes:
         focal_length: TensorLike | None = None,
         extras: Optional[Dict[str, TensorLike]] = None,
         orig_shape: Tuple[int, int] | None = None,
+        seed: Optional[int] = None,
+        generation_params: Optional[Dict[str, Any]] = None,
     ):
         self.global_orient = global_orient
         self.body_pose = body_pose
@@ -2482,6 +2484,10 @@ class Meshes:
         self.focal_length = focal_length
         self.extras = dict(extras) if extras else {}
         self.orig_shape = orig_shape
+        # A generated object from a sampling family: the seed that reproduces
+        # it and the rest of the call (model and knobs), as Gaussians.params.
+        self.seed = seed
+        self.generation_params = dict(generation_params) if generation_params else {}
 
     # Per-row tensors, in the order they are rebuilt by _rebuild().
     _ROW_FIELDS = (
@@ -2515,6 +2521,8 @@ class Meshes:
             faces=shared_fn(self.faces),
             extras={k: fn(v) for k, v in self.extras.items()},
             orig_shape=self.orig_shape,
+            seed=self.seed,
+            generation_params=self.generation_params,
             **values,
         )
 
@@ -2562,11 +2570,28 @@ class Meshes:
         colors = self.extras.get("vertex_colors")
         colors = None if colors is None else np.asarray(_numpy(colors))[index]
 
+        # A textured object carries ``uv`` (1, T, 2), ``uv_faces`` (1, F, 3)
+        # and ``texture`` (1, H, W, 3) uint8 with row 0 at v = 0; it is
+        # written with a .mtl and a .png next to the .obj.
+        texture = self.extras.get("texture")
         path = Path(path)
         if path.parent and path.parent != Path("."):
             path.parent.mkdir(parents=True, exist_ok=True)
+        if texture is not None:
+            from PIL import Image
+
+            image = np.asarray(_numpy(texture))[index][::-1]
+            Image.fromarray(np.ascontiguousarray(image)).save(path.with_suffix(".png"))
+            path.with_suffix(".mtl").write_text(
+                "newmtl material_0\nKd 1 1 1\nKa 1 1 1\nKs 0 0 0\nillum 1\n"
+                f"map_Kd {path.with_suffix('.png').name}\n",
+                encoding="utf-8",
+            )
+            colors = None
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(f"# LibreYOLO mesh ({self.body_model})\n")
+            if texture is not None:
+                fh.write(f"mtllib {path.with_suffix('.mtl').name}\nusemtl material_0\n")
             for i, v in enumerate(verts):
                 rgb = (
                     ""
@@ -2577,6 +2602,17 @@ class Meshes:
                     f"v {float(v[0]):.6f} {float(v[1]):.6f} {float(v[2]):.6f}{rgb}\n"
                 )
             # OBJ vertex indices are 1-based.
+            if texture is not None:
+                for t in np.asarray(_numpy(self.extras["uv"]))[index]:
+                    fh.write(f"vt {float(t[0]):.6f} {float(t[1]):.6f}\n")
+                uv_faces = np.asarray(_numpy(self.extras["uv_faces"]))[index]
+                for f, t in zip(faces, uv_faces):
+                    fh.write(
+                        "f "
+                        + " ".join(f"{int(a) + 1}/{int(b) + 1}" for a, b in zip(f, t))
+                        + "\n"
+                    )
+                return
             for f in faces:
                 fh.write(f"f {int(f[0]) + 1} {int(f[1]) + 1} {int(f[2]) + 1}\n")
 
@@ -3319,6 +3355,11 @@ class Results:
                         "num_faces": 0
                         if self.meshes.faces is None
                         else int(self.meshes.faces.shape[0]),
+                        **(
+                            {"seed": self.meshes.seed, **self.meshes.generation_params}
+                            if self.meshes.seed is not None
+                            else {}
+                        ),
                     }
                 ]
             if self.embeddings is not None:
