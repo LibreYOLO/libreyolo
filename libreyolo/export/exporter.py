@@ -228,6 +228,7 @@ _FIXED_SQUARE_EXPORT_FAMILIES = {
     "moge2",
     "moge3",
     "ppdoclayoutv3",
+    "riodetrv2",
     "rtdetr",
     "rtdetrv2",
     "rtdetrv4",
@@ -1274,6 +1275,19 @@ class BaseExporter(ABC):
             from ..models.ppdoclayoutv3.nn import PPDocLayoutV3ExportWrapper
 
             nn_model = PPDocLayoutV3ExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "riodetrv2":
+            # The encoder position embedding and decoder anchors are fixed-canvas
+            # constants. At the native canvas the trained anchor buffers stay;
+            # any other square size retargets both on a copy.
+            from ..utils.image_size import imgsz_to_hw
+
+            canvas = imgsz_to_hw(imgsz)
+            if tuple(canvas) != tuple(nn_model.eval_spatial_size):
+                nn_model = copy.deepcopy(nn_model)
+                nn_model.set_eval_spatial_size(canvas)
+            nn_model = _RTDETRExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
         elif family in {"rtdetr", "rtdetrv2", "rtdetrv4"}:

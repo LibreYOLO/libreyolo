@@ -78,6 +78,9 @@ class LibreDFINE(BaseModel):
             return False
         if any(k.startswith("encoder.DeFE.") for k in weights_dict):
             return False
+        # RiO-DETRv2 also carries ``pre_bbox_head``; its angle head is unique.
+        if any(k.startswith("decoder.dec_angle_head.") for k in weights_dict):
+            return False
         return any("decoder.pre_bbox_head." in k for k in weights_dict)
 
     @classmethod

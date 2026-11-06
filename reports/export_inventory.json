@@ -2287,6 +2287,40 @@
     "available": true,
     "group": "g0"
   },
+  "riodetrv2": {
+    "class": "libreyolo.models.riodetrv2.model.LibreRiODETRv2",
+    "tasks": [
+      "obb"
+    ],
+    "default_task": "obb",
+    "sizes": {
+      "n": 1024,
+      "s": 1024,
+      "m": 1024,
+      "l": 1024,
+      "x": 1024
+    },
+    "default_imgsz": {
+      "n": 1024,
+      "s": 1024,
+      "m": 1024,
+      "l": 1024,
+      "x": 1024
+    },
+    "task_sizes": {
+      "obb": {
+        "n": 1024,
+        "s": 1024,
+        "m": 1024,
+        "l": 1024,
+        "x": 1024
+      }
+    },
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "rtdetr": {
     "class": "libreyolo.models.rtdetr.model.LibreRTDETR",
     "tasks": [

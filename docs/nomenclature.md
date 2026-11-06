@@ -75,6 +75,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `detr`      | `LibreDETR`     | All-caps acronym |
 | `rtdetr`    | `LibreRTDETR`   | All-caps acronym (hyphen dropped from `RT-DETR`) |
 | `rtdetrv2`  | `LibreRTDETRv2` | All-caps acronym + lowercase version |
+| `riodetrv2` | `LibreRiODETRv2` | Upstream brand casing preserved (`RiO-DETRv2`, hyphen dropped); inference-only oriented-box family. Filenames always carry `-obb`; DOTA-v1.0 is the bare name, DIOR-R is the `-diorr` weight variant (`LibreRiODETRv2s-obb-diorr.pt`) |
 | `rtdetrv4`  | `LibreRTDETRv4` | All-caps acronym + lowercase version |
 | `rtmdet`    | `LibreRTMDet`   | Upstream brand casing preserved (`RTMDet`) |
 | `rfdetr`    | `LibreRFDETR`   | All-caps acronym (hyphen dropped from `RF-DETR`) |
@@ -235,6 +236,7 @@ ships:
 | `detr`      | `r50`, `r50dc5`, `r101`, `r101dc5` (ResNet depth plus optional dilated C5; all use a fixed 800 square) |
 | `rtdetr`    | `r18`, `r34`, `r50`, `r50m`, `r101`, `l`, `x` |
 | `rtdetrv2`  | detect: `r18`, `r34`, `r50`, `r50m`, `r101`; OBB: `n`, `s`, `m`, `l`, `x` (fixed 1024) |
+| `riodetrv2` | `n`, `s`, `m`, `l`, `x`; native canvas from the checkpoint: 1024 (DOTA-v1.0), 800 (`-diorr`) |
 | `rtdetrv4`  | `s`, `m`, `l`, `x` |
 | `gtr`       | detect, segment, pose, depth: `s`, `m`, `l`, `x` (640); semantic: `s`, `m`, `l`, `x` (1024x2048 canvas); OBB: `s`, `x` (fixed 1024) |
 | `rtmdet`    | `t`, `s`, `m`, `l`, `x` |
@@ -599,6 +601,7 @@ Detector-factory family support follows:
 | `detr`      | `("detect",)`                       | detect | original DETR; inference-only (no trainer, `train()` raises); fixed 800 square |
 | `rtdetr`    | `("detect",)` (default)             | detect | detect-only |
 | `rtdetrv2`  | `("detect", "obb")`               | detect | OBB uses the DOTA `n`/`s`/`m`/`l`/`x` graph and is inference-only; detect remains trainable |
+| `riodetrv2` | `("obb",)`                         | obb    | inference-only; DOTA-v1.0 (nc=15) default, `-diorr` variant (nc=20) |
 | `rtdetrv4`  | `("detect",)` (default)             | detect | detect-only |
 | `lwdetr`    | `("detect",)`                       | detect | detect-only; inference-only (no trainer, `train()` raises) |
 | `faster_rcnn` | `("detect",)`                     | detect | detect-only; inference-only native RPN + RoI graph; official COCO heads map sparse 91-way ids to contiguous COCO-80 |

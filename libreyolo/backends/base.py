@@ -495,6 +495,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
         "ppdoclayoutv3",
         "rfdetr",
         "rtdetr",
+        "riodetrv2",
         "rtdetrv2",
         "rtdetrv4",
         "yolo9_e2e",
@@ -907,6 +908,10 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
+        elif self.model_family == "riodetrv2":
+            return self._preprocess_rtdetrv2_obb(
+                image, effective_imgsz, color_format
+            )
         elif self.model_family in ("rtdetr", "rtdetrv2"):
             if self.model_family == "rtdetrv2" and self.task == "obb":
                 return self._preprocess_rtdetrv2_obb(
@@ -1726,6 +1731,15 @@ class BaseBackend(ABC):
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
             return boxes, scores, cls, None
+        elif self.model_family == "riodetrv2":
+            return self._parse_rtdetr_obb(
+                all_outputs,
+                effective_imgsz,
+                orig_w,
+                orig_h,
+                conf,
+                max_det=max_det,
+            )
         elif self.model_family in ("rtdetr", "rtdetrv2"):
             if self.model_family == "rtdetrv2" and self.task == "obb":
                 return self._parse_rtdetr_obb(
@@ -4465,6 +4479,7 @@ class BaseBackend(ABC):
             "ppyoloe": PPYOLOEValPreprocessor,
             "rfdetr": RFDETRValPreprocessor,
             "rtdetr": RTDETRValPreprocessor,
+            "riodetrv2": RTDETRv2OBBValPreprocessor,
             "rtdetrv2": (
                 RTDETRv2OBBValPreprocessor
                 if getattr(self, "task", "detect") == "obb"
