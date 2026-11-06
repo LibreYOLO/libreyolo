@@ -171,6 +171,7 @@ in preflight.
 | trellis | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposplat | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposr | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
+| direct3d_s2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |
 | unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
@@ -2228,6 +2229,18 @@ These converter paths are callable with the recorded validation context.
 - `triposr` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposr` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposr` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `tensorrt`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `openvino`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `paddle`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `mnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `rknn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `ncnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `unet` / `semantic` / `onnx`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.

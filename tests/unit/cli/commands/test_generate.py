@@ -246,6 +246,13 @@ def test_elevation_reaches_the_family(calls3d):
     assert calls3d[1][2]["elevation"] == -15.0
 
 
+def test_resolution_reaches_the_family(calls3d):
+    args = ["source=chair.png", "model=direct3d-s2", "resolution=512"]
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 0, result.output
+    assert calls3d[1][2]["resolution"] == 512
+
+
 def test_source_conflicts_and_misuse(calls3d):
     result = CliRunner().invoke(app(), ["source=chair.jpg", "prompt=a chair", "--json"])
     assert result.exit_code == 2

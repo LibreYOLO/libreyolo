@@ -26,6 +26,7 @@ from .base import LibreGenModel
 from .base3d import LibreGen3DModel
 from .crm import LibreCRM
 from .diffusers_family import DiffusersGenFamily
+from .direct3d_s2 import LibreDirect3DS2
 from .flux2_klein import LibreFlux2Klein
 from .lgm import LibreLGM
 from .prx import LibrePRX, LibrePRXPixel
@@ -63,6 +64,8 @@ _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
     "trellis2-4b": (LibreTRELLIS2, "4b"),
     "trellis.2": (LibreTRELLIS2, "4b"),
     "trellis.2-4b": (LibreTRELLIS2, "4b"),
+    "direct3d-s2": (LibreDirect3DS2, "v11"),
+    "direct3d-s2-v1.1": (LibreDirect3DS2, "v11"),
 }
 
 _DEFAULT_MODEL = "flux2-klein-4b"
@@ -85,7 +88,7 @@ def LibreGen(model: str = _DEFAULT_MODEL, **kwargs) -> LibreGenModel:
     Args:
         model: Alias (``"flux2-klein-4b"``, ``"sana-sprint-0.6b"``,
             ``"prx-1024-beta"`` and the other ``prx-*`` checkpoints,
-            ``"prxpixel-7b"``, ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``, ``"crm"``, ``"trellis2"``) or a path to a local model directory in a
+            ``"prxpixel-7b"``, ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``, ``"crm"``, ``"trellis2"``, ``"direct3d-s2"``) or a path to a local model directory in a
             supported family's upstream format, such as a fine-tune or an
             offline copy.
         **kwargs: Forwarded to the family constructor: ``device``, ``dtype``
@@ -136,4 +139,5 @@ __all__ = [
     "LibreTripoSR",
     "LibreCRM",
     "LibreTRELLIS2",
+    "LibreDirect3DS2",
 ]

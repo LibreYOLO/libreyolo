@@ -108,6 +108,7 @@ OPTIONAL_MODELS = (
     ("libreyolo.models.gen.trellis2", "LibreTRELLIS2", "gen", "transformers"),
     ("libreyolo.models.gen.triposr", "LibreTripoSR", "gen", "skimage"),
     ("libreyolo.models.gen.crm", "LibreCRM", "gen", "diffusers"),
+    ("libreyolo.models.gen.direct3d_s2", "LibreDirect3DS2", "gen", "skimage"),
     (
         "libreyolo.models.ground.florence",
         "LibreGroundFlorence2",

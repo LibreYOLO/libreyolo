@@ -166,6 +166,7 @@ MODEL_GROUPS: dict[str, str] = {
     "trellis2": "s",
     "triposr": "s",
     "crm": "s",
+    "direct3d_s2": "s",
     "clip": "s",
     "siglip2": "s",
     "libremodus": "s",

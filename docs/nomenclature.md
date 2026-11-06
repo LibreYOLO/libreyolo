@@ -1237,6 +1237,15 @@ mirror `LibreYOLO/LibreCRM` (byte-identical to the pinned `Zhengyi/CRM`
 `pixel-diffusion.pth`, `ccm-diffusion.pth` and `CRM.pth`) in
 `weights/LibreCRM/`; BiRefNet loads from `LibreYOLO/LibreTRELLISl`.
 
+`LibreDirect3DS2` (`direct3d_s2`, size `v11` for upstream's
+`direct3d-s2-v-1-1` release, aliases `direct3d-s2` and `direct3d-s2-v1.1`)
+is an image-to-3D family that returns a mesh (`Results.meshes`). Same task
+and coverage group as Idol. Its weights are LibreYOLO's mirror
+`LibreYOLO/LibreDirect3DS2v11` (byte-identical to the pinned
+`wushuang98/Direct3D-S2` `direct3d-s2-v-1-1/` folder, upstream layout) in
+`weights/LibreDirect3DS2v11/`; BiRefNet loads from `LibreYOLO/LibreTRELLISl`
+and DINOv2 from `facebook/dinov2-with-registers-large`, at pinned revisions.
+
 ## Vision-language-action policies
 
 `LibreACT` (`act_policy`, aliases `act` and `act-policy`) and

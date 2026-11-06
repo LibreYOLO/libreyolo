@@ -177,6 +177,7 @@ SDK's behaviour.
 | `trellis` | `LibreYOLO/LibreTRELLISl`, a mirror of `microsoft/TRELLIS-image-large` (code `microsoft/TRELLIS`) | MIT code and weights | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) |
 | `trellis2` | `LibreYOLO/LibreTRELLIS2-4b`, a mirror of the geometry files of `microsoft/TRELLIS.2-4B` (code `microsoft/TRELLIS.2`) | MIT code and weights; DINOv3 encoder under Meta's DINOv3 License | `steps` (12), `guidance` (7.5), `resolution` (1024), `margin` (1.0), `max_tokens` (49152) |
 | `triposr` | `LibreYOLO/LibreTripoSR`, a mirror of `stabilityai/TripoSR` (code `VAST-AI-Research/TripoSR`) | MIT code and weights | `resolution` (256), `threshold` (25.0), `margin` (1/0.85) |
+| `direct3d-s2` | `LibreYOLO/LibreDirect3DS2v11`, a mirror of `wushuang98/Direct3D-S2` `direct3d-s2-v-1-1` (code `DreamTechAI/Direct3D-S2`) | MIT code and weights | `resolution` (1024), `steps` ((50, 30, 15)), `guidance` (7.0) |
 | `triposplat` | `LibreYOLO/LibreTripoSplat0.6b`, a mirror of `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
 | `lgm` | `LibreYOLO/LibreLGM0.4b`, a mirror of `ashawkey/LGM`, and `LibreYOLO/LibreImageDream`, a mirror of `ashawkey/imagedream-ipmv-diffusers` (code `3DTopia/LGM`) | MIT code; MIT LGM weights; OpenRAIL ImageDream weights | `steps` (30), `guidance` (5.0), `elevation` (0) |
 | `crm` | `LibreYOLO/LibreCRM`, a mirror of `Zhengyi/CRM` (code `thu-ml/CRM`) | MIT code; MIT weights carrying SD 2.1's OpenRAIL++-M use restrictions | `steps` (50), `guidance` (5.0), `texture` (`False`) |
@@ -341,6 +342,36 @@ FlexGEMM upstream differ by kernel noise of the same size as upstream's own
 distance to an fp32 run of the same weights (within a few percent either
 way, on two examples).
 
+Direct3D-S2 (DreamTech, `direct3d-s2-v-1-1`) returns a mesh. A dense flow
+transformer denoises a 16^3 latent whose decoded 64^3 occupancy picks the
+active voxels; a sparse flow transformer with spatial sparse attention
+(compressed, top-k selected and windowed attention over 8^3 blocks, gated)
+denoises a 16-channel latent on them; a sparse decoder turns it into an SDF
+on the 8x finer voxels, a dense 3D UNet refiner fills the 512^3 field, and
+marching cubes gives a mesh. At `resolution=1024` (the default) that mesh is
+voxelised within 4/1024 of its surface and the same steps run again at
+1024^3, with a refiner that predicts the inside/outside sign. All three
+stages read DINOv2 ViT-L/14 tokens of the 518px input (white background, as
+upstream). Upstream runs on torchsparse, flash-attn, Triton kernels and a
+CUDA voxeliser; the port expresses each in PyTorch (`sparse.py`): the
+convolution as a gathered GEMM with torchsparse's kernel layout, the
+attention branches with matmul and SDPA in chunks of queries, the
+voxeliser as a chunked point-to-triangle distance. Knobs: `resolution`
+(512 or 1024), `steps` per stage (dense, 512, 1024; upstream's 50, 30, 15),
+`guidance` for all three. Noise is drawn on the model's device from a
+generator seeded with the seed, in upstream's order, so on CUDA a seed gives
+upstream's starting noise for `torch.manual_seed(seed)`; the sparse stages
+amplify fp16 rounding (top-k block selection can flip on near ties), so the
+mesh is the same object, not the same triangles. The PyTorch attention is
+slower than upstream's kernels: on an RTX A6000 an object at 1024^3 takes
+1082 s (upstream 150 s), peak 23.4 GiB. The networks run in fp16
+on CUDA and MPS as upstream converts them, fp32 on CPU. The vertices are
+halved into the object frame and turned z up (a rotation, so upstream's
+counter-clockwise winding is kept). Upstream's optional hole filling and remeshing
+(`remesh=True`) is not ported: it depends on pymeshfix (GPL-3.0) and
+python-igraph (GPL-2.0+). The `Meshes` row records `seed` and
+`generation_params`, as CRM's.
+
 ## Weights
 
 Nothing is gated and no login is needed. Idol's own weights (denoiser,
@@ -408,6 +439,16 @@ comes from LibreYOLO's mirror `LibreYOLO/LibreDINOv3vitl16`, byte-identical
 (fp32) to Meta's gated `facebook/dinov3-vitl16-pretrain-lvd1689m`, with the
 agreement. `LibreGen(path)` loads a local copy of upstream's TRELLIS.2-4B
 layout.
+
+Direct3D-S2's weights are redistributed under MIT as
+`LibreYOLO/LibreDirect3DS2v11` (revision
+`5df0bc1130a6a79e255a8ac22a5e75175c49ad33`): upstream's `direct3d-s2-v-1-1/`
+folder (`config.yaml` and the five checkpoints) byte-identical to
+`wushuang98/Direct3D-S2` at `8b04a8eddb7a56a0f4e89fe5f5b840c7d5610c00`,
+downloaded into `weights/LibreDirect3DS2v11/`. BiRefNet loads from
+`LibreYOLO/LibreTRELLISl` and DINOv2 from
+`facebook/dinov2-with-registers-large`, as for TRELLIS. `LibreGen(path)`
+loads a directory holding upstream's `direct3d-s2-v-1-1/` folder.
 
 ## Reserved for later
 

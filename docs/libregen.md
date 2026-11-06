@@ -175,6 +175,7 @@ and records seed, camera and settings in a header comment.
 | `trellis` | 1.3B in four networks (plus DINOv2 ViT-L/14) | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) | about 2.7 GB, plus 1.2 GB DINOv2 | MIT; DINOv2 Apache-2.0 |
 | `trellis2` | 4B in five networks (plus DINOv3 ViT-L/16) | `steps` (12), `guidance` (7.5), `resolution` (1024: 512, 1024 or 1536), `margin` (1.0), `max_tokens` (49152) | about 8.7 GB, plus 1.2 GB DINOv3 and 1.3 GB from the TRELLIS mirror | MIT; the DINOv3 encoder under Meta's DINOv3 License |
 | `triposr` | 0.42B | `resolution` (256), `threshold` (25.0), `margin` (1/0.85) | about 1.7 GB, plus 0.4 GB BiRefNet | MIT |
+| `direct3d-s2` | 2.0B in eight networks (plus DINOv2 ViT-L/14) | `resolution` (1024), `steps` ((50, 30, 15)), `guidance` (7.0) | about 4.2 GB, plus 1.2 GB DINOv2 and 0.4 GB BiRefNet | MIT; DINOv2 Apache-2.0 |
 | `triposplat` | 0.66B (plus the same two encoders) | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) | about 1.8 GB, plus the same DINOv3 and VAE | MIT; the DINOv3 encoder under Meta's DINOv3 License |
 | `lgm` | 0.42B (plus the 1.3B ImageDream multi-view stage and its two CLIP encoders) | `steps` (30), `guidance` (5.0), `elevation` (0) | about 0.8 GB, plus 4.0 GB ImageDream | MIT; ImageDream under OpenRAIL (CreativeML OpenRAIL++-M) |
 | `crm` | 4.1B: two 2.0B multi-view diffusion models (0.94B UNet, OpenCLIP ViT-H/14, SD VAE each) and a 0.12B reconstruction UNet | `steps` (50), `guidance` (5.0), `texture` (`False`) | about 12.8 GB, plus 0.4 GB BiRefNet | MIT code; weights MIT with Stable Diffusion 2.1's CreativeML OpenRAIL++-M use restrictions |
@@ -319,6 +320,31 @@ LibreYOLO's mirror
 [`LibreYOLO/LibreDINOv3vitl16`](https://huggingface.co/LibreYOLO/LibreDINOv3vitl16)
 under Meta's DINOv3 License; read it before use.
 
+Direct3D-S2 by [DreamTech](https://www.neural4d.com/research/direct3d-s2)
+returns a detailed mesh: it generates a signed distance field on sparse
+voxels, first at 512^3 and then at 1024^3, with three flow transformers and
+spatial sparse attention, and the mesh is the field's zero crossing. Upstream
+needs CUDA-only extensions (torchsparse, flash-attn, Triton kernels, a CUDA
+voxeliser); LibreYOLO runs the same weights in plain PyTorch. A seed gives
+the same object: on CUDA the starting noise equals upstream's for
+`torch.manual_seed(seed)`. It is slow: on an RTX A6000 one object at
+1024^3 takes about 18 minutes and 23 GB of GPU memory, where upstream's
+CUDA kernels take 2.5 minutes; `resolution=512` stops after the first pass.
+
+```python
+model = LibreGen("direct3d-s2")
+result = model("chair.png", seed=0)
+result.save("chair.obj")
+model("chair.png", resolution=512)       # faster, coarser (stops after the first pass)
+model("chair.png", steps=(25, 15, 8))    # fewer steps in the three stages
+```
+
+`resolution` is 1024 (upstream's default) or 512, `steps` the sampling steps
+of the dense, 512 and 1024 stages (one integer sets all three), `guidance`
+the classifier-free guidance of all three. Upstream's optional remeshing is
+not included (it depends on GPL mesh tools); meshes come as marching cubes
+returns them.
+
 ```bash
 libreyolo generate source=chair.jpg
 libreyolo generate source=chair.png model=trellis2
@@ -328,10 +354,13 @@ libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
 libreyolo generate source=chair.jpg model=triposplat
 libreyolo generate source=chair.jpg model=trellis
 libreyolo generate source=chair.jpg model=lgm
+libreyolo generate source=chair.png model=direct3d-s2
 ```
 
 With `source=` the model defaults to `speridlabs-idol` and objects are saved
 as `.ply` (`.obj` for `triposr`, `crm` and `trellis2`).
+
+as `.ply` (`.obj` for `triposr`, `crm` and `direct3d-s2`).
 
 ## Not supported yet
 
