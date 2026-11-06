@@ -462,6 +462,11 @@ class BaseModel(ABC):
             self._loading_from_weights = False
             self._initializing_from_scratch = False
         self._training_from_scratch = scratch_init
+        from ...utils.input_channels import _pending_model_channels, apply_pending_channels
+
+        if _pending_model_channels is not None:
+            self.model.to(self.device)
+            apply_pending_channels(self)
 
         if model_path is None:
             self.model_path = None

@@ -142,9 +142,10 @@ def _gray_conv_class():
         folds_rgb = True
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            # Export traces with a one-channel input, so the fold never
-            # belongs in a graph; skipping the check keeps tracing quiet.
-            if not torch.jit.is_tracing() and x.shape[1] == 3 * self.in_channels:
+            # Shapes are static under tracing, so an export that feeds one
+            # channel records no fold; Core ML's wrappers expand gray to
+            # three channels first and record it.
+            if x.shape[1] == 3 * self.in_channels:
                 x = x.unflatten(1, (self.in_channels, 3)).mean(2)
             return super().forward(x)
 
@@ -360,3 +361,44 @@ def fold_input_channels(blob, expected: int | None):
     if isinstance(blob, np.ndarray):
         return np.ascontiguousarray(blob.mean(axis=1, keepdims=True, dtype=np.float32).astype(blob.dtype))
     return blob.mean(dim=1, keepdim=True)
+
+
+def gray_preprocess_fn(preprocess_fn):
+    """Wrap ``(img_rgb_hwc, size) -> (chw, ratio)`` to yield one gray channel."""
+
+    def wrapped(img_rgb, input_size, *args, **kwargs):
+        import cv2
+
+        gray = cv2.cvtColor(np.ascontiguousarray(img_rgb), cv2.COLOR_RGB2GRAY)
+        result, ratio = preprocess_fn(
+            np.repeat(gray[..., None], 3, axis=2), input_size, *args, **kwargs
+        )
+        if getattr(result, "ndim", 0) == 3 and result.shape[0] == 3:
+            result = result.mean(axis=0, keepdims=True, dtype=np.float32).astype(
+                result.dtype
+            )
+        return result, ratio
+
+    return wrapped
+
+
+# Weights for a model being rebuilt elsewhere (a DDP worker) arrive as a flat
+# state dict with no metadata; the builder announces the channel count here.
+_pending_model_channels: int | None = None
+
+
+@contextmanager
+def pending_model_channels(channels: int | None) -> Iterator[None]:
+    """Models constructed inside this block adopt ``channels`` before loading weights."""
+    global _pending_model_channels
+    previous = _pending_model_channels
+    _pending_model_channels = None if channels is None else validate_channels(channels)
+    try:
+        yield
+    finally:
+        _pending_model_channels = previous
+
+
+def apply_pending_channels(wrapper) -> None:
+    if _pending_model_channels not in (None, RGB):
+        configure_channels(wrapper, _pending_model_channels, pretrained=False)

@@ -282,6 +282,8 @@ class CoreMLBackend(BaseBackend):
         canonical RGB uint8 image directly and let the traced wrapper do its job.
         """
         img = ImageLoader.load(image, color_format=color_format)
+        if getattr(self, "input_channels", 3) == 1:
+            img = img.convert("L").convert("RGB")
         original_size = img.size  # (W, H)
         original_img = img.copy()
         input_h, input_w = _imgsz_hw(effective_imgsz)
@@ -409,7 +411,8 @@ class CoreMLBackend(BaseBackend):
 
         hwc = np.transpose(blob[0], (1, 2, 0))
         uint8 = np.ascontiguousarray(np.clip(hwc, 0, 255).astype(np.uint8))
-        pil = Image.fromarray(uint8)
+        # Grayscale packages (``channels: 1``) take an "L" image.
+        pil = Image.fromarray(uint8[..., 0] if uint8.shape[2] == 1 else uint8)
 
         out = self.model.predict({"image": pil})
         return [np.asarray(out[name]) for name in self.output_names if name in out]

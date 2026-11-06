@@ -272,3 +272,52 @@ def test_pose_dataset_converts_images(tmp_path):
         gray = YOLOPoseDataset(files, num_keypoints=1, img_size=(32, 32))
     np.testing.assert_array_equal(rgb.load_image(0), img)
     np.testing.assert_array_equal(gray.load_image(0), to_gray3(img))
+
+
+def test_torchscript_export_carries_channels(tmp_path):
+    from libreyolo import LibreYOLO, LibreYOLO9
+
+    model = LibreYOLO9._from_scratch(size="t", nb_classes=1, device="cpu")
+    model.input_size = 64
+    configure_channels(model, 1)
+    model.model.eval()
+    path = model.export(
+        format="torchscript", imgsz=64, output_path=str(tmp_path / "gray.torchscript")
+    )
+    backend = LibreYOLO(path, device="cpu")
+    assert backend.input_channels == 1
+    image = np.random.default_rng(0).integers(0, 255, (40, 40, 3), dtype=np.uint8)
+    backend.predict(image, conf=0.5)
+
+
+def test_gray_preprocess_fn_yields_one_channel():
+    from libreyolo.utils.input_channels import gray_preprocess_fn
+
+    def preprocess(img, size):
+        return img.transpose(2, 0, 1).astype(np.float32) / 255.0, 1.0
+
+    img = np.random.default_rng(0).integers(0, 255, (8, 8, 3), dtype=np.uint8)
+    chw, ratio = gray_preprocess_fn(preprocess)(img, 8)
+    assert chw.shape == (1, 8, 8) and ratio == 1.0
+
+
+def test_ddp_worker_rebuilds_grayscale_before_loading_flat_weights(tmp_path):
+    from libreyolo import LibreYOLO9
+    from libreyolo.training import ddp_spawn
+    from libreyolo.utils.input_channels import pending_model_channels
+
+    model = LibreYOLO9._from_scratch(size="t", nb_classes=1, device="cpu")
+    model.input_size = 64
+    configure_channels(model, 1)
+    kw = ddp_spawn._build_init_kw(model)
+    assert kw["_input_channels"] == 1
+    flat = tmp_path / "flat.pt"
+    torch.save({k: v.cpu() for k, v in model.model.state_dict().items()}, flat)
+    init = {k: v for k, v in kw.items() if not k.startswith("_")}
+    with pending_model_channels(kw["_input_channels"]):
+        worker = LibreYOLO9(str(flat), **init)
+    assert worker.input_channels == 1
+    torch.testing.assert_close(
+        worker.model.backbone.conv0.conv.weight.cpu(),
+        model.model.backbone.conv0.conv.weight.cpu(),
+    )

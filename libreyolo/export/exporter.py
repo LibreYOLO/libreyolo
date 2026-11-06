@@ -1589,6 +1589,11 @@ class BaseExporter(ABC):
         from .calibration import get_calibration_dataloader
 
         preprocess_fn = self.model._get_preprocess_numpy()
+        from ..utils.input_channels import gray_preprocess_fn, model_channels
+
+        if model_channels(self.model) == 1:
+            # Grayscale graphs calibrate on the one-channel input they consume.
+            preprocess_fn = gray_preprocess_fn(preprocess_fn)
         calibration_data = get_calibration_dataloader(
             data=data,
             imgsz=imgsz,
@@ -1677,6 +1682,9 @@ class BaseExporter(ABC):
         if onnx_path is not None:
             meta["exported_from"] = str(Path(onnx_path).name)
         meta.update(_letterbox_pad_metadata(self.model))
+        from ..utils.input_channels import channels_metadata
+
+        meta.update(channels_metadata(self.model))
         # Classification eval preprocessing must travel with every artifact,
         # not just ONNX. Exported-backend predict() otherwise falls back to
         # crop_pct=0.875 and bilinear resize, which changes classifier logits
