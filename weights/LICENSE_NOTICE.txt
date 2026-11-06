@@ -1226,6 +1226,34 @@ SHA-256 of the mirrored files equals upstream's:
 BiRefNet weights load from LibreYOLO/LibreTRELLISl (see TRELLIS below).
 Ported inference code: see libreyolo/models/gen/triposr/NOTICE.
 
+Direct3D-S2 (LibreDirect3DS2 v11)                       MIT
+Image-to-3D mesh
+----------------
+
+Upstream: DreamTech, https://huggingface.co/wushuang98/Direct3D-S2
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreDirect3DS2v11 @
+5df0bc1130a6a79e255a8ac22a5e75175c49ad33 (with LICENSE and NOTICE), mirrored
+from wushuang98/Direct3D-S2 @ 8b04a8eddb7a56a0f4e89fe5f5b840c7d5610c00,
+folder direct3d-s2-v-1-1 (the v1.0 folder is not mirrored).
+SHA-256 of the mirrored files equals upstream's:
+  direct3d-s2-v-1-1/model_dense.ckpt
+    5e6598155f907ca15eb9e4fb96905f9df4d10ebc319f9567ea947db8c684d8fd
+  direct3d-s2-v-1-1/model_sparse_512.ckpt
+    c54cd5527d6b040a931e00f7f6edd9460180726bce21cde03c7fe5c4f646e151
+  direct3d-s2-v-1-1/model_sparse_1024.ckpt
+    c3349a91b1ee0d5843bfca4077e4d526f8e0856bd8a03c9f097b3312f386642d
+  direct3d-s2-v-1-1/model_refiner.ckpt
+    2eb0f70d323a43d63ab37c91790c8a7c2b9ada1d7771ffe99ef7a647bdbc99e4
+  direct3d-s2-v-1-1/model_refiner_1024.ckpt
+    e75e405067f5c3eed48b2e46ee752e1f6593bf9a0db421cb4d694a677958460a
+  direct3d-s2-v-1-1/config.yaml
+    95f8c47d4e396e801a46858a315e3183723a4aab099b52ccc4bf5e7f31fb23bb
+BiRefNet weights load from LibreYOLO/LibreTRELLISl and DINOv2 from
+facebook/dinov2-with-registers-large (Apache-2.0) (see TRELLIS).
+Ported inference code: see libreyolo/models/gen/direct3d_s2/NOTICE.
+
 
 TripoSplat (LibreTripoSplat 0.6b)                       MIT
 Image-to-3D Gaussian splats
