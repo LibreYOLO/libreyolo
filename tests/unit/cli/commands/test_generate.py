@@ -112,8 +112,7 @@ def test_help_and_errors(calls):
     result = CliRunner().invoke(app(), ["prompt=a fox", "guidance=2.0", "--json"])
     assert result.exit_code == 2
     assert json.loads(result.stdout)["error"] == "config_type_error"
-    # No family has a negative prompt yet, so the CLI does not offer one.
-    result = CliRunner().invoke(app(), ["prompt=a fox", "negative=blurry", "--json"])
+    result = CliRunner().invoke(app(), ["prompt=a fox", "bogus=1", "--json"])
     assert json.loads(result.stdout)["error"] == "config_unknown_key"
 
 
@@ -274,3 +273,12 @@ def test_inputs_go_by_keyword_so_families_refuse_the_wrong_kind(monkeypatch):
     assert seen[0][0] == () and "source" in seen[0][1]
     CliRunner().invoke(app(), ["prompt=a chair", "--json", "--no-save"])
     assert seen[1][0] == () and "prompt" in seen[1][1]
+
+
+def test_negative_prompt_is_forwarded(calls):
+    result = CliRunner().invoke(
+        app(),
+        ["prompt=a red fox", "model=prx-512-sft", "negative=blurry", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert calls[1][2]["negative"] == "blurry"

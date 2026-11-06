@@ -1057,6 +1057,18 @@ Falcon Perception (Apache License 2.0)
     (CC-BY-4.0, Wimmer et al.), and smart_resize follows the Qwen2-VL image
     processor (Apache-2.0); see the family NOTICE.
 
+RiO-DETRv2 (Apache License 2.0)
+    Path:    libreyolo/models/riodetrv2/
+    License: libreyolo/models/riodetrv2/LICENSE
+    Source:  https://github.com/RicePasteM/RiO-DETRv2
+    Commit:  ab8b22df5d800a927774c8c67e77fd29c0fe6967 (Apache-2.0 release)
+    Copy:    https://github.com/LibreYOLO/RiO-DETRv2 tag apache-2.0-ab8b22d
+
+    Inference-only adaptation of the RiO-DETRv2 oriented-box decoder.
+    Upstream relicensed to AGPL-3.0 in a later commit with no code
+    changes; this port relies on the Apache-2.0 grant of the initial
+    release and uses nothing from later commits. See the family NOTICE.
+
 ------------------------------------------------------------------------
 Pretrained model weights
 ------------------------------------------------------------------------

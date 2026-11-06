@@ -151,15 +151,19 @@ vla = [
     "lerobot[smolvla,diffusion,dataset]>=0.6.1; python_version >= '3.12'",
 ]
 gen = [
-    # LibreGen loads generative image pipelines (FLUX.2 klein, SANA-Sprint)
-    # through the Apache-2.0 diffusers package; text encoders come from
-    # transformers and accelerate backs low-memory loading and offload=True.
+    # LibreGen loads generative image pipelines (FLUX.2 klein, SANA-Sprint,
+    # PRX, PRXPixel) through the Apache-2.0 diffusers package; text encoders
+    # come from transformers and accelerate backs low-memory loading and
+    # offload=True. PRXPixel needs diffusers 0.39 and says so at load time;
+    # the floor stays at 0.38 so this extra installs next to marigold. PRX
+    # and PRXPixel clean prompts with ftfy (Apache-2.0).
     # Speridlabs Idol reads DINOv3 through transformers and the FLUX.2 VAE
     # through diffusers. TripoSR meshes through scikit-image's marching cubes.
     "diffusers>=0.38.0",
     "scikit-image>=0.19",
     "transformers>=5.1.0",
     "accelerate>=1.7.0",
+    "ftfy>=6.0",
 ]
 llm = [
     # LibreLLM talks to OpenAI-compatible Responses / Chat Completions
@@ -652,6 +656,7 @@ markers = [
     "ec: tests covering the ECDet model family",
     "gtr: tests covering the GTR model family",
     "rtdetr: tests covering the RT-DETR model family",
+    "riodetrv2: tests covering the RiO-DETRv2 model family",
     "rtdetrv2: tests covering the RT-DETRv2 model family",
     "rtdetrv4: tests covering the RT-DETRv4 model family",
     "picodet: tests covering the PICODET model family",

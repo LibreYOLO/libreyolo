@@ -112,7 +112,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Semantic segmentation** | SegFormer, PIDNet, PP-LiteSeg, U-Net, DeepLabv3, FCN, LingBot-Vision, DINOv2, EoMT |
 | **Panoptic segmentation** | EoMT |
 | **Pose** | RF-DETR, YOLO-NAS, HRNet, DEKR, EC |
-| **Oriented boxes** | RF-DETR, RT-DETRv2, YOLO-NAS-R |
+| **Oriented boxes** | RF-DETR, RT-DETRv2, RiO-DETRv2, YOLO-NAS-R |
 | **3D detection** | WildDet3D, 3D-MOOD, FCOS3D, DetAny3D (separate runtime) |
 | **Classification** | MobileNetV4, ConvNeXt, EfficientNetV2, ResNet, ViT, Swin, DeiT, VGG, AlexNet, CLIP, SigLIP2, DINOv2 |
 | **Depth** | Depth Anything 3, Depth Anything V2, Video Depth Anything, ZipDepth, MiDaS, MoGe-3 |
@@ -131,7 +131,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Gaze** | L2CS |
 | **Open vocabulary and VLMs** | Grounding DINO, OWLv2, OmDet-Turbo, OV-DEIM, Florence-2, Kosmos-2, Qwen3-VL, InternVL3, LFM2-VL, North Micro Vision, SmolVLM2, Gemma 4, Moondream, Molmo2, WeVisOne-VL, MODUS |
 | **Robot actions (VLA)** | SmolVLA, ACT, Diffusion Policy |
-| **Image generation** | FLUX.2 klein, SANA-Sprint |
+| **Image generation** | FLUX.2 klein, SANA-Sprint, PRX, PRXPixel |
 | **3D generation** | Speridlabs Idol, TripoSplat, TRELLIS, TripoSR |
 
 Per-family sizes, checkpoints and parity evidence live in the

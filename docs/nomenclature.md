@@ -75,6 +75,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `detr`      | `LibreDETR`     | All-caps acronym |
 | `rtdetr`    | `LibreRTDETR`   | All-caps acronym (hyphen dropped from `RT-DETR`) |
 | `rtdetrv2`  | `LibreRTDETRv2` | All-caps acronym + lowercase version |
+| `riodetrv2` | `LibreRiODETRv2` | Upstream brand casing preserved (`RiO-DETRv2`, hyphen dropped); inference-only oriented-box family. Filenames always carry `-obb`; DOTA-v1.0 is the bare name, DIOR-R is the `-diorr` weight variant (`LibreRiODETRv2s-obb-diorr.pt`) |
 | `rtdetrv4`  | `LibreRTDETRv4` | All-caps acronym + lowercase version |
 | `rtmdet`    | `LibreRTMDet`   | Upstream brand casing preserved (`RTMDet`) |
 | `rfdetr`    | `LibreRFDETR`   | All-caps acronym (hyphen dropped from `RF-DETR`) |
@@ -235,6 +236,7 @@ ships:
 | `detr`      | `r50`, `r50dc5`, `r101`, `r101dc5` (ResNet depth plus optional dilated C5; all use a fixed 800 square) |
 | `rtdetr`    | `r18`, `r34`, `r50`, `r50m`, `r101`, `l`, `x` |
 | `rtdetrv2`  | detect: `r18`, `r34`, `r50`, `r50m`, `r101`; OBB: `n`, `s`, `m`, `l`, `x` (fixed 1024) |
+| `riodetrv2` | `n`, `s`, `m`, `l`, `x`; native canvas from the checkpoint: 1024 (DOTA-v1.0), 800 (`-diorr`) |
 | `rtdetrv4`  | `s`, `m`, `l`, `x` |
 | `gtr`       | detect, segment, pose, depth: `s`, `m`, `l`, `x` (640); semantic: `s`, `m`, `l`, `x` (1024x2048 canvas); OBB: `s`, `x` (fixed 1024) |
 | `rtmdet`    | `t`, `s`, `m`, `l`, `x` |
@@ -599,6 +601,7 @@ Detector-factory family support follows:
 | `detr`      | `("detect",)`                       | detect | original DETR; inference-only (no trainer, `train()` raises); fixed 800 square |
 | `rtdetr`    | `("detect",)` (default)             | detect | detect-only |
 | `rtdetrv2`  | `("detect", "obb")`               | detect | OBB uses the DOTA `n`/`s`/`m`/`l`/`x` graph and is inference-only; detect remains trainable |
+| `riodetrv2` | `("obb",)`                         | obb    | inference-only; DOTA-v1.0 (nc=15) default, `-diorr` variant (nc=20) |
 | `rtdetrv4`  | `("detect",)` (default)             | detect | detect-only |
 | `lwdetr`    | `("detect",)`                       | detect | detect-only; inference-only (no trainer, `train()` raises) |
 | `faster_rcnn` | `("detect",)`                     | detect | detect-only; inference-only native RPN + RoI graph; official COCO heads map sparse 91-way ids to contiguous COCO-80 |
@@ -1148,12 +1151,18 @@ Apache-2.0 defaults and the upstream license-change history.
 
 `LibreFlux2Klein` (`flux2_klein`, size `4b`, aliases `flux2-klein` and
 `flux2-klein-4b`) and `LibreSanaSprint` (`sana_sprint`, size `0.6b`, aliases
-`sana-sprint` and `sana-sprint-0.6b`) are a sibling API behind the
+`sana-sprint` and `sana-sprint-0.6b`), `LibrePRX` (`prx`, sizes
+`1024-beta`, `512-sft-distilled`, `512-sft`, `512`, `512-dc-ae-sft-distilled`,
+`512-dc-ae-sft`, `512-dc-ae`, `256-sft` and `256`, aliases `prx-<size>` and
+`prx` for `1024-beta`) and `LibrePRXPixel` (`prxpixel`, size `7b`, aliases
+`prxpixel`, `prxpixel-7b` and `prx-pixel`) are a sibling API behind the
 `LibreGen(...)` factory, wrapping `diffusers` pipelines through the optional
 `libreyolo[gen]` runtime. They use `generate`, with aliases `generation`,
 `image-generation`, `text-to-image`, `text2image`, `txt2img` and `t2i`, and
 coverage group `s`. Base weights are pinned Hub snapshots downloaded into
-`weights/LibreFlux2Klein4b/` and `weights/LibreSanaSprint0.6b/` as pipeline
+`weights/LibreFlux2Klein4b/`, `weights/LibreSanaSprint0.6b/`,
+`weights/LibrePRX<size>/` (for example `weights/LibrePRX512-sft-distilled/`)
+and `weights/LibrePRXPixel7b/` as pipeline
 directories; they are not `.pt` files and are not registered in the
 `LibreYOLO(...)` state-dict factory.
 

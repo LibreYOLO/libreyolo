@@ -2036,6 +2036,60 @@
     "available": true,
     "group": "g2"
   },
+  "prx": {
+    "class": "libreyolo.models.gen.prx.LibrePRX",
+    "tasks": [
+      "generate"
+    ],
+    "default_task": "generate",
+    "sizes": {
+      "1024-beta": 1024,
+      "512-sft-distilled": 512,
+      "512-sft": 512,
+      "512": 512,
+      "512-dc-ae-sft-distilled": 512,
+      "512-dc-ae-sft": 512,
+      "512-dc-ae": 512,
+      "256-sft": 256,
+      "256": 256
+    },
+    "default_imgsz": {
+      "1024-beta": 1024,
+      "512-sft-distilled": 512,
+      "512-sft": 512,
+      "512": 512,
+      "512-dc-ae-sft-distilled": 512,
+      "512-dc-ae-sft": 512,
+      "512-dc-ae": 512,
+      "256-sft": 256,
+      "256": 256
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
+  "prxpixel": {
+    "class": "libreyolo.models.gen.prx.LibrePRXPixel",
+    "tasks": [
+      "generate"
+    ],
+    "default_task": "generate",
+    "sizes": {
+      "7b": 1024
+    },
+    "default_imgsz": {
+      "7b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "quicksrnet": {
     "class": "libreyolo.models.quicksrnet.model.LibreQuickSRNet",
     "tasks": [
@@ -2232,6 +2286,40 @@
     "optional_extra": "rfdetr",
     "available": true,
     "group": "g0"
+  },
+  "riodetrv2": {
+    "class": "libreyolo.models.riodetrv2.model.LibreRiODETRv2",
+    "tasks": [
+      "obb"
+    ],
+    "default_task": "obb",
+    "sizes": {
+      "n": 1024,
+      "s": 1024,
+      "m": 1024,
+      "l": 1024,
+      "x": 1024
+    },
+    "default_imgsz": {
+      "n": 1024,
+      "s": 1024,
+      "m": 1024,
+      "l": 1024,
+      "x": 1024
+    },
+    "task_sizes": {
+      "obb": {
+        "n": 1024,
+        "s": 1024,
+        "m": 1024,
+        "l": 1024,
+        "x": 1024
+      }
+    },
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
   },
   "rtdetr": {
     "class": "libreyolo.models.rtdetr.model.LibreRTDETR",

@@ -2824,6 +2824,19 @@ _add(
     constraint="FP32, batch 1, fixed 1024x1024 input canvas",
 )
 _add(
+    "validated",
+    ("riodetrv2",),
+    ("obb",),
+    ("onnx", "torchscript"),
+    reason=(
+        "The official Apache-2.0 RiO-DETRv2-N DOTA and DIOR-R checkpoints are "
+        "covered by artifact reload, task metadata, raw five-coordinate output "
+        "parity, and non-square public OBB prediction parity."
+    ),
+    since="1.7",
+    constraint="FP32, batch 1, fixed square canvas (1024 DOTA, 800 DIOR-R)",
+)
+_add(
     "available",
     ("rtdetrv2",),
     ("obb",),
@@ -3918,6 +3931,7 @@ _NCNN_BLOCKS = {
     "deimv2": "DEIMv2",
     "tinyformer": "TinyFormer",
     "rtdetr": "RT-DETR",
+    "riodetrv2": "RiO-DETRv2",
     "rtdetrv2": "RT-DETRv2",
     "rtdetrv4": "RT-DETRv4",
     "rfdetr": "RF-DETR",

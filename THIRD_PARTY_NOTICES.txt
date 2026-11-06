@@ -982,6 +982,27 @@ Used for: the inference-only RT-DETRv2 OBB encoder and decoder in
           official checkpoint with weights/convert_rtdetrv2_weights.py.
 
 --------------------------------------------------------------------
+RiO-DETRv2 (RicePasteM / RiO-DETRv2)
+--------------------------------------------------------------------
+Source: https://github.com/RicePasteM/RiO-DETRv2
+Pinned commit: ab8b22df5d800a927774c8c67e77fd29c0fe6967
+Preserved copy: https://github.com/LibreYOLO/RiO-DETRv2 (tag apache-2.0-ab8b22d)
+License: Apache License 2.0 (libreyolo/models/riodetrv2/LICENSE)
+Used for: the inference-only RiO-DETRv2 decoder in
+          libreyolo/models/riodetrv2/decoder.py, adapted from
+          engine/rtv4/rtdetrv2_obb_decoder.py, engine/rtv4/dfine_utils.py
+          and engine/rtv4/utils.py; model configuration from the
+          riov2_hgnetv2_* configs. Upstream changed its LICENSE to
+          AGPL-3.0 in a later commit (3377398) without code changes; this
+          port relies on the Apache-2.0 grant of the initial release and
+          uses no later material. Official checkpoints from Hugging Face
+          RicePasteM/RiO-DETRv2 revision
+          5f578f57929aded1962ebf8c5584a4771461124f (apache-2.0) are
+          mirrored as LibreYOLO/LibreRiODETRv2{n,s,m,l,x}-obb and
+          -obb-diorr; convert a local copy with
+          weights/convert_riodetrv2_weights.py.
+
+--------------------------------------------------------------------
 RF-DETR (Roboflow)
 --------------------------------------------------------------------
 Source: https://github.com/roboflow/rf-detr
