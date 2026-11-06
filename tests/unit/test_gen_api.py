@@ -754,6 +754,13 @@ def test_prx_directory_size_inference(tmp_path):
     assert write({"default_sample_size": 256, "vae": vae}) == "256-sft"
     assert write({"default_sample_size": 768, "vae": vae}) is None
     assert LibrePRX._size_from_directory(tmp_path / "missing") is None
+    # An unknown layout asks for size= instead of defaulting to 1024-beta.
+    (tmp_path / "model_index.json").write_text(
+        json.dumps({"_class_name": "PRXPipeline", "default_sample_size": 768})
+    )
+    with pytest.raises(ValueError, match="pass size="):
+        LibreGen(str(tmp_path), device="cpu")
+    assert LibreGen(str(tmp_path), size="512-sft", device="cpu").size == "512-sft"
 
 
 def test_prx_pixel_directory_and_old_diffusers(tmp_path, monkeypatch):

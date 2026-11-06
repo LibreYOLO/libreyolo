@@ -115,6 +115,7 @@ offline copy, or a fine-tune made with upstream tooling.
 ```bash
 libreyolo generate prompt="a red fox" model=sana-sprint-0.6b seed=0 n=4
 libreyolo generate prompt="a red fox" imgsz=768x1024
+libreyolo generate prompt="a red fox" model=prx-512-sft negative="blurry"
 libreyolo generate prompt_file=prompts.txt steps=8 --json
 ```
 

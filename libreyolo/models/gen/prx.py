@@ -123,6 +123,14 @@ class LibrePRX(_NeedsFtfy, DiffusersGenFamily):
     def __init__(self, size: Optional[str] = None, **kwargs: Any):
         if size is None and kwargs.get("checkpoint_dir"):
             size = self._size_from_directory(kwargs["checkpoint_dir"])
+            if size is None:
+                # Falling back to the first size code would silently sample
+                # at the wrong resolution with the wrong defaults.
+                raise ValueError(
+                    f"Cannot tell which PRX checkpoint {kwargs['checkpoint_dir']} "
+                    f"is from its model_index.json; pass size= (one of "
+                    f"{', '.join(self.HF_REPOS)})."
+                )
         super().__init__(size, **kwargs)
         # One class serves nine checkpoints: the size code picks the
         # autoencoder's size multiple and the model card's sampling defaults.
