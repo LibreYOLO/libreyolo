@@ -162,6 +162,7 @@ MODEL_GROUPS: dict[str, str] = {
     "speridlabs_idol": "s",
     "triposplat": "s",
     "trellis": "s",
+    "lgm": "s",
     "clip": "s",
     "siglip2": "s",
     "libremodus": "s",

@@ -81,6 +81,7 @@ in preflight.
 | lama | restore |  |  |  |  |  |  |  |  |  |  |  |  |
 | levjepa | embed | available | ✓ | available | available | available |  |  |  |  |  |  |  |
 | lfm2vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| lgm | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | libremodus | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | libremodus | depth |  |  |  |  |  |  |  |  |  |  |  |  |
 | libremodus | normal |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -1354,6 +1355,18 @@ These converter paths are callable with the recorded validation context.
 - `lfm2vl` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `lfm2vl` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `lfm2vl` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `lgm` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `tensorrt`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `openvino`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `paddle`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `mnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `rknn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `ncnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `libremodus` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `libremodus` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `libremodus` / `detect` / `executorch`: Generative VLM export is out of scope for v1.

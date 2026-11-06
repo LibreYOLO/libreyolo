@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **LGM, image to 3D Gaussians through four generated views: `LibreGen("lgm")`.**
+  LGM (MIT) behind the same call as the other image-to-3D families: ImageDream samples four views of the object, LGM turns them into Gaussian splats, `libreyolo generate source=chair.jpg model=lgm`. Upstream needs xformers on CUDA; LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `elevation`. Weights download from LibreYOLO's mirrors `LibreYOLO/LibreLGM0.4b` (MIT) and `LibreYOLO/LibreImageDream` (OpenRAIL use restrictions apply).
+
 - **PRX and PRXPixel text-to-image models from Photoroom.**
   `LibreGen("prx-512-sft-distilled")("a red fox")` runs Photoroom's PRX, a 1.3B text-to-image transformer trained from scratch. All nine published checkpoints load by name: `prx-1024-beta` (also `prx`), `prx-512-sft-distilled`, `prx-512-sft`, `prx-512`, the DC-AE autoencoder versions `prx-512-dc-ae-sft-distilled`, `prx-512-dc-ae-sft` and `prx-512-dc-ae`, and `prx-256-sft` and `prx-256`. Each uses its model card's settings (28 steps at guidance 5.0, or 8 steps without guidance for the distilled ones), and `negative=` sets a negative prompt (also `libreyolo generate negative=...`). A local PRX folder whose checkpoint cannot be told from its config asks for `size=`. `LibreGen("prxpixel-7b")` runs PRXPixel, the 7B version that generates pixels directly, and needs `diffusers>=0.39`. Both are diffusers pipelines, downloaded from byte-identical mirrors at `LibreYOLO/LibrePRX<size>` and `LibreYOLO/LibrePRXPixel7b` pinned to a commit. Apache-2.0 weights; PRX's T5Gemma text encoder is under the Gemma Terms of Use, and the loader says so once. Install `libreyolo[gen]`, which now also installs `ftfy` (Apache-2.0) because both pipelines clean prompts with it.
 

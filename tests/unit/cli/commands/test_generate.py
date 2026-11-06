@@ -239,6 +239,13 @@ def test_source_turns_an_image_into_a_3d_object(calls3d):
     )
 
 
+def test_elevation_reaches_the_family(calls3d):
+    args = ["source=chair.jpg", "model=lgm", "elevation=-15"]
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 0, result.output
+    assert calls3d[1][2]["elevation"] == -15.0
+
+
 def test_source_conflicts_and_misuse(calls3d):
     result = CliRunner().invoke(app(), ["source=chair.jpg", "prompt=a chair", "--json"])
     assert result.exit_code == 2

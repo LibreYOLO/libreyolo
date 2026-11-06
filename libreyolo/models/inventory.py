@@ -104,6 +104,7 @@ OPTIONAL_MODELS = (
     ("libreyolo.models.gen.speridlabs_idol", "LibreSperidlabsIdol", "gen", "diffusers"),
     ("libreyolo.models.gen.triposplat", "LibreTripoSplat", "gen", "diffusers"),
     ("libreyolo.models.gen.trellis", "LibreTRELLIS", "gen", "transformers"),
+    ("libreyolo.models.gen.lgm", "LibreLGM", "gen", "diffusers"),
     (
         "libreyolo.models.ground.florence",
         "LibreGroundFlorence2",

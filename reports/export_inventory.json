@@ -1397,6 +1397,25 @@
     "available": true,
     "group": "s"
   },
+  "lgm": {
+    "class": "libreyolo.models.gen.lgm.model.LibreLGM",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "0.4b": 256
+    },
+    "default_imgsz": {
+      "0.4b": 256
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "libremodus": {
     "class": "libreyolo.models.modus.model.LibreMODUS",
     "tasks": [

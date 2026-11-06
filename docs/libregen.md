@@ -174,6 +174,7 @@ and records seed, camera and settings in a header comment.
 | `speridlabs-idol` | 0.66B (plus DINOv3 ViT-H+ and the FLUX.2 VAE encoder) | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"` or `"real"`), `margin` (crop override) | about 3.1 GB, plus 1.7 GB DINOv3 and 0.2 GB VAE | Apache-2.0; the DINOv3 encoder under Meta's DINOv3 License |
 | `trellis` | 1.3B in four networks (plus DINOv2 ViT-L/14) | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) | about 2.7 GB, plus 1.2 GB DINOv2 | MIT; DINOv2 Apache-2.0 |
 | `triposplat` | 0.66B (plus the same two encoders) | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) | about 1.8 GB, plus the same DINOv3 and VAE | MIT; the DINOv3 encoder under Meta's DINOv3 License |
+| `lgm` | 0.42B (plus the 1.3B ImageDream multi-view stage and its two CLIP encoders) | `steps` (30), `guidance` (5.0), `elevation` (0) | about 0.8 GB, plus 4.0 GB ImageDream | MIT; ImageDream under OpenRAIL (CreativeML OpenRAIL++-M) |
 
 Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
 in under 8 GB of GPU memory. On CUDA, a seed gives the same object as the
@@ -219,11 +220,30 @@ model = LibreGen("trellis")
 model("chair.jpg", steps=12).save("chair.ply")
 ```
 
+LGM by [Jiaxiang Tang et al.](https://me.kiui.moe/lgm/) works in two
+stages: ImageDream samples four views around the object from the picture,
+then LGM turns the four views into 65,536 Gaussians (those above opacity
+0.005 are kept, as upstream saves them). Upstream needs xformers on CUDA;
+LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU, in
+fp16 on GPUs and fp32 on CPU. `steps` and `guidance` drive ImageDream's DDIM
+sampler (`guidance` 1 turns guidance off); `elevation` is the camera height
+the picture was taken from, in degrees (negative is above the object). A
+seed gives upstream's object on CUDA; other devices draw other noise.
+ImageDream's weights carry the OpenRAIL use restrictions of their Stable
+Diffusion lineage; read them on
+[`LibreYOLO/LibreImageDream`](https://huggingface.co/LibreYOLO/LibreImageDream).
+
+```python
+model = LibreGen("lgm")
+model("chair.jpg", elevation=-10).save("chair.ply")
+```
+
 ```bash
 libreyolo generate source=chair.jpg
 libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
 libreyolo generate source=chair.jpg model=triposplat
 libreyolo generate source=chair.jpg model=trellis
+libreyolo generate source=chair.jpg model=lgm
 ```
 
 With `source=` the model defaults to `speridlabs-idol` and objects are saved
@@ -240,7 +260,8 @@ reserved by ADRs 0030 and 0031.
 LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
 Idol networks ported from the Apache-2.0 Idol SDK, the TripoSplat
 networks ported from the MIT TripoSplat repository and the TRELLIS networks
-adapted from the MIT TRELLIS repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
+adapted from the MIT TRELLIS repository (see each family's `NOTICE`). LGM's networks
+and its ImageDream sampler are adapted from the MIT LGM repository. Text-to-image models load through the Apache-2.0 `diffusers` API.
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
 one exception is the DINOv3 encoder Idol and TripoSplat read, which
 LibreYOLO mirrors in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;
