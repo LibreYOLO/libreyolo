@@ -278,18 +278,17 @@ class LibreDirect3DS2(LibreGen3DModel):
 
 
 def object_mesh(vertices: np.ndarray, faces: np.ndarray) -> Meshes:
-    """Upstream's mesh (y up, in [-1, 1)) as a one-row ``Meshes`` in the object frame.
+    """Upstream's mesh (in [-1, 1)) as a one-row ``Meshes`` in the object frame.
 
     The object frame is z up and inside ``[-0.5, 0.5]^3``: coordinates are
-    halved and ``(x, y, z)`` becomes ``(x, -z, y)``. Marching cubes on an SDF
-    that is negative inside winds faces clockwise seen from outside, so the
-    winding is reversed to counter-clockwise.
+    halved and ``(x, y, z)`` becomes ``(x, -z, y)``, a rotation, so the
+    faces keep upstream's counter-clockwise winding seen from outside.
     """
     import torch
 
     v = np.asarray(vertices, dtype=np.float32) * 0.5
     v = np.stack([v[:, 0], -v[:, 2], v[:, 1]], axis=1)
-    f = np.ascontiguousarray(np.asarray(faces, dtype=np.int64)[:, ::-1])
+    f = np.ascontiguousarray(np.asarray(faces, dtype=np.int64))
     empty = torch.zeros(1, 0)
     return Meshes(
         empty,

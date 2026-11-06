@@ -311,7 +311,7 @@ def end_to_end(pipe, model, image_path, seed, resolution):
     # Back from the object frame to upstream's for the comparison.
     v = mesh.vertices[0].cpu().numpy() * 2
     v = np.stack([v[:, 0], v[:, 2], -v[:, 1]], 1)
-    f = mesh.faces.cpu().numpy()[:, ::-1]
+    f = mesh.faces.cpu().numpy()
     chamfer(f"{tag} end to end {resolution} (seed {seed})", v, f, mesh_up.vertices, mesh_up.faces)
     note(
         f"{tag} end to end {resolution} timing",
@@ -319,10 +319,8 @@ def end_to_end(pipe, model, image_path, seed, resolution):
     )
     extent = np.ptp(np.asarray(mesh_up.vertices), axis=0).tolist()
     note(f"{tag} upstream mesh extent xyz", extent)
-    if resolution == 512:
-        silhouettes(np.asarray(mesh_up.vertices), f"{tag}_upstream_views.png")
-        mine = mesh.vertices[0].cpu().numpy()
-        silhouettes(mine, f"{tag}_libreyolo_object_frame_views.png")
+    silhouettes(np.asarray(mesh_up.vertices), f"{tag}_{resolution}_upstream_views.png")
+    silhouettes(mesh.vertices[0].cpu().numpy(), f"{tag}_{resolution}_libreyolo_object_frame_views.png")
     torch.cuda.empty_cache()
 
 

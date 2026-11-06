@@ -270,37 +270,47 @@ def selection_attention(
 
     ``selected`` ``[Hkv, N, topk]`` indexes blocks whose tokens are the
     contiguous rows ``block_starts[b] : block_starts[b] + block_sizes[b]``.
+    The selected blocks' tokens are laid side by side per query, padded only
+    to the longest such list in a chunk of queries.
     """
     n, heads, channels = q.shape
     kv_heads = k.shape[1]
     group = heads // kv_heads
     topk = selected.shape[-1]
-    longest = int(block_sizes.max().item())
     scale = 1.0 / math.sqrt(channels)
-    slots = torch.arange(longest, device=q.device)
     out = q.new_empty(n, heads, channels)
-    rows = _chunk_rows(kv_heads * topk * longest * max(channels, group))
     padded_k = torch.cat([k, k.new_zeros(1, kv_heads, channels)], dim=0)
     padded_v = torch.cat([v, v.new_zeros(1, kv_heads, channels)], dim=0)
     missing = k.shape[0]
     heads_index = torch.arange(kv_heads, device=q.device).view(1, kv_heads, 1)
+    # Tokens each query attends to, per kv group: the sizes of its selected blocks.
+    valid_block = selected >= 0
+    sizes = torch.where(
+        valid_block, block_sizes[selected.clamp(min=0)], torch.zeros_like(selected)
+    ).permute(1, 0, 2)  # [N, Hkv, topk]
+    ends = torch.cumsum(sizes, dim=-1)
+    totals = ends[..., -1].amax(dim=1)  # [N]
+    longest = int(totals.max().item()) if n else 0
+    rows = _chunk_rows(kv_heads * max(longest, 1) * max(channels, group) * 4)
     for start in range(0, n, rows):
         stop = min(start + rows, n)
-        blocks = selected[:, start:stop].permute(1, 0, 2)  # [rows, Hkv, topk]
-        valid_block = blocks >= 0
-        safe = blocks.clamp(min=0)
-        first = block_starts[safe]  # [rows, Hkv, topk]
-        size = torch.where(valid_block, block_sizes[safe], torch.zeros_like(safe))
-        token = first.unsqueeze(-1) + slots  # [rows, Hkv, topk, longest]
-        valid = slots < size.unsqueeze(-1)
-        token = torch.where(valid, token, torch.full_like(token, missing))
-        token = token.reshape(stop - start, kv_heads, topk * longest)
-        valid = valid.reshape(stop - start, kv_heads, 1, topk * longest)
-        keys = padded_k[token, heads_index]  # [rows, Hkv, L, C]
+        width = max(int(totals[start:stop].max().item()), 1)
+        slots = torch.arange(width, device=q.device)
+        chunk_ends = ends[start:stop]  # [rows, Hkv, topk]
+        which = torch.searchsorted(
+            chunk_ends.contiguous(),
+            slots.expand(stop - start, kv_heads, width).contiguous(),
+            right=True,
+        ).clamp_(max=topk - 1)
+        offset = slots - (torch.gather(chunk_ends, 2, which) - torch.gather(sizes[start:stop], 2, which))
+        blocks = torch.gather(selected[:, start:stop].permute(1, 0, 2), 2, which).clamp(min=0)
+        valid = slots < chunk_ends[..., -1:]
+        token = torch.where(valid, block_starts[blocks] + offset, torch.full_like(offset, missing))
+        keys = padded_k[token, heads_index]  # [rows, Hkv, width, C]
         values = padded_v[token, heads_index]
         queries = q[start:stop].view(stop - start, kv_heads, group, channels)
         logits = torch.matmul(queries.float(), keys.float().transpose(-1, -2)).mul_(scale)
-        logits = logits.masked_fill_(~valid, float("-inf"))
+        logits = logits.masked_fill_(~valid.unsqueeze(2), float("-inf"))
         probs = torch.softmax(logits, dim=-1)
         out[start:stop] = torch.matmul(probs.to(values.dtype), values).reshape(
             stop - start, heads, channels

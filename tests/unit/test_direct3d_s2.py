@@ -299,7 +299,7 @@ def test_object_mesh_frame_and_winding():
     faces = np.array([[0, 1, 2]])
     mesh = dmodel.object_mesh(vertices, faces)
     assert mesh.body_model == "object" and len(mesh) == 1
-    assert mesh.vertices.shape == (1, 3, 3) and mesh.faces.tolist() == [[2, 1, 0]]
+    assert mesh.vertices.shape == (1, 3, 3) and mesh.faces.tolist() == [[0, 1, 2]]
     assert mesh.vertices[0, 0].tolist() == [0.5, 0.25, 0.25]
 
 
