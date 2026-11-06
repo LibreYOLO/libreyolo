@@ -56,8 +56,10 @@ dataset is needed. The image caches hold the decoded colour image, so RGB and
 grayscale runs can share a dataset folder.
 
 The model's input convolution is replaced with a one-channel convolution.
-Starting from pretrained weights, its weights are the RGB weights summed,
-which gives the same response to a gray image. The checkpoint stores
+Starting from pretrained weights, its weights are the RGB weights summed.
+For families that only divide by 255 this gives exactly the RGB model's
+response to a gray image; for families with per-channel mean and std it is
+a close starting point that training adapts. The checkpoint stores
 `channels: 1`; loading it restores the one-channel model, and `predict()`
 converts every input image to gray. Exports trace with a one-channel input,
 so the exported graph consumes `(N, 1, H, W)` and its metadata carries

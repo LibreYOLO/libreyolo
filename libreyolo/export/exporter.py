@@ -1993,6 +1993,8 @@ class OnnxExporter(BaseExporter):
                 meta["deepstream"] = "true"
             return meta
 
+        from ..utils.input_channels import model_channels
+
         def _write_deepstream_sidecars(onnx_result_path: str) -> None:
             if not deepstream:
                 return
@@ -2011,6 +2013,7 @@ class OnnxExporter(BaseExporter):
                 iou=iou,
                 task=ds_task,
                 letterbox_pad=_letterbox_pad_metadata(self.model).get("letterbox_pad"),
+                channels=model_channels(self.model),
             )
 
         if int8:

@@ -1,5 +1,8 @@
 """Grayscale ``channels: 1`` input contract (Ultralytics-compatible dataset key)."""
 
+import contextlib
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
@@ -321,3 +324,64 @@ def test_ddp_worker_rebuilds_grayscale_before_loading_flat_weights(tmp_path):
         worker.model.backbone.conv0.conv.weight.cpu(),
         model.model.backbone.conv0.conv.weight.cpu(),
     )
+
+
+def test_deepstream_graph_norm_collapses_to_one_channel():
+    from libreyolo.export.deepstream import _IMAGENET_MEAN, _IMAGENET_STD, _GraphNorm
+
+    seen = {}
+
+    class Capture(nn.Module):
+        def forward(self, x):
+            seen["x"] = x
+            return x
+
+    gray = torch.rand(1, 1, 4, 4)
+    _GraphNorm(Capture(), _IMAGENET_MEAN, _IMAGENET_STD)(gray)
+    assert seen["x"].shape[1] == 1
+    mean = torch.tensor(_IMAGENET_MEAN).view(1, 3, 1, 1)
+    std = torch.tensor(_IMAGENET_STD).view(1, 3, 1, 1)
+    # The model folds the three normalized planes by averaging.
+    expected = ((gray.repeat(1, 3, 1, 1) - mean) / std).mean(1, keepdim=True)
+    torch.testing.assert_close(seen["x"], expected, rtol=1e-5, atol=1e-5)
+
+
+def test_deepstream_config_is_grayscale(tmp_path):
+    from libreyolo.export.deepstream import write_deepstream_sidecars
+
+    onnx_path = tmp_path / "m.onnx"
+    onnx_path.write_bytes(b"")
+    config, _ = write_deepstream_sidecars(
+        str(onnx_path),
+        model_family="yolo9",
+        class_names=["a"],
+        imgsz=(64, 64),
+        batch=1,
+        precision="fp32",
+        channels=1,
+    )
+    text = Path(config).read_text()
+    assert "infer-dims=1;64;64" in text and "model-color-format=2" in text
+
+
+def test_tflite_backend_feeds_nhwc_gray():
+    from libreyolo.backends.tflite import TFLiteBackend
+
+    class Interp:
+        def set_tensor(self, index, value):
+            self.value = value
+
+        def invoke(self):
+            pass
+
+        def get_tensor(self, index):
+            return np.zeros((1, 2), dtype=np.float32)
+
+    backend = object.__new__(TFLiteBackend)
+    backend.interpreter = Interp()
+    backend.input_details = [{"index": 0, "shape": [1, 8, 8, 1], "dtype": np.float32, "quantization": (0.0, 0)}]
+    backend.output_details = [{"index": 1, "shape": [1, 2], "dtype": np.float32, "quantization": (0.0, 0)}]
+    backend.nb_classes = 1
+    with contextlib.suppress(Exception):  # only the input layout matters here
+        backend._run_inference(np.zeros((1, 1, 8, 8), dtype=np.float32))
+    assert backend.interpreter.value.shape == (1, 8, 8, 1)

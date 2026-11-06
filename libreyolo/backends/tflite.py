@@ -141,7 +141,13 @@ class TFLiteBackend(BaseBackend):
         detail = self.input_details[0]
         expected = tuple(int(value) for value in detail["shape"])
         value = blob
-        if len(expected) == 4 and expected[-1] == 3 and blob.shape[1] == 3:
+        # NCHW blob into an NHWC graph; one channel for grayscale models.
+        if (
+            len(expected) == 4
+            and expected[-1] in (1, 3)
+            and blob.shape[1] == expected[-1]
+            and expected[1] != expected[-1]
+        ):
             value = np.transpose(blob, (0, 2, 3, 1))
         value = self._quantize(np.ascontiguousarray(value), detail)
         self.interpreter.set_tensor(detail["index"], value)

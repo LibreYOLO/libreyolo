@@ -8,8 +8,9 @@ convolution takes one channel, and exported graphs consume ``(N, 1, H, W)``.
 Inside the library images keep travelling as three identical channels, so
 every family's augmentation, normalization and validation code runs
 unchanged. Only the model's input convolution is replaced: it holds one
-weight plane per RGB group (the pretrained RGB planes summed, which gives
-the same response to a gray image) and folds a three-channel input back to
+weight plane per RGB group (the pretrained RGB planes summed: the RGB
+model's exact response to a gray image when all channels share one
+normalization, a close start otherwise) and folds a three-channel input back to
 one channel by averaging. Export traces with a one-channel input, so the
 exported graph has no folding step at all.
 
