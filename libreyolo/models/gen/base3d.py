@@ -25,12 +25,12 @@ from typing import (
     Union,
 )
 
-from ...utils.results import Gaussians, Results
+from ...utils.results import Gaussians, Meshes, Results
 from .base import _SEED_RANGE, LibreGenModel
 
 logger = logging.getLogger(__name__)
 
-_SAVE_SUFFIXES = (".ply", ".splat")
+_SAVE_SUFFIXES = (".ply", ".splat", ".obj")
 
 
 class LibreGen3DModel(LibreGenModel):
@@ -252,7 +252,7 @@ class LibreGen3DModel(LibreGenModel):
             and Path(output_path).suffix.lower() not in _SAVE_SUFFIXES
         ):
             raise ValueError(
-                f"output_path needs a .ply or .splat extension, got {output_path!r}."
+                f"output_path needs a .ply, .splat or .obj extension, got {output_path!r}."
             )
 
         def run() -> Generator[Results, None, None]:
@@ -271,7 +271,9 @@ class LibreGen3DModel(LibreGenModel):
                     raise RuntimeError(
                         f"{type(self).__name__} returned {len(objects)} objects for {len(seeds)} seeds."
                     )
-                for gaussians in objects:
+                for payload in objects:
+                    # Splat families return Gaussians, mesh families Meshes.
+                    slot = "meshes" if isinstance(payload, Meshes) else "gaussians"
                     result = Results(
                         None,
                         (int(image.height), int(image.width)),
@@ -279,7 +281,7 @@ class LibreGen3DModel(LibreGenModel):
                         names={},
                         speed={"inference": elapsed_ms},
                         orig_img=image.convert("RGB"),
-                        gaussians=gaussians,
+                        **{slot: payload},
                     )
                     if save:
                         save_dir = self._save_object(
@@ -313,8 +315,13 @@ class LibreGen3DModel(LibreGenModel):
                 save_dir = increment_path(Path("runs/generate/predict"), mkdir=True)
                 self._save_dir = save_dir
             stem = Path(result.path).stem if result.path else "image"
-            destination = save_dir / f"{index:03d}_{stem}_{result.gaussians.seed}.ply"
-        result.gaussians.save(destination)
+            seed = (
+                result.gaussians.seed
+                if result.gaussians is not None
+                else result.meshes.generation["seed"]
+            )
+            destination = save_dir / f"{index:03d}_{stem}_{seed}.ply"
+        result.save(destination)
         log_saved_result(result, destination)
         return save_dir
 
