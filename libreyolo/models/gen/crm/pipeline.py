@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import torch
@@ -71,7 +71,7 @@ def _clip_pixels(image: Image.Image, device) -> torch.Tensor:
 
 
 @torch.no_grad()
-def multiview(modules, prepared: Image.Image, noise: Dict[str, torch.Tensor], steps: int, guidance: float):
+def multiview(modules, prepared: Image.Image, noise: dict[str, torch.Tensor], steps: int, guidance: float):
     """Both diffusion stages: six views and their CCMs, uint8 [6, 256, 256, 3] each."""
     device = modules.device
     pixels = _pixels(prepared, device)
@@ -113,14 +113,14 @@ def reconstruct(modules, views: np.ndarray, ccms: np.ndarray, triplane_noise: to
 
 
 @torch.no_grad()
-def generate_mesh(modules, prepared: Image.Image, seed: int, *, steps: int, guidance: float, texture: bool) -> Dict[str, Any]:
+def generate_mesh(modules, prepared: Image.Image, seed: int, *, steps: int, guidance: float, texture: bool) -> dict[str, Any]:
     noise = stage_noise(seed)
     views, ccms = multiview(modules, prepared, noise, steps, guidance)
     features = reconstruct(modules, views, ccms, noise["triplane"])
     vertices, faces = extract_mesh(modules.net, features, modules.grid)
     vertices, faces = clean_mesh(vertices.cpu().numpy(), faces.cpu().numpy())
     colors = vertex_colors(modules.net, features, torch.from_numpy(vertices).to(modules.device))
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "views": views,
         "ccms": ccms,
         "vertex_colors": (colors.float().cpu().numpy() * 0.5 + 0.5).clip(0, 1).astype(np.float32),

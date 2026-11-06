@@ -152,6 +152,7 @@ SDK's behaviour.
 | `speridlabs-idol` | `speridlabs/idol` (code `speridlabs/idol-sdk`) | Apache-2.0 code and weights | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"`), `margin` (`None`) |
 | `trellis` | `LibreYOLO/LibreTRELLISl`, a mirror of `microsoft/TRELLIS-image-large` (code `microsoft/TRELLIS`) | MIT code and weights | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) |
 | `triposplat` | `LibreYOLO/LibreTripoSplat0.6b`, a mirror of `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
+| `crm` | `LibreYOLO/LibreCRM`, a mirror of `Zhengyi/CRM` (code `thu-ml/CRM`) | MIT code; MIT weights carrying SD 2.1's OpenRAIL++-M use restrictions | `steps` (50), `guidance` (5.0), `texture` (`False`) |
 
 Speridlabs Idol is a 0.66B rectified-flow transformer: DINOv3 ViT-H+ and
 FLUX.2 VAE tokens of the 1024px input condition a denoiser over an 8192-token
@@ -226,6 +227,32 @@ deliberate differences: background removal uses LibreYOLO's BiRefNet
 instead of rembg's U2Net, and DINOv2 is read through transformers
 (`facebook/dinov2-with-registers-large`) instead of `torch.hub`, the
 pre-norm last-layer tokens as upstream takes them.
+
+CRM (Tsinghua, ECCV 2024) returns a mesh. An ImageDream-style multi-view
+diffusion model (SD 2.1's UNet with cross-view self-attention, camera
+embeddings and a 16-token OpenCLIP image prompt) samples six orthographic
+views; a second one samples their canonical coordinate maps; a diffusers
+UNet2DModel turns views and maps into a 32-channel triplane; MLPs read the
+SDF, vertex offsets and FlexiCubes weights on an 80^3 grid; FlexiCubes
+extracts the surface and a colour MLP colours it. The result goes in
+`Results.meshes` as one `Meshes` row with `body_model="object"`, empty body
+parameters, `vertices` z-up in `[-0.5, 0.5]^3` (CRM's `[-1, 1]` frame halved),
+faces wound counter-clockwise seen from outside and
+`extras["vertex_colors"]`. Because CRM samples, `Meshes` gains `seed` and
+`generation_params` (the model and knobs), which `summary()` reports.
+`texture=True` adds `extras["uv"]`, `extras["uv_faces"]` and
+`extras["texture"]` (1024 x 1024 uint8, row 0 at v = 0); `.obj` then comes
+with a `.mtl` and a `.png`. Upstream's CUDA-only and non-permissive pieces are
+replaced: SDPA for xformers, NVIDIA's Apache-2.0 FlexiCubes for CRM's
+proprietary-header copy, a PyTorch UV rasterizer for nvdiffrast, a NumPy
+cleanup (same operations) for kiui/pymeshlab, LibreYOLO's BiRefNet for rembg.
+The diffusion models run in fp16 on CUDA and MPS as upstream and in fp32 on
+CPU. Every random draw comes from one CPU generator. The parity gate
+(`weights/parity_crm.py`) feeds both sides the same image and noise: the
+views and CCMs differ by fp16 kernel noise (mean 0.06 and 0.11 of 255), the
+triplane features, the FlexiCubes grid and the raw mesh are equal, the
+colours bitwise; the cleanup merges vertices in a different order than
+upstream's library (Chamfer distance 0.001 in CRM units).
 
 ## Weights
 

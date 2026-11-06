@@ -156,6 +156,7 @@ and records seed, camera and settings in a header comment.
 | `speridlabs-idol` | 0.66B (plus DINOv3 ViT-H+ and the FLUX.2 VAE encoder) | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"` or `"real"`), `margin` (crop override) | about 3.1 GB, plus 1.7 GB DINOv3 and 0.2 GB VAE | Apache-2.0; the DINOv3 encoder under Meta's DINOv3 License |
 | `trellis` | 1.3B in four networks (plus DINOv2 ViT-L/14) | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) | about 2.7 GB, plus 1.2 GB DINOv2 | MIT; DINOv2 Apache-2.0 |
 | `triposplat` | 0.66B (plus the same two encoders) | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) | about 1.8 GB, plus the same DINOv3 and VAE | MIT; the DINOv3 encoder under Meta's DINOv3 License |
+| `crm` | 4.1B: two 2.0B multi-view diffusion models (0.94B UNet, OpenCLIP ViT-H/14, SD VAE each) and a 0.12B reconstruction UNet | `steps` (50), `guidance` (5.0), `texture` (`False`) | about 12.8 GB, plus 0.4 GB BiRefNet | MIT code; weights MIT with Stable Diffusion 2.1's CreativeML OpenRAIL++-M use restrictions |
 
 Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
 in under 8 GB of GPU memory. On CUDA, a seed gives the same object as the
@@ -201,15 +202,43 @@ model = LibreGen("trellis")
 model("chair.jpg", steps=12).save("chair.ply")
 ```
 
+CRM by [Tsinghua University](https://ml.cs.tsinghua.edu.cn/~zhengyi/CRM)
+returns a coloured triangle mesh instead of Gaussians. Two multi-view
+diffusion models generate six views of the object and their canonical
+coordinate maps, a convolutional UNet turns them into a triplane, and
+FlexiCubes extracts the surface. Upstream needs xformers, nvdiffrast (NVIDIA,
+non-commercial) and a GPL mesh library; LibreYOLO runs the same weights in
+plain PyTorch on NVIDIA GPUs, Apple silicon and CPU, in fp16 on the GPUs as
+upstream. A seed gives the same starting noise on every device.
+
+```python
+model = LibreGen("crm")
+result = model("chair.png", seed=0)
+result.save("chair.obj")                 # vertex colours as `v x y z r g b`
+m = result.meshes
+m.vertices[0], m.faces                   # (V, 3) z-up in [-0.5, 0.5]^3, (F, 3)
+m.extras["vertex_colors"][0]             # (V, 3) RGB in [0, 1]
+model("chair.png", texture=True).save("chair.obj")   # + chair.mtl, chair.png
+```
+
+`steps` and `guidance` apply to both diffusion stages. `texture=True` bakes a
+1024 x 1024 UV texture as upstream does; it needs the MIT-licensed `xatlas`
+package (`pip install xatlas`) for the UV unwrap. The input is padded to a
+square on grey, as upstream, without a crop, so a photo works best with the
+object filling the frame. The diffusion weights descend from Stable
+Diffusion 2.1, so the CreativeML OpenRAIL++-M use restrictions shipped with
+[`LibreYOLO/LibreCRM`](https://huggingface.co/LibreYOLO/LibreCRM) apply.
+
 ```bash
 libreyolo generate source=chair.jpg
+libreyolo generate source=chair.png model=crm
 libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
 libreyolo generate source=chair.jpg model=triposplat
 libreyolo generate source=chair.jpg model=trellis
 ```
 
 With `source=` the model defaults to `speridlabs-idol` and objects are saved
-as `.ply`.
+as `.ply` (`.obj` for `crm`).
 
 ## Not supported yet
 
@@ -221,8 +250,10 @@ reserved by ADRs 0030 and 0031.
 
 LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
 Idol networks ported from the Apache-2.0 Idol SDK, the TripoSplat
-networks ported from the MIT TripoSplat repository and the TRELLIS networks
-adapted from the MIT TRELLIS repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
+networks ported from the MIT TripoSplat repository, the TRELLIS networks
+adapted from the MIT TRELLIS repository and the CRM networks adapted from the
+MIT CRM repository with FlexiCubes from NVIDIA's Apache-2.0 release (see each
+family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
 one exception is the DINOv3 encoder Idol and TripoSplat read, which
 LibreYOLO mirrors in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;

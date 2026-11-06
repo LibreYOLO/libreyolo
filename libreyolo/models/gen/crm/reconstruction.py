@@ -16,8 +16,6 @@ extracts the surface. Colour comes from a third MLP at the surface points.
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
-
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -154,16 +152,21 @@ def add_noise(x: torch.Tensor, noise: torch.Tensor, step: int) -> torch.Tensor:
 
 
 class Grid:
-    """The FlexiCubes voxel grid CRM decodes on: 80^3 cubes over [-0.5, 0.5]^3."""
+    """The FlexiCubes voxel grid CRM decodes on: 80^3 cubes over [-1, 1]^3 (equal to upstream's).
+
+    CRM's FlexiCubes runs with weight scale 0.5 (FlexiCubes' default is
+    0.99); measured against upstream, which then yields the same vertices.
+    """
 
     def __init__(self, device, res: int = GRID_RES):
         self.res = res
-        self.fc = FlexiCubes(device=device)
-        self.verts, self.indices = self.fc.construct_voxel_grid(res)
+        self.fc = FlexiCubes(device=device, weight_scale=0.5)
+        verts, self.indices = self.fc.construct_voxel_grid(res)
+        self.verts = verts * 2
 
 
 @torch.no_grad()
-def extract_mesh(net: CRMNet, features: torch.Tensor, grid: Grid) -> Tuple[torch.Tensor, torch.Tensor]:
+def extract_mesh(net: CRMNet, features: torch.Tensor, grid: Grid) -> tuple[torch.Tensor, torch.Tensor]:
     """32-channel triplane [1, 32, 256, 768] -> vertices [V, 3], faces [F, 3] in CRM's frame."""
     verts = grid.verts.unsqueeze(0)
     point_features = sample_triplane(features, verts)
@@ -193,7 +196,7 @@ def vertex_colors(net: CRMNet, features: torch.Tensor, points: torch.Tensor, chu
     return torch.cat(out) if out else points.new_zeros((0, 3))
 
 
-def clean_mesh(vertices: np.ndarray, faces: np.ndarray, merge_fraction: float = 0.01) -> Tuple[np.ndarray, np.ndarray]:
+def clean_mesh(vertices: np.ndarray, faces: np.ndarray, merge_fraction: float = 0.01) -> tuple[np.ndarray, np.ndarray]:
     """Upstream's cleanup, written for LibreYOLO in NumPy.
 
     Upstream calls a mesh-processing library to drop unreferenced vertices,
@@ -239,7 +242,7 @@ def clean_mesh(vertices: np.ndarray, faces: np.ndarray, merge_fraction: float = 
 # -- Texture ------------------------------------------------------------------------
 
 
-def rasterize_uv(uvs: torch.Tensor, faces: torch.Tensor, resolution: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def rasterize_uv(uvs: torch.Tensor, faces: torch.Tensor, resolution: int) -> tuple[torch.Tensor, torch.Tensor]:
     """Rasterize UV triangles into a ``resolution``^2 texture, written for LibreYOLO.
 
     Returns ``(face_id, bary)``: [R, R] long (-1 where no triangle covers the
@@ -299,7 +302,7 @@ def bake_texture(
     vertices: np.ndarray,
     faces: np.ndarray,
     resolution: int = 1024,
-) -> Dict[str, np.ndarray]:
+) -> dict[str, np.ndarray]:
     """UV-unwrap with xatlas and bake the colour field: upstream's export_mesh_wt_uv.
 
     Returns ``uv`` [T, 2], ``uv_faces`` [F, 3] (indices into ``uv``) and
@@ -338,16 +341,16 @@ def bake_texture(
     }
 
 
-def to_object_frame(vertices: np.ndarray, faces: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """CRM's frame -> LibreGen's: z up, object in [-0.5, 0.5]^3, faces wound outward.
+def to_object_frame(vertices: np.ndarray, faces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """CRM's frame -> LibreGen's: z up, halved from [-1, 1]^3 into [-0.5, 0.5]^3, faces wound outward.
 
     CRM's SDF is positive inside, so FlexiCubes winds faces inward; upstream
     reverses them on export, and so does this.
     """
-    return vertices.astype(np.float32), faces[:, [2, 1, 0]].copy()
+    return (vertices * 0.5).astype(np.float32), faces[:, [2, 1, 0]].copy()
 
 
-def stage_noise(seed: int, device: Optional[torch.device] = None) -> Dict[str, torch.Tensor]:
+def stage_noise(seed: int, device: torch.device | None = None) -> dict[str, torch.Tensor]:
     """Every random draw of one object, from a CPU generator: same numbers on every device."""
     generator = torch.Generator(device="cpu").manual_seed(int(seed))
     draws = {

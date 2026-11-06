@@ -20,9 +20,10 @@ CPU, so a seed gives the same starting noise on every device.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from numbers import Integral, Real
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Sequence, Tuple
+from typing import Any, ClassVar
 
 from ....utils.results import Meshes
 from ..base import _INSTALL_HINT
@@ -40,23 +41,27 @@ class LibreCRM(LibreGen3DModel):
 
     FAMILY = "crm"
     FILENAME_PREFIX = "LibreCRM"
-    HF_REPOS: ClassVar[Dict[str, str]] = {"l": "LibreYOLO/LibreCRMl"}
-    HF_REVISIONS: ClassVar[Dict[str, str]] = {"l": ""}
-    INPUT_SIZES: ClassVar[Dict[str, int]] = {"l": 256}
-    SNAPSHOT_ALLOW_PATTERNS: ClassVar[Tuple[str, ...]] = _WEIGHT_FILES
-    SAVE_SUFFIXES: ClassVar[Tuple[str, ...]] = (".obj",)
+    HF_REPOS: ClassVar[dict[str, str]] = {"": "LibreYOLO/LibreCRM"}
+    HF_REVISIONS: ClassVar[dict[str, str]] = {"": "386740e20da920f1e73f4604dbdb484a6ddee9bb"}
+    INPUT_SIZES: ClassVar[dict[str, int]] = {"": 256}
+    SNAPSHOT_ALLOW_PATTERNS: ClassVar[tuple[str, ...]] = _WEIGHT_FILES
+    SAVE_SUFFIXES: ClassVar[tuple[str, ...]] = (".obj",)
     KNOBS = ("steps", "guidance", "texture")
-    DEFAULTS: ClassVar[Dict[str, Any]] = {"steps": 50, "guidance": 5.0, "texture": False}
+    DEFAULTS: ClassVar[dict[str, Any]] = {"steps": 50, "guidance": 5.0, "texture": False}
     _LICENSE_NOTICE = (
         "CRM's diffusion weights are fine-tuned from Stable Diffusion 2.1; the "
         "CreativeML Open RAIL++-M use restrictions apply to them "
-        "(https://huggingface.co/LibreYOLO/LibreCRMl)."
+        "(https://huggingface.co/LibreYOLO/LibreCRM)."
     )
 
     def __init__(self, size=None, *, compile: bool = False, **kwargs):
         if compile:
             raise ValueError("LibreCRM has no compiled sampler; compile=True is a Speridlabs Idol option.")
         super().__init__(size, compile=False, **kwargs)
+
+    @property
+    def model_name(self) -> str:
+        return "crm"
 
     @classmethod
     def matches_directory(cls, path: Any) -> bool:
@@ -124,7 +129,7 @@ class LibreCRM(LibreGen3DModel):
             birefnet=birefnet,
         )
 
-    def to(self, device) -> "LibreCRM":
+    def to(self, device) -> LibreCRM:
         """Move before loading; a loaded model keeps its device, whose precision it was built for."""
         target = self._resolve_device(device)
         if self._pipeline is not None and target != self.device:
@@ -139,7 +144,7 @@ class LibreCRM(LibreGen3DModel):
     # Generate
     # ------------------------------------------------------------------
 
-    def _resolve_knobs(self, knobs: Dict[str, Any]) -> Dict[str, Any]:
+    def _resolve_knobs(self, knobs: dict[str, Any]) -> dict[str, Any]:
         settings = super()._resolve_knobs(knobs)
         steps = settings["steps"]
         if isinstance(steps, bool) or not isinstance(steps, Integral) or not 1 <= steps <= 1000:
@@ -158,7 +163,7 @@ class LibreCRM(LibreGen3DModel):
             raise ValueError(f"texture must be True or False, got {settings['texture']!r}.")
         return settings
 
-    def _generate_3d(self, image, seeds: Sequence[int], knobs: Dict[str, Any]) -> List[Meshes]:
+    def _generate_3d(self, image, seeds: Sequence[int], knobs: dict[str, Any]) -> list[Meshes]:
         import torch
 
         from .pipeline import generate_mesh, preprocess_image
@@ -185,7 +190,7 @@ class LibreCRM(LibreGen3DModel):
         return objects
 
 
-def mesh_payload(out: Dict[str, Any], *, seed: int, params: Dict[str, Any]) -> Meshes:
+def mesh_payload(out: dict[str, Any], *, seed: int, params: dict[str, Any]) -> Meshes:
     """One generated object as a one-row ``Meshes`` payload (ADR 0031)."""
     import numpy as np
 

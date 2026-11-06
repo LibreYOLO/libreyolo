@@ -1486,7 +1486,7 @@ class GeneratedImage(_TensorPayload):
             self.orig_shape,
             prompt=self.prompt,
             seed=self.seed,
-            generation_params=self.generation_params,
+            params=self.params,
         )
 
     @property
@@ -1642,7 +1642,7 @@ class Gaussians:
             *(fn(getattr(self, name)) for name in self._FIELDS),
             camera=self.camera,
             seed=self.seed,
-            generation_params=self.generation_params,
+            params=self.params,
             input_image=self.input_image,
         )
 

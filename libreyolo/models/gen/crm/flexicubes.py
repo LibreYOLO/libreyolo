@@ -23,8 +23,6 @@
 
 from __future__ import annotations
 
-from typing import Tuple
-
 import torch
 
 from ._flexicubes_tables import check_table, dmc_table, num_vd_table
@@ -51,7 +49,7 @@ class FlexiCubes:
         )
         self.weight_scale = weight_scale
 
-    def construct_voxel_grid(self, res: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def construct_voxel_grid(self, res: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Grid vertices centred at the origin with side 1, and each cube's 8 corner indices."""
         base_cube_f = torch.arange(8).to(self.device)
         res3 = (res, res, res)

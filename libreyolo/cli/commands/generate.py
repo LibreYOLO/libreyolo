@@ -26,7 +26,7 @@ def generate_cmd(
     model: str | None = typer.Option(
         None,
         help="LibreGen alias or local model directory; default flux2-klein-4b "
-        "for a prompt, speridlabs-idol for a source (or triposplat, trellis)",
+        "for a prompt, speridlabs-idol for a source (or triposplat, trellis, crm)",
     ),
     imgsz: str | None = typer.Option(
         None, help="Output size: 1024 (square) or HEIGHTxWIDTH such as 768x1024"

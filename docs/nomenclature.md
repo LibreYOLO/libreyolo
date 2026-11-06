@@ -1193,6 +1193,13 @@ task, aliases and coverage group as Idol. Its weights are LibreYOLO's mirror
 the BiRefNet weights) in `weights/LibreTRELLISl/`; its image encoder is
 `facebook/dinov2-with-registers-large` at a pinned revision.
 
+`LibreCRM` (`crm`, alias `crm`; one published model, so no size code) is an
+image-to-3D family that returns a mesh (`Results.meshes`) instead of
+Gaussians. Same task and coverage group as Idol. Its weights are LibreYOLO's
+mirror `LibreYOLO/LibreCRM` (byte-identical to the pinned `Zhengyi/CRM`
+`pixel-diffusion.pth`, `ccm-diffusion.pth` and `CRM.pth`) in
+`weights/LibreCRM/`; BiRefNet loads from `LibreYOLO/LibreTRELLISl`.
+
 ## Vision-language-action policies
 
 `LibreACT` (`act_policy`, aliases `act` and `act-policy`) and

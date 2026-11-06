@@ -24,7 +24,7 @@ load unchanged. Attention runs through
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 import numpy as np
 import torch
@@ -75,7 +75,7 @@ class TimestepEmbedSequential(nn.Sequential):
 
 
 class Upsample(nn.Module):
-    def __init__(self, channels: int, out_channels: Optional[int] = None):
+    def __init__(self, channels: int, out_channels: int | None = None):
         super().__init__()
         self.conv = nn.Conv2d(channels, out_channels or channels, 3, padding=1)
 
@@ -84,7 +84,7 @@ class Upsample(nn.Module):
 
 
 class Downsample(nn.Module):
-    def __init__(self, channels: int, out_channels: Optional[int] = None):
+    def __init__(self, channels: int, out_channels: int | None = None):
         super().__init__()
         self.op = nn.Conv2d(channels, out_channels or channels, 3, stride=2, padding=1)
 
@@ -93,7 +93,7 @@ class Downsample(nn.Module):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, channels: int, emb_channels: int, out_channels: Optional[int] = None):
+    def __init__(self, channels: int, emb_channels: int, out_channels: int | None = None):
         super().__init__()
         out_channels = out_channels or channels
         self.in_layers = nn.Sequential(
@@ -122,7 +122,7 @@ class CrossAttention(nn.Module):
     def __init__(
         self,
         query_dim: int,
-        context_dim: Optional[int],
+        context_dim: int | None,
         heads: int,
         dim_head: int,
         with_ip: bool = False,
@@ -343,7 +343,7 @@ class MultiViewUNet(nn.Module):
         ch, ds = model_channels, 1
         for level, mult in enumerate(channel_mult):
             for _ in range(num_res_blocks):
-                layers: List[nn.Module] = [ResBlock(ch, emb_dim, mult * model_channels)]
+                layers: list[nn.Module] = [ResBlock(ch, emb_dim, mult * model_channels)]
                 ch = mult * model_channels
                 if ds in attention_resolutions:
                     layers.append(transformer(ch))
@@ -544,7 +544,7 @@ class AutoencoderKL(nn.Module):
         self.quant_conv = nn.Conv2d(2 * embed_dim, 2 * embed_dim, 1)
         self.post_quant_conv = nn.Conv2d(embed_dim, embed_dim, 1)
 
-    def encode_moments(self, x) -> Tuple[torch.Tensor, torch.Tensor]:
+    def encode_moments(self, x) -> tuple[torch.Tensor, torch.Tensor]:
         """Posterior mean and standard deviation."""
         mean, logvar = torch.chunk(self.quant_conv(self.encoder(x)), 2, dim=1)
         return mean, torch.exp(0.5 * torch.clamp(logvar, -30.0, 20.0))
@@ -681,7 +681,7 @@ _NEGATIVE_TOKENS = (
 )
 
 
-def prompt_tokens(device) -> Tuple[torch.Tensor, torch.Tensor]:
+def prompt_tokens(device) -> tuple[torch.Tensor, torch.Tensor]:
     """(prompt, negative prompt) token ids, each [1, 77]."""
 
     def pad(ids):
@@ -717,7 +717,7 @@ def _camera_to_world(elevation: float, azimuth: float) -> np.ndarray:
 _VIEW_ANGLES = ((0, 0), (0, -90), (-90, 0), (0, 180), (0, 90), (90, 0))
 
 
-def cameras(views: Sequence[int], reference: Optional[int] = None) -> torch.Tensor:
+def cameras(views: Sequence[int], reference: int | None = None) -> torch.Tensor:
     """[len(views), 16] flattened camera-to-world matrices; the reference view's camera is zero."""
     rows = [
         torch.tensor(_camera_to_world(*_VIEW_ANGLES[i]).flatten()).float() for i in views
@@ -798,10 +798,10 @@ def run_stage(
     *,
     pixels: torch.Tensor,
     clip_pixels: torch.Tensor,
-    noise: Dict[str, torch.Tensor],
+    noise: dict[str, torch.Tensor],
     steps: int,
     guidance: float,
-    stage2_views: Optional[torch.Tensor] = None,
+    stage2_views: torch.Tensor | None = None,
     half: bool,
 ) -> torch.Tensor:
     """One diffusion stage; returns the decoded views as uint8 [V, 256, 256, 3].

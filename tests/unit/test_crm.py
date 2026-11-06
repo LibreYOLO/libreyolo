@@ -9,24 +9,24 @@ pytestmark = [pytest.mark.unit, pytest.mark.gen]
 pytest.importorskip("diffusers")
 pytest.importorskip("scipy")
 
-from libreyolo.models.gen import LibreGen  # noqa: E402
-from libreyolo.models.gen.crm import LibreCRM  # noqa: E402
-from libreyolo.models.gen.crm.diffusion import (  # noqa: E402
+from libreyolo.models.gen import LibreGen
+from libreyolo.models.gen.crm import LibreCRM
+from libreyolo.models.gen.crm.diffusion import (
     MultiViewDiffusion,
     alphas_cumprod,
     cameras,
 )
-from libreyolo.models.gen.crm.flexicubes import FlexiCubes  # noqa: E402
-from libreyolo.models.gen.crm.model import _CRMModules, mesh_payload  # noqa: E402
-from libreyolo.models.gen.crm.pipeline import generate_mesh, preprocess_image  # noqa: E402
-from libreyolo.models.gen.crm.reconstruction import (  # noqa: E402
+from libreyolo.models.gen.crm.flexicubes import FlexiCubes
+from libreyolo.models.gen.crm.model import _CRMModules, mesh_payload
+from libreyolo.models.gen.crm.pipeline import generate_mesh, preprocess_image
+from libreyolo.models.gen.crm.reconstruction import (
     CRMNet,
     Grid,
     clean_mesh,
     rasterize_uv,
     triplane_input,
 )
-from libreyolo.utils.results import Results  # noqa: E402
+from libreyolo.utils.results import Results
 
 _CLIP = {"width": 64, "layers": 2, "heads": 2, "vision": {"width": 64, "layers": 2, "heads": 2}}
 _UNET = {
@@ -88,7 +88,7 @@ def test_end_to_end_tiny(device, tmp_path):
     again = generate_mesh(modules, prepared, 3, steps=2, guidance=5.0, texture=False)
     np.testing.assert_array_equal(out["views"], again["views"])
 
-    mesh = mesh_payload(out, seed=3, params={"model": "crm-l", "steps": 2})
+    mesh = mesh_payload(out, seed=3, params={"model": "crm", "steps": 2})
     result = Results(None, (80, 120), meshes=mesh, names={})
     assert len(result) == 1 and mesh.body_model == "object"
     row = result.summary()[0]
