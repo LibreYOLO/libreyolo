@@ -169,6 +169,7 @@ in preflight.
 | teed | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | tinyformer | detect | available | available | available | available | available |  |  |  |  |  |  |  |
 | trellis | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
+| trellis2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposplat | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposr | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -2203,6 +2204,18 @@ These converter paths are callable with the recorded validation context.
 - `trellis` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `tensorrt`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `openvino`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `paddle`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `mnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `rknn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `ncnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).

@@ -1188,6 +1188,40 @@ files. SHA-256 of each weight file equals upstream's:
     2a56cfd4ffcf40be097c430324ec184cc37187f6dafef128ef9225438a3c03c4
 Ported inference code: see libreyolo/models/gen/lgm/NOTICE.
 
+TRELLIS.2 (LibreTRELLIS2 4b)                            MIT
+Image-to-3D mesh (geometry)
+---------------------------
+
+Upstream: Microsoft, https://huggingface.co/microsoft/TRELLIS.2-4B
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreTRELLIS2-4b @
+266ce97c4ecf81b9fb090644609aaccc6fa2ce5d (with LICENSE and NOTICE), mirrored
+from microsoft/TRELLIS.2-4B @ af44b45f2e35a493886929c6d786e563ec68364d: the
+geometry networks and pipeline.json only. SHA-256 of each mirrored network
+file equals upstream's:
+  ckpts/ss_flow_img_dit_1_3B_64_bf16.safetensors
+    ca01377c485bec418076d38ee80166d32dc776d744f2553b835cba1e97a7abf6
+  ckpts/slat_flow_img2shape_dit_1_3B_512_bf16.safetensors
+    ec5e0917ef9b7e25ad51dffc7d19687a42019871f94239f2fa7f86264c55b70f
+  ckpts/slat_flow_img2shape_dit_1_3B_1024_bf16.safetensors
+    07cd0596f634c5adc1890023d16023afc5eed02fb84b22bb23aff5bf0030fbbd
+  ckpts/shape_dec_next_dc_f16c32_fp16.safetensors
+    e3b718d3e43e4f8780e9a24ac6fff231811a67e3b058e336e10fe654c911d581
+The sparse-structure decoder and the BiRefNet weights load from
+LibreYOLO/LibreTRELLISl (see TRELLIS below).
+
+DINOv3 ViT-L/16 image encoder (Meta DINOv3 License, NOT MIT): redistributed
+unmodified as LibreYOLO/LibreDINOv3vitl16 @
+7f681024a32a03b7f56a1732455b373834d3ee76 with the agreement, mirrored from
+facebook/dinov3-vitl16-pretrain-lvd1689m @
+ea8dc2863c51be0a264bab82070e3e8836b02d51 (gated upstream).
+  model.safetensors
+    dcb2e45127cccbf1601e5f42fef165eea275c8e5213197e8dcf3f48822718179
+The agreement restricts some uses (Trade Controls, ITAR, military, weapons,
+nuclear, espionage). Ported inference code: see
+libreyolo/models/gen/trellis2/NOTICE.
+
 
 TRELLIS (LibreTRELLIS l)                                MIT
 Image-to-3D Gaussian splats

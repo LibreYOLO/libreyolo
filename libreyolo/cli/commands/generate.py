@@ -26,7 +26,7 @@ def generate_cmd(
     model: str | None = typer.Option(
         None,
         help="LibreGen alias or local model directory; default flux2-klein-4b "
-        "for a prompt, speridlabs-idol for a source (or triposplat, trellis, triposr, crm)",
+        "for a prompt, speridlabs-idol for a source (or triposplat, trellis, trellis2, triposr, crm)",
     ),
     imgsz: str | None = typer.Option(
         None, help="Output size: 1024 (square) or HEIGHTxWIDTH such as 768x1024"
@@ -55,6 +55,12 @@ def generate_cmd(
     ),
     texture: bool | None = typer.Option(
         None, help="Bake a UV texture into the mesh (family knob, crm)"
+    ),
+    resolution: int | None = typer.Option(
+        None, help="Mesh grid resolution (mesh families' knob)"
+    ),
+    max_tokens: int | None = typer.Option(
+        None, help="Voxel budget of TRELLIS.2's fine shape stage (family knob)"
     ),
     device: str = typer.Option("auto", help="auto, cpu, mps, or a CUDA device"),
     dtype: str = typer.Option("auto", help="auto, bf16, fp16, or fp32"),
@@ -142,6 +148,8 @@ def generate_cmd(
                 ("margin", margin),
                 ("elevation", elevation),
                 ("texture", texture),
+                ("resolution", resolution),
+                ("max_tokens", max_tokens),
             )
             if value is not None
         }

@@ -3458,5 +3458,24 @@
     "optional_extra": null,
     "available": true,
     "group": "g3"
+  },
+  "trellis2": {
+    "class": "libreyolo.models.gen.trellis2.model.LibreTRELLIS2",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "4b": 1024
+    },
+    "default_imgsz": {
+      "4b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": true,
+    "group": "s",
+    "cli_command": "generate"
   }
 }
