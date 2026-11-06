@@ -2509,6 +2509,8 @@ class InferenceRunner:
                 f"Got imgsz={tuple(input_size)}; pass a single int or disable tiling."
             )
         img_pil = ImageLoader.load(image, color_format=color_format)
+        if getattr(self.model, "input_channels", 3) == 1:
+            img_pil = img_pil.convert("L").convert("RGB")
         orig_width, orig_height = img_pil.size
         image_path = image if isinstance(image, (str, Path)) else None
 

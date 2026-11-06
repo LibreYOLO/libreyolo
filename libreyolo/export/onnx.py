@@ -21,6 +21,7 @@ _DETR_TUPLE_OUTPUT_FAMILIES = {
     "lwdetr",
     "rfdetr",
     "rtdetr",
+    "riodetrv2",
     "rtdetrv2",
     "rtdetrv4",
 }

@@ -83,6 +83,7 @@ def postprocess_obb(
     original_size: Tuple[int, int],
     max_det: int = 300,
     input_size: int | Tuple[int, int] = 1024,
+    float32_scale: bool = False,
     **kwargs,
 ) -> Dict:
     """Decode RT-DETRv2 OBB outputs with global flat top-k and no NMS.
@@ -91,6 +92,11 @@ def postprocess_obb(
     top-left-aligned, aspect-preserving padded canvas.  Returned OBB rows are
     ``(cx, cy, w, h, angle_radians, confidence, class)`` in original-image
     pixels.  Horizontal boxes enclose the rotated corners.
+
+    ``float32_scale`` computes the letterbox scale as a float32 tensor, the
+    way RiO-DETRv2's ``PostProcessorOBB`` does (int / int64 tensor), instead
+    of a Python float; the two can differ by one float32 ULP in the returned
+    pixels.
     """
     del iou_thres, kwargs  # RT-DETR is NMS-free.
 
@@ -116,7 +122,13 @@ def postprocess_obb(
     else:
         target_h, target_w = int(input_size[0]), int(input_size[1])
     orig_w, orig_h = original_size
-    scale = min(target_w / orig_w, target_h / orig_h)
+    if float32_scale:
+        # Same expression as upstream: Python int divided by an int64 tensor.
+        # That kernel rounds differently from a float32 / float32 division.
+        sizes = torch.tensor([int(orig_h), int(orig_w)], device=selected.device)
+        scale = torch.minimum(target_w / sizes[1], target_h / sizes[0])
+    else:
+        scale = min(target_w / orig_w, target_h / orig_h)
 
     target_wh = selected.new_tensor([target_w, target_h, target_w, target_h])
     xywh = selected[:, :4] * target_wh / scale

@@ -60,6 +60,14 @@ Optional family-specific geometry (not required by schema v1.0):
   than that unmarked-means-topleft rule. YOLO-NAS is not this field: its
   official pipeline already pads bottom-right in `preprocess/yolonas.py`.
 
+Optional grayscale input metadata:
+
+- `channels`: `1` for models trained on a dataset with `channels: 1`. Readers
+  replace the image-reading convolution with a one-channel one before loading
+  the state dict. RGB checkpoints omit the key; absent means `3`. Exports write
+  the same key as a string, and exported backends convert input images to gray
+  when it is `"1"`.
+
 Optional event-histogram input metadata (YOLO9/RF-DETR detection only):
 
 - `input_profile`: the complete mapping from [Input profiles](input_profiles.md):
@@ -515,6 +523,12 @@ upstream's, fixed in code. TRELLIS loads upstream's layout too:
 `pipeline.json`, then for each of the four networks it uses a
 `ckpts/<name>.json` config next to `ckpts/<name>.safetensors`, plus
 `birefnet.safetensors`. See ADR 0031.
+
+LGM loads upstream's `model_fp16_fixrot.safetensors` unchanged, with
+`birefnet.safetensors` next to it; its multi-view stage is upstream's
+diffusers folder (`unet/`, `vae/`, `text_encoder/`, `tokenizer/`,
+`image_encoder/`, `feature_extractor/`, `scheduler/`), from LibreYOLO's
+mirror or an `imagedream/` subfolder. See ADR 0031.
 
 ### Optional LibreVLA runtime
 

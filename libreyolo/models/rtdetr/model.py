@@ -165,6 +165,10 @@ class LibreRTDETR(BaseModel):
         RT-DETR decoder input projection path that D-FINE does not have.
         """
         keys = set(weights_dict.keys())
+        # RiO-DETRv2 shares the RT-DETRv2 input projections and heads; its
+        # angle-distribution head is unique to it.
+        if any(k.startswith("decoder.dec_angle_head.") for k in keys):
+            return False
         has_backbone = any(
             k.startswith(("backbone.res_layers", "backbone.stages")) for k in keys
         )

@@ -27,10 +27,13 @@ from .base3d import LibreGen3DModel
 from .crm import LibreCRM
 from .diffusers_family import DiffusersGenFamily
 from .flux2_klein import LibreFlux2Klein
+from .lgm import LibreLGM
+from .prx import LibrePRX, LibrePRXPixel
 from .sana_sprint import LibreSanaSprint
 from .speridlabs_idol import LibreSperidlabsIdol
 from .trellis import LibreTRELLIS
 from .triposplat import LibreTripoSplat
+from .triposr import LibreTripoSR
 
 # alias -> (family class, size)
 _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
@@ -40,12 +43,20 @@ _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
     "flux.2-klein-4b": (LibreFlux2Klein, "4b"),
     "sana-sprint": (LibreSanaSprint, "0.6b"),
     "sana-sprint-0.6b": (LibreSanaSprint, "0.6b"),
+    "prx": (LibrePRX, "1024-beta"),
+    **{f"prx-{size}": (LibrePRX, size) for size in LibrePRX.HF_REPOS},
+    "prxpixel": (LibrePRXPixel, "7b"),
+    "prxpixel-7b": (LibrePRXPixel, "7b"),
+    "prx-pixel": (LibrePRXPixel, "7b"),
     "speridlabs-idol": (LibreSperidlabsIdol, "0.6b"),
     "speridlabs-idol-0.6b": (LibreSperidlabsIdol, "0.6b"),
     "triposplat": (LibreTripoSplat, "0.6b"),
     "triposplat-0.6b": (LibreTripoSplat, "0.6b"),
     "trellis": (LibreTRELLIS, "l"),
     "trellis-image-large": (LibreTRELLIS, "l"),
+    "lgm": (LibreLGM, "0.4b"),
+    "lgm-0.4b": (LibreLGM, "0.4b"),
+    "triposr": (LibreTripoSR, ""),
     "crm": (LibreCRM, ""),
 }
 
@@ -68,7 +79,8 @@ def LibreGen(model: str = _DEFAULT_MODEL, **kwargs) -> LibreGenModel:
 
     Args:
         model: Alias (``"flux2-klein-4b"``, ``"sana-sprint-0.6b"``,
-            ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"crm"``) or a path to a local model directory in a
+            ``"prx-1024-beta"`` and the other ``prx-*`` checkpoints,
+            ``"prxpixel-7b"``, ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``, ``"crm"``) or a path to a local model directory in a
             supported family's upstream format, such as a fine-tune or an
             offline copy.
         **kwargs: Forwarded to the family constructor: ``device``, ``dtype``
@@ -110,8 +122,12 @@ __all__ = [
     "DiffusersGenFamily",
     "LibreFlux2Klein",
     "LibreSanaSprint",
+    "LibrePRX",
+    "LibrePRXPixel",
     "LibreSperidlabsIdol",
     "LibreTripoSplat",
     "LibreTRELLIS",
+    "LibreLGM",
+    "LibreTripoSR",
     "LibreCRM",
 ]

@@ -1054,7 +1054,10 @@ class LibreRFDETR(BaseModel):
                 apply_quant_structure(self, quant_manifest)
 
             from ...utils.event_histogram import restore_input
+            from ...utils.input_channels import restore_channels
+
             restore_input(self, checkpoint_input_metadata)
+            restore_channels(self, checkpoint_input_metadata)
             missing, unexpected = self.model.load_state_dict(loaded, strict=False)
             if unexpected:
                 raise RuntimeError(

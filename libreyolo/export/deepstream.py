@@ -206,7 +206,15 @@ class _GraphNorm(nn.Module):
         )
 
     def forward(self, x: torch.Tensor):
-        return self.model((x - self._mean.to(x.dtype)) / self._std.to(x.dtype))
+        mean, std = self._mean.to(x.dtype), self._std.to(x.dtype)
+        if x.shape[1] == 1:
+            # Grayscale models average the per-channel normalized planes of a
+            # replicated gray image: one affine map, so the graph input stays
+            # one channel (broadcasting to three breaks some encoders).
+            inv = (1.0 / std).mean(dim=1, keepdim=True)
+            mean = (mean / std).mean(dim=1, keepdim=True) / inv
+            std = 1.0 / inv
+        return self.model((x - mean) / std)
 
 
 def _maybe_normalize(
@@ -682,6 +690,7 @@ def write_deepstream_sidecars(
     iou: float = 0.45,
     task: str = "detect",
     letterbox_pad: str | None = None,
+    channels: int = 3,
 ) -> tuple[str, str]:
     """Write ``config_infer_primary_<stem>.txt`` and ``<stem>_labels.txt``.
 
@@ -715,6 +724,14 @@ def write_deepstream_sidecars(
 
         symmetric_pad = int(normalize_letterbox_pad(letterbox_pad) == LETTERBOX_CENTER)
     color_format = profile.get("model_color_format", 0)
+    if channels == 1:
+        # Grayscale models (dataset ``channels: 1``): nvinfer converts frames
+        # to one gray plane. The model averages the per-channel normalized
+        # planes of a replicated gray image, which under nvinfer's scalar
+        # scale is one offset, the mean of the per-channel ones.
+        color_format = 2
+        if offsets is not None:
+            offsets = [sum(offsets) / len(offsets)]
 
     network_mode = {"fp32": 0, "int8": 1, "fp16": 2}.get(precision, 0)
     mode_name = {0: "fp32", 1: "int8", 2: "fp16"}[network_mode]
@@ -747,7 +764,7 @@ def write_deepstream_sidecars(
         f"network-mode={network_mode}",
         "interval=0",
         "gie-unique-id=1",
-        f"infer-dims=3;{imgsz[0]};{imgsz[1]}",
+        f"infer-dims={channels};{imgsz[0]};{imgsz[1]}",
         f"maintain-aspect-ratio={int(maintain_ar)}",
         f"symmetric-padding={int(symmetric_pad)}",
     ]

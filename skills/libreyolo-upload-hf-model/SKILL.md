@@ -66,6 +66,7 @@ file = name + ".pt"
 | DINO-DETR | `LibreDINODETR` | `LibreDINODETRr50.pt` (IDEA DINO detector; Apache-2.0 implied for weights; inference-only) |
 | RTDETR | `LibreRTDETR` | `LibreRTDETRr50.pt` |
 | RTDETRv2 | `LibreRTDETRv2` | `LibreRTDETRv2r50.pt` |
+| RiODETRv2 | `LibreRiODETRv2` | `LibreRiODETRv2n-obb.pt` (DOTA-v1.0), `LibreRiODETRv2n-obb-diorr.pt` (DIOR-R); Apache-2.0 initial-release code + weights; inference-only |
 | RTDETRv4 | `LibreRTDETRv4` | `LibreRTDETRv4s.pt` |
 | RTMDet | `LibreRTMDet` | `LibreRTMDets.pt` |
 | YOLONAS | `LibreYOLONAS` | `LibreYOLONASs.pt` |
@@ -210,6 +211,12 @@ LibreRTDETRv2r50m.pt, LibreRTDETRv2r101.pt,
 LibreRTDETRv2n-obb.pt, LibreRTDETRv2s-obb.pt,
 LibreRTDETRv2m-obb.pt, LibreRTDETRv2l-obb.pt,
 LibreRTDETRv2x-obb.pt,
+
+LibreRiODETRv2n-obb.pt, LibreRiODETRv2s-obb.pt, LibreRiODETRv2m-obb.pt,
+LibreRiODETRv2l-obb.pt, LibreRiODETRv2x-obb.pt,
+LibreRiODETRv2n-obb-diorr.pt, LibreRiODETRv2s-obb-diorr.pt,
+LibreRiODETRv2m-obb-diorr.pt, LibreRiODETRv2l-obb-diorr.pt,
+LibreRiODETRv2x-obb-diorr.pt,
 
 LibreRTDETRv4s.pt, LibreRTDETRv4m.pt, LibreRTDETRv4l.pt,
 LibreRTDETRv4x.pt,

@@ -26,7 +26,7 @@ def generate_cmd(
     model: str | None = typer.Option(
         None,
         help="LibreGen alias or local model directory; default flux2-klein-4b "
-        "for a prompt, speridlabs-idol for a source (or triposplat, trellis, crm)",
+        "for a prompt, speridlabs-idol for a source (or triposplat, trellis, triposr, crm)",
     ),
     imgsz: str | None = typer.Option(
         None, help="Output size: 1024 (square) or HEIGHTxWIDTH such as 768x1024"
@@ -35,6 +35,9 @@ def generate_cmd(
     n: int = typer.Option(1, help="Images per prompt"),
     steps: int | None = typer.Option(None, help="Sampling steps (family knob)"),
     guidance: float | None = typer.Option(None, help="Prompt guidance (family knob)"),
+    negative: str | None = typer.Option(
+        None, help="Negative prompt: what to steer away from (family knob)"
+    ),
     shift: float | None = typer.Option(
         None, help="Flow time shift toward high noise (family knob)"
     ),
@@ -46,6 +49,9 @@ def generate_cmd(
     ),
     margin: float | None = typer.Option(
         None, help="Crop side / object size; overrides mode (family knob)"
+    ),
+    elevation: float | None = typer.Option(
+        None, help="Input camera elevation in degrees, negative above (family knob)"
     ),
     device: str = typer.Option("auto", help="auto, cpu, mps, or a CUDA device"),
     dtype: str = typer.Option("auto", help="auto, bf16, fp16, or fp32"),
@@ -126,10 +132,12 @@ def generate_cmd(
             for key, value in (
                 ("steps", steps),
                 ("guidance", guidance),
+                ("negative", negative),
                 ("shift", shift),
                 ("gaussians", gaussians),
                 ("mode", mode),
                 ("margin", margin),
+                ("elevation", elevation),
             )
             if value is not None
         }

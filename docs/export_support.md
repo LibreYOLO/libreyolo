@@ -81,6 +81,7 @@ in preflight.
 | lama | restore |  |  |  |  |  |  |  |  |  |  |  |  |
 | levjepa | embed | available | ✓ | available | available | available |  |  |  |  |  |  |  |
 | lfm2vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| lgm | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | libremodus | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | libremodus | depth |  |  |  |  |  |  |  |  |  |  |  |  |
 | libremodus | normal |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -120,6 +121,8 @@ in preflight.
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
 | ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
+| prx | generate |  |  |  |  |  |  |  |  |  |  |  |  |
+| prxpixel | generate |  |  |  |  |  |  |  |  |  |  |  |  |
 | quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
 | qwen3vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | qwen3vl_embedding | embed |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -131,6 +134,7 @@ in preflight.
 | rfdetr | segment | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |
 | rfdetr | pose | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |
 | rfdetr | obb | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |
+| riodetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
 | rtdetr | detect | ✓ | ✓ | ✓ | available | ✓ |  | ✓ |  |  |  | available | ✓ |
 | rtdetrv2 | detect | ✓ | ✓ | ✓ | available | available |  | ✓ |  |  |  |  | ✓ |
 | rtdetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
@@ -165,6 +169,7 @@ in preflight.
 | tinyformer | detect | available | available | available | available | available |  |  |  |  |  |  |  |
 | trellis | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposplat | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
+| triposr | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |
 | unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |
 | vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
@@ -421,6 +426,8 @@ A check mark applies only under any constraint listed here.
 - `rfdetr` / `obb` / `onnx`: fixed task-native input resolution
 - `rfdetr` / `obb` / `torchscript`: fixed task-native input resolution
 - `rfdetr` / `obb` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed task-native input shape; segment and pose use Apache-2.0 trained checkpoints
+- `riodetrv2` / `obb` / `onnx`: FP32, batch 1, fixed square canvas (1024 DOTA, 800 DIOR-R)
+- `riodetrv2` / `obb` / `torchscript`: FP32, batch 1, fixed square canvas (1024 DOTA, 800 DIOR-R)
 - `rtdetr` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `rtdetr` / `detect` / `openvino`: fixed export canvas
 - `rtdetr` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
@@ -646,6 +653,9 @@ These converter paths are callable with the recorded validation context.
 - `rfdetr` / `pose` / `openvino`: After Hungarian query alignment, measured converted-runtime element match rates remain below validation: trained segment 69.0%, trained pose 72.75%, and input-sensitive OBB 91.25%.
 - `rfdetr` / `obb` / `tensorrt`: A deterministic synthetic OBB fixture exports and reloads, but public top-k class membership changes.
 - `rfdetr` / `obb` / `openvino`: After Hungarian query alignment, measured converted-runtime element match rates remain below validation: trained segment 69.0%, trained pose 72.75%, and input-sensitive OBB 91.25%.
+- `riodetrv2` / `obb` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `riodetrv2` / `obb` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
+- `riodetrv2` / `obb` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `rtdetr` / `detect` / `tensorrt`: The permissively licensed trained checkpoint exports, reloads, and passes public predict parity, but normalized raw outputs drift by 17% to 38% after TensorRT 10.16 conversion.
 - `rtdetr` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
 - `rtdetrv2` / `detect` / `tensorrt`: A deterministic synthetic fixture exports and reloads, but matched public boxes drift by at least 8 pixels and fall to 0.231 IoU.
@@ -1346,6 +1356,18 @@ These converter paths are callable with the recorded validation context.
 - `lfm2vl` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `lfm2vl` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `lfm2vl` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `lgm` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `tensorrt`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `openvino`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `paddle`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `mnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `rknn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `ncnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `libremodus` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `libremodus` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `libremodus` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1730,6 +1752,30 @@ These converter paths are callable with the recorded validation context.
 - `ppyoloe` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ppyoloe` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ppyoloe` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `prx` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `tensorrt`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `openvino`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `paddle`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `mnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `rknn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `ncnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `tensorrt`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `openvino`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `paddle`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `mnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `rknn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `ncnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `quicksrnet` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `quicksrnet` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `quicksrnet` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1816,6 +1862,13 @@ These converter paths are callable with the recorded validation context.
 - `rfdetr` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rfdetr` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rfdetr` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
+- `riodetrv2` / `obb` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
+- `riodetrv2` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
+- `riodetrv2` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `riodetrv2` / `obb` / `ncnn`: NCNN export is not supported for RiO-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
+- `riodetrv2` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
+- `riodetrv2` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `riodetrv2` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
 - `rtdetr` / `detect` / `paddle`: The trained graphs require ONNX GridSample at opset 16 or newer, while X2Paddle 1.6.0 accepts opset 15 or lower.
 - `rtdetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `rtdetr` / `detect` / `ncnn`: NCNN export is not supported for RT-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
@@ -2149,6 +2202,18 @@ These converter paths are callable with the recorded validation context.
 - `triposplat` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `tensorrt`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `openvino`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `paddle`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `mnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `rknn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `ncnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `unet` / `semantic` / `onnx`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
