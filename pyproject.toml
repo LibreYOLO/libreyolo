@@ -151,14 +151,18 @@ vla = [
     "lerobot[smolvla,diffusion,dataset]>=0.6.1; python_version >= '3.12'",
 ]
 gen = [
-    # LibreGen loads generative image pipelines (FLUX.2 klein, SANA-Sprint)
-    # through the Apache-2.0 diffusers package; text encoders come from
-    # transformers and accelerate backs low-memory loading and offload=True.
+    # LibreGen loads generative image pipelines (FLUX.2 klein, SANA-Sprint,
+    # PRX, PRXPixel) through the Apache-2.0 diffusers package; text encoders
+    # come from transformers and accelerate backs low-memory loading and
+    # offload=True. PRXPixel needs diffusers 0.39 and says so at load time;
+    # the floor stays at 0.38 so this extra installs next to marigold. PRX
+    # and PRXPixel clean prompts with ftfy (Apache-2.0).
     # Speridlabs Idol reads DINOv3 through transformers and the FLUX.2 VAE
     # through diffusers.
     "diffusers>=0.38.0",
     "transformers>=5.1.0",
     "accelerate>=1.7.0",
+    "ftfy>=6.0",
 ]
 llm = [
     # LibreLLM talks to OpenAI-compatible Responses / Chat Completions
