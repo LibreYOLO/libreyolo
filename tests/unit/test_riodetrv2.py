@@ -256,3 +256,19 @@ def test_export_raw_roundtrip_and_metadata(tmp_path, fmt, canvas):
     backend = LibreYOLO(str(output), device="cpu")
     assert (backend.model_family, backend.model_size, backend.task) == ("riodetrv2", "n", "obb")
     assert len(backend.names) == nc
+
+
+@pytest.mark.torchscript
+def test_export_at_non_native_canvas_keeps_native_model_intact(tmp_path):
+    from libreyolo import LibreYOLO
+
+    model = _scratch("n")
+    model.model.eval()
+    output = tmp_path / "LibreRiODETRv2n-obb.torchscript"
+    model.export("torchscript", imgsz=640, output_path=str(output))
+    assert tuple(model.model.eval_spatial_size) == (1024, 1024)
+    traced = torch.jit.load(str(output)).eval()
+    with torch.inference_mode():
+        logits, boxes = traced(torch.rand(1, 3, 640, 640))
+    assert logits.shape == (1, 300, 15) and boxes.shape == (1, 300, 5)
+    assert LibreYOLO(str(output), device="cpu").task == "obb"
