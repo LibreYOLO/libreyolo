@@ -70,8 +70,25 @@ model("a red fox", steps=8, guidance=1.0)
 | --- | --- | --- | --- | --- |
 | `flux2-klein-4b` (default) | 4B | `steps` (4), `guidance` (1.0, fixed: the distilled checkpoint runs without guidance) | about 16 GB | Apache-2.0 |
 | `sana-sprint-0.6b` | 0.6B | `steps` (2), `guidance` (4.5) | about 7.7 GB | Apache-2.0; Gemma 2 text encoder under the Gemma Terms of Use |
+| `prx-1024-beta` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 21 GB | Apache-2.0; T5Gemma text encoder under the Gemma Terms of Use |
+| `prx-512-sft-distilled` | 1.3B | `steps` (8), `guidance` (1.0), `negative` ("") | about 16 GB | as above |
+| `prx-512-sft`, `prx-512` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 16 GB | as above |
+| `prx-512-dc-ae-sft-distilled` | 1.3B | `steps` (8), `guidance` (1.0), `negative` ("") | about 16 GB | as above; DC-AE autoencoder MIT |
+| `prx-512-dc-ae-sft`, `prx-512-dc-ae` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 16 GB | as above; DC-AE autoencoder MIT |
+| `prx-256-sft`, `prx-256` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 16 GB | as above |
+| `prxpixel-7b` | 7B | `steps` (28), `guidance` (5.0), `negative` ("") | about 18 GB | Apache-2.0 (Qwen3-VL text encoder, no autoencoder) |
 
-`flux2-klein` and `sana-sprint` are short aliases.
+`flux2-klein` and `sana-sprint` are short aliases; `prx` is `prx-1024-beta`
+and `prxpixel` is `prxpixel-7b`.
+
+The nine PRX checkpoints are Photoroom's whole PRX release. The number is
+the native resolution; `-dc-ae` uses the 32x DC-AE autoencoder instead of the
+FLUX.1 VAE, so its sides round up to a multiple of 32 instead of 16; `-sft`
+is the supervised fine-tune, ready to use, and `-sft-distilled` the 8-step
+distillation of it. Checkpoints without `-sft` are base models meant for
+fine-tuning. `prx-1024-beta` is Photoroom's 1024 preview. PRXPixel denoises
+pixels directly and needs `diffusers>=0.39`. All ten download from
+byte-identical LibreYOLO mirrors of Photoroom's repos.
 
 ## Devices and memory
 

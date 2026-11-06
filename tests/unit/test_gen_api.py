@@ -17,7 +17,15 @@ import pytest
 import torch
 from PIL import Image
 
-from libreyolo import GeneratedImage, LibreFlux2Klein, LibreGen, LibreSanaSprint, Results
+from libreyolo import (
+    GeneratedImage,
+    LibreFlux2Klein,
+    LibreGen,
+    LibrePRX,
+    LibrePRXPixel,
+    LibreSanaSprint,
+    Results,
+)
 from libreyolo.models.gen import _ALIASES
 from libreyolo.models.gen.base import LibreGenModel
 from libreyolo.models.gen.diffusers_family import DiffusersGenFamily
@@ -174,7 +182,7 @@ def test_alias_wins_over_a_same_named_folder(tmp_path, monkeypatch):
 def test_families_pin_a_commit_and_stay_out_of_the_checkpoint_factory():
     from libreyolo.models.base.model import BaseModel
 
-    for family_cls in (LibreFlux2Klein, LibreSanaSprint):
+    for family_cls in (LibreFlux2Klein, LibreSanaSprint, LibrePRX, LibrePRXPixel):
         assert not issubclass(family_cls, BaseModel)
         assert family_cls.SUPPORTED_TASKS == ("generate",)
         for size, repo in family_cls.HF_REPOS.items():
@@ -655,3 +663,119 @@ def test_marker_is_never_seen_half_written(tmp_path, monkeypatch):
     assert seen_before_publish == ['{"repo": "old", "revision": null}\n']
     assert json.loads(marker.read_text(encoding="utf-8"))["repo"] == "new"
     assert not list(tmp_path.glob("*.tmp"))
+
+
+# ---------------------------------------------------------------------------
+# PRX (Photoroom)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fake_diffusers(monkeypatch):
+    FakePipeline.loaded = []
+    monkeypatch.setattr(
+        DiffusersGenFamily,
+        "_require_pipeline_class",
+        classmethod(lambda cls: FakePipeline),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules, "diffusers", SimpleNamespace(__version__="0.41.0")
+    )
+    monkeypatch.setitem(__import__("sys").modules, "ftfy", SimpleNamespace())
+
+
+def test_prx_aliases_cover_every_photoroom_checkpoint():
+    for size, repo in LibrePRX.UPSTREAM_REPOS.items():
+        assert _ALIASES[f"prx-{size}"] == (LibrePRX, size)
+        assert repo.startswith("Photoroom/prx-")
+        assert LibrePRX.HF_REPOS[size] == f"LibreYOLO/LibrePRX{size}"
+        assert len(LibrePRX.UPSTREAM_REVISIONS[size]) == 40
+    assert len(LibrePRX.HF_REPOS) == 9
+    assert LibrePRXPixel.HF_REPOS == {"7b": "LibreYOLO/LibrePRXPixel7b"}
+    assert _ALIASES["prx"] == (LibrePRX, "1024-beta")
+    for alias in ("prxpixel", "prxpixel-7b", "prx-pixel"):
+        assert _ALIASES[alias] == (LibrePRXPixel, "7b")
+    assert LibreGen("PRX_512_sft_distilled", device="cpu").model_name == (
+        "prx-512-sft-distilled"
+    )
+
+
+def test_prx_size_picks_resolution_multiple_and_card_defaults():
+    expected = {
+        "1024-beta": (1024, 16, 28, 5.0),
+        "512-sft-distilled": (512, 16, 8, 1.0),
+        "512-dc-ae": (512, 32, 28, 5.0),
+        "512-dc-ae-sft-distilled": (512, 32, 8, 1.0),
+        "256": (256, 16, 28, 5.0),
+    }
+    for size, (imgsz, multiple, steps, guidance) in expected.items():
+        model = LibrePRX(size, device="cpu")
+        assert model.input_size == imgsz
+        assert model.SIZE_MULTIPLE == multiple
+        assert model.info(verbose=False)["knobs"]["steps"] == steps
+        assert model.DEFAULTS["guidance"] == guidance
+    # Per-size settings live on the instance; the class stays untouched.
+    assert LibrePRX.DEFAULTS["steps"] == 28 and LibrePRX.SIZE_MULTIPLE == 16
+    pixel = LibrePRXPixel(device="cpu")
+    assert (pixel.input_size, pixel.SIZE_MULTIPLE) == (1024, 16)
+
+
+def test_prx_call_passes_card_settings_and_negative(tmp_path, fake_diffusers):
+    (tmp_path / "model_index.json").write_text(
+        json.dumps(
+            {
+                "_class_name": "PRXPipeline",
+                "default_sample_size": 512,
+                "vae": ["diffusers", "AutoencoderDC"],
+            }
+        )
+    )
+    model = LibreGen(str(tmp_path), device="cpu")
+    assert type(model) is LibrePRX and model.size == "512-dc-ae-sft"
+    model("a fox", imgsz=40, seed=1, negative="blurry")
+    call = model.pipeline.calls[-1]
+    assert (call["height"], call["width"]) == (64, 64)
+    assert call["num_inference_steps"] == 28
+    assert call["guidance_scale"] == 5.0
+    assert call["negative_prompt"] == "blurry"
+    distilled = LibreGen(str(tmp_path), size="512-dc-ae-sft-distilled", device="cpu")
+    distilled("a fox", imgsz=64)
+    call = distilled.pipeline.calls[-1]
+    assert (call["num_inference_steps"], call["guidance_scale"]) == (8, 1.0)
+
+
+def test_prx_directory_size_inference(tmp_path):
+    def write(index):
+        (tmp_path / "model_index.json").write_text(json.dumps(index))
+        return LibrePRX._size_from_directory(tmp_path)
+
+    vae = ["diffusers", "AutoencoderKL"]
+    assert write({"default_sample_size": 1024, "vae": vae}) == "1024-beta"
+    assert write({"default_sample_size": 256, "vae": vae}) == "256-sft"
+    assert write({"default_sample_size": 768, "vae": vae}) is None
+    assert LibrePRX._size_from_directory(tmp_path / "missing") is None
+
+
+def test_prx_pixel_directory_and_old_diffusers(tmp_path, monkeypatch):
+    (tmp_path / "model_index.json").write_text(
+        json.dumps({"_class_name": "PRXPixelPipeline"})
+    )
+    assert type(LibreGen(str(tmp_path), device="cpu")) is LibrePRXPixel
+    assert not LibrePRX.matches_directory(tmp_path)
+    monkeypatch.setitem(
+        __import__("sys").modules, "diffusers", SimpleNamespace(__version__="0.38.0")
+    )
+    with pytest.raises(ImportError, match=r"diffusers>=0\.39\.0"):
+        LibreGen(str(tmp_path), device="cpu")("a fox")
+
+
+def test_prx_without_ftfy_names_the_extra(tmp_path, fake_diffusers, monkeypatch):
+    # diffusers would otherwise die on a NameError inside its prompt cleaning.
+    monkeypatch.setitem(__import__("sys").modules, "ftfy", None)
+    (tmp_path / "model_index.json").write_text(
+        json.dumps({"_class_name": "PRXPipeline", "default_sample_size": 512})
+    )
+    model = LibreGen(str(tmp_path), device="cpu")
+    with pytest.raises(ImportError, match=r"ftfy[\s\S]*libreyolo\[gen\]"):
+        model("a fox")
+    assert FakePipeline.loaded == []

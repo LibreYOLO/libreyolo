@@ -1206,6 +1206,57 @@ The pipeline runs from diffusers (Apache-2.0); LibreYOLO ships only its own
 adapter code.
 
 
+PRX (LibrePRX, nine checkpoints)                         Apache-2.0 + Gemma
+Text-to-image pipelines; T5Gemma text encoder under the Gemma Terms of Use
+-------------------------------------------------------------------------
+
+Upstream: Photoroom, https://huggingface.co/collections/Photoroom/prx-models-68e66254c202ebfab99ad38e
+License: the PRX weights are Apache-2.0, as declared by each official model
+repository and its LICENSE and NOTICE files. Each repository bundles Google's
+T5Gemma 2B-2B text encoder, which stays under the Gemma Terms of Use
+(https://ai.google.dev/gemma/terms) and the Gemma Prohibited Use Policy; the
+loader logs this notice once. These terms are not MIT. The non-DC-AE
+checkpoints bundle the FLUX.1 [schnell] VAE (Apache-2.0); the -dc-ae
+checkpoints bundle the DC-AE f32c32 autoencoder from
+mit-han-lab/dc-ae-f32c32-sana-1.1-diffusers (MIT).
+
+Mirrored by LibreYOLO, byte-identical, with Photoroom's LICENSE and NOTICE,
+at LibreYOLO/LibrePRX<size> (for example LibreYOLO/LibrePRX512-sft-distilled)
+and downloaded at runtime from there. Mirrored from:
+
+Photoroom/prx-1024-t2i-beta @ 0370504b9a433fbdff814b8fcba9da03bf72a7a3
+Photoroom/prx-512-t2i-sft-distilled @ cb72bdc1f4c77126fb80d0c03fab156ee5f4df3a
+Photoroom/prx-512-t2i-sft @ 2996423bc26e8eaca48774fac1797484214dfea0
+Photoroom/prx-512-t2i @ fff12bc02365e07860f2567caa44f1f249946cd4
+Photoroom/prx-512-t2i-dc-ae-sft-distilled @ 03d133506d11f7b3087a9c9509259acd36ede975
+Photoroom/prx-512-t2i-dc-ae-sft @ da9ca7af3f87383677ff7c63817a02c340a73e85
+Photoroom/prx-512-t2i-dc-ae @ 3db6a639a9782f6e05f952b75c4943c3875b19c8
+Photoroom/prx-256-t2i-sft @ 1b8e70f4dd51170fe7c03402f1891c15455d7447
+Photoroom/prx-256-t2i @ 39a6b3bc5adc5a0271acdcc20c19be2c355e227c
+
+The pipeline runs from diffusers (Apache-2.0); LibreYOLO ships only its own
+adapter code.
+
+
+PRXPixel (LibrePRXPixel 7b)                                       Apache-2.0
+Pixel-space text-to-image pipeline
+-------------------------------------------------------------------------
+
+Upstream: Photoroom, https://huggingface.co/Photoroom/prxpixel-t2i
+License: Apache-2.0, as declared by the official model repository and its
+LICENSE and NOTICE files. It bundles Alibaba's Qwen3-VL-Embedding-2B text
+encoder (Apache-2.0) and no autoencoder.
+
+Mirrored by LibreYOLO, byte-identical, with Photoroom's LICENSE and NOTICE,
+at LibreYOLO/LibrePRXPixel7b and downloaded at runtime from there. Mirrored
+from:
+
+Photoroom/prxpixel-t2i @ bcd5e63f072257a220c5d0ba039c97657398b1c2
+
+The pipeline runs from diffusers (Apache-2.0); LibreYOLO ships only its own
+adapter code.
+
+
 EdgeCrafter original COCO defaults (detection, segmentation and pose)
 --------------------------------------------------------------------
 License: Apache-2.0, reproduced in licenses/Apache-2.0.txt and each HF mirror.
