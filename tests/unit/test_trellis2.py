@@ -756,6 +756,7 @@ def test_parity_gate_passes_the_recorded_run():
         ("decoder_intersected_agree", "port_vs_fp32", 0.9),
         ("ss_voxels", "same", False),
         ("shape512_flow_forward_same_attention", "equal", False),
+        ("dinov3_512", "max", float("nan")),  # equal infinities: equal, NaN distance
     ],
 )
 def test_parity_gate_fails_wrong_or_missing_values(stage, key, value):

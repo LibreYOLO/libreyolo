@@ -125,7 +125,13 @@ def _finite(*values):
 
 def gate_failures(row):
     """Every comparison in ``row`` that is missing, non-finite or out of its limit."""
-    failures = [k for k in BITWISE if not row.get(k, {}).get("equal")]
+    failures = [
+        k
+        for k in BITWISE
+        if not row.get(k, {}).get("equal")
+        # A tensor equal to upstream's must also be finite (equal infinities give NaN).
+        or ("mean" in row[k] and not _finite(row[k]["mean"], row[k].get("max")))
+    ]
     for k in FP32_STAGES:
         c = row.get(k, {})
         port, up = c.get("port_vs_fp32_mean"), c.get("upstream_vs_fp32_mean")
