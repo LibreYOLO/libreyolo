@@ -181,15 +181,31 @@ def test_channel_to_spatial_matches_a_loop():
 def test_rope_rotates_pairs_like_the_real_formula():
     positions = torch.randint(0, 16, (10, 3))
     phases = t2nn.rope_phases(positions, 28)
-    assert phases.shape == (10, 14) and torch.allclose(phases.abs(), torch.ones(10, 14))
+    assert phases.shape == (10, 14, 2) and not phases.is_complex()
+    assert torch.allclose(phases.norm(dim=-1), torch.ones(10, 14))
     # 3 axes x 4 frequencies rotate 12 pairs; the last 2 pairs stay put.
     x = torch.randn(10, 2, 28)
     rotated = t2nn.apply_rope(x, phases)
     a, b = x[..., 0::2], x[..., 1::2]
-    cos, sin = phases.real.unsqueeze(1), phases.imag.unsqueeze(1)
+    cos, sin = phases[..., 0].unsqueeze(1), phases[..., 1].unsqueeze(1)
     expected = torch.stack([a * cos - b * sin, a * sin + b * cos], dim=-1).reshape(x.shape)
     assert torch.allclose(rotated, expected, atol=1e-6)
     assert torch.equal(rotated[..., 24:], x[..., 24:])
+
+
+def test_rope_phases_are_upstreams_polar_values_bit_for_bit():
+    positions = torch.randint(0, 64, (50, 3))
+    phases = t2nn.rope_phases(positions, 64)
+    freqs = torch.arange(10, dtype=torch.float32) / 10
+    angles = torch.outer(positions.reshape(-1), 1.0 / (10000.0**freqs))
+    polar = torch.polar(torch.ones_like(angles), angles).reshape(50, -1)
+    assert torch.equal(torch.view_as_complex(phases[:, :30].contiguous()), polar)
+
+
+def test_dense_flow_holds_no_complex_buffers():
+    # MPS builds without complex tensors fail to move a complex buffer at load.
+    flow = t2nn.SparseStructureFlowModel(resolution=4, dtype="float32", **TINY["flow"])
+    assert not any(buffer.is_complex() for buffer in flow.buffers())
 
 
 # ---------------------------------------------------------------------------
@@ -541,3 +557,32 @@ def test_tiny_pipeline_runs_on_mps_like_on_cpu():
         shape=stage,
     )
     assert torch.isfinite(full["vertices"]).all() and full["faces"].shape[0] > 0
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
+def test_tiny_pipeline_runs_on_mps_without_complex_tensors(monkeypatch):
+    """Older MPS builds have no complex tensors: no complex op may see an MPS tensor."""
+
+    def cpu_only(op):
+        def guarded(*args, **kwargs):
+            if any(isinstance(a, torch.Tensor) and a.device.type == "mps" for a in args):
+                raise RuntimeError("complex tensors are not supported on MPS")
+            return op(*args, **kwargs)
+
+        return guarded
+
+    for name in ("polar", "view_as_complex", "view_as_real"):
+        monkeypatch.setattr(torch, name, cpu_only(getattr(torch, name)))
+    modules = _tiny_modules("mps")
+    for name in ("structure_flow", "shape_flow_512", "shape_flow_1024"):
+        net = getattr(modules, name)
+        assert not any(buffer.is_complex() for buffer in net.buffers())
+    prepared = t2pipe.preprocess_image(_image(), _CentreBlob())
+    stage = _stage(
+        {"guidance_rescale": 0.5, "guidance_interval": [0.6, 1.0], "rescale_t": 3.0}
+    )
+    out = t2pipe.run_stages(
+        modules, prepared, 5, resolution=512, structure=stage, shape=stage, stop_after="latent"
+    )
+    assert torch.isfinite(out["shape_latent"].feats).all()
+
