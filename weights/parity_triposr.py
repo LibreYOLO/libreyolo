@@ -16,11 +16,14 @@ meshes agree to 4e-5 voxel, with volume and area within 2e-4 and vertex
 colours within one 8-bit level.
 
 Prereqs (throwaway env, do NOT install into the main .venv; torchmcubes is
-MPL-2.0 and only runs upstream here):
+MPL-2.0 and only runs upstream here). Install LibreYOLO's core first and
+upstream's pins last, so transformers stays at upstream's 4.35.0 (the port
+does not import transformers):
+    pip install -e . scikit-image
     pip install torch==2.5.1 torchvision==0.20.1 transformers==4.35.0 \
-        omegaconf==2.3.0 einops==0.7.0 trimesh==4.0.5 "numpy<2" scipy
-    pip install git+https://github.com/tatsy/torchmcubes.git
-    pip install -e ".[gen]"
+        omegaconf==2.3.0 einops==0.7.0 trimesh==4.0.5 "numpy<2" scipy \
+        scikit_build_core pybind11 ninja cmake
+    pip install --no-build-isolation git+https://github.com/tatsy/torchmcubes.git
     git clone https://github.com/VAST-AI-Research/TripoSR && \
         git -C TripoSR checkout 107cefdc244c39106fa830359024f6a2f1c78871
     hf download LibreYOLO/LibreTripoSR --local-dir weights/LibreTripoSR

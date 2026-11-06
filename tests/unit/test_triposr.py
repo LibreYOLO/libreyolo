@@ -52,15 +52,14 @@ def _tiny_network(device="cpu"):
 
 
 def _sphere_query(radius_obj=0.4):
-    """A density that is 50 inside a sphere of ``radius_obj`` (upstream units), colour = position."""
+    """A density that is 50 inside a sphere of ``radius_obj`` (upstream units); colour features = position."""
 
-    def query(self, triplane, positions, chunk=262144):
+    def query_chunk(self, triplane, positions):
         r = positions.norm(dim=-1)
         density = 50.0 * torch.sigmoid((radius_obj - r) * 40.0)
-        colour = (positions / (2 * self.radius) + 0.5).clamp(0, 1)
-        return density, colour
+        return density, positions / self.radius
 
-    return query
+    return query_chunk
 
 
 def _cutout(size=96):
@@ -157,6 +156,21 @@ def test_query_chunks_give_the_same_values():
     torch.testing.assert_close(whole[1], chunked[1])
 
 
+def test_density_grid_equals_a_query_over_the_whole_lattice():
+    net = _tiny_network()
+    with torch.no_grad():
+        planes = net(torch.rand(1, 3, 64, 64))[0]
+        axis = torch.linspace(0.0, 1.0, 9)
+        lattice = torch.stack(torch.meshgrid(axis, axis, axis, indexing="ij"), dim=-1)
+        lattice = tnn._scale(
+            lattice.reshape(-1, 3), (0.0, 1.0), (-net.radius, net.radius)
+        )
+        whole, _ = net.query(planes, lattice, chunk=100)
+    grid = net.density_grid(planes, 9, chunk=100)
+    assert grid.device.type == "cpu"
+    assert torch.equal(grid, whole.view(9, 9, 9))
+
+
 def test_vit_position_interpolation_keeps_the_native_grid():
     vit = tnn.DINOViT(_TINY_DINO)
     native = vit.embeddings._positions(4, 32, 32)
@@ -193,7 +207,7 @@ def test_preprocess_composites_on_grey_and_resizes():
 
 
 def test_extract_mesh_frame_and_winding(monkeypatch):
-    monkeypatch.setattr(tnn.TripoSR, "query", _sphere_query(0.4))
+    monkeypatch.setattr(tnn.TripoSR, "_query_chunk", _sphere_query(0.4))
     net = _tiny_network()
     vertices, faces, colours = tnn.extract_mesh(net, torch.zeros(3, 8, 8, 8), 64, 25.0)
     radii = vertices.norm(dim=-1)
@@ -207,14 +221,14 @@ def test_extract_mesh_frame_and_winding(monkeypatch):
 
 
 def test_extract_mesh_without_surface_raises(monkeypatch):
-    monkeypatch.setattr(tnn.TripoSR, "query", _sphere_query(0.4))
+    monkeypatch.setattr(tnn.TripoSR, "_query_chunk", _sphere_query(0.4))
     with pytest.raises(ValueError, match="No surface"):
         tnn.extract_mesh(_tiny_network(), torch.zeros(3, 8, 8, 8), 32, 80.0)
 
 
 @pytest.mark.parametrize("device", _DEVICES)
 def test_generate_returns_a_mesh_payload(monkeypatch, tmp_path, device):
-    monkeypatch.setattr(tnn.TripoSR, "query", _sphere_query(0.4))
+    monkeypatch.setattr(tnn.TripoSR, "_query_chunk", _sphere_query(0.4))
     model = LibreTripoSR(device=device)
     net = tnn.TripoSR(dict(_TINY, cond_image_size=64), _TINY_DINO).eval().to(device)
     model._pipeline = _TripoSRModules(network=net, birefnet=None)
@@ -237,10 +251,15 @@ def test_generate_returns_a_mesh_payload(monkeypatch, tmp_path, device):
     # Deterministic: n objects are the same mesh.
     many = model(_cutout(), resolution=48, n=2)
     torch.testing.assert_close(many[0].meshes.vertices, many[1].meshes.vertices)
+    # ...but not the same tensors: editing one result leaves the other alone.
+    many[0].meshes.vertices.zero_()
+    many[0].meshes.extras["vertex_colors"].zero_()
+    assert float(many[1].meshes.vertices.abs().max()) > 0
+    assert float(many[1].meshes.extras["vertex_colors"].max()) > 0
 
 
 def test_save_dir_uses_obj(monkeypatch, tmp_path):
-    monkeypatch.setattr(tnn.TripoSR, "query", _sphere_query(0.4))
+    monkeypatch.setattr(tnn.TripoSR, "_query_chunk", _sphere_query(0.4))
     monkeypatch.chdir(tmp_path)
     model = LibreTripoSR(device="cpu")
     net = tnn.TripoSR(dict(_TINY, cond_image_size=64), _TINY_DINO).eval()

@@ -204,18 +204,20 @@ class LibreTripoSR(LibreGen3DModel):
             )
         # Upstream's query cube [-0.87, 0.87]^3 -> ADR 0031's [-0.5, 0.5]^3.
         vertices = vertices / (2 * network.radius)
-        mesh = Meshes(
-            torch.zeros(1, 0),
-            torch.zeros(1, 0),
-            torch.zeros(1, 0),
-            torch.zeros(1, 3),
-            body_model="object",
-            vertices=vertices.unsqueeze(0),
-            faces=faces,
-            extras={"vertex_colors": colours.unsqueeze(0)},
-        )
-        # Deterministic: every seed gives the same mesh.
-        return [mesh for _ in seeds]
+        # Deterministic: every seed gives the same mesh, each its own copy.
+        return [
+            Meshes(
+                torch.zeros(1, 0),
+                torch.zeros(1, 0),
+                torch.zeros(1, 0),
+                torch.zeros(1, 3),
+                body_model="object",
+                vertices=vertices.unsqueeze(0).clone(),
+                faces=faces.clone(),
+                extras={"vertex_colors": colours.unsqueeze(0).clone()},
+            )
+            for _ in seeds
+        ]
 
 
 class _TripoSRModules:

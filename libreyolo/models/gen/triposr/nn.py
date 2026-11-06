@@ -363,6 +363,10 @@ class NeRFMLP(nn.Module):
 # -- The whole model ------------------------------------------------------------
 
 
+# Points per MLP batch when querying the triplane.
+_CHUNK = 262144
+
+
 def _scale(x: torch.Tensor, source: Tuple[float, float], target: Tuple[float, float]):
     """Map ``source`` range to ``target`` range with upstream's arithmetic (same rounding)."""
     x = (x - source[0]) / (source[1] - source[0])
@@ -402,34 +406,59 @@ class TripoSR(nn.Module):
         tokens = self.backbone(self.tokenizer(images.shape[0]), context)
         return self.post_processor(self.tokenizer.detokenize(tokens))
 
+    def _query_chunk(
+        self, triplane: torch.Tensor, positions: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Points [N, 3] in [-radius, radius] -> density [N] and colour features [N, 3]."""
+        radius = self.radius
+        x = _scale(positions, (-radius, radius), (-1.0, 1.0))
+        grid = torch.stack((x[:, [0, 1]], x[:, [0, 2]], x[:, [1, 2]]), dim=0)
+        feats = F.grid_sample(
+            triplane, grid.unsqueeze(1), align_corners=False, mode="bilinear"
+        )  # [3, C, 1, N], one plane per batch row
+        feats = feats.squeeze(2).permute(2, 0, 1).reshape(x.shape[0], -1)
+        density, features = self.decoder(feats)
+        return torch.exp(density[:, 0] + self.cfg["density_bias"]), features
+
     def query(
-        self, triplane: torch.Tensor, positions: torch.Tensor, chunk: int = 262144
+        self, triplane: torch.Tensor, positions: torch.Tensor, chunk: int = _CHUNK
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """One triplane [3, C, H, W], points [N, 3] in [-radius, radius] -> density [N], colour [N, 3]."""
-        radius = self.radius
         densities, colours = [], []
         for start in range(0, positions.shape[0], chunk):
-            x = _scale(positions[start : start + chunk], (-radius, radius), (-1.0, 1.0))
-            grid = torch.stack((x[:, [0, 1]], x[:, [0, 2]], x[:, [1, 2]]), dim=0)
-            feats = F.grid_sample(
-                triplane, grid.unsqueeze(1), align_corners=False, mode="bilinear"
-            )  # [3, C, 1, N], one plane per batch row
-            feats = feats.squeeze(2).permute(2, 0, 1).reshape(x.shape[0], -1)
-            density, features = self.decoder(feats)
-            densities.append(torch.exp(density[:, 0] + self.cfg["density_bias"]))
+            density, features = self._query_chunk(
+                triplane, positions[start : start + chunk]
+            )
+            densities.append(density)
             colours.append(torch.sigmoid(features))
         return torch.cat(densities), torch.cat(colours)
 
     @torch.no_grad()
-    def density_grid(self, triplane: torch.Tensor, resolution: int) -> torch.Tensor:
-        """Density on upstream's marching-cubes lattice, [R, R, R] indexed (x, y, z)."""
+    def density_grid(
+        self, triplane: torch.Tensor, resolution: int, chunk: int = _CHUNK
+    ) -> torch.Tensor:
+        """Density on upstream's marching-cubes lattice, [R, R, R] on the CPU, indexed (x, y, z).
+
+        Points are built and queried one chunk at a time, density only, so
+        memory stays flat in the resolution.
+        """
         axis = torch.linspace(0.0, 1.0, resolution)
-        x, y, z = torch.meshgrid(axis, axis, axis, indexing="ij")
-        points = torch.stack((x, y, z), dim=-1).reshape(-1, 3)
-        points = _scale(points, (0.0, 1.0), (-self.radius, self.radius))
-        points = points.to(triplane.device)
-        density, _ = self.query(triplane, points)
-        return density.view(resolution, resolution, resolution)
+        total = resolution**3
+        grid = torch.empty(total, dtype=torch.float32)
+        for start in range(0, total, chunk):
+            index = torch.arange(start, min(start + chunk, total))
+            points = torch.stack(
+                (
+                    axis[index // (resolution * resolution)],
+                    axis[(index // resolution) % resolution],
+                    axis[index % resolution],
+                ),
+                dim=-1,
+            )
+            points = _scale(points, (0.0, 1.0), (-self.radius, self.radius))
+            density, _ = self._query_chunk(triplane, points.to(triplane.device))
+            grid[start : start + len(index)] = density.float().cpu()
+        return grid.view(resolution, resolution, resolution)
 
 
 @torch.no_grad()
@@ -447,7 +476,7 @@ def extract_mesh(
     """
     from skimage.measure import marching_cubes
 
-    level = (model.density_grid(triplane, resolution) - threshold).float().cpu().numpy()
+    level = (model.density_grid(triplane, resolution) - threshold).numpy()
     if not (level.min() < 0.0 < level.max()):
         raise ValueError(
             f"No surface at threshold={threshold}: the density field spans "
