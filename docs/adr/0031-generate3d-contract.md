@@ -177,6 +177,7 @@ SDK's behaviour.
 | `trellis` | `LibreYOLO/LibreTRELLISl`, a mirror of `microsoft/TRELLIS-image-large` (code `microsoft/TRELLIS`) | MIT code and weights | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) |
 | `triposr` | `LibreYOLO/LibreTripoSR`, a mirror of `stabilityai/TripoSR` (code `VAST-AI-Research/TripoSR`) | MIT code and weights | `resolution` (256), `threshold` (25.0), `margin` (1/0.85) |
 | `triposplat` | `LibreYOLO/LibreTripoSplat0.6b`, a mirror of `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
+| `lgm` | `LibreYOLO/LibreLGM0.4b`, a mirror of `ashawkey/LGM`, and `LibreYOLO/LibreImageDream`, a mirror of `ashawkey/imagedream-ipmv-diffusers` (code `3DTopia/LGM`) | MIT code; MIT LGM weights; OpenRAIL ImageDream weights | `steps` (30), `guidance` (5.0), `elevation` (0) |
 
 Speridlabs Idol is a 0.66B rectified-flow transformer: DINOv3 ViT-H+ and
 FLUX.2 VAE tokens of the 1024px input condition a denoiser over an 8192-token
@@ -252,6 +253,31 @@ instead of rembg's U2Net, and DINOv2 is read through transformers
 (`facebook/dinov2-with-registers-large`) instead of `torch.hub`, the
 pre-norm last-layer tokens as upstream takes them.
 
+LGM (Tang et al., ECCV 2024) is two-stage. ImageDream, a multi-view
+diffusion UNet fine-tuned from Stable Diffusion 2.1 with an image-prompt
+branch over CLIP ViT-H/14 tokens, samples four 256 px views at azimuths 0,
+90, 180 and 270 with DDIM; LGM, an asymmetric UNet with cross-view attention,
+reads the four views with their Plücker ray embeddings and returns one
+Gaussian per pixel of four 128 x 128 maps (65,536). The port keeps the
+Gaussians at opacity 0.005 and above, as upstream's saved files do, and moves
+them from LGM's frame (y up, `[-1, 1]^3`) into the object frame. Upstream
+runs every attention through xformers (CUDA only) and renders through
+diff-gaussian-rasterization (Inria, non-commercial); the port uses SDPA and
+does not render. Knobs: `steps` and `guidance` of the ImageDream sampler
+(`guidance` above 1 enables classifier-free guidance; upstream fails at 1,
+the port then runs the conditional pass only) and `elevation`, upstream's
+input-camera elevation in degrees, which also sets `camera` (`yaw` pi,
+`pitch` minus the elevation, `radius` 0.75, `fov` 49.1, `margin` 1.25 from
+the 80 % recentring). LGM infers no camera; the camera is the one it
+assumes. Noise is drawn on the model's device from a generator seeded with
+the seed, in upstream's order (the VAE posterior sample of the input, then
+the starting latents), so on CUDA a seed reproduces upstream's demo seeded
+with `kiui.seed_everything`. The networks run in fp16 on CUDA and MPS (LGM
+under autocast, as upstream), fp32 on CPU. Background removal uses
+BiRefNet instead of rembg; a real alpha channel is used as is, where
+upstream always re-cuts the image. The empty prompt's CLIP text tokens are
+computed once at load and the text encoder is released.
+
 ## Weights
 
 Nothing is gated and no login is needed. Idol's own weights (denoiser,
@@ -295,6 +321,19 @@ structured-latent flow, the Gaussian and mesh decoders), plus the BiRefNet
 weights. The library downloads only the files it loads into
 `weights/LibreTRELLISl/`. DINOv2 loads from
 `facebook/dinov2-with-registers-large` (Apache-2.0) at a pinned revision.
+
+LGM's own network (`model_fp16_fixrot.safetensors`, upstream's checkpoint
+after its rotation-normalisation fix) and the BiRefNet weights are
+redistributed under MIT as `LibreYOLO/LibreLGM0.4b`, the LGM file
+byte-identical to the pinned `ashawkey/LGM`, downloaded into
+`weights/LibreLGM0.4b/`. ImageDream is redistributed as
+`LibreYOLO/LibreImageDream`, byte-identical to the pinned
+`ashawkey/imagedream-ipmv-diffusers` weights and configs (without upstream's
+remote-code `.py` files), loaded through the Hugging Face cache. Upstream
+declares it `openrail`; it descends from Stable Diffusion 2.1, so the mirror
+ships the CreativeML OpenRAIL++-M License and its use restrictions.
+`LibreGen(path)` loads a directory holding `model_fp16_fixrot.safetensors`,
+optionally with `birefnet.safetensors` and an `imagedream/` copy.
 
 ## Reserved for later
 

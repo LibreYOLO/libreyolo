@@ -26,6 +26,7 @@ from .base import LibreGenModel
 from .base3d import LibreGen3DModel
 from .diffusers_family import DiffusersGenFamily
 from .flux2_klein import LibreFlux2Klein
+from .lgm import LibreLGM
 from .prx import LibrePRX, LibrePRXPixel
 from .sana_sprint import LibreSanaSprint
 from .speridlabs_idol import LibreSperidlabsIdol
@@ -52,6 +53,8 @@ _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
     "triposplat-0.6b": (LibreTripoSplat, "0.6b"),
     "trellis": (LibreTRELLIS, "l"),
     "trellis-image-large": (LibreTRELLIS, "l"),
+    "lgm": (LibreLGM, "0.4b"),
+    "lgm-0.4b": (LibreLGM, "0.4b"),
     "triposr": (LibreTripoSR, ""),
 }
 
@@ -122,5 +125,6 @@ __all__ = [
     "LibreSperidlabsIdol",
     "LibreTripoSplat",
     "LibreTRELLIS",
+    "LibreLGM",
     "LibreTripoSR",
 ]
