@@ -906,6 +906,25 @@ Speridlabs Idol (Apache License 2.0)
     LibreYOLO/LibreDINOv3vith16plus, which ships the agreement. All at
     pinned revisions.
 
+LGM (MIT License)
+    Path:    libreyolo/models/gen/lgm/
+    License: libreyolo/models/gen/lgm/NOTICE
+    Source:  https://github.com/3DTopia/LGM
+             (commit fe8d12cff8c827df7bb77a3c8e8b37408cb6fe4c)
+             Copyright (c) 2024 3D Topia.
+
+    The LGM UNet, the ray embedding, the image-to-3D steps and LGM's diffusers
+    version of the ImageDream multi-view UNet and DDIM sampler are adapted
+    from the MIT LGM repository (its attention from DINOv2, Apache-2.0; its
+    camera and recenter helpers after kiuikit, Apache-2.0). xformers attention
+    is replaced by PyTorch SDPA. The renderer (diff-gaussian-rasterization,
+    Inria's non-commercial license) is not used: Gaussians go through
+    LibreYOLO's own payload. Weights: LibreYOLO's byte-identical mirrors
+    LibreYOLO/LibreLGM0.4b of ashawkey/LGM (MIT) and LibreYOLO/LibreImageDream
+    of ashawkey/imagedream-ipmv-diffusers (OpenRAIL; shipped with the
+    CreativeML OpenRAIL++-M License of its Stable Diffusion 2.1 lineage,
+    whose use restrictions apply). Pinned revisions.
+
 TRELLIS (MIT License)
     Path:    libreyolo/models/gen/trellis/
     License: libreyolo/models/gen/trellis/NOTICE

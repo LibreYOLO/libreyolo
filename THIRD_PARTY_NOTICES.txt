@@ -131,6 +131,61 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+LGM image-to-3D networks and multi-view sampler
+-----------------------------------------------
+
+Upstream: 3D Topia, https://github.com/3DTopia/LGM
+Commit: fe8d12cff8c827df7bb77a3c8e8b37408cb6fe4c
+License: MIT
+Copyright (c) 2024 3D Topia.
+Authors: Jiaxiang Tang, Zhaoxi Chen, Xiaokang Chen, Tengfei Wang, Gang Zeng,
+         Ziwei Liu.
+Citation: Tang, J. et al. "LGM: Large Multi-View Gaussian Model for
+          High-Resolution 3D Content Creation." ECCV 2024. arXiv:2402.05054.
+Used for: the LGM family (libreyolo/models/gen/lgm/): the LGM UNet and its
+          Gaussian activations, the ray embedding, the image-to-3D steps, and
+          LGM's diffusers version of the ImageDream multi-view UNet and
+          sampler (mvdream/, distributed in the LGM repository under its MIT
+          License; after MVDream, MIT, and ImageDream, Apache-2.0, both by
+          ByteDance). core/attention.py is DINOv2's attention (Apache-2.0,
+          Copyright (c) Meta Platforms, Inc. and affiliates); the camera and
+          recenter helpers follow kiuikit v0.2.7 (Apache-2.0, Copyright (c)
+          Jiaxiang Tang). Parameter names are unchanged so the released
+          safetensors load strictly; xformers attention is replaced by PyTorch
+          SDPA. core/gs.py's renderer (diff-gaussian-rasterization, Inria's
+          non-commercial license) is not used. The full Apache License 2.0
+          text is included at licenses/Apache-2.0.txt.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+ashawkey/LGM model_fp16_fixrot.safetensors (MIT) is redistributed unchanged by
+LibreYOLO as LibreYOLO/LibreLGM0.4b with the BiRefNet weights (MIT).
+ashawkey/imagedream-ipmv-diffusers (declared "openrail" upstream, Stable
+Diffusion 2.1 lineage) is redistributed unchanged as LibreYOLO/LibreImageDream
+with the CreativeML OpenRAIL++-M License; its use restrictions apply to users.
+
+MIT License (LGM)
+
+Copyright (c) 2024 3D Topia
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
 TRELLIS image-to-3D networks, sparse operations and sampler
 ------------------------------------------------------------
 

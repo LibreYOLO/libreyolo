@@ -1127,6 +1127,50 @@ bfloat16 mirror LibreYOLO/LibreDINOv3vith16plus under Meta's DINOv3 License
 libreyolo/models/gen/speridlabs_idol/NOTICE.
 
 
+LGM (LibreLGM 0.4b)                                     MIT
+Image-to-3D Gaussian splats
+---------------------------
+
+Upstream: Jiaxiang Tang et al., https://huggingface.co/ashawkey/LGM
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreLGM0.4b @
+492f8ab3a45e79073df505ebc28f5c3beb479303 (with LICENSE and NOTICE), mirrored
+from ashawkey/LGM @ bc0097d24ffc5efc2e6a216edd579128f85f53ab. SHA-256 equals
+upstream's:
+  model_fp16_fixrot.safetensors
+    744d6324656342c64f871308e73db97f0eb51858d94329b30090e986a6d050ab
+The mirror also holds the BiRefNet weights (ZhengPeng7/BiRefNet, MIT,
+SHA-256 9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154).
+
+LGM's multi-view stage, ImageDream                      CreativeML OpenRAIL++-M
+-----------------------------------
+
+Upstream: https://huggingface.co/ashawkey/imagedream-ipmv-diffusers, a diffusers
+port of Peng-Wang/ImageDream (fine-tuned from MVDream and Stable Diffusion 2.1
+base), with the LAION CLIP-ViT-H-14 image encoder (MIT).
+License: declared "openrail" upstream with no license text. As a Stable
+Diffusion 2.1 derivative it carries the CreativeML Open RAIL++-M License
+(Stability AI, November 24, 2022), whose use-based restrictions apply to
+users; LibreYOLO ships that license verbatim. LibreYOLO's reading, not a
+statement by the upstream authors.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreImageDream @
+9076f3a181027f8172ec1abed27faddfeca7f7d5 (with LICENSE and NOTICE), mirrored
+from ashawkey/imagedream-ipmv-diffusers @
+73a034178e748421506492e91790cc62d6aefef5 without upstream's remote-code .py
+files. SHA-256 of each weight file equals upstream's:
+  unet/diffusion_pytorch_model.safetensors
+    28d8b241a54125fa0a041c1818a5dcdb717e6f5270eea1268172acd3ab0238e0
+  vae/diffusion_pytorch_model.safetensors
+    3e4c08995484ee61270175e9e7a072b66a6e4eeb5f0c266667fe1f45b90daf9a
+  text_encoder/model.safetensors
+    bc1827c465450322616f06dea41596eac7d493f4e95904dcb51f0fc745c4e13f
+  image_encoder/model.safetensors
+    2a56cfd4ffcf40be097c430324ec184cc37187f6dafef128ef9225438a3c03c4
+Ported inference code: see libreyolo/models/gen/lgm/NOTICE.
+
+
 TRELLIS (LibreTRELLIS l)                                MIT
 Image-to-3D Gaussian splats
 ---------------------------
