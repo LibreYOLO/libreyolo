@@ -146,12 +146,12 @@ class LibreTripoSR(LibreGen3DModel):
             raise RuntimeError(
                 f"birefnet: missing {missing[:5]}, unexpected {unexpected[:5]}"
             )
-        birefnet = birefnet.eval().requires_grad_(False).to(self.device)
+        birefnet = birefnet.eval().requires_grad_(False).to(_birefnet_device(self.device))
         self._pipeline = _TripoSRModules(network=network, birefnet=birefnet)
 
     def _move_loaded(self, device) -> None:
         self._pipeline.network.to(device)
-        self._pipeline.birefnet.to(device)
+        self._pipeline.birefnet.to(_birefnet_device(device))
 
     # ------------------------------------------------------------------
     # Generate
@@ -218,6 +218,30 @@ class LibreTripoSR(LibreGen3DModel):
             )
             for _ in seeds
         ]
+
+
+def _mps_has_deform_conv2d() -> bool:
+    """True when the installed torchvision registers an MPS ``deform_conv2d`` kernel."""
+    import torch
+    import torchvision  # noqa: F401  (registers the torchvision:: operators)
+
+    return torch._C._dispatch_has_kernel_for_dispatch_key("torchvision::deform_conv2d", "MPS")
+
+
+def _birefnet_device(device):
+    """Where BiRefNet runs: ``device``, or the CPU on MPS without a deform_conv2d kernel.
+
+    BiRefNet's decoder calls ``torchvision.ops.deform_conv2d``. Older
+    torchvision releases (0.20 among them; the floor is 0.19) have no MPS
+    kernel for it, so background removal of an RGB photo would fail there
+    before TripoSR runs. Newer releases run it on MPS and keep it there.
+    """
+    import torch
+
+    device = torch.device(device)
+    if device.type == "mps" and not _mps_has_deform_conv2d():
+        return torch.device("cpu")
+    return device
 
 
 class _TripoSRModules:
