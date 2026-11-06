@@ -15,6 +15,7 @@ from libreyolo.models.gen.crm.diffusion import (
     MultiViewDiffusion,
     alphas_cumprod,
     cameras,
+    ddim_sample,
 )
 from libreyolo.models.gen.crm.flexicubes import FlexiCubes
 from libreyolo.models.gen.crm.model import _CRMModules, mesh_payload
@@ -160,12 +161,30 @@ def test_schedule_and_cameras():
     assert torch.isfinite(cams).all()
 
 
+@pytest.mark.parametrize("steps", [1, 2, 3, 9, 30, 50, 251, 499])
+def test_ddim_runs_exactly_the_requested_steps(steps):
+    schedule = alphas_cumprod(torch.float32)
+    calls = []
+
+    def denoise(x_in, t_in):
+        calls.append(int(t_in[0]))
+        return torch.zeros_like(x_in)
+
+    x = ddim_sample(denoise, torch.ones(1, 1, 2, 2), steps, 5.0, schedule)
+    assert len(calls) == steps and len(set(calls)) == steps
+    assert max(calls) < 999 and torch.isfinite(x).all()
+    if steps == 50:  # upstream's timesteps: range(0, 1000, 20) + 1
+        assert calls == list(range(981, 0, -20))
+
+
 def test_alias_knobs_and_contract():
     model = LibreGen("crm", device="cpu")
     assert isinstance(model, LibreCRM) and model.task == "generate3d"
     assert model.SAVE_SUFFIXES == (".obj",)
-    with pytest.raises(ValueError, match="steps"):
-        model._resolve_knobs({"steps": 0})
+    for steps in (0, 500, 1000):
+        with pytest.raises(ValueError, match="steps"):
+            model._resolve_knobs({"steps": steps})
+    assert model._resolve_knobs({"steps": 499})["steps"] == 499
     with pytest.raises(ValueError, match="texture"):
         model._resolve_knobs({"texture": "yes"})
     with pytest.raises(TypeError, match="gaussians"):
@@ -174,3 +193,4 @@ def test_alias_knobs_and_contract():
         LibreCRM(compile=True, device="cpu")
     with pytest.raises(ValueError, match=r"\.obj"):
         model(_cutout(), save=True, output_path="x.ply")
+
