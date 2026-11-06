@@ -242,7 +242,13 @@ def export_cmd(
         else:
             input_h = input_w = native
 
-    channels = 2 if isinstance(getattr(loaded_model, "input_profile", None), dict) else 3
+    from ...utils.input_channels import model_channels
+
+    channels = (
+        2
+        if isinstance(getattr(loaded_model, "input_profile", None), dict)
+        else model_channels(loaded_model)
+    )
     data_out = {
         "source_model": model,
         "model_family": loaded_model.FAMILY,

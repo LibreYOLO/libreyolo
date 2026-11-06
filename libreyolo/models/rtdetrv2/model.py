@@ -7,19 +7,17 @@ import re
 from functools import wraps
 from typing import Any, Dict, Optional
 
-import numpy as np
-import torch
 import torch.nn as nn
-from PIL import Image
 
 from ...postprocess.rtdetr import postprocess_obb
-from ...utils.image_loader import ImageInput, ImageLoader
+from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import (
     RTDETRv2OBBValPreprocessor,
     RTDETRv2ValPreprocessor,
 )
 from ..rtdetr.model import LibreRTDETR, RTDETR_CONFIGS
 from .nn import RTDETRv2Model
+from .utils import preprocess_obb_topleft
 
 
 RTDETRV2_OBB_CONFIGS: Dict[str, Dict[str, Any]] = {
@@ -333,23 +331,7 @@ class LibreRTDETRv2(LibreRTDETR):
             return super()._preprocess(image, color_format, input_size)
 
         effective_size = input_size if input_size is not None else self.input_size
-        if isinstance(effective_size, int):
-            target_h = target_w = int(effective_size)
-        else:
-            target_h, target_w = int(effective_size[0]), int(effective_size[1])
-
-        img = ImageLoader.load(image, color_format=color_format)
-        orig_w, orig_h = img.size
-        scale = min(target_w / orig_w, target_h / orig_h)
-        new_w = max(1, int(round(orig_w * scale)))
-        new_h = max(1, int(round(orig_h * scale)))
-        resized = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
-        canvas = Image.new("RGB", (target_w, target_h), color=0)
-        canvas.paste(resized, (0, 0))
-
-        array = np.asarray(canvas, dtype=np.float32) / 255.0
-        tensor = torch.from_numpy(array.transpose(2, 0, 1).copy()).unsqueeze(0)
-        return tensor, img, (orig_w, orig_h), scale
+        return preprocess_obb_topleft(image, color_format, effective_size)
 
     def _postprocess(
         self,

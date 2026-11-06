@@ -183,6 +183,17 @@ def log_classes_subset_notice(
         )
 
 
+def _channels_metadata(trainer) -> Dict[str, Any]:
+    """Grayscale ``channels`` for checkpoints.
+
+    Written next to the family hook rather than inside it, because several
+    trainers override ``_checkpoint_extra_metadata`` without ``super()``.
+    """
+    from ..utils.input_channels import channels_metadata
+
+    return channels_metadata(getattr(trainer, "wrapper_model", None))
+
+
 class BaseTrainer(ABC):
     """Base trainer for all LibreYOLO model families.
 
@@ -1852,7 +1863,10 @@ class BaseTrainer(ABC):
                     self.world_size,
                 )
 
-        self._setup_data()
+        from ..utils.input_channels import dataset_input_channels, model_channels
+
+        with dataset_input_channels(model_channels(self.wrapper_model)):
+            self._setup_data()
         self._assert_class_balanced_honored()
 
         # DDP loader invariant: trainers that own their data pipeline must
@@ -3872,6 +3886,7 @@ class BaseTrainer(ABC):
                     extra_checkpoint_meta["imgsz_h"] = cp_h
                     extra_checkpoint_meta["imgsz_w"] = cp_w
             extra_checkpoint_meta.update(self._checkpoint_extra_metadata())
+            extra_checkpoint_meta.update(_channels_metadata(self))
             checkpoint_task = extra_checkpoint_meta.pop(
                 "task", getattr(getattr(self, "wrapper_model", None), "task", "detect")
             )
@@ -4141,6 +4156,7 @@ class BaseTrainer(ABC):
             **extra_checkpoint_meta,
         )
         checkpoint.update(self._checkpoint_extra_metadata())
+        checkpoint.update(_channels_metadata(self))
         quant_manifest = getattr(self.wrapper_model, "_quant_manifest", None)
         if quant_manifest:
             # QAT/QAD checkpoints must be self-describing so LibreYOLO(path)

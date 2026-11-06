@@ -70,8 +70,25 @@ model("a red fox", steps=8, guidance=1.0)
 | --- | --- | --- | --- | --- |
 | `flux2-klein-4b` (default) | 4B | `steps` (4), `guidance` (1.0, fixed: the distilled checkpoint runs without guidance) | about 16 GB | Apache-2.0 |
 | `sana-sprint-0.6b` | 0.6B | `steps` (2), `guidance` (4.5) | about 7.7 GB | Apache-2.0; Gemma 2 text encoder under the Gemma Terms of Use |
+| `prx-1024-beta` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 21 GB | Apache-2.0; T5Gemma text encoder under the Gemma Terms of Use |
+| `prx-512-sft-distilled` | 1.3B | `steps` (8), `guidance` (1.0), `negative` ("") | about 16 GB | as above |
+| `prx-512-sft`, `prx-512` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 16 GB | as above |
+| `prx-512-dc-ae-sft-distilled` | 1.3B | `steps` (8), `guidance` (1.0), `negative` ("") | about 16 GB | as above; DC-AE autoencoder MIT |
+| `prx-512-dc-ae-sft`, `prx-512-dc-ae` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 16 GB | as above; DC-AE autoencoder MIT |
+| `prx-256-sft`, `prx-256` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 16 GB | as above |
+| `prxpixel-7b` | 7B | `steps` (28), `guidance` (5.0), `negative` ("") | about 18 GB | Apache-2.0 (Qwen3-VL text encoder, no autoencoder) |
 
-`flux2-klein` and `sana-sprint` are short aliases.
+`flux2-klein` and `sana-sprint` are short aliases; `prx` is `prx-1024-beta`
+and `prxpixel` is `prxpixel-7b`.
+
+The nine PRX checkpoints are Photoroom's whole PRX release. The number is
+the native resolution; `-dc-ae` uses the 32x DC-AE autoencoder instead of the
+FLUX.1 VAE, so its sides round up to a multiple of 32 instead of 16; `-sft`
+is the supervised fine-tune, ready to use, and `-sft-distilled` the 8-step
+distillation of it. Checkpoints without `-sft` are base models meant for
+fine-tuning. `prx-1024-beta` is Photoroom's 1024 preview. PRXPixel denoises
+pixels directly and needs `diffusers>=0.39`. All ten download from
+byte-identical LibreYOLO mirrors of Photoroom's repos.
 
 ## Devices and memory
 
@@ -98,6 +115,7 @@ offline copy, or a fine-tune made with upstream tooling.
 ```bash
 libreyolo generate prompt="a red fox" model=sana-sprint-0.6b seed=0 n=4
 libreyolo generate prompt="a red fox" imgsz=768x1024
+libreyolo generate prompt="a red fox" model=prx-512-sft negative="blurry"
 libreyolo generate prompt_file=prompts.txt steps=8 --json
 ```
 
@@ -155,7 +173,9 @@ and records seed, camera and settings in a header comment.
 | --- | --- | --- | --- | --- |
 | `speridlabs-idol` | 0.66B (plus DINOv3 ViT-H+ and the FLUX.2 VAE encoder) | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"` or `"real"`), `margin` (crop override) | about 3.1 GB, plus 1.7 GB DINOv3 and 0.2 GB VAE | Apache-2.0; the DINOv3 encoder under Meta's DINOv3 License |
 | `trellis` | 1.3B in four networks (plus DINOv2 ViT-L/14) | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) | about 2.7 GB, plus 1.2 GB DINOv2 | MIT; DINOv2 Apache-2.0 |
+| `triposr` | 0.42B | `resolution` (256), `threshold` (25.0), `margin` (1/0.85) | about 1.7 GB, plus 0.4 GB BiRefNet | MIT |
 | `triposplat` | 0.66B (plus the same two encoders) | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) | about 1.8 GB, plus the same DINOv3 and VAE | MIT; the DINOv3 encoder under Meta's DINOv3 License |
+| `lgm` | 0.42B (plus the 1.3B ImageDream multi-view stage and its two CLIP encoders) | `steps` (30), `guidance` (5.0), `elevation` (0) | about 0.8 GB, plus 4.0 GB ImageDream | MIT; ImageDream under OpenRAIL (CreativeML OpenRAIL++-M) |
 
 Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
 in under 8 GB of GPU memory. On CUDA, a seed gives the same object as the
@@ -201,15 +221,57 @@ model = LibreGen("trellis")
 model("chair.jpg", steps=12).save("chair.ply")
 ```
 
+LGM by [Jiaxiang Tang et al.](https://me.kiui.moe/lgm/) works in two
+stages: ImageDream samples four views around the object from the picture,
+then LGM turns the four views into 65,536 Gaussians (those above opacity
+0.005 are kept, as upstream saves them). Upstream needs xformers on CUDA;
+LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU, in
+fp16 on GPUs and fp32 on CPU. `steps` and `guidance` drive ImageDream's DDIM
+sampler (`guidance` 1 turns guidance off); `elevation` is the camera height
+the picture was taken from, in degrees (negative is above the object). A
+seed gives upstream's object on CUDA; other devices draw other noise.
+ImageDream's weights carry the OpenRAIL use restrictions of their Stable
+Diffusion lineage; read them on
+[`LibreYOLO/LibreImageDream`](https://huggingface.co/LibreYOLO/LibreImageDream).
+
+```python
+model = LibreGen("lgm")
+model("chair.jpg", elevation=-10).save("chair.ply")
+```
+
+TripoSR by [Tripo AI and Stability AI](https://github.com/VAST-AI-Research/TripoSR)
+returns a mesh instead of Gaussians: a transformer turns the picture into a
+triplane NeRF in one pass, and the mesh is the isosurface of its density. It
+takes about a second on a GPU and runs in fp32 on NVIDIA GPUs, Apple silicon
+and CPU. There is no sampling, so `seed` changes nothing.
+
+```python
+model = LibreGen("triposr")
+result = model("chair.png")
+result.save("chair.obj")                 # vertex colours as `v x y z r g b`
+m = result.meshes
+m.vertices[0], m.faces                   # (V, 3) z-up in [-0.5, 0.5]^3, (F, 3)
+m.extras["vertex_colors"][0]             # (V, 3) RGB in [0, 1]
+model("chair.png", resolution=384)       # finer marching-cubes grid
+```
+
+`resolution` is the marching-cubes grid (32 to 1024), `threshold` the
+density at the surface, `margin` the crop around the object (upstream's
+foreground ratio 0.85). The front of the object faces +x. Marching cubes runs
+through scikit-image instead of upstream's torchmcubes: the same surface,
+triangulated differently.
+
 ```bash
 libreyolo generate source=chair.jpg
+libreyolo generate source=chair.png model=triposr
 libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
 libreyolo generate source=chair.jpg model=triposplat
 libreyolo generate source=chair.jpg model=trellis
+libreyolo generate source=chair.jpg model=lgm
 ```
 
 With `source=` the model defaults to `speridlabs-idol` and objects are saved
-as `.ply`.
+as `.ply` (`.obj` for `triposr`).
 
 ## Not supported yet
 
@@ -222,7 +284,12 @@ reserved by ADRs 0030 and 0031.
 LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
 Idol networks ported from the Apache-2.0 Idol SDK, the TripoSplat
 networks ported from the MIT TripoSplat repository and the TRELLIS networks
-adapted from the MIT TRELLIS repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
+adapted from the MIT TRELLIS repository (see each family's `NOTICE`). LGM's networks
+and its ImageDream sampler are adapted from the MIT LGM repository. Text-to-image models load through the Apache-2.0 `diffusers` API.
+
+networks ported from the MIT TripoSplat repository, the TRELLIS networks
+adapted from the MIT TRELLIS repository and the TripoSR networks adapted from
+the MIT TripoSR repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
 one exception is the DINOv3 encoder Idol and TripoSplat read, which
 LibreYOLO mirrors in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;

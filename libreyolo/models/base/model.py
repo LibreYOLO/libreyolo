@@ -237,7 +237,10 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
             )
 
         from ...data.event_histogram import prepare_histogram_training
+        from ...utils.input_channels import prepare_channels_training
+
         prepare_histogram_training(self, args, merged)
+        prepare_channels_training(self, args, merged)
         if runs_unguarded():
             # Passed explicitly even when the default is already 0: a family
             # that restores a resumed run's settings keeps explicit arguments.
@@ -459,12 +462,20 @@ class BaseModel(ABC):
             self._loading_from_weights = False
             self._initializing_from_scratch = False
         self._training_from_scratch = scratch_init
+        from ...utils.input_channels import _pending_model_channels, apply_pending_channels
+
+        if _pending_model_channels is not None:
+            self.model.to(self.device)
+            apply_pending_channels(self)
 
         if model_path is None:
             self.model_path = None
         elif isinstance(model_path, dict):
             self.model_path = None
             self._cache_checkpoint_train_config(model_path)
+            from ...utils.input_channels import restore_channels
+
+            restore_channels(self, model_path)
             state_dict = self._prepare_state_dict(self._strip_ddp_prefix(model_path))
             self._validate_loaded_state_dict_for_task(state_dict, model_path)
             self._prepare_model_for_state_dict(state_dict)
@@ -583,6 +594,10 @@ class BaseModel(ABC):
         if getattr(self, "input_profile", None) is not None:
             from ...utils.event_histogram import predict_histogram
             return predict_histogram(self, image, input_size, color_format)
+        if getattr(self, "input_channels", 3) == 1:
+            from ...utils.input_channels import gray_pil
+
+            image, color_format = gray_pil(image, color_format), "rgb"
         return self._preprocess(
             image,
             color_format,
@@ -987,6 +1002,8 @@ class BaseModel(ABC):
         if getattr(self, "input_profile", None) is not None:
             self.input_profile = None
             self.__dict__.pop("input_initialization", None)
+        # The fresh network reads RGB; train() re-applies the dataset channels.
+        self.__dict__.pop("input_channels", None)
         self._training_from_scratch = True
         self.names = (
             {i: name for i, name in enumerate(COCO_CLASSES)}
@@ -1012,6 +1029,14 @@ class BaseModel(ABC):
         if getattr(self, "input_profile", None) is not None:
             from ...utils.event_histogram import configure_input
             configure_input(self, self.input_profile, initialization=self.input_initialization)
+        channels = self.__dict__.pop("input_channels", None)
+        if channels is not None:
+            from ...utils.input_channels import configure_channels
+
+            # The rebuilt network reads RGB again; the old grayscale input
+            # weights are copied back below (their shapes match).
+            self.model.to(self.device)
+            configure_channels(self, channels, pretrained=False)
         new_state = self.model.state_dict()
         for key in old_state:
             if key in new_state and old_state[key].shape == new_state[key].shape:
@@ -1362,7 +1387,10 @@ class BaseModel(ABC):
                 state_dict = self._prepare_state_dict(loaded)
 
             from ...utils.event_histogram import restore_input
+            from ...utils.input_channels import restore_channels
+
             restore_input(self, loaded)
+            restore_channels(self, loaded)
             quant_manifest = loaded.get("quant") if isinstance(loaded, dict) else None
             if quant_manifest:
                 from ...quant import apply_quant_structure
@@ -1676,6 +1704,8 @@ class BaseModel(ABC):
 
         effective_imgsz = imgsz if imgsz is not None else self._get_input_size()
         img_pil = ImageLoader.load(image, color_format=color_format)
+        if getattr(self, "input_channels", 3) == 1:
+            img_pil = img_pil.convert("L").convert("RGB")
         image_path = image if isinstance(image, (str, Path)) else None
         orig_w, orig_h = img_pil.size
 
@@ -2647,7 +2677,10 @@ class BaseModel(ABC):
             extra_metadata = dict(save_extra() or {})
         extra_metadata.update(self._interpolation_metadata())
         from ...utils.event_histogram import input_metadata
+        from ...utils.input_channels import channels_metadata
+
         extra_metadata.update(input_metadata(self))
+        extra_metadata.update(channels_metadata(self))
         checkpoint = wrap_libreyolo_checkpoint(
             state_dict,
             model_family=self._get_model_name(),

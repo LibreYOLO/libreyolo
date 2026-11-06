@@ -250,6 +250,7 @@ class MNNBackend(BaseBackend):
             supported_tasks=supported_tasks,
             default_task=default_task,
             letterbox_pad=metadata.get("letterbox_pad"),
+            channels=metadata.get("channels"),
         )
 
     def _resolve_predict_imgsz(self, imgsz: ImageSize | None = None) -> ImageSize:

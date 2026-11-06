@@ -131,6 +131,61 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+LGM image-to-3D networks and multi-view sampler
+-----------------------------------------------
+
+Upstream: 3D Topia, https://github.com/3DTopia/LGM
+Commit: fe8d12cff8c827df7bb77a3c8e8b37408cb6fe4c
+License: MIT
+Copyright (c) 2024 3D Topia.
+Authors: Jiaxiang Tang, Zhaoxi Chen, Xiaokang Chen, Tengfei Wang, Gang Zeng,
+         Ziwei Liu.
+Citation: Tang, J. et al. "LGM: Large Multi-View Gaussian Model for
+          High-Resolution 3D Content Creation." ECCV 2024. arXiv:2402.05054.
+Used for: the LGM family (libreyolo/models/gen/lgm/): the LGM UNet and its
+          Gaussian activations, the ray embedding, the image-to-3D steps, and
+          LGM's diffusers version of the ImageDream multi-view UNet and
+          sampler (mvdream/, distributed in the LGM repository under its MIT
+          License; after MVDream, MIT, and ImageDream, Apache-2.0, both by
+          ByteDance). core/attention.py is DINOv2's attention (Apache-2.0,
+          Copyright (c) Meta Platforms, Inc. and affiliates); the camera and
+          recenter helpers follow kiuikit v0.2.7 (Apache-2.0, Copyright (c)
+          Jiaxiang Tang). Parameter names are unchanged so the released
+          safetensors load strictly; xformers attention is replaced by PyTorch
+          SDPA. core/gs.py's renderer (diff-gaussian-rasterization, Inria's
+          non-commercial license) is not used. The full Apache License 2.0
+          text is included at licenses/Apache-2.0.txt.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+ashawkey/LGM model_fp16_fixrot.safetensors (MIT) is redistributed unchanged by
+LibreYOLO as LibreYOLO/LibreLGM0.4b with the BiRefNet weights (MIT).
+ashawkey/imagedream-ipmv-diffusers (declared "openrail" upstream, Stable
+Diffusion 2.1 lineage) is redistributed unchanged as LibreYOLO/LibreImageDream
+with the CreativeML OpenRAIL++-M License; its use restrictions apply to users.
+
+MIT License (LGM)
+
+Copyright (c) 2024 3D Topia
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
 TRELLIS image-to-3D networks, sparse operations and sampler
 ------------------------------------------------------------
 
@@ -163,6 +218,59 @@ DINOv2 ViT-L/14 with registers loads from facebook/dinov2-with-registers-large
 MIT License (TRELLIS)
 
 Copyright (c) Microsoft Corporation.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+TripoSR image-to-3D networks and mesh extraction
+------------------------------------------------
+
+Upstream: Tripo AI and Stability AI, https://github.com/VAST-AI-Research/TripoSR
+Commit: 107cefdc244c39106fa830359024f6a2f1c78871
+License: MIT; tsr/models/transformer/ is HuggingFace diffusers code under
+         Apache-2.0 (Copyright 2023 The HuggingFace Team, modified 2024 by
+         Tripo AI and Stability AI; text in licenses/Apache-2.0.txt).
+Copyright (c) 2024 Tripo AI & Stability AI.
+Authors: Dmitry Tochilkin, David Pankratz, Zexiang Liu, Zixuan Huang,
+         Adam Letts, Yangguang Li, Ding Liang, Christian Laforte,
+         Varun Jampani, Yan-Pei Cao.
+Citation: Tochilkin, D. et al. "TripoSR: Fast 3D Object Reconstruction from
+          a Single Image." arXiv:2403.02151, 2024.
+Used for: the TripoSR family (libreyolo/models/gen/triposr/): the triplane
+          tokenizer, transformer, upsampler and NeRF MLP, the triplane query,
+          the mesh extraction and the input preprocessing. Parameter names
+          are unchanged so the released checkpoint loads strictly. The DINO
+          ViT-B/16 encoder follows HuggingFace transformers 4.35.0's ViT
+          (Apache-2.0), including its position-embedding interpolation.
+          torchmcubes (MPL-2.0) is not used: marching cubes runs through
+          scikit-image (BSD-3-Clause). rembg is not used: background removal
+          runs on LibreYOLO's BiRefNet network.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+stabilityai/TripoSR (MIT, revision 5b521936b01fbe1890f6f9baed0254ab6351c04a)
+is redistributed unchanged by LibreYOLO as LibreYOLO/LibreTripoSR (revision
+249e9d7749b01a89542aab66c25273cf4ce48646). BiRefNet weights (MIT) load from
+LibreYOLO/LibreTRELLISl (revision 75c784a8fa56ebfb76f46d9b9d830caec25826a7).
+
+MIT License (TripoSR)
+
+Copyright (c) 2024 Tripo AI & Stability AI
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -927,6 +1035,27 @@ Used for: the inference-only RT-DETRv2 OBB encoder and decoder in
           every repository carries the upstream Apache License 2.0 and
           attribution notice. Users may also convert a locally supplied
           official checkpoint with weights/convert_rtdetrv2_weights.py.
+
+--------------------------------------------------------------------
+RiO-DETRv2 (RicePasteM / RiO-DETRv2)
+--------------------------------------------------------------------
+Source: https://github.com/RicePasteM/RiO-DETRv2
+Pinned commit: ab8b22df5d800a927774c8c67e77fd29c0fe6967
+Preserved copy: https://github.com/LibreYOLO/RiO-DETRv2 (tag apache-2.0-ab8b22d)
+License: Apache License 2.0 (libreyolo/models/riodetrv2/LICENSE)
+Used for: the inference-only RiO-DETRv2 decoder in
+          libreyolo/models/riodetrv2/decoder.py, adapted from
+          engine/rtv4/rtdetrv2_obb_decoder.py, engine/rtv4/dfine_utils.py
+          and engine/rtv4/utils.py; model configuration from the
+          riov2_hgnetv2_* configs. Upstream changed its LICENSE to
+          AGPL-3.0 in a later commit (3377398) without code changes; this
+          port relies on the Apache-2.0 grant of the initial release and
+          uses no later material. Official checkpoints from Hugging Face
+          RicePasteM/RiO-DETRv2 revision
+          5f578f57929aded1962ebf8c5584a4771461124f (apache-2.0) are
+          mirrored as LibreYOLO/LibreRiODETRv2{n,s,m,l,x}-obb and
+          -obb-diorr; convert a local copy with
+          weights/convert_riodetrv2_weights.py.
 
 --------------------------------------------------------------------
 RF-DETR (Roboflow)

@@ -264,7 +264,10 @@ class YOLODataset(ImageCacheMixin, Dataset):
                 every kept id to ``0`` instead.
         """
         from ..utils.event_histogram import validate_input_profile
+        from ..utils.input_channels import active_dataset_channels
+
         self.input_profile = validate_input_profile(input_profile)
+        self.input_channels = active_dataset_channels()
         if self.input_profile and (load_segments or load_obb):
             raise ValueError("Event histograms support detection only")
         self.img_size = imgsz_to_hw(img_size, name="img_size")
@@ -672,6 +675,9 @@ class COCODataset(ImageCacheMixin, Dataset):
         """
         if load_segments and load_obb:
             raise ValueError("COCODataset cannot load segmentation and OBB labels together")
+        from ..utils.input_channels import active_dataset_channels
+
+        self.input_channels = active_dataset_channels()
         try:
             from pycocotools.coco import COCO
         except ImportError:
