@@ -961,6 +961,26 @@ TripoSR (MIT License)
     LibreYOLO/LibreTripoSR; BiRefNet from LibreYOLO/LibreTRELLISl (MIT).
     Pinned revisions.
 
+Direct3D-S2 (MIT License)
+    Path:    libreyolo/models/gen/direct3d_s2/
+    License: libreyolo/models/gen/direct3d_s2/NOTICE
+    Source:  https://github.com/DreamTechAI/Direct3D-S2
+             (commit a1cf235b2881cff04a91900060a9546b40e7ee5d)
+             Copyright (c) 2025 DreamTechAI.
+
+    The Direct3D-S2 networks (dense and sparse flow transformers with spatial
+    sparse attention, SDF decoders, voxel refiners), the sampler, the mesh
+    voxelisation and the preprocessing are adapted from the MIT Direct3D-S2
+    repository; its attention kernels derive from native-sparse-attention-
+    triton (Apache-2.0), whose computation the port re-expresses in PyTorch.
+    torchsparse, flash-attn, Triton and the CUDA UDF kernel are not used;
+    neither is upstream's optional hole filling (pymeshfix, GPL-3.0; igraph,
+    GPL-2.0+). Marching cubes runs through scikit-image (BSD-3-Clause).
+    Weights: LibreYOLO's byte-identical mirror of wushuang98/Direct3D-S2
+    (MIT, direct3d-s2-v-1-1), LibreYOLO/LibreDirect3DS2v11; BiRefNet from
+    LibreYOLO/LibreTRELLISl (MIT); DINOv2 from
+    facebook/dinov2-with-registers-large (Apache-2.0). Pinned revisions.
+
 TripoSplat (MIT License)
     Path:    libreyolo/models/gen/triposplat/
     License: libreyolo/models/gen/triposplat/NOTICE

@@ -22,7 +22,7 @@ mirror ``LibreYOLO/LibreDirect3DS2v11`` of ``wushuang98/Direct3D-S2``
 (``direct3d-s2-v-1-1``, MIT), the image encoder from
 ``facebook/dinov2-with-registers-large`` (Apache-2.0), both at pinned
 revisions. Background removal runs on LibreYOLO's BiRefNet network with the
-BiRefNet weights shipped in the mirror.
+BiRefNet weights of ``LibreYOLO/LibreTRELLISl`` (MIT).
 """
 
 from __future__ import annotations
@@ -46,12 +46,14 @@ _CHECKPOINTS = {
     "refiner": "model_refiner.ckpt",
     "refiner1024": "model_refiner_1024.ckpt",
 }
+# BiRefNet weights (ZhengPeng7/BiRefNet, MIT), as the TRELLIS mirror ships them.
+_BIREFNET_REPO = "LibreYOLO/LibreTRELLISl"
+_BIREFNET_REVISION = "75c784a8fa56ebfb76f46d9b9d830caec25826a7"
 _BIREFNET_FILE = "birefnet.safetensors"
 _UPSTREAM_FILES = (
     f"{_RELEASE}/config.yaml",
     *(f"{_RELEASE}/{name}" for name in _CHECKPOINTS.values()),
 )
-_WEIGHT_FILES = (*_UPSTREAM_FILES, _BIREFNET_FILE)
 _BIREFNET_TRAINING_ONLY = ("decoder.conv_ms_spvn_", "decoder.gdt_convs_pred_")
 # Upstream's per-stage sampler steps (dense, sparse 512, sparse 1024).
 _STEPS = (50, 30, 15)
@@ -63,9 +65,11 @@ class LibreDirect3DS2(LibreGen3DModel):
     FAMILY = "direct3d_s2"
     FILENAME_PREFIX = "LibreDirect3DS2"
     HF_REPOS: ClassVar[Dict[str, str]] = {"v11": "LibreYOLO/LibreDirect3DS2v11"}
-    HF_REVISIONS: ClassVar[Dict[str, str]] = {"v11": None}
+    HF_REVISIONS: ClassVar[Dict[str, str]] = {
+        "v11": "5df0bc1130a6a79e255a8ac22a5e75175c49ad33"
+    }
     INPUT_SIZES: ClassVar[Dict[str, int]] = {"v11": 518}
-    SNAPSHOT_ALLOW_PATTERNS: ClassVar[Tuple[str, ...]] = _WEIGHT_FILES
+    SNAPSHOT_ALLOW_PATTERNS: ClassVar[Tuple[str, ...]] = _UPSTREAM_FILES
     SAVE_SUFFIXES: ClassVar[Tuple[str, ...]] = (".obj",)
     KNOBS = ("resolution", "steps", "guidance")
     DEFAULTS: ClassVar[Dict[str, Any]] = {
@@ -167,9 +171,7 @@ class LibreDirect3DS2(LibreGen3DModel):
 
             birefnet_file = Path(
                 hf_hub_download(
-                    self.HF_REPOS[self.size],
-                    _BIREFNET_FILE,
-                    revision=self.HF_REVISIONS[self.size],
+                    _BIREFNET_REPO, _BIREFNET_FILE, revision=_BIREFNET_REVISION
                 )
             )
         birefnet = LibreBiRefNetModel(size="l")

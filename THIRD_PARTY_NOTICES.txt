@@ -291,6 +291,61 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+Direct3D-S2 image-to-mesh networks, sparse operations and sampler
+-----------------------------------------------------------------
+
+Upstream: DreamTechAI, https://github.com/DreamTechAI/Direct3D-S2
+Commit: a1cf235b2881cff04a91900060a9546b40e7ee5d
+License: MIT; the spatial sparse attention kernels upstream adapts from
+         native-sparse-attention-triton
+         (https://github.com/XunhaoLai/native-sparse-attention-triton) are
+         Apache-2.0, Copyright 2025 Xunhao Lai and Jianqiao Lu (text in
+         licenses/Apache-2.0.txt).
+Copyright (c) 2025 DreamTechAI.
+Citation: Wu, S. et al. "Direct3D-S2: Gigascale 3D Generation Made Easy with
+          Spatial Sparse Attention." arXiv:2505.17412, 2025.
+Used for: the Direct3D-S2 family (libreyolo/models/gen/direct3d_s2/): the
+          dense and sparse flow transformers, spatial sparse attention, SDF
+          decoders, voxel refiners and 3D UNet, the sampling loop, the image
+          preprocessing, the block sort, mesh normalisation and mesh
+          voxelisation. Parameter names are unchanged so the released
+          checkpoints load strictly. torchsparse, flash-attn, Triton and the
+          CUDA UDF kernel are replaced by PyTorch; the attention computation
+          (not the Triton code) follows the Apache-2.0 kernels. Upstream's
+          hole filling (pymeshfix, GPL-3.0; python-igraph, GPL-2.0+) is not
+          used. Marching cubes runs through scikit-image (BSD-3-Clause).
+          rembg/BiRefNet-through-transformers is not used: background removal
+          runs on LibreYOLO's BiRefNet network.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+wushuang98/Direct3D-S2 (MIT, revision 8b04a8eddb7a56a0f4e89fe5f5b840c7d5610c00,
+folder direct3d-s2-v-1-1) is redistributed unchanged by LibreYOLO as
+LibreYOLO/LibreDirect3DS2v11. BiRefNet weights (MIT) load from
+LibreYOLO/LibreTRELLISl (revision 75c784a8fa56ebfb76f46d9b9d830caec25826a7).
+
+MIT License (Direct3D-S2)
+
+Copyright (c) 2025 DreamTechAI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
 TripoSplat image-to-3D networks and sampler
 -------------------------------------------
 

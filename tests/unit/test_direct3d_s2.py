@@ -106,9 +106,8 @@ def test_pins_every_download():
     sha = re.compile(r"^[0-9a-f]{40}$")
     assert all(sha.match(r) for r in LibreDirect3DS2.HF_REVISIONS.values())
     assert sha.match(_DINOV2_REVISION)
-    assert set(LibreDirect3DS2.SNAPSHOT_ALLOW_PATTERNS) == set(
-        dmodel._UPSTREAM_FILES
-    ) | {"birefnet.safetensors"}
+    assert sha.match(dmodel._BIREFNET_REVISION)
+    assert set(LibreDirect3DS2.SNAPSHOT_ALLOW_PATTERNS) == set(dmodel._UPSTREAM_FILES)
 
 
 # ---------------------------------------------------------------------------

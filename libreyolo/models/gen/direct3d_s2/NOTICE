@@ -1,0 +1,55 @@
+LibreDirect3DS2 includes code adapted from Direct3D-S2:
+
+Source: https://github.com/DreamTechAI/Direct3D-S2 (commit a1cf235b2881cff04a91900060a9546b40e7ee5d)
+License: MIT.
+Copyright (c) 2025 DreamTechAI.
+
+Adapted, with upstream's module and parameter names so the released
+checkpoints load with strict=True: the dense and sparse flow transformers
+(direct3d_s2/models/transformers), the decoders of the dense and sparse SDF
+VAEs (direct3d_s2/models/autoencoders), the two voxel refiners and their 3D
+UNet (direct3d_s2/models/refiner), the spatial sparse attention and its
+compression block (direct3d_s2/modules/sparse/attention/spatial_sparse_attention),
+the sparse pooling and subdivision (direct3d_s2/modules/sparse/spatial.py),
+the pipeline and its sampling loop (direct3d_s2/pipeline.py), the image
+preprocessing (direct3d_s2/utils/image.py), the block sort and mesh
+normalisation (direct3d_s2/utils/sparse.py, direct3d_s2/utils/mesh.py) and
+the mesh voxelisation of the CUDA UDF kernel (third_party/voxelize).
+
+Direct3D-S2's compression and selection attention kernels
+(spatial_sparse_attention/ops/compressed_attention.py and
+selection_attention.py) are adapted there from native-sparse-attention-triton
+(https://github.com/XunhaoLai/native-sparse-attention-triton), Apache-2.0,
+Copyright 2025 Xunhao Lai and Jianqiao Lu, modified 2025 by Shuang Wu. The
+port computes the same attention (block scores summed over the query heads
+of a kv group, top-k block selection, attention over the selected blocks) in
+PyTorch; no Triton code is carried over. The Apache-2.0 license text is in
+licenses/Apache-2.0.txt.
+
+Direct3D-S2's transformer modules are TRELLIS's (MIT, Copyright (c)
+Microsoft Corporation); where they are the same, the port reuses
+LibreYOLO's TRELLIS port (libreyolo/models/gen/trellis, see its NOTICE).
+
+Written for LibreYOLO, replacing upstream's CUDA-only extensions: the
+torchsparse convolution as a gathered GEMM over the 27 neighbours, reading
+torchsparse's [27, in, out] kernel layout and offset order unchanged; the
+flash-attn and Triton attention through torch.matmul and
+torch.nn.functional.scaled_dot_product_attention in chunks of queries; and
+the UDF kernel as a chunked PyTorch point-to-triangle distance.
+
+Not used: upstream's hole filling and remeshing (direct3d_s2/utils/fill_hole.py,
+which needs pymeshfix (GPL-3.0) and python-igraph (GPL-2.0+); remesh=False
+is upstream's default), rembg/transformers BiRefNet (background removal runs
+on LibreYOLO's BiRefNet network), torch.hub's DINOv2 (DINOv2 loads through
+transformers), torchsparse, spconv, flash-attn, xformers and Triton.
+Marching cubes runs through scikit-image (BSD-3-Clause), as upstream.
+
+Weights: wushuang98/Direct3D-S2 (MIT), direct3d-s2-v-1-1, redistributed
+unchanged by LibreYOLO as LibreYOLO/LibreDirect3DS2v11; BiRefNet weights
+(ZhengPeng7/BiRefNet, MIT) from LibreYOLO/LibreTRELLISl;
+facebook/dinov2-with-registers-large (Apache-2.0) from its publisher. All at
+pinned revisions.
+
+Direct3D-S2 citation:
+Shuang Wu et al. "Direct3D-S2: Gigascale 3D Generation Made Easy with
+Spatial Sparse Attention." arXiv:2505.17412, 2025.

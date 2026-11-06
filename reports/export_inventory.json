@@ -2939,6 +2939,25 @@
     "group": "s",
     "cli_command": "generate"
   },
+  "direct3d_s2": {
+    "class": "libreyolo.models.gen.direct3d_s2.model.LibreDirect3DS2",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "v11": 518
+    },
+    "default_imgsz": {
+      "v11": 518
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "unet": {
     "class": "libreyolo.models.unet.model.LibreUNet",
     "tasks": [
