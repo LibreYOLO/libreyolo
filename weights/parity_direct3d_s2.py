@@ -9,6 +9,24 @@ voxels, the 512 and 1024 SDF decoders, both refiners' dense grids and
 meshes, the 1024 voxelisation of the 512 mesh, and end to end through each
 side's own call with the same seed.
 
+Measured on an RTX A6000 (torch 2.5.1, torchsparse 2.1.0 at 385f5ce,
+flash-attn 2.7.3, Triton 3.1.0), example assets/test/13.png, seed 0:
+the convolution matches torchsparse to its TF32/fp16 noise (3x3: mean
+relative 7.6e-4 fp32, 1.7e-4 fp16; 1x1 bitwise); the preprocessed image and
+the DINOv2 tokens are bitwise equal; the dense DiT forward differs by fp16
+noise (4e-4 mean relative), its 50-step latent by 2.8e-3, and the dense
+voxels are equal; the 512 voxelisation of the same 512 mesh into 1024
+latent voxels is equal (54,745 voxels); the 512 SDF decoder differs by
+8e-5, its refined 512^3 SDF is bitwise equal and so is the 512 mesh. One
+sparse-DiT forward differs by 1.2 % (512) and 2.6 % (1024) mean relative:
+each SSA branch alone matches upstream to 3e-4 and top-k blocks agree on
+99.997 % of queries, and upstream's own fp16 forward sits 2.0 % from the
+port run in fp32 (the port's fp16, 1.1 %), so this is fp16 rounding that
+the network amplifies. End to end at 1024 the meshes are the same object:
+2,464,864 vs 2,465,434 vertices, mean surface distance 0.0069 and 99th
+percentile 0.023 in upstream's [-1, 1] units; 150 s upstream, 1082 s port,
+peak 23.4 GiB.
+
 Prereqs (a CUDA machine; throwaway env, do NOT install into the main .venv):
     pip install -e ".[gen]" omegaconf einops trimesh triton==3.1.0
     pip install <flash-attn 2.7.3 wheel for your torch/CUDA>

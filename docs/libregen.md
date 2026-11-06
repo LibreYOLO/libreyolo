@@ -269,7 +269,9 @@ spatial sparse attention, and the mesh is the field's zero crossing. Upstream
 needs CUDA-only extensions (torchsparse, flash-attn, Triton kernels, a CUDA
 voxeliser); LibreYOLO runs the same weights in plain PyTorch. A seed gives
 the same object: on CUDA the starting noise equals upstream's for
-`torch.manual_seed(seed)`.
+`torch.manual_seed(seed)`. It is slow: on an RTX A6000 one object at
+1024^3 takes about 18 minutes and 23 GB of GPU memory, where upstream's
+CUDA kernels take 2.5 minutes; `resolution=512` stops after the first pass.
 
 ```python
 model = LibreGen("direct3d-s2")

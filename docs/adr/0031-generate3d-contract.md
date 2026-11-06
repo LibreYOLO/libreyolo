@@ -299,7 +299,9 @@ voxeliser as a chunked point-to-triangle distance. Knobs: `resolution`
 generator seeded with the seed, in upstream's order, so on CUDA a seed gives
 upstream's starting noise for `torch.manual_seed(seed)`; the sparse stages
 amplify fp16 rounding (top-k block selection can flip on near ties), so the
-mesh is the same object, not the same triangles. The networks run in fp16
+mesh is the same object, not the same triangles. The PyTorch attention is
+slower than upstream's kernels: on an RTX A6000 an object at 1024^3 takes
+1082 s (upstream 150 s), peak 23.4 GiB. The networks run in fp16
 on CUDA and MPS as upstream converts them, fp32 on CPU. The vertices are
 halved into the object frame and turned z up (a rotation, so upstream's
 counter-clockwise winding is kept). Upstream's optional hole filling and remeshing
