@@ -4,7 +4,9 @@ LibreYOLO can load checkpoints from any Hugging Face Hub repository and push
 your own fine-tuned checkpoints back, in both cases using the standard
 LibreYOLO metadata schema (v1.0, see `docs/checkpoint_schema.md`).
 
-The integration is optional:
+Loading from the Hub works on a plain `pip install libreyolo` (1.7.3 and
+newer): `huggingface_hub` is a core dependency. Pushing to the Hub and gated
+downloads need the `hf` extra, which requires `huggingface_hub` 1.0 or newer:
 
 ```bash
 pip install "libreyolo[hf]"
@@ -28,7 +30,9 @@ model = LibreYOLO("hf://someuser/repo@main/best.pt")  # pin revision and file
 Resolution rules:
 
 - A local file or directory with the same name always wins over the bare
-  `owner/repo` form. Use the `hf://` form to bypass that precedence.
+  `owner/repo` form. Use the `hf://` form to bypass that precedence. The
+  folder check is case-sensitive, so a `libreyolo/` folder does not hide
+  `LibreYOLO/<repo>` on macOS or Windows.
 - The bare form is only treated as a Hub reference when the last segment has
   no file extension, so paths like `weights/model.pt` or
   `ckpts/model_best.pth.tar` keep their meaning. A dot followed by a digit is
@@ -36,8 +40,10 @@ Resolution rules:
   `librefacerec-*` names such as `models/librefacerec-l` are never Hub
   references; they auto-download from the LibreYOLO org as before.
 - Without an explicit filename, the single `*.pt` (or `*.safetensors`) file
-  in the repo is used. Repos with several checkpoints raise an error listing
-  them; select one with `hf://owner/repo/<filename>`.
+  in the repo is used. When there are several, the one named after the repo
+  is chosen (`LibreYOLO/LibreYOLO9t` loads `LibreYOLO9t.pt`). Otherwise the
+  load raises an error listing them; select one with
+  `hf://owner/repo/<filename>`.
 
 - A revision passed as `@revision` must not contain `/`; use a commit SHA or a
   slash-free branch name.
