@@ -670,3 +670,97 @@ def test_load_picks_flow_precision_the_device_supports(
     flows, decoders = _load_with_stubs(monkeypatch, tmp_path, device, macos)
     assert flows == [flow_dtype] * 3
     assert decoders == [fp16_decoders] * 2
+
+
+# ---------------------------------------------------------------------------
+# Parity gate (weights/parity_trellis2.py needs CUDA and upstream; only its
+# pass/fail rule runs here, lifted out of the script without importing it)
+# ---------------------------------------------------------------------------
+
+
+_GATE_NAMES = (
+    "BITWISE",
+    "FP32_RATIO",
+    "FP32_FLOOR",
+    "FP32_STAGES",
+    "FP32_MEAN_LIMITS",
+    "VOXEL_IOU",
+    "VOXEL_STAGES",
+    "VOXEL_FP32_SLACK",
+)
+
+
+def _parity_gate():
+    import ast
+    import math
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "weights" / "parity_trellis2.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    keep = [
+        node
+        for node in tree.body
+        if (isinstance(node, ast.FunctionDef) and node.name in ("_finite", "gate_failures"))
+        or (
+            isinstance(node, ast.Assign)
+            and all(isinstance(t, ast.Name) and t.id in _GATE_NAMES for t in node.targets)
+        )
+    ]
+    scope = {"math": math}
+    exec(compile(ast.Module(body=keep, type_ignores=[]), str(path), "exec"), scope)
+    return scope
+
+
+def _recorded_row():
+    """A case shaped like the recorded A100 run (PR #1018): every stage in its limit."""
+    gate = _parity_gate()
+    row = {k: {"equal": True, "max": 0.0, "mean": 0.0} for k in gate["BITWISE"]}
+    for k, (port, up) in {
+        "ss_flow_forward": (0.004, 0.004),
+        "ss_sample": (0.076, 0.077),
+        "shape512_flow_forward": (0.01, 0.01),
+        "shape512_sample": (0.067, 0.064),
+        "shape1024_flow_forward": (0.01, 0.01),
+        "shape1024_sample": (0.065, 0.066),
+        "decoder_dual_vertices": (0.002, 0.002),
+    }.items():
+        row[k] = {"equal": False, "mean": 0.01, "port_vs_fp32_mean": port, "upstream_vs_fp32_mean": up}
+    row["ss_voxels"] = {"iou": 1.0, "same": True}
+    row["cascade_hr_voxels"] = {"iou": 0.996, "same": False}
+    row["cascade_hr_voxels_fp32"] = {"port": 0.997, "upstream": 0.997}
+    row["decoder_voxels"] = {"iou": 0.995, "same": False}
+    row["decoder_voxels_fp32"] = {"port": 0.995, "upstream": 0.996}
+    row["decoder_intersected_agree"] = {
+        "port_vs_upstream": 0.999,
+        "port_vs_fp32": 0.999,
+        "upstream_vs_fp32": 0.999,
+    }
+    return gate, row
+
+
+def test_parity_gate_passes_the_recorded_run():
+    gate, row = _recorded_row()
+    assert gate["gate_failures"](row) == []
+
+
+@pytest.mark.parametrize(
+    "stage, key, value",
+    [
+        ("shape512_sample", "port_vs_fp32_mean", 0.5),  # far from fp32, as broken shapes are
+        ("ss_sample", "port_vs_fp32_mean", 0.098),  # 1.27x upstream's distance
+        ("shape1024_sample", "port_vs_fp32_mean", float("nan")),
+        ("decoder_dual_vertices", "port_vs_fp32_mean", 0.05),
+        ("cascade_hr_voxels", "iou", 0.9),
+        ("decoder_voxels", "iou", float("nan")),
+        ("decoder_voxels_fp32", "port", 0.95),
+        ("decoder_intersected_agree", "port_vs_fp32", 0.9),
+        ("ss_voxels", "same", False),
+        ("shape512_flow_forward_same_attention", "equal", False),
+    ],
+)
+def test_parity_gate_fails_wrong_or_missing_values(stage, key, value):
+    gate, row = _recorded_row()
+    row[stage][key] = value
+    assert stage in gate["gate_failures"](row)
+    del row[stage]
+    assert stage in gate["gate_failures"](row)
