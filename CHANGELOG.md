@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **RiO-DETRv2: real-time oriented-box DETR.**
+  `LibreRiODETRv2` (n/s/m/l/x) on the `obb` task: D-FINE-style four-side boundary distributions in the box's own frame, a coarse-to-fine angle residual (circular first layer, bounded linear later layers) and an angle-aware quality score. `LibreRiODETRv2n-obb.pt` is the DOTA-v1.0 checkpoint (15 classes, 1024 px); `-obb-diorr` is DIOR-R (20 classes, 800 px), with the canvas read from the checkpoint. Raw outputs and decoded rotated boxes match the upstream Apache-2.0 release exactly (max_abs_diff 0) for all ten checkpoints on CPU; ONNX and TorchScript export round-trip. Code from the initial Apache-2.0 commit only (upstream relicensed to AGPL-3.0 later without code changes). Inference only; `train()` raises.
+
 - **Video Depth Anything: temporally consistent depth for videos. (#994)**
   `LibreVideoDepthAnything` (s/b/l, `LibreVideoDepthAnythings-depth.pt`) on the `depth` task. A list of frames, a directory, a video or a stream is one sequence: `N` frames give `N` depth maps, all in one relative scale, from upstream's overlapping 32-frame windows with scale/shift alignment between them, streamed with at most one window of lag. A single image is a one-frame sequence. New shared hook: families set `SEQUENCE_INPUT = True` and implement `_forward_sequence` to reuse the optical flow sequence runner with one result per frame (ADR 0006 and 0032 amendments). Apache-2.0 code; `s` weights Apache-2.0, `b`/`l` CC BY-NC 4.0 with a non-commercial notice. Metric checkpoints are refused. Inference only; export is rejected.
 

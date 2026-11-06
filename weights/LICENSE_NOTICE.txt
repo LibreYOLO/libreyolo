@@ -269,6 +269,24 @@ project the weights were derived from. Per-family summary:
              weights/convert_rtdetrv2_weights.py; conversion preserves learned
              tensors and adds only LibreYOLO checkpoint metadata.
 
+    RiO-DETRv2                                         Apache-2.0
+             (LibreRiODETRv2{n,s,m,l,x}-obb, DOTA-v1.0;
+              LibreRiODETRv2{n,s,m,l,x}-obb-diorr, DIOR-R)
+             upstream code: RicePasteM/RiO-DETRv2 at commit
+               ab8b22df5d800a927774c8c67e77fd29c0fe6967 (Apache-2.0
+               release; preserved as LibreYOLO/RiO-DETRv2 tag
+               apache-2.0-ab8b22d). Upstream relicensed to AGPL-3.0
+               afterwards with no code changes; the port relies on the
+               Apache-2.0 grant of the initial release.
+             official checkpoints: RicePasteM/RiO-DETRv2 (Hugging Face,
+               license: apache-2.0) at revision
+               5f578f57929aded1962ebf8c5584a4771461124f
+             converted mirrors carry the upstream Apache License 2.0 and
+             NOTICE. Conversion renames encoder input-projection keys and
+             drops the training-only distillation projector; learned
+             tensors are unchanged. The DOTA-v1.0 and DIOR-R training data
+             are not bundled and carry their own terms.
+
     DETR     (LibreDETR{r50,r50dc5,r101,r101dc5})      Apache-2.0
              upstream: facebookresearch/detr, commit
              29901c51d7fe8712168b8d0d64351170bc0f83e0.
