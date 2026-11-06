@@ -1193,6 +1193,16 @@ task, aliases and coverage group as Idol. Its weights are LibreYOLO's mirror
 the BiRefNet weights) in `weights/LibreTRELLISl/`; its image encoder is
 `facebook/dinov2-with-registers-large` at a pinned revision.
 
+`LibreLGM` (`lgm`, size `0.4b` for upstream's released `big`
+configuration, 0.42B parameters, aliases `lgm` and `lgm-0.4b`) is an
+image-to-3D family with a multi-view diffusion stage in front. Same task,
+aliases and coverage group as Idol. Its weights are LibreYOLO's mirror
+`LibreYOLO/LibreLGM0.4b` (byte-identical to the pinned
+`ashawkey/LGM` `model_fp16_fixrot.safetensors`, plus the BiRefNet weights) in
+`weights/LibreLGM0.4b/`; its multi-view stage is LibreYOLO's mirror
+`LibreYOLO/LibreImageDream` of `ashawkey/imagedream-ipmv-diffusers`, at a
+pinned revision.
+
 ## Vision-language-action policies
 
 `LibreACT` (`act_policy`, aliases `act` and `act-policy`) and

@@ -516,6 +516,12 @@ upstream's, fixed in code. TRELLIS loads upstream's layout too:
 `ckpts/<name>.json` config next to `ckpts/<name>.safetensors`, plus
 `birefnet.safetensors`. See ADR 0031.
 
+LGM loads upstream's `model_fp16_fixrot.safetensors` unchanged, with
+`birefnet.safetensors` next to it; its multi-view stage is upstream's
+diffusers folder (`unet/`, `vae/`, `text_encoder/`, `tokenizer/`,
+`image_encoder/`, `feature_extractor/`, `scheduler/`), from LibreYOLO's
+mirror or an `imagedream/` subfolder. See ADR 0031.
+
 ### Optional LibreVLA runtime
 
 The `act` task reserves the suffix `-act`. `LibreVLA` checkpoints are

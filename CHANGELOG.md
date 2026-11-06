@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **LGM, image to 3D Gaussians through four generated views: `LibreGen("lgm")`.**
+  LGM (MIT) behind the same call as the other image-to-3D families: ImageDream samples four views of the object, LGM turns them into Gaussian splats, `libreyolo generate source=chair.jpg model=lgm`. Upstream needs xformers on CUDA; LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `elevation`. Weights download from LibreYOLO's mirrors `LibreYOLO/LibreLGM0.4b` (MIT) and `LibreYOLO/LibreImageDream` (OpenRAIL use restrictions apply).
+
 - **Video Depth Anything: temporally consistent depth for videos. (#994)**
   `LibreVideoDepthAnything` (s/b/l, `LibreVideoDepthAnythings-depth.pt`) on the `depth` task. A list of frames, a directory, a video or a stream is one sequence: `N` frames give `N` depth maps, all in one relative scale, from upstream's overlapping 32-frame windows with scale/shift alignment between them, streamed with at most one window of lag. A single image is a one-frame sequence. New shared hook: families set `SEQUENCE_INPUT = True` and implement `_forward_sequence` to reuse the optical flow sequence runner with one result per frame (ADR 0006 and 0032 amendments). Apache-2.0 code; `s` weights Apache-2.0, `b`/`l` CC BY-NC 4.0 with a non-commercial notice. Metric checkpoints are refused. Inference only; export is rejected.
 
