@@ -57,7 +57,8 @@ def coordinate_to_encoding_4(
     pos_y = _embed(coord_tensor[..., 1])
     pos_w = _embed(coord_tensor[..., 2])
     pos_h = _embed(coord_tensor[..., 3])
-    return torch.cat((pos_y, pos_x, pos_w, pos_h), dim=-1)
+    # dim_t is float32 like upstream; cast back so half-precision export works.
+    return torch.cat((pos_y, pos_x, pos_w, pos_h), dim=-1).to(coord_tensor.dtype)
 
 
 def wrap_angle_01(angle: torch.Tensor) -> torch.Tensor:

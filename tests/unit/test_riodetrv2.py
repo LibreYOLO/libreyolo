@@ -272,3 +272,23 @@ def test_export_at_non_native_canvas_keeps_native_model_intact(tmp_path):
         logits, boxes = traced(torch.rand(1, 3, 640, 640))
     assert logits.shape == (1, 300, 15) and boxes.shape == (1, 300, 5)
     assert LibreYOLO(str(output), device="cpu").task == "obb"
+
+
+@pytest.mark.parametrize("size", [800, (800, 800)])
+def test_preprocess_numpy_matches_predict_preprocess(rio_n, size):
+    from PIL import Image
+
+    rng = np.random.default_rng(0)
+    img = rng.integers(0, 256, (300, 500, 3), dtype=np.uint8)
+    chw, ratio = rio_n._get_preprocess_numpy()(img, size)
+    tensor, _, _, scale = rio_n._preprocess(Image.fromarray(img), input_size=size)
+    assert chw.shape == (3, 800, 800) and chw.dtype == np.float32
+    assert ratio == pytest.approx(scale)
+    np.testing.assert_array_equal(chw, tensor[0].numpy())
+
+
+def test_query_pos_embedding_follows_input_dtype():
+    from libreyolo.models.riodetrv2.decoder import coordinate_to_encoding_4
+
+    coords = torch.rand(1, 4, 5, dtype=torch.float16)
+    assert coordinate_to_encoding_4(coords, num_feats=8).dtype == torch.float16

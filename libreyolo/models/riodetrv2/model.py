@@ -194,7 +194,7 @@ class LibreRiODETRv2(BaseModel):
 
     @staticmethod
     def _get_preprocess_numpy():
-        from ...preprocess.rtdetr import preprocess_numpy
+        from .utils import preprocess_numpy
 
         return preprocess_numpy
 
