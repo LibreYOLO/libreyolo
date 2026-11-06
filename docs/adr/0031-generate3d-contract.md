@@ -179,6 +179,7 @@ SDK's behaviour.
 | `direct3d-s2` | `LibreYOLO/LibreDirect3DS2v11`, a mirror of `wushuang98/Direct3D-S2` `direct3d-s2-v-1-1` (code `DreamTechAI/Direct3D-S2`) | MIT code and weights | `resolution` (1024), `steps` ((50, 30, 15)), `guidance` (7.0) |
 | `triposplat` | `LibreYOLO/LibreTripoSplat0.6b`, a mirror of `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
 | `lgm` | `LibreYOLO/LibreLGM0.4b`, a mirror of `ashawkey/LGM`, and `LibreYOLO/LibreImageDream`, a mirror of `ashawkey/imagedream-ipmv-diffusers` (code `3DTopia/LGM`) | MIT code; MIT LGM weights; OpenRAIL ImageDream weights | `steps` (30), `guidance` (5.0), `elevation` (0) |
+| `crm` | `LibreYOLO/LibreCRM`, a mirror of `Zhengyi/CRM` (code `thu-ml/CRM`) | MIT code; MIT weights carrying SD 2.1's OpenRAIL++-M use restrictions | `steps` (50), `guidance` (5.0), `texture` (`False`) |
 
 Speridlabs Idol is a 0.66B rectified-flow transformer: DINOv3 ViT-H+ and
 FLUX.2 VAE tokens of the 1024px input condition a denoiser over an 8192-token
@@ -279,6 +280,32 @@ BiRefNet instead of rembg; a real alpha channel is used as is, where
 upstream always re-cuts the image. The empty prompt's CLIP text tokens are
 computed once at load and the text encoder is released.
 
+CRM (Tsinghua, ECCV 2024) returns a mesh. An ImageDream-style multi-view
+diffusion model (SD 2.1's UNet with cross-view self-attention, camera
+embeddings and a 16-token OpenCLIP image prompt) samples six orthographic
+views; a second one samples their canonical coordinate maps; a diffusers
+UNet2DModel turns views and maps into a 32-channel triplane; MLPs read the
+SDF, vertex offsets and FlexiCubes weights on an 80^3 grid; FlexiCubes
+extracts the surface and a colour MLP colours it. The result goes in
+`Results.meshes` as one `Meshes` row with `body_model="object"`, empty body
+parameters, `vertices` z-up in `[-0.5, 0.5]^3` (CRM's `[-1, 1]` frame halved),
+faces wound counter-clockwise seen from outside and
+`extras["vertex_colors"]`. Because CRM samples, `Meshes` gains `seed` and
+`generation_params` (the model and knobs), which `summary()` reports.
+`texture=True` adds `extras["uv"]`, `extras["uv_faces"]` and
+`extras["texture"]` (1024 x 1024 uint8, row 0 at v = 0); `.obj` then comes
+with a `.mtl` and a `.png`. Upstream's CUDA-only and non-permissive pieces are
+replaced: SDPA for xformers, NVIDIA's Apache-2.0 FlexiCubes for CRM's
+proprietary-header copy, a PyTorch UV rasterizer for nvdiffrast, a NumPy
+cleanup (same operations) for kiui/pymeshlab, LibreYOLO's BiRefNet for rembg.
+The diffusion models run in fp16 on CUDA and MPS as upstream and in fp32 on
+CPU. Every random draw comes from one CPU generator. The parity gate
+(`weights/parity_crm.py`) feeds both sides the same image and noise: the
+views and CCMs differ by fp16 kernel noise (mean 0.05 and 0.11 of 255), the
+triplane features, the FlexiCubes grid and the raw mesh are equal, the
+colours bitwise; the cleanup merges vertices in a different order than
+upstream's library (Chamfer distance 0.001 in CRM units).
+
 Direct3D-S2 (DreamTech, `direct3d-s2-v-1-1`) returns a mesh. A dense flow
 transformer denoises a 16^3 latent whose decoded 64^3 occupancy picks the
 active voxels; a sparse flow transformer with spatial sparse attention
@@ -306,8 +333,8 @@ on CUDA and MPS as upstream converts them, fp32 on CPU. The vertices are
 halved into the object frame and turned z up (a rotation, so upstream's
 counter-clockwise winding is kept). Upstream's optional hole filling and remeshing
 (`remesh=True`) is not ported: it depends on pymeshfix (GPL-3.0) and
-python-igraph (GPL-2.0+). `Meshes` carries no seed yet; the family records
-none until `Meshes` gains one.
+python-igraph (GPL-2.0+). The `Meshes` row records `seed` and
+`generation_params`, as CRM's.
 
 ## Weights
 

@@ -177,6 +177,7 @@ and records seed, camera and settings in a header comment.
 | `direct3d-s2` | 2.0B in eight networks (plus DINOv2 ViT-L/14) | `resolution` (1024), `steps` ((50, 30, 15)), `guidance` (7.0) | about 4.2 GB, plus 1.2 GB DINOv2 and 0.4 GB BiRefNet | MIT; DINOv2 Apache-2.0 |
 | `triposplat` | 0.66B (plus the same two encoders) | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) | about 1.8 GB, plus the same DINOv3 and VAE | MIT; the DINOv3 encoder under Meta's DINOv3 License |
 | `lgm` | 0.42B (plus the 1.3B ImageDream multi-view stage and its two CLIP encoders) | `steps` (30), `guidance` (5.0), `elevation` (0) | about 0.8 GB, plus 4.0 GB ImageDream | MIT; ImageDream under OpenRAIL (CreativeML OpenRAIL++-M) |
+| `crm` | 4.1B: two 2.0B multi-view diffusion models (0.94B UNet, OpenCLIP ViT-H/14, SD VAE each) and a 0.12B reconstruction UNet | `steps` (50), `guidance` (5.0), `texture` (`False`) | about 12.8 GB, plus 0.4 GB BiRefNet | MIT code; weights MIT with Stable Diffusion 2.1's CreativeML OpenRAIL++-M use restrictions |
 
 Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
 in under 8 GB of GPU memory. On CUDA, a seed gives the same object as the
@@ -262,6 +263,36 @@ foreground ratio 0.85). The front of the object faces +x. Marching cubes runs
 through scikit-image instead of upstream's torchmcubes: the same surface,
 triangulated differently.
 
+CRM by [Tsinghua University](https://ml.cs.tsinghua.edu.cn/~zhengyi/CRM)
+returns a coloured triangle mesh instead of Gaussians. Two multi-view
+diffusion models generate six views of the object and their canonical
+coordinate maps, a convolutional UNet turns them into a triplane, and
+FlexiCubes extracts the surface. Upstream needs xformers, nvdiffrast (NVIDIA,
+non-commercial) and a GPL mesh library; LibreYOLO runs the same weights in
+plain PyTorch on NVIDIA GPUs, Apple silicon and CPU, in fp16 on the GPUs as
+upstream. A seed gives the same starting noise on every device; on CUDA a
+repeat call gives the same views and triangles, with vertices that can move
+by about 1e-7 (FlexiCubes accumulates with atomic adds, as upstream). An
+object takes about 12 s and 12 GB on an RTX 3090.
+
+```python
+model = LibreGen("crm")
+result = model("chair.png", seed=0)
+result.save("chair.obj")                 # vertex colours as `v x y z r g b`
+m = result.meshes
+m.vertices[0], m.faces                   # (V, 3) z-up in [-0.5, 0.5]^3, (F, 3)
+m.extras["vertex_colors"][0]             # (V, 3) RGB in [0, 1]
+model("chair.png", texture=True).save("chair.obj")   # + chair.mtl, chair.png
+```
+
+`steps` and `guidance` apply to both diffusion stages. `texture=True` bakes a
+1024 x 1024 UV texture as upstream does; it needs the MIT-licensed `xatlas`
+package (`pip install xatlas`) for the UV unwrap. The input is padded to a
+square on grey, as upstream, without a crop, so a photo works best with the
+object filling the frame. The diffusion weights descend from Stable
+Diffusion 2.1, so the CreativeML OpenRAIL++-M use restrictions shipped with
+[`LibreYOLO/LibreCRM`](https://huggingface.co/LibreYOLO/LibreCRM) apply.
+
 Direct3D-S2 by [DreamTech](https://www.neural4d.com/research/direct3d-s2)
 returns a detailed mesh: it generates a signed distance field on sparse
 voxels, first at 512^3 and then at 1024^3, with three flow transformers and
@@ -290,6 +321,7 @@ returns them.
 ```bash
 libreyolo generate source=chair.jpg
 libreyolo generate source=chair.png model=triposr
+libreyolo generate source=chair.png model=crm texture=true
 libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
 libreyolo generate source=chair.jpg model=triposplat
 libreyolo generate source=chair.jpg model=trellis
@@ -298,7 +330,7 @@ libreyolo generate source=chair.png model=direct3d-s2
 ```
 
 With `source=` the model defaults to `speridlabs-idol` and objects are saved
-as `.ply` (`.obj` for `triposr` and `direct3d-s2`).
+as `.ply` (`.obj` for `triposr`, `crm` and `direct3d-s2`).
 
 ## Not supported yet
 
@@ -310,13 +342,13 @@ reserved by ADRs 0030 and 0031.
 
 LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
 Idol networks ported from the Apache-2.0 Idol SDK, the TripoSplat
-networks ported from the MIT TripoSplat repository and the TRELLIS networks
-adapted from the MIT TRELLIS repository (see each family's `NOTICE`). LGM's networks
-and its ImageDream sampler are adapted from the MIT LGM repository. Text-to-image models load through the Apache-2.0 `diffusers` API.
-
 networks ported from the MIT TripoSplat repository, the TRELLIS networks
-adapted from the MIT TRELLIS repository and the TripoSR networks adapted from
-the MIT TripoSR repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
+adapted from the MIT TRELLIS repository, the TripoSR networks adapted from
+the MIT TripoSR repository and the CRM networks adapted from the MIT CRM
+repository with FlexiCubes from NVIDIA's Apache-2.0 release (see each
+family's `NOTICE`). LGM's networks and its ImageDream sampler are adapted
+from the MIT LGM repository. Text-to-image models load through the
+Apache-2.0 `diffusers` API.
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
 one exception is the DINOv3 encoder Idol and TripoSplat read, which
 LibreYOLO mirrors in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;

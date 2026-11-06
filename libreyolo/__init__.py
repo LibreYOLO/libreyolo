@@ -230,6 +230,7 @@ def __getattr__(name):
         "LibreTRELLIS": (".models.gen", "LibreTRELLIS"),
         "LibreLGM": (".models.gen", "LibreLGM"),
         "LibreTripoSR": (".models.gen", "LibreTripoSR"),
+        "LibreCRM": (".models.gen", "LibreCRM"),
         "LibreDirect3DS2": (".models.gen", "LibreDirect3DS2"),
         "LibreVLM": (".models.vlm", "LibreVLM"),
         "LibreLFM2VL": (".models.vlm", "LibreLFM2VL"),
@@ -446,6 +447,7 @@ __all__ = [
     "LibreTRELLIS",
     "LibreLGM",
     "LibreTripoSR",
+    "LibreCRM",
     "LibreDirect3DS2",
     # Calibrated native monocular 3D detection
     "LibreFCOS3D",

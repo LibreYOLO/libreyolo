@@ -1280,6 +1280,32 @@ LibreYOLO/LibreDINOv3vith16plus under Meta's DINOv3 License (see its entry
 above). Ported inference code: see libreyolo/models/gen/triposplat/NOTICE.
 
 
+CRM (LibreCRM)                     MIT; OpenRAIL++-M use restrictions
+Image-to-3D mesh
+----------------
+
+Upstream: Zhengyi Wang et al. (Tsinghua University), https://huggingface.co/Zhengyi/CRM
+License: MIT, as declared by the official model repository. The two
+diffusion checkpoints are fine-tuned from ImageDream and MVDream (tagged
+"openrail"), themselves from Stable Diffusion 2.1 base (CreativeML Open
+RAIL++-M License, dated November 24, 2022), whose use-based restrictions
+must accompany derivatives; the mirror ships that license and leads its card
+with a use-restrictions banner. This is LibreYOLO's reading of the terms.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreCRM @
+386740e20da920f1e73f4604dbdb484a6ddee9bb (with LICENSE and NOTICE), mirrored
+from Zhengyi/CRM @ 36283fd567b9a3120a166dfe2f2e0965d96261b0.
+SHA-256 of the mirrored files equals upstream's:
+  CRM.pth
+    71fcf063f0be558e12ef696ee2d26ae61736d1779ff56a30f5aed377b5aa3537
+  ccm-diffusion.pth
+    220907ea252a2c3dadd6c283de1be272746241403151e7a7e36c2b85e8399861
+  pixel-diffusion.pth
+    27445c0202f51cb7e6715978e2d7811d1f9a276adae0bc7af8bf7191dd2e71e0
+BiRefNet weights load from LibreYOLO/LibreTRELLISl (see TRELLIS above).
+Ported inference code: see libreyolo/models/gen/crm/NOTICE.
+
+
 FLUX.2 klein (LibreFlux2Klein 4b)                       Apache-2.0
 Text-to-image pipeline, also the VAE source for Speridlabs Idol and TripoSplat
 -----------------------------------------------------------------------------

@@ -26,7 +26,7 @@ def generate_cmd(
     model: str | None = typer.Option(
         None,
         help="LibreGen alias or local model directory; default flux2-klein-4b "
-        "for a prompt, speridlabs-idol for a source (or triposplat, trellis, triposr, direct3d-s2)",
+        "for a prompt, speridlabs-idol for a source (or triposplat, trellis, triposr, crm, direct3d-s2)",
     ),
     imgsz: str | None = typer.Option(
         None, help="Output size: 1024 (square) or HEIGHTxWIDTH such as 768x1024"
@@ -52,6 +52,9 @@ def generate_cmd(
     ),
     elevation: float | None = typer.Option(
         None, help="Input camera elevation in degrees, negative above (family knob)"
+    ),
+    texture: bool | None = typer.Option(
+        None, help="Bake a UV texture into the mesh (family knob, crm)"
     ),
     resolution: int | None = typer.Option(
         None, help="Mesh grid resolution of mesh families (family knob)"
@@ -141,6 +144,7 @@ def generate_cmd(
                 ("mode", mode),
                 ("margin", margin),
                 ("elevation", elevation),
+                ("texture", texture),
                 ("resolution", resolution),
             )
             if value is not None

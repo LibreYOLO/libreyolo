@@ -1220,6 +1220,13 @@ Idol. Its weights are LibreYOLO's mirror `LibreYOLO/LibreTripoSR`
 `model.ckpt`) in `weights/LibreTripoSR/`; BiRefNet loads from
 `LibreYOLO/LibreTRELLISl`.
 
+`LibreCRM` (`crm`, alias `crm`; one published model, so no size code) is an
+image-to-3D family that returns a mesh (`Results.meshes`) instead of
+Gaussians. Same task and coverage group as Idol. Its weights are LibreYOLO's
+mirror `LibreYOLO/LibreCRM` (byte-identical to the pinned `Zhengyi/CRM`
+`pixel-diffusion.pth`, `ccm-diffusion.pth` and `CRM.pth`) in
+`weights/LibreCRM/`; BiRefNet loads from `LibreYOLO/LibreTRELLISl`.
+
 `LibreDirect3DS2` (`direct3d_s2`, size `v11` for upstream's
 `direct3d-s2-v-1-1` release, aliases `direct3d-s2` and `direct3d-s2-v1.1`)
 is an image-to-3D family that returns a mesh (`Results.meshes`). Same task

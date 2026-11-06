@@ -24,6 +24,7 @@ from typing import Dict, Tuple, Type
 
 from .base import LibreGenModel
 from .base3d import LibreGen3DModel
+from .crm import LibreCRM
 from .diffusers_family import DiffusersGenFamily
 from .direct3d_s2 import LibreDirect3DS2
 from .flux2_klein import LibreFlux2Klein
@@ -57,6 +58,7 @@ _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
     "lgm": (LibreLGM, "0.4b"),
     "lgm-0.4b": (LibreLGM, "0.4b"),
     "triposr": (LibreTripoSR, ""),
+    "crm": (LibreCRM, ""),
     "direct3d-s2": (LibreDirect3DS2, "v11"),
     "direct3d-s2-v1.1": (LibreDirect3DS2, "v11"),
 }
@@ -81,7 +83,7 @@ def LibreGen(model: str = _DEFAULT_MODEL, **kwargs) -> LibreGenModel:
     Args:
         model: Alias (``"flux2-klein-4b"``, ``"sana-sprint-0.6b"``,
             ``"prx-1024-beta"`` and the other ``prx-*`` checkpoints,
-            ``"prxpixel-7b"``, ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``,
+            ``"prxpixel-7b"``, ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``, ``"crm"``,
             ``"direct3d-s2"``) or a path to a local model directory in a
             supported family's upstream format, such as a fine-tune or an
             offline copy.
@@ -131,5 +133,6 @@ __all__ = [
     "LibreTRELLIS",
     "LibreLGM",
     "LibreTripoSR",
+    "LibreCRM",
     "LibreDirect3DS2",
 ]

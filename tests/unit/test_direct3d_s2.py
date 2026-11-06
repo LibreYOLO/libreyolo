@@ -497,6 +497,8 @@ def test_generate_through_the_public_call(tmp_path):
     assert result.gaussians is None and mesh.body_model == "object" and len(mesh) == 1
     assert torch.equal(mesh.vertices, pair[0].meshes.vertices)
     assert mesh.vertices.abs().max() <= 0.5
+    assert mesh.seed == 3 and mesh.generation_params["model"] == "direct3d-s2-v11"
+    assert mesh.generation_params["steps"] == (2, 2, 2)
     result.save(tmp_path / "object.obj")
     text = (tmp_path / "object.obj").read_text()
     assert text.count("\nv ") == mesh.vertices.shape[1]

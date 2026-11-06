@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 from numbers import Integral, Real
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -273,11 +273,21 @@ class LibreDirect3DS2(LibreGen3DModel):
                     guidance=knobs["guidance"],
                     cond=cond,
                 )["mesh"]
-                objects.append(object_mesh(vertices, faces))
+                params = {
+                    "model": self.model_path if self._checkpoint_dir else self.model_name,
+                    **knobs,
+                }
+                objects.append(object_mesh(vertices, faces, seed=seed, params=params))
         return objects
 
 
-def object_mesh(vertices: np.ndarray, faces: np.ndarray) -> Meshes:
+def object_mesh(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    *,
+    seed: Optional[int] = None,
+    params: Optional[Dict[str, Any]] = None,
+) -> Meshes:
     """Upstream's mesh (in [-1, 1)) as a one-row ``Meshes`` in the object frame.
 
     The object frame is z up and inside ``[-0.5, 0.5]^3``: coordinates are
@@ -298,6 +308,8 @@ def object_mesh(vertices: np.ndarray, faces: np.ndarray) -> Meshes:
         body_model="object",
         vertices=torch.from_numpy(v)[None],
         faces=torch.from_numpy(f),
+        seed=None if seed is None else int(seed),
+        generation_params=params,
     )
 
 
