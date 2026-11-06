@@ -5,7 +5,18 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases
 before 1.4.0 are documented in the
 [GitHub Releases](https://github.com/LibreYOLO/libreyolo/releases) only.
 
-## [Unreleased]
+## [1.7.3] - 2026-11-07
+
+### Fixed
+
+- **`LibreYOLO("owner/repo")` works on a plain `pip install libreyolo`.**
+  `huggingface_hub` is now a core dependency, so loading a model by its Hugging Face repo id no longer needs the `hf` extra. The extra still exists for pushing to the Hub and gated downloads.
+
+- **Loading `LibreYOLO/LibreYOLO9t`, `LibreYOLO/LibreYOLOXs` and the other YOLO9 and YOLOX repos by repo id.**
+  These repos also hold a legacy lowercase checkpoint, so the loader stopped with "multiple checkpoints". When a repo holds several checkpoints, the one named after the repo is now chosen.
+
+- **A `libreyolo/` folder in the working directory no longer hides Hub repo ids on macOS and Windows.**
+  The check for a local `LibreYOLO/` folder ignored case on those filesystems, so running from a folder containing a LibreYOLO clone made `LibreYOLO("LibreYOLO/<repo>")` look for a local file.
 
 ### Changed
 

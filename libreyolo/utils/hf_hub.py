@@ -17,6 +17,7 @@ it and torch-free deployments are unaffected.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import tempfile
 from dataclasses import dataclass
@@ -154,9 +155,22 @@ def parse_hub_reference(model_path: str) -> HubRef | None:
         return None
     if not _is_valid_repo_id(model_path):
         return None
-    if Path(model_path).exists() or Path(model_path.split("/")[0]).is_dir():
+    if Path(model_path).exists() or _owner_dir_exists(model_path.split("/")[0]):
         return None
     return HubRef(repo_id=model_path)
+
+
+def _owner_dir_exists(owner: str) -> bool:
+    """Whether a folder named exactly ``owner`` is in the working directory.
+
+    Case-sensitive on purpose: on macOS and Windows ``Path("LibreYOLO")``
+    also matches a ``libreyolo/`` clone, which would shadow every
+    ``LibreYOLO/<repo>`` Hub id.
+    """
+    try:
+        return owner in os.listdir(".") and Path(owner).is_dir()
+    except OSError:
+        return False
 
 
 def looks_like_repo_id(model_path: str) -> bool:
@@ -205,6 +219,18 @@ def _select_repo_weight_file(repo_files: list[str], repo_id: str) -> str:
     pt_files = [f for f in candidates if f.lower().endswith(".pt")]
     if len(pt_files) == 1:
         return pt_files[0]
+    # Several checkpoints: prefer the one named after the repo, the LibreYOLO
+    # convention (LibreYOLO/LibreYOLO9t -> LibreYOLO9t.pt). Exact case first,
+    # then a case-insensitive match if it is unique.
+    repo_name = repo_id.rsplit("/", 1)[-1]
+    pool = pt_files or candidates
+    for same in (
+        lambda stem: stem == repo_name,
+        lambda stem: stem.casefold() == repo_name.casefold(),
+    ):
+        named = [f for f in pool if same(Path(f).stem)]
+        if len(named) == 1:
+            return named[0]
     raise ValueError(
         f"Hugging Face repo '{repo_id}' contains multiple checkpoints: "
         f"{sorted(candidates)}. Select one explicitly with "
