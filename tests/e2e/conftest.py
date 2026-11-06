@@ -643,6 +643,13 @@ RTDETRV2_OBB_MODELS = [
     ("rtdetrv2", "n", "LibreRTDETRv2n-obb.pt"),
 ]
 
+# RiO-DETRv2 is OBB-only; same reasoning as RT-DETRv2 OBB. Cover the DOTA
+# default and the 800 px DIOR-R variant at the smallest size.
+RIODETRV2_OBB_MODELS = [
+    ("riodetrv2", "n", "LibreRiODETRv2n-obb.pt"),
+    ("riodetrv2", "n", "LibreRiODETRv2n-obb-diorr.pt"),
+]
+
 # YOLO-NAS-R (rotated). Same reasoning as above: OBB stays out of
 # MODEL_CATALOG. The weights are not on the LibreYOLO HF org (Deci's
 # non-redistributable licence) but they do have a public auto-download route
@@ -771,6 +778,7 @@ FAMILY_MARKERS = {
     "ec": pytest.mark.ec,
     "gtr": pytest.mark.gtr,
     "rtdetr": pytest.mark.rtdetr,
+    "riodetrv2": pytest.mark.riodetrv2,
     "rtdetrv2": pytest.mark.rtdetrv2,
     "rtdetrv4": pytest.mark.rtdetrv4,
     "picodet": pytest.mark.picodet,
@@ -870,6 +878,10 @@ PPLITESEG_SMOKE_PARAMS = model_cases(
 )
 RTDETRV2_OBB_PARAMS = model_cases(
     RTDETRV2_OBB_MODELS,
+    with_weights=True,
+)
+RIODETRV2_OBB_PARAMS = model_cases(
+    RIODETRV2_OBB_MODELS,
     with_weights=True,
 )
 YOLONAS_OBB_PARAMS = model_cases(
