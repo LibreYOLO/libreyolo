@@ -586,3 +586,87 @@ def test_tiny_pipeline_runs_on_mps_without_complex_tensors(monkeypatch):
     )
     assert torch.isfinite(out["shape_latent"].feats).all()
 
+
+class _Recorded(torch.nn.Module):
+    """Stands in for a network at load: records its constructor arguments."""
+
+    built = []
+
+    def __init__(self, **args):
+        super().__init__()
+        self.args = args
+        _Recorded.built.append(args)
+
+    def load_state_dict(self, state, strict=True):
+        return [], []
+
+    def to(self, *args, **kwargs):
+        return self
+
+
+def _load_with_stubs(monkeypatch, tmp_path, device, macos):
+    import platform
+
+    import huggingface_hub
+    import safetensors.torch
+    import transformers
+
+    from libreyolo.models.birefnet import nn as birefnet_nn
+    from libreyolo.models.gen.trellis2 import model as t2model
+
+    names = {
+        **{stem: "SLatFlowModel" for key, stem in t2model._NETWORKS.items() if "flow" in key},
+        t2model._NETWORKS["structure_flow"]: "SparseStructureFlowModel",
+        t2model._NETWORKS["shape_decoder"]: "FlexiDualGridVaeDecoder",
+        t2model._STRUCTURE_DECODER: "SparseStructureDecoder",
+    }
+    for stem, name in names.items():
+        args = {"dtype": "bfloat16"} if "Flow" in name else {"use_fp16": True}
+        (tmp_path / f"{stem}.json").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f"{stem}.json").write_text(json.dumps({"name": name, "args": args}))
+        (tmp_path / f"{stem}.safetensors").touch()
+    (tmp_path / t2model._BIREFNET_FILE).touch()
+    sampler = {"params": {}}
+    (tmp_path / "pipeline.json").write_text(
+        json.dumps(
+            {
+                "args": {
+                    "sparse_structure_sampler": sampler,
+                    "shape_slat_sampler": sampler,
+                    "shape_slat_normalization": {"mean": [0.0], "std": [1.0]},
+                }
+            }
+        )
+    )
+    _Recorded.built = []
+    for name in set(names.values()):
+        monkeypatch.setattr(t2nn, name, _Recorded)
+    monkeypatch.setattr(safetensors.torch, "load_file", lambda path: {})
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", None)
+    monkeypatch.setattr(birefnet_nn, "LibreBiRefNetModel", lambda size: _Recorded())
+    monkeypatch.setattr(
+        transformers.AutoModel, "from_pretrained", lambda *a, **k: _Recorded()
+    )
+    monkeypatch.setattr(platform, "mac_ver", lambda: (macos, ("", "", ""), "arm64"))
+    model = LibreTRELLIS2(device="cpu")
+    model.device = torch.device(device)  # _load only reads the device type
+    model._load(str(tmp_path))
+    flows = [args["dtype"] for args in _Recorded.built if "dtype" in args]
+    decoders = [args["use_fp16"] for args in _Recorded.built if "use_fp16" in args]
+    return flows, decoders
+
+
+@pytest.mark.parametrize(
+    "device, macos, flow_dtype, fp16_decoders",
+    [
+        ("mps", "13.6", "float32", True),  # MPS has no bf16 before macOS 14
+        ("mps", "14.5", "bfloat16", True),
+        ("cpu", "14.5", "float32", False),
+    ],
+)
+def test_load_picks_flow_precision_the_device_supports(
+    monkeypatch, tmp_path, device, macos, flow_dtype, fp16_decoders
+):
+    flows, decoders = _load_with_stubs(monkeypatch, tmp_path, device, macos)
+    assert flows == [flow_dtype] * 3
+    assert decoders == [fp16_decoders] * 2
