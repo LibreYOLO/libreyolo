@@ -373,16 +373,13 @@ reserved by ADRs 0030 and 0031.
 LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
 Idol networks ported from the Apache-2.0 Idol SDK, the TripoSplat
 networks ported from the MIT TripoSplat repository, the TRELLIS networks
-adapted from the MIT TRELLIS repository, the TripoSR networks adapted from
-the MIT TripoSR repository and the CRM networks adapted from the MIT CRM
+adapted from the MIT TRELLIS repository, the TRELLIS.2 networks adapted from
+the MIT TRELLIS.2 repository, the TripoSR networks adapted from the MIT
+TripoSR repository and the CRM networks adapted from the MIT CRM
 repository with FlexiCubes from NVIDIA's Apache-2.0 release (see each
 family's `NOTICE`). LGM's networks and its ImageDream sampler are adapted
 from the MIT LGM repository. Text-to-image models load through the
 Apache-2.0 `diffusers` API.
-
-adapted from the MIT TRELLIS repository, the TRELLIS.2 networks adapted from
-the MIT TRELLIS.2 repository and the TripoSR networks adapted from
-the MIT TripoSR repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
 exceptions are the DINOv3 encoders Idol and TripoSplat (ViT-H+, mirrored in
 bf16) and TRELLIS.2 (ViT-L, mirrored unchanged) read, which LibreYOLO
