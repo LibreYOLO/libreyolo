@@ -275,6 +275,8 @@ class _FakeImageEncoder(torch.nn.Module):
 
 
 def _tiny_modules(device="cpu", half=False):
+    # The VAE and the DDIM scheduler come from diffusers, part of libreyolo[gen].
+    pytest.importorskip("diffusers")
     from diffusers import AutoencoderKL, DDIMScheduler
     from transformers import CLIPImageProcessor
 
