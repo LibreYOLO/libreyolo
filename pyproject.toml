@@ -651,6 +651,7 @@ markers = [
     "ec: tests covering the ECDet model family",
     "gtr: tests covering the GTR model family",
     "rtdetr: tests covering the RT-DETR model family",
+    "riodetrv2: tests covering the RiO-DETRv2 model family",
     "rtdetrv2: tests covering the RT-DETRv2 model family",
     "rtdetrv4: tests covering the RT-DETRv4 model family",
     "picodet: tests covering the PICODET model family",

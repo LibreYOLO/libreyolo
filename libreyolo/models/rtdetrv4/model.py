@@ -36,6 +36,10 @@ class LibreRTDETRv4(LibreDFINE):
     def can_load(cls, weights_dict: dict) -> bool:
         # Disambiguates from D-FINE via the factory's ``model_family`` metadata
         # gate; raw upstream ckpts still carry ``feature_projector`` keys.
+        # RiO-DETRv2 raw checkpoints carry a feature_projector too; its angle
+        # head is unique to it.
+        if any(k.startswith("decoder.dec_angle_head.") for k in weights_dict):
+            return False
         return LibreDFINE.can_load(weights_dict) or any(
             "feature_projector" in k for k in weights_dict
         )
