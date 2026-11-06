@@ -53,6 +53,9 @@ def generate_cmd(
     elevation: float | None = typer.Option(
         None, help="Input camera elevation in degrees, negative above (family knob)"
     ),
+    resolution: int | None = typer.Option(
+        None, help="Mesh grid resolution of mesh families (family knob)"
+    ),
     device: str = typer.Option("auto", help="auto, cpu, mps, or a CUDA device"),
     dtype: str = typer.Option("auto", help="auto, bf16, fp16, or fp32"),
     offload: bool = typer.Option(False, help="Keep idle components off the GPU"),
@@ -138,6 +141,7 @@ def generate_cmd(
                 ("mode", mode),
                 ("margin", margin),
                 ("elevation", elevation),
+                ("resolution", resolution),
             )
             if value is not None
         }
