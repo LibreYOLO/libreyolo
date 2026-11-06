@@ -669,3 +669,97 @@ def test_tiny_pipeline_runs_on_mps_like_on_cpu():
     )
     assert out["sparse1024_latent"].dtype == torch.float16
     assert torch.isfinite(out["sparse1024_latent"]).all() and len(out["mesh"][1]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Parity gate (weights/parity_direct3d_s2.py needs CUDA and upstream; only its
+# pass/fail rule runs here, lifted out of the script without importing it)
+# ---------------------------------------------------------------------------
+
+_GATE_NAMES = ("BITWISE", "REL_LIMITS", "MESH_LIMITS")
+
+
+def _parity_gate():
+    import ast
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "weights" / "parity_direct3d_s2.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    keep = [
+        node
+        for node in tree.body
+        if (isinstance(node, ast.FunctionDef) and node.name in ("_finite", "gate_failures"))
+        or (
+            isinstance(node, ast.Assign)
+            and all(isinstance(t, ast.Name) and t.id in _GATE_NAMES for t in node.targets)
+        )
+    ]
+    scope = {"math": math}
+    exec(compile(ast.Module(body=keep, type_ignores=[]), str(path), "exec"), scope)
+    return scope
+
+
+def _recorded_report():
+    """A report shaped like the recorded RTX A6000 run (PR #1019): every stage in its limit."""
+    gate = _parity_gate()
+    report = {}
+    for stage in gate["BITWISE"]:
+        report[f"13.png {stage}"] = {"bitwise": True, "equal": True, "rel_mean": 0.0, "max_abs": 0.0, "stage": stage}
+    recorded = {
+        "conv3x3_fp32": 7.6e-4,
+        "conv3x3_fp16": 1.7e-4,
+        "dense_forward": 4e-4,
+        "dense_latent": 2.8e-3,
+        "sparse512_forward": 0.012,
+        "sparse1024_forward": 0.026,
+        "sdf512_values": 8e-5,
+    }
+    for stage in gate["REL_LIMITS"]:
+        rel = recorded.get(stage, 1e-3)
+        report[f"13.png {stage}"] = {"bitwise": False, "rel_mean": rel, "max_abs": 0.1, "stage": stage}
+    for stage in gate["MESH_LIMITS"]:
+        report[f"13.png {stage}"] = {
+            "vertices": [2464864, 2465434],
+            "chamfer_mean": 0.0069 if stage.startswith("end") else 1e-4,
+            "hausdorff_p99": 0.023 if stage.startswith("end") else 1e-3,
+            "stage": stage,
+        }
+    report["13.png end to end 1024 timing"] = {"upstream_s": 150.0, "libreyolo_s": 1082.0}
+    report["13.png mesh512 upstream signed volume"] = 0.4
+    return gate, report
+
+
+def test_parity_gate_passes_the_recorded_run():
+    gate, report = _recorded_report()
+    assert gate["gate_failures"](report) == []
+
+
+@pytest.mark.parametrize(
+    "stage, key, value",
+    [
+        ("sparse512_latent", "rel_mean", 1.3),  # completely wrong values
+        ("sparse1024_forward", "rel_mean", 0.2),
+        ("dense_latent", "rel_mean", float("nan")),
+        ("sdf512_values", "max_abs", float("inf")),
+        ("conv1x1", "bitwise", False),
+        ("dense_voxels", "equal", False),
+        ("end_to_end_1024", "chamfer_mean", 0.1),
+        ("end_to_end_1024", "vertices", [1000, 2465434]),
+        ("mesh512", "hausdorff_p99", float("nan")),
+    ],
+)
+def test_parity_gate_fails_wrong_values(stage, key, value):
+    gate, report = _recorded_report()
+    name = f"13.png {stage}"
+    report[name][key] = value
+    if key == "bitwise":
+        report[name]["equal"] = value
+    assert name in gate["gate_failures"](report)
+
+
+def test_parity_gate_fails_missing_and_unknown_comparisons():
+    gate, report = _recorded_report()
+    del report["13.png sparse512_latent"]
+    assert "missing: sparse512_latent" in gate["gate_failures"](report)
+    report["13.png new stage"] = {"rel_mean": 0.0, "max_abs": 0.0, "stage": "new_stage"}
+    assert "13.png new stage" in gate["gate_failures"](report)
