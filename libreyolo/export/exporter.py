@@ -1534,7 +1534,13 @@ class BaseExporter(ABC):
             # geometry are fixed per graph; only batch may be dynamic.
             dummy = torch.randn(batch, video_export_frames, 3, h, w, device=device)
         else:
-            channels = 2 if isinstance(getattr(self.model, "input_profile", None), dict) else 3
+            from ..utils.input_channels import model_channels
+
+            channels = (
+                2
+                if isinstance(getattr(self.model, "input_profile", None), dict)
+                else model_channels(self.model)
+            )
             dummy = torch.randn(batch, channels, h, w, device=device)
 
         if apply_half:
@@ -1583,6 +1589,11 @@ class BaseExporter(ABC):
         from .calibration import get_calibration_dataloader
 
         preprocess_fn = self.model._get_preprocess_numpy()
+        from ..utils.input_channels import gray_preprocess_fn, model_channels
+
+        if model_channels(self.model) == 1:
+            # Grayscale graphs calibrate on the one-channel input they consume.
+            preprocess_fn = gray_preprocess_fn(preprocess_fn)
         calibration_data = get_calibration_dataloader(
             data=data,
             imgsz=imgsz,
@@ -1671,6 +1682,9 @@ class BaseExporter(ABC):
         if onnx_path is not None:
             meta["exported_from"] = str(Path(onnx_path).name)
         meta.update(_letterbox_pad_metadata(self.model))
+        from ..utils.input_channels import channels_metadata
+
+        meta.update(channels_metadata(self.model))
         # Classification eval preprocessing must travel with every artifact,
         # not just ONNX. Exported-backend predict() otherwise falls back to
         # crop_pct=0.875 and bilinear resize, which changes classifier logits
@@ -1747,6 +1761,10 @@ class BaseExporter(ABC):
         from ..utils.event_histogram import input_metadata
         for key, value in input_metadata(self.model).items():
             meta[key] = json.dumps(value) if isinstance(value, dict) else str(value)
+        from ..utils.input_channels import channels_metadata
+
+        for key, value in channels_metadata(self.model).items():
+            meta[key] = str(value)
         meta.update(_letterbox_pad_metadata(self.model))
         # Classification eval preprocessing — lets exported-backend inference
         # and validation match native predict()/val() (#886).
@@ -1975,6 +1993,8 @@ class OnnxExporter(BaseExporter):
                 meta["deepstream"] = "true"
             return meta
 
+        from ..utils.input_channels import model_channels
+
         def _write_deepstream_sidecars(onnx_result_path: str) -> None:
             if not deepstream:
                 return
@@ -1993,6 +2013,7 @@ class OnnxExporter(BaseExporter):
                 iou=iou,
                 task=ds_task,
                 letterbox_pad=_letterbox_pad_metadata(self.model).get("letterbox_pad"),
+                channels=model_channels(self.model),
             )
 
         if int8:

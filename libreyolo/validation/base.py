@@ -243,7 +243,13 @@ class BaseValidator(ABC):
         # module-level import here would be circular.
         from libreyolo.models.base.cuda_graph import normalize_cuda_graph_mode
 
-        self._setup(**kwargs)
+        from libreyolo.utils.input_channels import (
+            dataset_input_channels,
+            model_channels,
+        )
+
+        with dataset_input_channels(model_channels(self.model)):
+            self._setup(**kwargs)
         requested = getattr(self.config, "cuda_graph", False)
         # The loss scope wraps graph capture too, so a captured graph carries
         # whatever extra outputs the family criterion needs.

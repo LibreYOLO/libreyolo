@@ -86,6 +86,17 @@ class _RtdetrOutputAdapter(nn.Module):
         return out
 
 
+class _GrayToRGB(nn.Module):
+    """Expand a one-channel image to the three equal channels wrappers expect."""
+
+    def __init__(self, inner: nn.Module):
+        super().__init__()
+        self.inner = inner
+
+    def forward(self, x: torch.Tensor):
+        return self.inner(x.expand(-1, 3, -1, -1))
+
+
 def _wrap_for_family(nn_model: nn.Module, model_family: str | None) -> nn.Module:
     family = (model_family or "").lower()
     if family == "yolox":
@@ -323,12 +334,19 @@ def export_coreml(
         yolo9_restore = _prepare_yolo9_static_eval(nn_model, dummy)
 
     wrapped = _wrap_for_family(nn_model.eval(), model_family).eval()
+    # Grayscale models (dataset ``channels: 1``) take a one-channel image. The
+    # family wrapper expects canonical RGB, so the gray plane is expanded to
+    # three equal channels in front of it; the model's grayscale input
+    # convolution folds them back.
+    gray = int(dummy.shape[1]) == 1
+    if gray:
+        wrapped = _GrayToRGB(wrapped).eval()
     if nms:
         wrapped = _NMSOutputAdapter(wrapped, model_family).eval()
 
     # Always feed the wrapper canonical RGB float in [0, 1], on the model's device.
     canonical_dummy = torch.zeros(
-        dummy.shape[0], 3, dummy.shape[2], dummy.shape[3],
+        dummy.shape[0], 1 if gray else 3, dummy.shape[2], dummy.shape[3],
         dtype=torch.float32, device=dummy.device,
     )
     if nms and canonical_dummy.shape[0] != 1:
@@ -343,8 +361,8 @@ def export_coreml(
         name="image",
         shape=tuple(canonical_dummy.shape),
         scale=1.0 / 255.0,
-        bias=[0.0, 0.0, 0.0],
-        color_layout=ct.colorlayout.RGB,
+        bias=[0.0] if gray else [0.0, 0.0, 0.0],
+        color_layout=ct.colorlayout.GRAYSCALE if gray else ct.colorlayout.RGB,
     )
     compute_precision = (
         ct.precision.FLOAT16 if precision == "fp16" else ct.precision.FLOAT32

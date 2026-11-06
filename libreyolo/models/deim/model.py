@@ -378,6 +378,9 @@ class LibreDEIM(BaseModel):
             if state_dict_has_lora(state_dict) and not module_has_lora(self.model):
                 apply_lora_to_detr(self.model)
 
+            from ...utils.input_channels import restore_channels
+
+            restore_channels(self, loaded)
             missing, unexpected = self.model.load_state_dict(
                 state_dict, strict=self._strict_loading()
             )
