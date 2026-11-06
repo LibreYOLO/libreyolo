@@ -358,9 +358,7 @@ libreyolo generate source=chair.png model=direct3d-s2
 ```
 
 With `source=` the model defaults to `speridlabs-idol` and objects are saved
-as `.ply` (`.obj` for `triposr`, `crm` and `trellis2`).
-
-as `.ply` (`.obj` for `triposr`, `crm` and `direct3d-s2`).
+as `.ply` (`.obj` for `triposr`, `crm`, `trellis2` and `direct3d-s2`).
 
 ## Not supported yet
 
