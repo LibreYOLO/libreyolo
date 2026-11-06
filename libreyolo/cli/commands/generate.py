@@ -47,6 +47,9 @@ def generate_cmd(
     margin: float | None = typer.Option(
         None, help="Crop side / object size; overrides mode (family knob)"
     ),
+    elevation: float | None = typer.Option(
+        None, help="Input camera elevation in degrees, negative above (family knob)"
+    ),
     device: str = typer.Option("auto", help="auto, cpu, mps, or a CUDA device"),
     dtype: str = typer.Option("auto", help="auto, bf16, fp16, or fp32"),
     offload: bool = typer.Option(False, help="Keep idle components off the GPU"),
@@ -130,6 +133,7 @@ def generate_cmd(
                 ("gaussians", gaussians),
                 ("mode", mode),
                 ("margin", margin),
+                ("elevation", elevation),
             )
             if value is not None
         }
