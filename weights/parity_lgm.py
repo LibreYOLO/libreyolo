@@ -126,6 +126,13 @@ LIMITS = {
     "views": 2e-2 if HALF else 2e-3,
     "lgm_gaussians": 2e-3 if HALF else 1e-4,
 }
+# The whole chain (each side from the same image and seed): mean difference of
+# LGM's raw outputs (measured up to 5.1e-4 fp16, 3.3e-7 fp32) and the relative
+# gap in Gaussians kept at upstream's opacity cut (measured at most 0.02 %).
+END_TO_END_MEAN = 2e-3 if HALF else 1e-5
+END_TO_END_COUNT = 0.005
+# Object frame: every Gaussian inside the [-0.5, 0.5] cube, unit quaternions.
+QUAT_NORM_ERROR = 1e-3
 
 
 def cmp(a, b):
@@ -319,6 +326,24 @@ for name in images:
         or not math.isfinite(row[k]["mean"])
         or row[k]["mean"] > limit
     ]
+    end = row["end_to_end"]
+    gap = abs(end["gaussians_port"] - end["gaussians_upstream"]) / max(
+        end["gaussians_upstream"], 1
+    )
+    if (
+        end["lgm_mean_abs"] is None
+        or not math.isfinite(end["lgm_mean_abs"])
+        or end["lgm_mean_abs"] > END_TO_END_MEAN
+        or gap > END_TO_END_COUNT
+    ):
+        failures.append("end_to_end")
+    frame = row["object_frame"]
+    if not (
+        math.isfinite(frame["max_abs_xyz"])
+        and frame["max_abs_xyz"] <= 0.5
+        and frame["max_quat_norm_err"] <= QUAT_NORM_ERROR
+    ):
+        failures.append("object_frame")
     row["failures"] = failures
     print(json.dumps(row), flush=True)
     report.append(row)
@@ -332,7 +357,12 @@ json.dump(
         "upstream_attention": ATTENTION,
         "steps": ARGS.steps,
         "seed": ARGS.seed,
-        "limits": LIMITS,
+        "limits": {
+            **LIMITS,
+            "end_to_end_mean": END_TO_END_MEAN,
+            "end_to_end_count": END_TO_END_COUNT,
+            "quat_norm_error": QUAT_NORM_ERROR,
+        },
         "all_pass": passed,
         "cases": report,
     },
