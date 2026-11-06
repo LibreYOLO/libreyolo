@@ -110,6 +110,9 @@ def sample(
 ) -> torch.Tensor:
     """Upstream's flow-matching Euler sampler with classifier-free guidance against zeroed tokens.
 
+    As upstream (``do_classifier_free_guidance = guidance_scale > 0``),
+    ``guidance=0`` runs the conditional pass only.
+
     ``coords`` makes the latent sparse: ``noise`` is then ``[T, C]`` features
     on those voxels.
     """
