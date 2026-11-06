@@ -155,6 +155,7 @@ and records seed, camera and settings in a header comment.
 | --- | --- | --- | --- | --- |
 | `speridlabs-idol` | 0.66B (plus DINOv3 ViT-H+ and the FLUX.2 VAE encoder) | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"` or `"real"`), `margin` (crop override) | about 3.1 GB, plus 1.7 GB DINOv3 and 0.2 GB VAE | Apache-2.0; the DINOv3 encoder under Meta's DINOv3 License |
 | `trellis` | 1.3B in four networks (plus DINOv2 ViT-L/14) | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) | about 2.7 GB, plus 1.2 GB DINOv2 | MIT; DINOv2 Apache-2.0 |
+| `triposr` | 0.42B | `resolution` (256), `threshold` (25.0), `margin` (1/0.85) | about 1.7 GB, plus 0.4 GB BiRefNet | MIT |
 | `triposplat` | 0.66B (plus the same two encoders) | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) | about 1.8 GB, plus the same DINOv3 and VAE | MIT; the DINOv3 encoder under Meta's DINOv3 License |
 
 Speridlabs Idol by [Speridlabs](https://speridlabs.com/research/idol) runs
@@ -201,15 +202,38 @@ model = LibreGen("trellis")
 model("chair.jpg", steps=12).save("chair.ply")
 ```
 
+TripoSR by [Tripo AI and Stability AI](https://github.com/VAST-AI-Research/TripoSR)
+returns a mesh instead of Gaussians: a transformer turns the picture into a
+triplane NeRF in one pass, and the mesh is the isosurface of its density. It
+takes about a second on a GPU and runs in fp32 on NVIDIA GPUs, Apple silicon
+and CPU. There is no sampling, so `seed` changes nothing.
+
+```python
+model = LibreGen("triposr")
+result = model("chair.png")
+result.save("chair.obj")                 # vertex colours as `v x y z r g b`
+m = result.meshes
+m.vertices[0], m.faces                   # (V, 3) z-up in [-0.5, 0.5]^3, (F, 3)
+m.extras["vertex_colors"][0]             # (V, 3) RGB in [0, 1]
+model("chair.png", resolution=384)       # finer marching-cubes grid
+```
+
+`resolution` is the marching-cubes grid (32 to 1024), `threshold` the
+density at the surface, `margin` the crop around the object (upstream's
+foreground ratio 0.85). The front of the object faces +x. Marching cubes runs
+through scikit-image instead of upstream's torchmcubes: the same surface,
+triangulated differently.
+
 ```bash
 libreyolo generate source=chair.jpg
+libreyolo generate source=chair.png model=triposr
 libreyolo generate source=photos/ mode=real gaussians=1048576 seed=0
 libreyolo generate source=chair.jpg model=triposplat
 libreyolo generate source=chair.jpg model=trellis
 ```
 
 With `source=` the model defaults to `speridlabs-idol` and objects are saved
-as `.ply`.
+as `.ply` (`.obj` for `triposr`).
 
 ## Not supported yet
 
@@ -221,8 +245,9 @@ reserved by ADRs 0030 and 0031.
 
 LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
 Idol networks ported from the Apache-2.0 Idol SDK, the TripoSplat
-networks ported from the MIT TripoSplat repository and the TRELLIS networks
-adapted from the MIT TRELLIS repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
+networks ported from the MIT TripoSplat repository, the TRELLIS networks
+adapted from the MIT TRELLIS repository and the TripoSR networks adapted from
+the MIT TripoSR repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
 one exception is the DINOv3 encoder Idol and TripoSplat read, which
 LibreYOLO mirrors in bf16 under Meta's DINOv3 License. LibreYOLO adds no content filter;

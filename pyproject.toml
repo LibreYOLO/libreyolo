@@ -155,8 +155,9 @@ gen = [
     # through the Apache-2.0 diffusers package; text encoders come from
     # transformers and accelerate backs low-memory loading and offload=True.
     # Speridlabs Idol reads DINOv3 through transformers and the FLUX.2 VAE
-    # through diffusers.
+    # through diffusers. TripoSR meshes through scikit-image's marching cubes.
     "diffusers>=0.38.0",
+    "scikit-image>=0.19",
     "transformers>=5.1.0",
     "accelerate>=1.7.0",
 ]

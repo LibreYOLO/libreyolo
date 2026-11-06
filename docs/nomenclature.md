@@ -1193,6 +1193,14 @@ task, aliases and coverage group as Idol. Its weights are LibreYOLO's mirror
 the BiRefNet weights) in `weights/LibreTRELLISl/`; its image encoder is
 `facebook/dinov2-with-registers-large` at a pinned revision.
 
+`LibreTripoSR` (`triposr`, alias `triposr`; one published model, so no size
+code) is an image-to-3D family that returns a mesh (`Results.meshes`)
+instead of Gaussians. Same task and coverage group as
+Idol. Its weights are LibreYOLO's mirror `LibreYOLO/LibreTripoSR`
+(byte-identical to the pinned `stabilityai/TripoSR` `config.yaml` and
+`model.ckpt`) in `weights/LibreTripoSR/`; BiRefNet loads from
+`LibreYOLO/LibreTRELLISl`.
+
 ## Vision-language-action policies
 
 `LibreACT` (`act_policy`, aliases `act` and `act-policy`) and

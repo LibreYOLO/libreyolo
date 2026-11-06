@@ -1148,6 +1148,23 @@ e4c89a4e05589de9b3e188688a303d0f3c04d0f3. Ported inference code: see
 libreyolo/models/gen/trellis/NOTICE.
 
 
+TripoSR (LibreTripoSR)                                  MIT
+Image-to-3D mesh
+----------------
+
+Upstream: Tripo AI and Stability AI, https://huggingface.co/stabilityai/TripoSR
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreTripoSR @
+249e9d7749b01a89542aab66c25273cf4ce48646 (with LICENSE and NOTICE), mirrored
+from stabilityai/TripoSR @ 5b521936b01fbe1890f6f9baed0254ab6351c04a.
+SHA-256 of the mirrored files equals upstream's:
+  model.ckpt
+    429e2c6b22a0923967459de24d67f05962b235f79cde6b032aa7ed2ffcd970ee
+BiRefNet weights load from LibreYOLO/LibreTRELLISl (see TRELLIS below).
+Ported inference code: see libreyolo/models/gen/triposr/NOTICE.
+
+
 TripoSplat (LibreTripoSplat 0.6b)                       MIT
 Image-to-3D Gaussian splats
 ---------------------------

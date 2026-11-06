@@ -2813,6 +2813,25 @@
     "group": "s",
     "cli_command": "generate"
   },
+  "triposr": {
+    "class": "libreyolo.models.gen.triposr.model.LibreTripoSR",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "": 512
+    },
+    "default_imgsz": {
+      "": 512
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": true,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "unet": {
     "class": "libreyolo.models.unet.model.LibreUNet",
     "tasks": [

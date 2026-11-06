@@ -100,6 +100,30 @@ rasterization.
 Box-specific paths (tracking, tiling, export backends, mAP validation) do not
 apply.
 
+### Meshes
+
+A family whose output is a triangle mesh returns it in `Results.meshes`, the
+existing `Meshes` payload of ADR 0013, with no person boxes, instead of
+adding a payload type:
+
+- one row: `len(meshes)` is 1, `body_model` is `"object"`;
+- `global_orient`, `body_pose` and `betas` are empty `(1, 0)` and `transl`
+  is zero `(1, 3)`: a generated object has no body parameters;
+- `vertices` `(1, V, 3)` float32 in the object frame above (z up, inside
+  `[-0.5, 0.5]^3`), `faces` `(F, 3)` int64 wound counter-clockwise seen from
+  outside;
+- `extras["vertex_colors"]` `(1, V, 3)` float32 RGB in `[0, 1]`, when the
+  family colours its vertices.
+
+`result.save(path)` writes Wavefront `.obj`, with vertex colours as the
+common `v x y z r g b` extension; `save=True` writes `.obj` files. A mesh
+family declares `SAVE_SUFFIXES = (".obj",)`; `LibreGen3DModel` picks the
+`Results` slot from the payload type. `summary()` returns one row with the
+vertex and face counts. `plot()` has no mesh preview yet. `Meshes` has no
+`seed`, `params`, `camera` or `input_image`; a mesh family that samples, and
+so needs `seed` recorded on the result, adds that to `Meshes` rather than a
+second payload.
+
 ## Call contract
 
 `generate(source, *, seed=None, n=1, stream=False, save=False,
@@ -151,6 +175,7 @@ SDK's behaviour.
 | --- | --- | --- | --- |
 | `speridlabs-idol` | `speridlabs/idol` (code `speridlabs/idol-sdk`) | Apache-2.0 code and weights | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"`), `margin` (`None`) |
 | `trellis` | `LibreYOLO/LibreTRELLISl`, a mirror of `microsoft/TRELLIS-image-large` (code `microsoft/TRELLIS`) | MIT code and weights | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) |
+| `triposr` | `LibreYOLO/LibreTripoSR`, a mirror of `stabilityai/TripoSR` (code `VAST-AI-Research/TripoSR`) | MIT code and weights | `resolution` (256), `threshold` (25.0), `margin` (1/0.85) |
 | `triposplat` | `LibreYOLO/LibreTripoSplat0.6b`, a mirror of `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
 
 Speridlabs Idol is a 0.66B rectified-flow transformer: DINOv3 ViT-H+ and
@@ -280,8 +305,9 @@ As in ADR 0030, each raises `NotImplementedError` with its reason:
 
 ## Out of scope
 
-- Meshing, texturing and rendering beyond the preview. Viewers and trainers
-  that read the standard PLY do that.
+- Meshing Gaussians, texturing and rendering beyond the preview. Viewers and
+  trainers that read the standard PLY do that. Families whose network
+  outputs a surface return it as a mesh (see Meshes above).
 - Scenes. One result is one object.
 
 ## Consequences
