@@ -742,6 +742,7 @@ def test_parity_gate_passes_the_recorded_run():
         ("dense_latent", "rel_mean", float("nan")),
         ("sdf512_values", "max_abs", float("inf")),
         ("conv1x1", "bitwise", False),
+        ("dinov2_tokens", "max_abs", float("nan")),  # equal infinities: bitwise, NaN distance
         ("dense_voxels", "equal", False),
         ("end_to_end_1024", "chamfer_mean", 0.1),
         ("end_to_end_1024", "vertices", [1000, 2465434]),

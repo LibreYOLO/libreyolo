@@ -143,6 +143,8 @@ def gate_failures(report):
         if stage in BITWISE:
             flags = [row[k] for k in ("bitwise", "equal") if k in row]
             ok = bool(flags) and all(flag is True for flag in flags)
+            if "rel_mean" in row:  # a tensor, not a voxel set: equal infinities still fail
+                ok = ok and _finite(row["rel_mean"], row.get("max_abs"))
         elif stage in REL_LIMITS:
             rel = row.get("rel_mean")
             ok = _finite(rel, row.get("max_abs")) and rel <= REL_LIMITS[stage]
