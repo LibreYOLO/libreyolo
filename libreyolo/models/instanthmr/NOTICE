@@ -1,0 +1,39 @@
+InstantHMR provenance
+=====================
+
+The InstantHMR port in this directory is adapted from:
+
+  Repository: https://github.com/Naturalpad-studio/InstantHMR
+  Commit:     5437400d4b25c1972821e51916fac34bd96acce6
+  License:    Apache License 2.0 (LICENSE in this directory, verbatim
+              from that commit)
+  Authors:    Mohamed Adjel, Kahina Chalabi, Vincent Bonnet
+
+  Source files and their LibreYOLO counterparts:
+    training/train.py (InstantHMRStudent, ContMHRHead layout) -> nn.py
+    training/mhr_body.py                                       -> body.py
+    instanthmr/inference.py (crop and CLIFF conditioning)      -> utils.py
+
+The HGNetV2 backbone is the D-FINE port already in LibreYOLO
+(libreyolo/models/dfine/backbone.py); its parameter names match timm's
+hgnetv2_b* models, which upstream uses.
+
+decode.py was written clean-room from a functional specification. Upstream's
+training/mhr_cont.py states that it transcribes code from Meta's
+sam-3d-body repository (SAM License), so neither that file nor the
+sam-3d-body code it derives from was used. The decode's index tables and
+linear bases are data read from the released weights, not code.
+
+trainer.py (fine-tuning on 2D person keypoints) is original LibreYOLO work;
+it is not upstream's training procedure and uses none of upstream's trainer.
+
+weights/convert_instanthmr_weights.py rebuilds PyTorch checkpoints from the
+ONNX graphs upstream publishes on Hugging Face (momolesang/InstantHMR,
+revision 07988f51c8c8908cfc7bb44fc18f645c9551b0bf). The MHR body constants
+come from Meta's MHR rig (Apache-2.0), plus upstream's 70-keypoint landmark
+readout.
+
+Weights are not covered by LibreYOLO's MIT License: the n/t/s/m checkpoints
+are CC BY-NC 4.0 (non-commercial), the m commercial variant is Apache-2.0,
+and all of them were trained on the SAM 3D Body dataset annotations (SAM
+License). See weights/LICENSE_NOTICE.txt.
