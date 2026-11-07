@@ -37,6 +37,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
+from .body import mesh_checkpoint_metadata
 from .utils import default_focal, preprocess_person
 
 logger = logging.getLogger(__name__)
@@ -332,9 +333,8 @@ class InstantHMRFineTuner:
             names={0: "person"},
             imgsz=net.image_size,
         )
-        checkpoint.update(
-            epoch=epoch, metrics=metrics, body_model="mhr", cliff_focal=True
-        )
+        checkpoint.update(epoch=epoch, metrics=metrics, cliff_focal=True)
+        checkpoint.update(mesh_checkpoint_metadata(net.body))
         torch.save(checkpoint, path)
         return path
 

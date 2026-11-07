@@ -49,6 +49,21 @@ BODY_BUFFERS = (
 )
 
 
+def mesh_checkpoint_metadata(body: "MHRBody") -> dict:
+    """Mesh-task layout fields for checkpoint metadata (docs/checkpoint_schema.md)."""
+    return {
+        "body_model": "mhr",
+        "num_betas": N_SHAPE_PARAMS,
+        # mhr_params[6:136]: the flat body-pose block after root translation
+        # and root rotation; finger channels are included.
+        "num_body_pose": 130,
+        "num_vertices": int(body.base_shape.shape[0]),
+        "num_joints": int(body.joint_offsets.shape[0]),
+        # mhr_params[3:6] compose as Rz @ Ry @ Rx (intrinsic Z-Y-X).
+        "rotation_format": "euler_zyx",
+    }
+
+
 def _fk_levels(parents: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Prefix-multiplication schedule: at level l, every active joint j becomes partner(j) o j."""
     chains = []

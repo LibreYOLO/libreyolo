@@ -378,9 +378,6 @@ class LibreInstantHMR(BaseModel):
         in camera axes. The mesh faces, crop size and conditioning form are
         stored in the graph metadata.
         """
-        # simplify, device and verbose are accepted for CLI compatibility and
-        # have no effect: the graph is traced on CPU and not simplified.
-        del simplify, device, verbose
         if kwargs:
             raise TypeError(
                 f"Unsupported InstantHMR export arguments: {', '.join(sorted(kwargs))}"
@@ -391,6 +388,14 @@ class LibreInstantHMR(BaseModel):
             raise NotImplementedError("LibreInstantHMR exports FP32 ONNX only.")
         if nms:
             raise ValueError("nms does not apply to the body-mesh export.")
+        if simplify:
+            raise NotImplementedError(
+                "ONNX simplification is not supported for the InstantHMR graph."
+            )
+        if device not in (None, "", "auto", "cpu"):
+            logger.info(
+                "InstantHMR: the ONNX graph is traced on CPU (device=%s ignored).", device
+            )
         size = self.model.image_size
         if imgsz is not None and imgsz not in (size, (size, size), [size, size]):
             raise ValueError(f"InstantHMR takes fixed {size} px person crops; imgsz cannot change.")
@@ -445,6 +450,12 @@ class LibreInstantHMR(BaseModel):
                 "mesh_faces": base64.b64encode(faces.tobytes()).decode(),
             },
         )
+        if verbose:
+            shape = "batch" if dynamic else str(batch)
+            logger.info(
+                "InstantHMR ONNX: image (%s, 3, %d, %d), cliff_cond (%s, 3) -> %s; wrote %s",
+                shape, size, size, shape, ", ".join(names), destination,
+            )
         return str(destination)
 
 

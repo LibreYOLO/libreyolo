@@ -304,7 +304,7 @@ def convert(
     mhr_path: str | Path | None = None,
 ) -> Path:
     add_repo_root_to_path()
-    from libreyolo.models.instanthmr.body import MHRBody
+    from libreyolo.models.instanthmr.body import MHRBody, mesh_checkpoint_metadata
     from libreyolo.models.instanthmr.nn import InstantHMRNet
     from libreyolo.models.sam3dbody.mhr_body import ensure_mhr_model
 
@@ -346,10 +346,10 @@ def convert(
         weights_file=source_file,
         license=weight_license,
         training_labels="SAM 3D Body dataset annotations (SAM License)",
-        body_model="mhr",
         cliff_focal=True,
         batchnorm_calibrated=calib is not None,
     )
+    wrapped.update(mesh_checkpoint_metadata(net.body))
     if variant is not None:
         wrapped["weight_variant"] = variant
 

@@ -267,6 +267,10 @@ def test_fine_tune_runs_and_reloads(nano_checkpoint, tmp_path):
     assert {"train/2d", "train/reproj", "train/prior", "val/reproj"} <= set(
         results["history"][0]
     )
+    saved = torch.load(results["best_checkpoint"], map_location="cpu", weights_only=False)
+    assert saved["body_model"] == "mhr" and saved["num_betas"] == 45
+    assert saved["num_body_pose"] == 130 and saved["rotation_format"] == "euler_zyx"
+    assert saved["num_vertices"] == N_VERTS and saved["num_joints"] == N_JOINTS
     reloaded = LibreYOLO(results["best_checkpoint"], device="cpu")
     assert isinstance(reloaded, LibreInstantHMR)
     after = model.model.state_dict()
@@ -304,6 +308,8 @@ def test_export_accepts_cli_arguments(nano_checkpoint, tmp_path):
     assert Path(path).exists()
     with pytest.raises(NotImplementedError):
         model.export(format="onnx", output_path=tmp_path / "h.onnx", half=True)
+    with pytest.raises(NotImplementedError):
+        model.export(format="onnx", output_path=tmp_path / "x.onnx", simplify=True)
     with pytest.raises(ValueError):
         model.export(format="onnx", output_path=tmp_path / "s.onnx", imgsz=640)
 
