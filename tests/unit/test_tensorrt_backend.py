@@ -307,3 +307,34 @@ def test_tensorrt_dynamic_batching_rejects_rectangular_non_yolo9_imgsz():
 
     with pytest.raises(NotImplementedError, match="YOLO9-family"):
         backend._process_in_batches(["a.jpg", "b.jpg"], batch=2, imgsz=(32, 64))
+
+
+def test_missing_tensorrt_names_python_314(monkeypatch):
+    # The tensorrt extra's marker skips tensorrt-cu12 on 3.14 (no bindings),
+    # so the error must say why instead of repeating an install command.
+    import sys
+
+    import libreyolo.export.tensorrt as trt_export
+
+    monkeypatch.setitem(sys.modules, "tensorrt", None)
+    monkeypatch.setattr(trt_export.sys, "version_info", (3, 14, 0))
+    for call in (
+        trt_export.check_tensorrt_available,
+        trt_export.get_calibrator_class,
+        lambda: TensorRTBackend("model.engine"),
+    ):
+        with pytest.raises(ImportError, match="Use Python 3.13 or earlier"):
+            call()
+
+
+def test_missing_tensorrt_keeps_install_hint_on_supported_python(monkeypatch):
+    import sys
+
+    import libreyolo.export.tensorrt as trt_export
+
+    monkeypatch.setitem(sys.modules, "tensorrt", None)
+    monkeypatch.setattr(trt_export.sys, "version_info", (3, 12, 0))
+    with pytest.raises(ImportError, match="pip install tensorrt"):
+        trt_export.check_tensorrt_available()
+    with pytest.raises(ImportError, match="pip install tensorrt"):
+        TensorRTBackend("model.engine")

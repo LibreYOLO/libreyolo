@@ -3,6 +3,7 @@
 import hashlib
 import json
 import logging
+import sys
 import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -16,6 +17,23 @@ from .config import TensorRTExportConfig
 logger = logging.getLogger(__name__)
 
 
+def tensorrt_python_version_note() -> str:
+    """Explain why the tensorrt extra installs nothing on this Python, if so.
+
+    The tensorrt extra pins tensorrt-cu12 10.16, which publishes no Python
+    3.14 bindings, so its marker skips it there. Returns an empty string on
+    the Python versions where the extra does install TensorRT.
+    """
+    if sys.version_info >= (3, 14):
+        return (
+            "The pinned tensorrt-cu12 10.16 has no bindings for Python "
+            f"{sys.version_info[0]}.{sys.version_info[1]} yet, so "
+            '`pip install "libreyolo[tensorrt]"` skips it here. Use Python '
+            "3.13 or earlier."
+        )
+    return ""
+
+
 def check_tensorrt_available() -> None:
     """Check if TensorRT is available and raise helpful error if not."""
     try:
@@ -23,6 +41,9 @@ def check_tensorrt_available() -> None:
 
         _ = trt.__version__
     except ImportError:
+        note = tensorrt_python_version_note()
+        if note:
+            raise ImportError(f"TensorRT export requires tensorrt. {note}")
         raise ImportError(
             "TensorRT export requires the 'tensorrt' package.\n\n"
             "Installation options:\n"
@@ -138,6 +159,9 @@ def _create_calibrator_class():
         return _TensorRTCalibratorImpl
 
     except ImportError:
+        note = tensorrt_python_version_note()
+        if note:
+            raise ImportError(f"INT8 calibration requires TensorRT. {note}")
         raise ImportError(
             "INT8 calibration requires TensorRT.\nInstall with: pip install tensorrt"
         )

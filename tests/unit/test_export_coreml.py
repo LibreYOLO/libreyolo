@@ -517,7 +517,20 @@ def test_missing_coremltools_message_fits_the_platform(
     import libreyolo.export.coreml as coreml_export
 
     monkeypatch.setitem(sys.modules, "coremltools", None)
+    # Pin a Python the extra supports; 3.14 has its own message below.
+    monkeypatch.setattr(coreml_export.sys, "version_info", (3, 12, 0))
     monkeypatch.setattr(coreml_export.sys, "platform", plat)
     monkeypatch.setattr(coreml_export.platform, "machine", lambda: machine)
     with pytest.raises(ImportError, match=re.escape(expected)):
+        coreml_export._require_coremltools()
+
+
+def test_missing_coremltools_message_names_python_314(monkeypatch):
+    # coremltools has no 3.14 wheels, so the extra's marker skips it there.
+    import libreyolo.export.coreml as coreml_export
+
+    monkeypatch.setitem(sys.modules, "coremltools", None)
+    monkeypatch.setattr(coreml_export.sys, "version_info", (3, 14, 0))
+    monkeypatch.setattr(coreml_export.sys, "platform", "darwin")
+    with pytest.raises(ImportError, match="Use Python 3.13 or earlier"):
         coreml_export._require_coremltools()
