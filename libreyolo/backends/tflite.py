@@ -38,7 +38,7 @@ class TFLiteBackend(BaseBackend):
         except ImportError as exc:
             raise ImportError(
                 "TFLite inference requires ai-edge-litert. "
-                "Install with: pip install libreyolo[tflite]"
+                'Install with: pip install "libreyolo[tflite]"'
             ) from exc
 
         metadata_path = Path(str(path) + ".json")

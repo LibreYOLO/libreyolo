@@ -1,8 +1,8 @@
 # LibreYOLO
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[English](https://github.com/LibreYOLO/libreyolo/blob/release/README.md) | [简体中文](https://github.com/LibreYOLO/libreyolo/blob/release/README.zh-CN.md)
 
-> ⭐ **Support LibreYOLO.** The best way to help is to **star the repo**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)). If you want to contribute economically, that is very welcome: see the [sponsorship program](SPONSORS.md).
+> ⭐ **Support LibreYOLO.** The best way to help is to **star the repo**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](https://github.com/LibreYOLO/libreyolo/blob/release/CONTRIBUTING.md)). If you want to contribute economically, that is very welcome: see the [sponsorship program](https://github.com/LibreYOLO/libreyolo/blob/release/SPONSORS.md).
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
@@ -11,7 +11,7 @@
 [![Benchmarks](https://img.shields.io/badge/benchmarks-visionanalysis.org-purple)](https://www.visionanalysis.org/)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-LibreYOLO-blue?logo=linkedin)](https://www.linkedin.com/company/libreyolo/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/LibreYOLO/libreyolo/blob/release/LICENSE)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LibreYOLO/libreyolo/blob/release/notebooks/quickstart.ipynb)
 
 **An MIT-licensed computer vision library.** Detection, segmentation, pose,
@@ -19,7 +19,7 @@ depth, OCR and a dozen more tasks behind one small API, with training and
 export included rather than sold separately. Reads common YOLO-format
 datasets, so existing workflows port over with minimal changes.
 
-![LibreYOLO Detection Example](libreyolo/assets/guggenheim-bilbao_result.jpg)
+![LibreYOLO Detection Example](https://raw.githubusercontent.com/LibreYOLO/libreyolo/release/libreyolo/assets/guggenheim-bilbao_result.jpg)
 
 ## Install
 
@@ -33,6 +33,24 @@ from libreyolo import LibreYOLO, SAMPLE_IMAGE
 model = LibreYOLO("LibreYOLO9t.pt")
 result = model(SAMPLE_IMAGE, save=True)
 ```
+
+Models on the Hugging Face Hub load by repo id, on a plain install since 1.7.3:
+`LibreYOLO("LibreYOLO/LibreYOLO9t")`.
+
+<details>
+<summary><b>CPU-only install on Linux</b></summary>
+
+<br>
+
+On Linux x86_64, `pip install libreyolo` pulls the CUDA build of PyTorch, several GB
+of wheels. Without an NVIDIA GPU, install the CPU build of PyTorch first:
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install libreyolo
+```
+
+</details>
 
 <details>
 <summary><b>Optional extras</b></summary>
@@ -55,7 +73,10 @@ Comma-separate to combine, for example `pip install "libreyolo[rfdetr,hub-kernel
 
 `executorch`, `coreai` and `neptune` are deliberately left out of `all`: they
 pin torch or protobuf in ways that would drag the rest of the environment with
-them. Full list and per-backend notes in the
+them. On Python versions an export backend publishes no wheels for (for
+example `tflite` export and `executorch` on 3.14, `paddle` on 3.13+), the
+extra skips that backend and still installs the current LibreYOLO. Full list
+and per-backend notes in the
 [install guide](https://www.libreyolo.com/docs/install).
 
 </details>
@@ -169,13 +190,13 @@ Support varies by family and task, see the
 
 - [Docs](https://www.libreyolo.com/docs) covers install, tasks, models, training, prediction, export and the CLI
 - [Benchmarks](https://www.visionanalysis.org/) for independent numbers
-- [CHANGELOG.md](CHANGELOG.md) for what changed
+- [CHANGELOG.md](https://github.com/LibreYOLO/libreyolo/blob/release/CHANGELOG.md) for what changed
 
 ## Sponsors
 
 The code is written in free time. Training new models, such as LibreYOLO26
 and MIT retrains of families with restrictive weights, costs rented GPU time,
-and the [LibreYOLO Sponsorship Program](SPONSORS.md) pays for it. Companies
+and the [LibreYOLO Sponsorship Program](https://github.com/LibreYOLO/libreyolo/blob/release/SPONSORS.md) pays for it. Companies
 get their logo here from $100 a month, and from $500 a month are named in
 every release and in the model card of every weight released while they
 sponsor. Hardware manufacturers can sponsor by sending a device.

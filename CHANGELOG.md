@@ -5,6 +5,24 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases
 before 1.4.0 are documented in the
 [GitHub Releases](https://github.com/LibreYOLO/libreyolo/releases) only.
 
+## [1.7.4] - 2026-11-07
+
+### Fixed
+
+- **Extras no longer install an old LibreYOLO on Python 3.13 and 3.14.**
+  On Python 3.14, `pip install "libreyolo[all]"` installed LibreYOLO 1.2.0, `[tflite]` 1.2.0, `[litert]` 1.3.1 and `[executorch]` 1.7.0; `[paddle]` installed 1.4.0 on Python 3.13 and 3.14. A pinned dependency had no wheels for that Python, so pip went back through older releases until one resolved. Environment markers now skip those dependencies there, and the current release installs without that backend: the onnx2tf TFLite converter on 3.14 (it pins ai-edge-litert 2.1.2 and numpy 2.2.6; TFLite inference still installs), ExecuTorch 1.2 on 3.14, paddlepaddle 2.6.2 and X2Paddle on 3.13+, `tensorrt-cu12` 10.16 on 3.14, and coremltools on 3.14. Using a skipped backend says which Python it needs. The dependency-resolution CI check now covers Python 3.14.
+
+- **Missing-extra messages quote the install command.**
+  Messages such as `pip install libreyolo[rfdetr]` failed in zsh, the macOS default shell, which reads the brackets as a glob. All of them now read `pip install "libreyolo[rfdetr]"`, including the hints in `libreyolo models`.
+
+- **ONNX export without the `onnx` extra points at `pip install "libreyolo[onnx]"`.**
+  It suggested `uv sync --extra onnx`, which only works in a repo clone, or `pip install onnx`, which leaves out onnxruntime and onnxsim.
+
+### Changed
+
+- **README: CPU-only install on Linux, a Hub example, and links that work on PyPI.**
+  The README, also the PyPI page, shows how to install the CPU build of PyTorch on Linux to skip the CUDA wheels, shows `LibreYOLO("LibreYOLO/LibreYOLO9t")`, and uses absolute links and image paths. Same in the Chinese README.
+
 ## [1.7.3] - 2026-11-07
 
 ### Fixed

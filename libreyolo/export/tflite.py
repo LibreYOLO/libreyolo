@@ -90,7 +90,14 @@ def check_tflite_export_available() -> None:
             "TFLite export requires Python 3.12 or newer because onnx2tf 2.4.x "
             "does not publish wheels for older Python versions.\n\n"
             "Install in a Python 3.12 environment with:\n"
-            "  pip install libreyolo[tflite]"
+            '  pip install "libreyolo[tflite]"'
+        )
+    if sys.version_info >= (3, 14):
+        raise ImportError(
+            "TFLite export needs Python 3.12 or 3.13: onnx2tf pins "
+            "ai-edge-litert 2.1.2 and numpy 2.2.6, which have no wheels for "
+            f"Python {sys.version_info[0]}.{sys.version_info[1]} yet, so "
+            '`pip install "libreyolo[tflite]"` skips the converter here.'
         )
 
     try:
@@ -99,7 +106,7 @@ def check_tflite_export_available() -> None:
         raise ImportError(
             "TFLite export requires the optional onnx2tf converter.\n\n"
             "Install with:\n"
-            "  pip install libreyolo[tflite]"
+            '  pip install "libreyolo[tflite]"'
         ) from e
 
 
@@ -439,7 +446,7 @@ def _replace_gridsample_for_tflite(onnx_path: Path, output_dir: Path) -> Path:
     except ImportError as exc:
         raise ImportError(
             "onnx and onnx-graphsurgeon are required for RF-DETR TFLite export. "
-            "Install with: pip install libreyolo[tflite]"
+            'Install with: pip install "libreyolo[tflite]"'
         ) from exc
 
     model = onnx.load(str(onnx_path))
@@ -525,7 +532,7 @@ def _simplify_rfdetr_onnx(
     except ImportError as exc:
         raise ImportError(
             "onnx-simplifier is required for RF-DETR TFLite export. "
-            "Install with: pip install libreyolo[tflite]"
+            'Install with: pip install "libreyolo[tflite]"'
         ) from exc
 
     model = onnx.load(str(onnx_path))

@@ -95,10 +95,10 @@ def test_mnn_metadata_is_fixed_fp32_contract():
 
 def test_mnn_preflight_reports_optional_dependency_install_hint(monkeypatch):
     def missing_dependency():
-        raise ImportError("Install with: pip install libreyolo[mnn]")
+        raise ImportError('Install with: pip install "libreyolo[mnn]"')
 
     monkeypatch.setattr(mnn_export, "check_mnn_available", missing_dependency)
-    with pytest.raises(ImportError, match=r"pip install libreyolo\[mnn\]"):
+    with pytest.raises(ImportError, match=r'pip install "libreyolo\[mnn\]"'):
         MNNExporter(_wrapper())._preflight(half=False, int8=False, data=None)
 
 
@@ -331,5 +331,5 @@ def test_environment_script_returns_none_when_absent(tmp_path, monkeypatch):
     monkeypatch.setattr(_scripts.sys, "executable", str(tmp_path / "python"))
     monkeypatch.setattr(_scripts.shutil, "which", lambda name: None)
     assert _scripts.environment_script("mnnconvert") is None
-    with pytest.raises(ImportError, match=r"pip install libreyolo\[mnn\]"):
+    with pytest.raises(ImportError, match=r'pip install "libreyolo\[mnn\]"'):
         mnn_export._find_mnnconvert()

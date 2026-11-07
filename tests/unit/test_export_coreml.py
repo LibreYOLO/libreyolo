@@ -503,8 +503,8 @@ def test_yolo9_export_warm_up_freezes_the_anchor_grid():
 @pytest.mark.parametrize(
     ("plat", "machine", "expected"),
     [
-        ("darwin", "arm64", "pip install libreyolo[coreml]"),
-        ("linux", "x86_64", "pip install libreyolo[coreml]"),
+        ("darwin", "arm64", 'pip install "libreyolo[coreml]"'),
+        ("linux", "x86_64", 'pip install "libreyolo[coreml]"'),
         ("win32", "AMD64", "wheels for macOS and Linux x86_64 only"),
         ("linux", "aarch64", "wheels for macOS and Linux x86_64 only"),
     ],

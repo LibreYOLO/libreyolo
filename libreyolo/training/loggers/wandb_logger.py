@@ -21,7 +21,7 @@ def _import_wandb():
     except ImportError as exc:
         raise ImportError(
             "WandbLogger requires the 'wandb' package. "
-            "Install it with: pip install libreyolo[wandb]"
+            'Install it with: pip install "libreyolo[wandb]"'
         ) from exc
     return wandb
 

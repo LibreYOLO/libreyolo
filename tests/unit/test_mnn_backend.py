@@ -199,7 +199,7 @@ def test_backend_reports_optional_dependency_install_hint(tmp_path, monkeypatch)
 
     monkeypatch.delitem(sys.modules, "MNN", raising=False)
     monkeypatch.setattr(builtins, "__import__", missing_mnn)
-    with pytest.raises(ImportError, match=r"pip install libreyolo\[mnn\]"):
+    with pytest.raises(ImportError, match=r'pip install "libreyolo\[mnn\]"'):
         MNNBackend(str(path))
 
 
@@ -288,5 +288,5 @@ def test_import_mnn_points_a_missing_package_at_the_extra(monkeypatch):
     from libreyolo.backends.mnn import import_mnn
 
     monkeypatch.setitem(sys.modules, "MNN", None)
-    with pytest.raises(ImportError, match=r"pip install libreyolo\[mnn\]"):
+    with pytest.raises(ImportError, match=r'pip install "libreyolo\[mnn\]"'):
         import_mnn("MNN inference")

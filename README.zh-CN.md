@@ -1,10 +1,10 @@
 # LibreYOLO
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[English](https://github.com/LibreYOLO/libreyolo/blob/release/README.md) | [简体中文](https://github.com/LibreYOLO/libreyolo/blob/release/README.zh-CN.md)
 
 > **注意：** 本中文 README 由 AI 翻译，可能包含不准确或不自然的表述。请以英文 README 为准。
 
-> ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](CONTRIBUTING.md)）。 如果你愿意在经济上支持项目，非常欢迎：请查看[赞助计划](SPONSORS.md)。
+> ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](https://github.com/LibreYOLO/libreyolo/blob/release/CONTRIBUTING.md)）。 如果你愿意在经济上支持项目，非常欢迎：请查看[赞助计划](https://github.com/LibreYOLO/libreyolo/blob/release/SPONSORS.md)。
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
@@ -13,14 +13,14 @@
 [![Benchmarks](https://img.shields.io/badge/benchmarks-visionanalysis.org-purple)](https://www.visionanalysis.org/)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-LibreYOLO-blue?logo=linkedin)](https://www.linkedin.com/company/libreyolo/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/LibreYOLO/libreyolo/blob/release/LICENSE)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LibreYOLO/libreyolo/blob/release/notebooks/quickstart.ipynb)
 
 **一个采用 MIT 许可证的计算机视觉库。** 检测、分割、姿态、深度、OCR
 等十几种任务共用一套精简 API，训练和导出内置提供，而非单独收费。
 支持读取常见的 YOLO 格式数据集，因此现有工作流只需少量改动即可迁移。
 
-![LibreYOLO 检测示例](libreyolo/assets/guggenheim-bilbao_result.jpg)
+![LibreYOLO 检测示例](https://raw.githubusercontent.com/LibreYOLO/libreyolo/release/libreyolo/assets/guggenheim-bilbao_result.jpg)
 
 ## 安装
 
@@ -34,6 +34,24 @@ from libreyolo import LibreYOLO, SAMPLE_IMAGE
 model = LibreYOLO("LibreYOLO9t.pt")
 result = model(SAMPLE_IMAGE, save=True)
 ```
+
+Hugging Face Hub 上的模型可直接按仓库名加载，自 1.7.3 起普通安装即可使用：
+`LibreYOLO("LibreYOLO/LibreYOLO9t")`。
+
+<details>
+<summary><b>Linux 仅 CPU 安装</b></summary>
+
+<br>
+
+在 Linux x86_64 上，`pip install libreyolo` 会安装 CUDA 版 PyTorch，wheel 合计数 GB。
+没有 NVIDIA GPU 时，请先安装 CPU 版 PyTorch：
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install libreyolo
+```
+
+</details>
 
 <details>
 <summary><b>可选扩展依赖</b></summary>
@@ -165,11 +183,11 @@ libreyolo export --model yolo9-t --format onnx
 
 - [文档](https://www.libreyolo.com/docs)涵盖安装、任务、模型、训练、推理、导出和 CLI
 - [基准测试](https://www.visionanalysis.org/)提供独立的第三方数据
-- [CHANGELOG.md](CHANGELOG.md) 记录版本变更
+- [CHANGELOG.md](https://github.com/LibreYOLO/libreyolo/blob/release/CHANGELOG.md) 记录版本变更
 
 ## 赞助
 
-代码在业余时间编写。训练新模型（例如 LibreYOLO26，以及为权重许可受限的模型家族重新训练 MIT 权重）需要租用 GPU，[LibreYOLO 赞助计划](SPONSORS.md)为此付费。企业每月赞助 $100 起即可在此展示 logo；每月 $500 起，还会在每次发布说明以及赞助期间发布的每个权重的模型卡中署名。硬件厂商可以通过寄送设备来赞助。
+代码在业余时间编写。训练新模型（例如 LibreYOLO26，以及为权重许可受限的模型家族重新训练 MIT 权重）需要租用 GPU，[LibreYOLO 赞助计划](https://github.com/LibreYOLO/libreyolo/blob/release/SPONSORS.md)为此付费。企业每月赞助 $100 起即可在此展示 logo；每月 $500 起，还会在每次发布说明以及赞助期间发布的每个权重的模型卡中署名。硬件厂商可以通过寄送设备来赞助。
 
 [![Sponsor](https://img.shields.io/badge/sponsor-Open%20Collective-7fadf2?logo=opencollective)](https://opencollective.com/libreyolo)
 

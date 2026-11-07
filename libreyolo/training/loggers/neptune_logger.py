@@ -19,7 +19,7 @@ def _import_neptune_run():
     except ImportError as exc:
         raise ImportError(
             "NeptuneLogger requires the 'neptune-scale' package. "
-            "Install it with: pip install libreyolo[neptune]"
+            'Install it with: pip install "libreyolo[neptune]"'
         ) from exc
     return Run
 

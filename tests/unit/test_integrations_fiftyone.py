@@ -232,7 +232,7 @@ class TestOptionalDependency:
         # A None entry in sys.modules makes ``import fiftyone`` fail the same
         # way an uninstalled package does.
         monkeypatch.setitem(sys.modules, "fiftyone", None)
-        with pytest.raises(ImportError, match=r"pip install libreyolo\[fiftyone\]"):
+        with pytest.raises(ImportError, match=r'pip install "libreyolo\[fiftyone\]"'):
             _import_fiftyone()
 
 

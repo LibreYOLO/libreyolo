@@ -21,7 +21,7 @@ def _import_dvclive():
     except ImportError as exc:
         raise ImportError(
             "DVCLiveLogger requires the 'dvclive' package. "
-            "Install it with: pip install libreyolo[dvclive]"
+            'Install it with: pip install "libreyolo[dvclive]"'
         ) from exc
     return Live
 

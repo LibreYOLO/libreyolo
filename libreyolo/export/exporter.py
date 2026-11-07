@@ -937,7 +937,7 @@ class BaseExporter(ABC):
         if self.requires_onnx and importlib.util.find_spec("onnx") is None:
             raise ImportError(
                 "ONNX export requires the 'onnx' package. "
-                "Install with: uv sync --extra onnx  or  pip install onnx"
+                'Install with: pip install "libreyolo[onnx]"'
             )
 
     def _square_fallback_for_restored_rect(

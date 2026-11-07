@@ -199,7 +199,7 @@ def export_onnx(
     if importlib.util.find_spec("onnx") is None:
         raise ImportError(
             "ONNX export requires the 'onnx' package. "
-            "Install with: uv sync --extra onnx  or  pip install onnx"
+            'Install with: pip install "libreyolo[onnx]"'
         )
 
     task = metadata.get("task")
@@ -671,19 +671,19 @@ def check_onnx_int8_available() -> None:
     if importlib.util.find_spec("onnx") is None:
         raise ImportError(
             "ONNX INT8 export requires the 'onnx' package. "
-            "Install with: uv sync --extra onnx  or  pip install onnx"
+            'Install with: pip install "libreyolo[onnx]"'
         )
     if importlib.util.find_spec("onnxruntime") is None:
         raise ImportError(
             "ONNX INT8 export requires the 'onnxruntime' package. "
-            "Install with: uv sync --extra onnx  or  pip install onnxruntime"
+            'Install with: pip install "libreyolo[onnx]"'
         )
     try:
         from onnxruntime.quantization import quantize_static  # noqa: F401
     except ImportError as exc:
         raise ImportError(
             "ONNX INT8 export requires ONNX Runtime quantization support. "
-            "Install with: uv sync --extra onnx  or  pip install onnxruntime"
+            'Install with: pip install "libreyolo[onnx]"'
         ) from exc
 
 

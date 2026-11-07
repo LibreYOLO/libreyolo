@@ -2624,7 +2624,7 @@ class BaseModel(ABC):
         ``LibreYOLO("owner/repo")``.
 
         Requires the optional huggingface_hub package
-        (``pip install libreyolo[hf]``) and Hub authentication with write
+        (``pip install "libreyolo[hf]"``) and Hub authentication with write
         scope (``hf auth login`` or the ``HF_TOKEN`` environment variable, or
         pass ``token=``).
 

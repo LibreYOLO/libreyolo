@@ -1,6 +1,6 @@
 """Hugging Face Hub integration: load checkpoints from any repo, push your own.
 
-Two directions, both optional (``pip install libreyolo[hf]``):
+Two directions, both optional (``pip install "libreyolo[hf]"``):
 
 - Loading: ``LibreYOLO("owner/repo")`` or ``LibreYOLO("hf://owner/repo")``
   downloads a LibreYOLO checkpoint from any Hub repository into the shared
@@ -94,7 +94,7 @@ def _require_hub():
         raise ImportError(
             "This model reference points to the Hugging Face Hub, which "
             "requires the optional huggingface_hub package. Install it with: "
-            "pip install libreyolo[hf]"
+            'pip install "libreyolo[hf]"'
         ) from exc
     return huggingface_hub
 
