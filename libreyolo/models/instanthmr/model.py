@@ -309,6 +309,11 @@ class LibreInstantHMR(BaseModel):
             raise NotImplementedError(
                 "InstantHMR fine-tuning does not support resume yet."
             )
+        if kwargs.pop("pretrained", True) is False:
+            raise NotImplementedError(
+                "InstantHMR training from scratch is not supported; fine-tune a checkpoint."
+            )
+        validate = bool(kwargs.pop("val", True)) and kwargs.pop("eval_interval", 1) != 0
         allowed = {"weight_decay", "backbone_lr_ratio", "w_2d", "w_reproj", "w_prior"}
         unknown = sorted(set(kwargs) - allowed - {"imgsz"})
         if unknown:
@@ -334,6 +339,7 @@ class LibreInstantHMR(BaseModel):
             patience=patience,
             freeze_backbone=freeze_backbone,
             freeze_bn=freeze_bn,
+            validate=validate,
             **kwargs,
         )
         results = trainer.train()
@@ -352,8 +358,16 @@ class LibreInstantHMR(BaseModel):
         format: str = "onnx",
         *,
         output_path: str | Path | None = None,
-        opset: int = 17,
+        opset: int | None = 17,
         dynamic: bool = True,
+        batch: int = 1,
+        half: bool = False,
+        int8: bool = False,
+        imgsz=None,
+        nms: bool = False,
+        simplify: bool = False,
+        device=None,
+        verbose: bool = False,
         **kwargs,
     ) -> str:
         """Export ``image (B,3,288,288), cliff_cond (B,3)`` -> parameters, keypoints and mesh.
@@ -364,12 +378,24 @@ class LibreInstantHMR(BaseModel):
         in camera axes. The mesh faces, crop size and conditioning form are
         stored in the graph metadata.
         """
+        # simplify, device and verbose are accepted for CLI compatibility and
+        # have no effect: the graph is traced on CPU and not simplified.
+        del simplify, device, verbose
         if kwargs:
             raise TypeError(
                 f"Unsupported InstantHMR export arguments: {', '.join(sorted(kwargs))}"
             )
         if str(format).lower() != "onnx":
             raise NotImplementedError("LibreInstantHMR export supports ONNX only.")
+        if half or int8:
+            raise NotImplementedError("LibreInstantHMR exports FP32 ONNX only.")
+        if nms:
+            raise ValueError("nms does not apply to the body-mesh export.")
+        size = self.model.image_size
+        if imgsz is not None and imgsz not in (size, (size, size), [size, size]):
+            raise ValueError(f"InstantHMR takes fixed {size} px person crops; imgsz cannot change.")
+        opset = 17 if opset is None else int(opset)
+        batch = max(1, int(batch or 1))
         from ...export.onnx import embed_onnx_metadata
 
         default = (
@@ -381,8 +407,7 @@ class LibreInstantHMR(BaseModel):
         destination.parent.mkdir(parents=True, exist_ok=True)
 
         module = InstantHMRExport(self.model).eval().to("cpu")
-        size = self.model.image_size
-        inputs = (torch.zeros(1, 3, size, size), torch.zeros(1, 3))
+        inputs = (torch.zeros(batch, 3, size, size), torch.zeros(batch, 3))
         names = list(InstantHMRExport.OUTPUTS)
         axes = (
             {n: {0: "batch"} for n in ["image", "cliff_cond", *names]}
@@ -401,7 +426,7 @@ class LibreInstantHMR(BaseModel):
                     input_names=["image", "cliff_cond"],
                     output_names=names,
                     dynamic_axes=axes,
-                    opset_version=int(opset),
+                    opset_version=opset,
                     dynamo=False,
                 )
         finally:

@@ -176,6 +176,7 @@ class InstantHMRFineTuner:
         w_reproj: float = 1.0,
         w_prior: float = 1.0,
         patience: int = 0,
+        validate: bool = True,
     ):
         from ...data.utils import load_data_config
         from ...utils.general import increment_path
@@ -198,8 +199,13 @@ class InstantHMRFineTuner:
             float(w_prior),
         )
         self.patience = int(patience)
+        self.validate = bool(validate)
         self.seed = int(seed)
-        self.device = torch.device(device) if device else wrapper.device
+        self.device = (
+            wrapper.device if device in (None, "", "auto") else torch.device(
+                f"cuda:{device}" if str(device).isdigit() else device
+            )
+        )
         self.save_dir = increment_path(
             Path(project) / name, exist_ok=exist_ok, mkdir=True
         )
@@ -350,7 +356,7 @@ class InstantHMRFineTuner:
             raise ValueError(
                 "No labelled persons with enough visible keypoints in the train split."
             )
-        val_loader = self._loader("val", augment=False)
+        val_loader = self._loader("val", augment=False) if self.validate else None
         optimizer = self._optimizer(net)
         steps = max(1, self.epochs * len(train_loader))
         warmup = min(100, steps // 10)

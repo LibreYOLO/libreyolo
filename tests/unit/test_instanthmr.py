@@ -285,3 +285,32 @@ def test_fine_tune_rejects_non_coco17(nano_checkpoint, tmp_path):
     )
     with pytest.raises(ValueError, match="COCO-17"):
         model.train(data=data, epochs=1, project=str(tmp_path / "runs"))
+
+
+def test_export_accepts_cli_arguments(nano_checkpoint, tmp_path):
+    pytest.importorskip("onnx")
+    model = LibreInstantHMR(str(nano_checkpoint), size="n", device="cpu", person_detector=None)
+    cli_kwargs = {
+        "half": False,
+        "int8": False,
+        "dynamic": True,
+        "simplify": False,
+        "opset": None,
+        "batch": 1,
+        "device": "cpu",
+        "verbose": False,
+    }
+    path = model.export(format="onnx", output_path=tmp_path / "m.onnx", **cli_kwargs)
+    assert Path(path).exists()
+    with pytest.raises(NotImplementedError):
+        model.export(format="onnx", output_path=tmp_path / "h.onnx", half=True)
+    with pytest.raises(ValueError):
+        model.export(format="onnx", output_path=tmp_path / "s.onnx", imgsz=640)
+
+
+def test_cli_passes_only_user_train_options():
+    from libreyolo.cli.config import build_family_train_kwargs
+
+    params = {"epochs": 3, "batch": 16, "imgsz": 640, "optimizer": "SGD", "amp": True}
+    kwargs = build_family_train_kwargs(params, "instanthmr", user_provided={"epochs"})
+    assert kwargs == {"epochs": 3}
