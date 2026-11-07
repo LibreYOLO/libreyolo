@@ -91,6 +91,11 @@ def _summarize_result(result) -> tuple[str, str]:
     if obb is not None:
         return "obb", _plural(len(obb), "object")
 
+    # Mesh results carry the person boxes too.
+    meshes = getattr(result, "meshes", None)
+    if meshes is not None:
+        return "mesh", _plural(len(meshes), "body", "bodies")
+
     boxes = getattr(result, "boxes", None)
     if boxes is not None:
         n = len(boxes)

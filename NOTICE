@@ -1150,6 +1150,15 @@ RiO-DETRv2 (Apache License 2.0)
     changes; this port relies on the Apache-2.0 grant of the initial
     release and uses nothing from later commits. See the family NOTICE.
 
+InstantHMR (Apache License 2.0)
+    Path:    libreyolo/models/instanthmr/
+    License: libreyolo/models/instanthmr/LICENSE
+    Source:  https://github.com/Naturalpad-studio/InstantHMR
+    Commit:  5437400d4b25c1972821e51916fac34bd96acce6
+
+    Native port of the InstantHMR mesh network and its exportable MHR
+    body. decode.py is a clean-room implementation. See the family NOTICE.
+
 ------------------------------------------------------------------------
 Pretrained model weights
 ------------------------------------------------------------------------

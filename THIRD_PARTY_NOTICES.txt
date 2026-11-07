@@ -2764,6 +2764,25 @@ The full Apache License 2.0 text is included at
 libreyolo/models/picosam3/LICENSE.
 
 --------------------------------------------------------------------
+InstantHMR
+--------------------------------------------------------------------
+Source: https://github.com/Naturalpad-studio/InstantHMR
+Commit: 5437400d4b25c1972821e51916fac34bd96acce6
+License: Apache License 2.0
+Used for: the native LibreInstantHMR mesh network in
+          libreyolo/models/instanthmr (network layout from
+          training/train.py, the exportable MHR body from
+          training/mhr_body.py, person-crop preprocessing from
+          instanthmr/inference.py). The 447-to-204 MHR decode in decode.py
+          is a clean-room implementation; upstream's training/mhr_cont.py,
+          which transcribes SAM-licensed sam-3d-body code, is not used.
+          Released ONNX weights from Hugging Face momolesang/InstantHMR are
+          converted with weights/convert_instanthmr_weights.py.
+
+The full Apache License 2.0 text is included at
+libreyolo/models/instanthmr/LICENSE.
+
+--------------------------------------------------------------------
 SAM 3.1 / Hugging Face Transformers SAM 3 converters
 --------------------------------------------------------------------
 Converter source: https://github.com/huggingface/transformers

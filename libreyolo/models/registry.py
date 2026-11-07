@@ -49,6 +49,7 @@ MODEL_GROUPS: dict[str, str] = {
     "lingbotvision": "g2",
     "dinov2": "g2",
     "nafnet": "g2",
+    "instanthmr": "g2",
     "resnet": "g2",
     "convnext": "g2",
     "convnextv2": "g2",

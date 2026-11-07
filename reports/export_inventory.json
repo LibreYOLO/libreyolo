@@ -1292,6 +1292,30 @@
     "available": true,
     "group": "g3"
   },
+  "instanthmr": {
+    "class": "libreyolo.models.instanthmr.model.LibreInstantHMR",
+    "tasks": [
+      "mesh"
+    ],
+    "default_task": "mesh",
+    "sizes": {
+      "n": 288,
+      "t": 288,
+      "s": 288,
+      "m": 288
+    },
+    "default_imgsz": {
+      "n": 288,
+      "t": 288,
+      "s": 288,
+      "m": 288
+    },
+    "task_sizes": {},
+    "export_override": "custom",
+    "optional_extra": null,
+    "available": true,
+    "group": "g2"
+  },
   "internvl3": {
     "class": "libreyolo.models.vlm.internvl3.LibreInternVL3",
     "tasks": [

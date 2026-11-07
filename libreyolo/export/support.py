@@ -1792,6 +1792,18 @@ _add(
 )
 _add(
     "validated",
+    ("instanthmr",),
+    ("mesh",),
+    ("onnx",),
+    since="1.7",
+    constraint=(
+        "raw fixed-288 person-crop contract: image, cliff_cond -> mhr_params, "
+        "shape_params, cam_trans, joints_2d, joints_3d, vertices; mesh faces "
+        "in metadata"
+    ),
+)
+_add(
+    "validated",
     ("fomo",),
     ("point",),
     ("tensorrt",),

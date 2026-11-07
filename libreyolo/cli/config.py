@@ -547,7 +547,7 @@ def _build_rfdetr_train_kwargs(
 # per-task optimizer/LR/AMP). Forwarding the generic Typer defaults would
 # overwrite that recipe silently, so the CLI passes only the train options the
 # user set.
-_FAMILY_RESOLVED_TRAIN_DEFAULTS = frozenset({"gtr", "ppliteseg", "yolonas"})
+_FAMILY_RESOLVED_TRAIN_DEFAULTS = frozenset({"gtr", "instanthmr", "ppliteseg", "yolonas"})
 
 # Families whose own train() restores a resumed run's saved settings and run
 # directory (RF-DETR has its own builder below). On resume the CLI passes only

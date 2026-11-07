@@ -152,6 +152,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `ppdoclayoutv3` | `LibrePPDocLayoutV3` | Upstream brand casing preserved (`PP-DocLayoutV3`, hyphen dropped); detect-only document layout family with reading order; inference-only |
 | `facerec`   | `LibreFaceEmbedder` | Descriptive family name (no upstream brand): embed-only two-stage face detection + identity-embedding family, inference-only |
 | `sam3dbody` | `LibreSAM3DBody` | All-caps acronym plus CamelCase `Body` (hyphens dropped); mesh-only family. Named in full rather than shortened so it does not collide with the `LibreSAM` promptable-segmentation tier. Sizes are backbone codes: `d3` (DINOv3 ViT-H/16+) and `h` (ViT-H). This family wraps an optional third-party package rather than porting it; see ADR 0013 |
+| `instanthmr` | `LibreInstantHMR` | Upstream brand casing preserved (`InstantHMR`); mesh-only family. Canonical filenames carry `-mesh`; the `m` size has a `-commercial` weight variant trained only on commercially usable images |
 
 Casing rules observed in the table:
 
@@ -264,6 +265,7 @@ ships:
 | `ppyoloe`   | `s`, `m`, `l`, `x` (all at 640) |
 | `ec`     | `s`, `m`, `l`, `x` |
 | `l2cs`      | `r18`, `r34`, `r50`, `r101`, `r152` (ResNet backbone depth) |
+| `instanthmr` | `n`, `t`, `s`, `m` (HGNetV2-B0/B1/B2/B4 backbone; all at a fixed 288 person crop) |
 | `fomo`      | `s`, `m`, `l` |
 | `mobilenetv4` | `s`, `m`, `l` (conv-Small/Medium/Large) |
 | `convnext`  | `t`, `s`, `b` (V1 Tiny/Small/Base) |
@@ -629,6 +631,7 @@ Detector-factory family support follows:
 | `dekr`      | `("pose",)`                          | pose   | inference-only bottom-up COCO-17 pose; no person detector; `LibreDEKRw32-pose.pt` at 640; person boxes are derived from decoded keypoints, not predicted |
 | `ec`     | `("detect", "pose", "segment")`     | detect | all three tasks |
 | `l2cs`      | `("gaze",)`                         | gaze   | inference-only; two-stage (face detector + gaze head); not trainable in LibreYOLO |
+| `instanthmr` | `("mesh",)`                     | mesh   | best-effort fine-tuning from a pretrained checkpoint on YOLO-pose COCO-17 person keypoints (no from-scratch training, no `val`); two-stage (person detector, RF-DETR by default, + per-crop MHR regression); ONNX export of the crop network with the MHR body; `n`/`t`/`s`/`m` weights CC BY-NC 4.0, `m` `-commercial` variant Apache-2.0 |
 | `fomo`      | `("point",)`                        | point  | point-only localizer model |
 | `depth_anything` | `("depth",)`                   | depth  | Depth Anything V2 (DINOv2 + DPT); sizes `s`/`b`/`l`/`g` all at 518; predict + zero-shot `val`; not trainable in LibreYOLO |
 | `depth_anything3` | `("depth",)`                  | depth  | Depth Anything 3 mono (ViT-L + DPT); size `l` at upper-bound 504; recommended quality default; Apache-2.0 code/weights; predict + zero-shot `val`; not trainable in LibreYOLO |
