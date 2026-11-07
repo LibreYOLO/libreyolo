@@ -208,7 +208,7 @@ class MeshInferenceRunner:
             return normalize_person_boxes(person_boxes, min_score=0.0)
         if detector is None:
             raise RuntimeError(
-                "LibreSAM3DBody has no person source. Pass person_boxes=[...] for "
+                f"{type(self.model).__name__} has no person source. Pass person_boxes=[...] for "
                 "BYO boxes, or person_detector=... (a callable, a LibreYOLO model, "
                 "or a PersonDetector) when constructing or calling the model."
             )

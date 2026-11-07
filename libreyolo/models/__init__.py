@@ -106,6 +106,7 @@ from .yolo7.model import LibreYOLO7  # noqa: E402  (can_load keyed on unique imp
 from .hrnet.model import LibreHRNet  # noqa: E402,F401  (top-down pose; unique stage-fusion fingerprint)
 from .dekr.model import LibreDEKR  # noqa: E402,F401  (bottom-up pose; unique offset_final_layer stack)
 from .l2cs.model import LibreL2CS  # noqa: E402,F401  (import registers family)
+from .instanthmr.model import LibreInstantHMR  # noqa: E402,F401  (mesh-only; can_load keyed on cont_head.full_gather)
 from .fomo.model import LibreFOMO  # noqa: E402,F401  (import registers family)
 from .flowseek.model import LibreFlowSeek  # noqa: E402,F401  (flow-only; can_load keyed on bnet + merge_head + dav2)
 from .midas.model import LibreMiDaS  # noqa: E402,F401  (depth-only MiDaS museum family)
@@ -298,6 +299,10 @@ def _needs_rfdetr_registration(weights_dict: dict) -> bool:
     # Without this guard, loading LW-DETR weights would import RF-DETR and hard
     # fail whenever the optional ``rfdetr`` extra is not installed.
     if LibreDETR.can_load(weights_dict) or LibreLWDETR.can_load(weights_dict):
+        return False
+
+    # InstantHMR's decoder queries are named query_embed too.
+    if LibreInstantHMR.can_load(weights_dict):
         return False
 
     if "linear.weight" in weights_dict and any(
@@ -940,6 +945,7 @@ __all__ = [
     "LibreDDColor",
     "LibreHVICIDNet",
     "LibreLaMa",
+    "LibreInstantHMR",
     "LibreBiRefNet",
     "LibreFeyNobg",
     "LibreBEN2",

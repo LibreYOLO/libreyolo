@@ -188,6 +188,11 @@ class LibreRFDETR(BaseModel):
         ):
             return False
 
+        # InstantHMR's mesh decoder also has query_embed and transformer.*
+        # keys; its decode-head index table never appears in RF-DETR.
+        if "cont_head.full_gather" in weights_dict:
+            return False
+
         # The original Deformable DETR shares generic transformer/query/head
         # names with RF-DETR. Its ResNet body plus native deformable-attention
         # key hierarchy is a distinct core family and must never reach the
