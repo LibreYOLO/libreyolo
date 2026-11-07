@@ -258,6 +258,50 @@ def test_generate_returns_a_mesh_payload(monkeypatch, tmp_path, device):
     assert float(many[1].meshes.extras["vertex_colors"].max()) > 0
 
 
+class _OldTorchvisionBiRefNet(torch.nn.Module):
+    """A stand-in BiRefNet that fails on MPS as deform_conv2d does on old torchvision."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = torch.nn.Conv2d(3, 1, 1)
+
+    def forward(self, x):
+        if x.device.type == "mps":
+            raise NotImplementedError("torchvision::deform_conv2d has no MPS kernel")
+        # Foreground in the middle of the frame.
+        logits = torch.full_like(x[:, :1], -20.0)
+        logits[..., 256:768, 256:768] = 20.0
+        return logits + 0 * self.conv(x)
+
+
+@pytest.mark.parametrize("kernel", [False, True])
+def test_birefnet_device_on_mps_follows_deform_conv_support(monkeypatch, kernel):
+    from libreyolo.models.gen.triposr import model as tmodel
+
+    monkeypatch.setattr(tmodel, "_mps_has_deform_conv2d", lambda: kernel, raising=False)
+    expected = "mps" if kernel else "cpu"
+    assert tmodel._birefnet_device(torch.device("mps")).type == expected
+    assert tmodel._birefnet_device("cpu").type == "cpu"
+    assert tmodel._birefnet_device("cuda").type == "cuda"
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs Apple MPS")
+def test_rgb_photo_on_mps_without_deform_conv_kernel(monkeypatch):
+    from libreyolo.models.gen.triposr import model as tmodel
+
+    monkeypatch.setattr(tmodel, "_mps_has_deform_conv2d", lambda: False, raising=False)
+    monkeypatch.setattr(tnn.TripoSR, "_query_chunk", _sphere_query(0.4))
+    model = LibreTripoSR(device="cpu")
+    net = tnn.TripoSR(dict(_TINY, cond_image_size=64), _TINY_DINO).eval()
+    model._pipeline = _TripoSRModules(network=net, birefnet=_OldTorchvisionBiRefNet())
+    model.to("mps")
+    assert next(model._pipeline.network.parameters()).device.type == "mps"
+    assert next(model._pipeline.birefnet.parameters()).device.type == "cpu"
+    photo = Image.new("RGB", (96, 96), (30, 160, 60))
+    result = model(photo, resolution=32)
+    assert result.meshes.vertices.shape[-1] == 3
+
+
 def test_save_dir_uses_obj(monkeypatch, tmp_path):
     monkeypatch.setattr(tnn.TripoSR, "_query_chunk", _sphere_query(0.4))
     monkeypatch.chdir(tmp_path)

@@ -283,10 +283,10 @@ result.save("chair.obj")                 # vertex colours as `v x y z r g b`
 m = result.meshes
 m.vertices[0], m.faces                   # (V, 3) z-up in [-0.5, 0.5]^3, (F, 3)
 m.extras["vertex_colors"][0]             # (V, 3) RGB in [0, 1]
-model("chair.png", texture=True).save("chair.obj")   # + chair.mtl, chair.png
+model("chair.png", texture=True).save("chair.obj")   # + chair.mtl, chair_texture.png
 ```
 
-`steps` and `guidance` apply to both diffusion stages. `texture=True` bakes a
+`steps` (1 to 499) and `guidance` apply to both diffusion stages. `texture=True` bakes a
 1024 x 1024 UV texture as upstream does; it needs the MIT-licensed `xatlas`
 package (`pip install xatlas`) for the UV unwrap. The input is padded to a
 square on grey, as upstream, without a crop, so a photo works best with the
@@ -371,16 +371,14 @@ reserved by ADRs 0030 and 0031.
 LibreYOLO ships only its own adapter and payload code, plus the Speridlabs
 Idol networks ported from the Apache-2.0 Idol SDK, the TripoSplat
 networks ported from the MIT TripoSplat repository, the TRELLIS networks
-adapted from the MIT TRELLIS repository, the TripoSR networks adapted from
-the MIT TripoSR repository and the CRM networks adapted from the MIT CRM
-repository with FlexiCubes from NVIDIA's Apache-2.0 release (see each
-family's `NOTICE`). LGM's networks and its ImageDream sampler are adapted
-from the MIT LGM repository. Text-to-image models load through the
-Apache-2.0 `diffusers` API.
-
 adapted from the MIT TRELLIS repository, the TRELLIS.2 networks adapted from
-the MIT TRELLIS.2 repository and the TripoSR networks adapted from
-the MIT TripoSR repository (see each family's `NOTICE`). Text-to-image models load through the Apache-2.0 `diffusers` API.
+the MIT TRELLIS.2 repository, the Direct3D-S2 networks adapted from the MIT
+Direct3D-S2 repository, the TripoSR networks adapted from the MIT TripoSR
+repository and the CRM networks adapted from the MIT CRM repository with
+FlexiCubes from NVIDIA's Apache-2.0 release (see each family's `NOTICE`).
+LGM's networks and its ImageDream sampler are adapted from the MIT LGM
+repository. Text-to-image models load through the Apache-2.0 `diffusers` API.
+
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
 exceptions are the DINOv3 encoders Idol and TripoSplat (ViT-H+, mirrored in
 bf16) and TRELLIS.2 (ViT-L, mirrored unchanged) read, which LibreYOLO

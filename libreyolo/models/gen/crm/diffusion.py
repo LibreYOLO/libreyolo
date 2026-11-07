@@ -743,6 +743,22 @@ def alphas_cumprod(dtype: torch.dtype) -> torch.Tensor:
     return torch.tensor(cumprod, dtype=torch.float32).to(dtype).float()
 
 
+MAX_STEPS = 499
+
+
+def ddim_timesteps(steps: int) -> np.ndarray:
+    """Exactly ``steps`` DDIM timesteps on upstream's uniform stride.
+
+    Equal to upstream's ``range(0, 1000, 1000 // steps) + 1`` whenever that
+    has ``steps`` entries (50 does). Upstream's form runs extra steps for other
+    counts and indexes past the schedule for some; counts above ``MAX_STEPS``
+    would reach t = 999, whose zero-terminal-SNR alpha is 0.
+    """
+    if not 1 <= steps <= MAX_STEPS:
+        raise ValueError(f"steps must be in [1, {MAX_STEPS}], got {steps}.")
+    return np.arange(steps) * (1000 // steps) + 1
+
+
 def ddim_sample(
     denoise,
     x: torch.Tensor,
@@ -756,8 +772,7 @@ def ddim_sample(
     ``denoise(x_in, t_in)`` runs the unconditional and conditional halves in
     one batch and returns their noise predictions concatenated.
     """
-    stride = 1000 // steps
-    timesteps = np.asarray(list(range(0, 1000, stride))) + 1
+    timesteps = ddim_timesteps(steps)
     a = schedule[timesteps].double().numpy()
     a_prev = np.asarray([float(schedule[0])] + schedule[timesteps[:-1]].tolist())
     sqrt_one_minus = np.sqrt(1.0 - a)
