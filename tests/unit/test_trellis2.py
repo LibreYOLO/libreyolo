@@ -10,6 +10,7 @@ CPU and, when available, on Apple MPS.
 from __future__ import annotations
 
 import json
+import os
 
 import numpy as np
 import pytest
@@ -534,6 +535,15 @@ def _mps_ok() -> bool:
 
 
 @pytest.mark.skipif(not _mps_ok(), reason="needs an Apple GPU with bf16 on MPS")
+@pytest.mark.skipif(
+    os.environ.get("GITHUB_ACTIONS") == "true",
+    reason=(
+        "GitHub's macOS runners expose a virtualised Apple GPU on which this "
+        "MPS/CPU parity check diverges from the first transformer layer "
+        "(about 0.3 off on identical weights and an exact matmul), while it "
+        "passes on physical Apple GPUs. Run it on a real Mac."
+    ),
+)
 def test_tiny_pipeline_runs_on_mps_like_on_cpu():
     prepared = t2pipe.preprocess_image(_image(), _CentreBlob())
     stage = _stage(
