@@ -113,6 +113,7 @@ file = name + ".pt"
 | GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
 | MEMFOF | `LibreMEMFOF` | `LibreMEMFOFm-flow.pt` (three-frame optical flow; BSD-3-Clause code, weights tagged `bsd-3-clause` upstream with no licence file; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring`, one repo each) |
 | FOMO | `LibreFOMO` | `LibreFOMOs-point.pt` (hosted s/m/l are randomly initialised MIT weights; upstream FOMO weights are cc-by-nc-4.0 and not mirrored) |
+| InstantHMR | `LibreInstantHMR` | `LibreInstantHMRm-mesh.pt` (converted from upstream ONNX; n/t/s/m CC BY-NC 4.0, `-commercial` variant of m Apache-2.0; all carry the SAM License for the SAM 3D Body training labels) |
 
 Never-upload families: **L2CS** (Gaze360 terms forbid redistribution) and any
 weight whose upstream/training-data license fails the gate in
@@ -385,6 +386,9 @@ LibreMoGe3g-normal.pt,
 LibreZipDepthb-depth.pt, LibreZipDepthbnpu-depth.pt,
 
 LibreFOMOs-point.pt, LibreFOMOm-point.pt, LibreFOMOl-point.pt
+
+LibreInstantHMRn-mesh.pt, LibreInstantHMRt-mesh.pt, LibreInstantHMRs-mesh.pt,
+LibreInstantHMRm-mesh.pt, LibreInstantHMRm-mesh-commercial.pt
 
 LibreMEMFOFm-flow.pt, LibreMEMFOFm-flow-tartan.pt, LibreMEMFOFm-flow-tartan-t.pt,
 LibreMEMFOFm-flow-kitti.pt, LibreMEMFOFm-flow-sintel.pt, LibreMEMFOFm-flow-spring.pt
