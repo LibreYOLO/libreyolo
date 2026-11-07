@@ -607,9 +607,9 @@ class _Recorded(torch.nn.Module):
 def _load_with_stubs(monkeypatch, tmp_path, device, macos):
     import platform
 
-    import huggingface_hub
-    import safetensors.torch
-    import transformers
+    huggingface_hub = pytest.importorskip("huggingface_hub")
+    safetensors_torch = pytest.importorskip("safetensors.torch")
+    transformers = pytest.importorskip("transformers")
 
     from libreyolo.models.birefnet import nn as birefnet_nn
     from libreyolo.models.gen.trellis2 import model as t2model
@@ -641,7 +641,7 @@ def _load_with_stubs(monkeypatch, tmp_path, device, macos):
     _Recorded.built = []
     for name in set(names.values()):
         monkeypatch.setattr(t2nn, name, _Recorded)
-    monkeypatch.setattr(safetensors.torch, "load_file", lambda path: {})
+    monkeypatch.setattr(safetensors_torch, "load_file", lambda path: {})
     monkeypatch.setattr(huggingface_hub, "hf_hub_download", None)
     monkeypatch.setattr(birefnet_nn, "LibreBiRefNetModel", lambda size: _Recorded())
     monkeypatch.setattr(
