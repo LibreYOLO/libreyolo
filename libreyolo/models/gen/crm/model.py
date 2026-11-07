@@ -145,10 +145,12 @@ class LibreCRM(LibreGen3DModel):
     # ------------------------------------------------------------------
 
     def _resolve_knobs(self, knobs: dict[str, Any]) -> dict[str, Any]:
+        from .diffusion import MAX_STEPS
+
         settings = super()._resolve_knobs(knobs)
         steps = settings["steps"]
-        if isinstance(steps, bool) or not isinstance(steps, Integral) or not 1 <= steps <= 1000:
-            raise ValueError(f"steps must be an integer in [1, 1000], got {steps!r}.")
+        if isinstance(steps, bool) or not isinstance(steps, Integral) or not 1 <= steps <= MAX_STEPS:
+            raise ValueError(f"steps must be an integer in [1, {MAX_STEPS}], got {steps!r}.")
         settings["steps"] = int(steps)
         guidance = settings["guidance"]
         if (

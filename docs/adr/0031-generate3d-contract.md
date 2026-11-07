@@ -295,7 +295,7 @@ faces wound counter-clockwise seen from outside and
 `generation_params` (the model and knobs), which `summary()` reports.
 `texture=True` adds `extras["uv"]`, `extras["uv_faces"]` and
 `extras["texture"]` (1024 x 1024 uint8, row 0 at v = 0); `.obj` then comes
-with a `.mtl` and a `.png`. Upstream's CUDA-only and non-permissive pieces are
+with `<stem>.mtl` and `<stem>_texture.png`, and never replaces a file it did not write. Upstream's CUDA-only and non-permissive pieces are
 replaced: SDPA for xformers, NVIDIA's Apache-2.0 FlexiCubes for CRM's
 proprietary-header copy, a PyTorch UV rasterizer for nvdiffrast, a NumPy
 cleanup (same operations) for kiui/pymeshlab, LibreYOLO's BiRefNet for rembg.
