@@ -314,6 +314,7 @@ class LibreInstantHMR(BaseModel):
                 "InstantHMR training from scratch is not supported; fine-tune a checkpoint."
             )
         validate = bool(kwargs.pop("val", True)) and kwargs.pop("eval_interval", 1) != 0
+        val_loss = bool(kwargs.pop("val_loss", False))
         allowed = {"weight_decay", "backbone_lr_ratio", "w_2d", "w_reproj", "w_prior"}
         unknown = sorted(set(kwargs) - allowed - {"imgsz"})
         if unknown:
@@ -340,6 +341,7 @@ class LibreInstantHMR(BaseModel):
             freeze_backbone=freeze_backbone,
             freeze_bn=freeze_bn,
             validate=validate,
+            val_loss=val_loss,
             **kwargs,
         )
         results = trainer.train()

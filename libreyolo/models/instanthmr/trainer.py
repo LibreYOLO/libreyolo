@@ -178,6 +178,7 @@ class InstantHMRFineTuner:
         w_prior: float = 1.0,
         patience: int = 0,
         validate: bool = True,
+        val_loss: bool = False,
     ):
         from ...data.utils import load_data_config
         from ...utils.general import increment_path
@@ -201,6 +202,8 @@ class InstantHMRFineTuner:
         )
         self.patience = int(patience)
         self.validate = bool(validate)
+        self.val_loss = bool(val_loss)
+        self.validate_validation_loss_config()
         self.seed = int(seed)
         self.device = (
             wrapper.device if device in (None, "", "auto") else torch.device(
@@ -298,6 +301,23 @@ class InstantHMRFineTuner:
         }
 
     @torch.no_grad()
+    def validate_validation_loss_config(self) -> None:
+        """``val_loss=True`` is supported: the full objective runs on val batches."""
+        return None
+
+    @torch.no_grad()
+    def _validation_loss(self, net, teacher, loader) -> dict[str, float]:
+        """The training objective on the val split, as ``metrics/loss`` plus components."""
+        net.eval()
+        sums, n = {}, 0
+        for batch in loader:
+            for k, v in self._losses(net, teacher, batch).items():
+                sums[k] = sums.get(k, 0.0) + float(v)
+            n += 1
+        out = {f"metrics/loss/{k}": v / max(n, 1) for k, v in sums.items() if k != "loss"}
+        out["metrics/loss"] = sums.get("loss", 0.0) / max(n, 1)
+        return out
+
     def _validate(self, net, loader) -> dict[str, float]:
         net.eval()
         totals = {"2d": 0.0, "reproj": 0.0}
@@ -398,6 +418,8 @@ class InstantHMRFineTuner:
                 record.update(
                     {f"val/{k}": v for k, v in self._validate(net, val_loader).items()}
                 )
+                if self.val_loss:
+                    record.update(self._validation_loss(net, teacher, val_loader))
             score = record.get("val/reproj", record["train/reproj"])
             record["epoch"] = epoch + 1
             history.append(record)
