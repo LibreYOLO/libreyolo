@@ -168,6 +168,17 @@ def gate_failures(report):
     return failures + sorted(f"missing: {stage}" for stage in missing)
 
 
+def gate_cases(shared, cases):
+    """Failures of each image's rows plus the ``shared`` rows, so every image must hold every stage."""
+    failures = []
+    for name, rows in cases:
+        failures += [
+            f"{name}: {failure}" if failure.startswith("missing") else failure
+            for failure in gate_failures({**shared, **rows})
+        ]
+    return list(dict.fromkeys(failures))
+
+
 def stat(name, a, b, stage):
     a, b = a.float().cpu(), b.float().cpu()
     d = (a - b).abs()
@@ -457,19 +468,14 @@ def main():
     pipe.to("cuda")
     model = LibreDirect3DS2(checkpoint_dir=ARGS.weights, device="cuda")
     model._ensure_loaded()
-    failures = []
+    cases = []
     for name, path in zip(names, images):
         before = set(REPORT)
         stages(pipe, model, path, ARGS.seed)
         end_to_end(pipe, model, path, ARGS.seed, 512)
         end_to_end(pipe, model, path, ARGS.seed, 1024)
-        # Gate each image on its own rows, so every image must hold every stage.
-        case = {key: row for key, row in REPORT.items() if key not in before}
-        failures += [
-            f"{name}: {failure}" if failure.startswith("missing") else failure
-            for failure in gate_failures({**conv, **case})
-        ]
-    failures = list(dict.fromkeys(failures))
+        cases.append((name, {key: row for key, row in REPORT.items() if key not in before}))
+    failures = gate_cases(conv, cases)
     limits = {"bitwise": BITWISE, "rel_mean": REL_LIMITS, "mesh": MESH_LIMITS}
     with open(ARGS.out, "w") as handle:
         json.dump({"limits": limits, "failures": failures, "results": REPORT}, handle, indent=2)

@@ -688,7 +688,7 @@ def _parity_gate():
     keep = [
         node
         for node in tree.body
-        if (isinstance(node, ast.FunctionDef) and node.name in ("_finite", "gate_failures"))
+        if (isinstance(node, ast.FunctionDef) and node.name in ("_finite", "gate_failures", "gate_cases"))
         or (
             isinstance(node, ast.Assign)
             and all(isinstance(t, ast.Name) and t.id in _GATE_NAMES for t in node.targets)
@@ -764,3 +764,18 @@ def test_parity_gate_fails_missing_and_unknown_comparisons():
     assert "missing: sparse512_latent" in gate["gate_failures"](report)
     report["13.png new stage"] = {"rel_mean": 0.0, "max_abs": 0.0, "stage": "new_stage"}
     assert "13.png new stage" in gate["gate_failures"](report)
+
+
+def test_parity_gate_checks_every_image_on_its_own():
+    gate, report = _recorded_report()
+    shared = {
+        k: v
+        for k, v in report.items()
+        if isinstance(v, dict) and v.get("stage", "").startswith("conv")
+    }
+    first = {k: v for k, v in report.items() if k not in shared}
+    second = {k.replace("13.png", "14.png"): v for k, v in first.items()}
+    assert gate["gate_cases"](shared, [("13.png", first), ("14.png", second)]) == []
+    del second["14.png sparse512_latent"]
+    failures = gate["gate_cases"](shared, [("13.png", first), ("14.png", second)])
+    assert failures == ["14.png: missing: sparse512_latent"]
