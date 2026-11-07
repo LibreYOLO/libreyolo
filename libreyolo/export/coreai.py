@@ -375,7 +375,7 @@ def _require_coreai():
             "Core AI export requires Python 3.11 or newer: coreai-torch is not "
             "published for Python "
             f"{sys.version_info[0]}.{sys.version_info[1]}, so "
-            "`pip install libreyolo[coreai]` installs nothing here. Use a "
+            '`pip install "libreyolo[coreai]"` installs nothing here. Use a '
             "Python 3.11+ environment on macOS."
         )
     try:
@@ -383,7 +383,7 @@ def _require_coreai():
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise ImportError(
             "Core AI export requires the 'coreai-torch' package. Install it "
-            "with `pip install libreyolo[coreai]`. Note that coreai-torch "
+            'with `pip install "libreyolo[coreai]"`. Note that coreai-torch '
             "pins torch to 2.11.x, and that Core AI artifacts can only be "
             "produced and executed on macOS."
         ) from exc

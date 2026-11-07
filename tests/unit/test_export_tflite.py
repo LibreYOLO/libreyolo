@@ -268,7 +268,17 @@ def test_check_tflite_export_raises_helpful_error_when_missing():
 
     error = str(exc_info.value)
     assert "TFLite" in error
-    assert "pip install libreyolo[tflite]" in error
+    assert 'pip install "libreyolo[tflite]"' in error
+
+
+def test_check_tflite_export_names_python_314(monkeypatch):
+    # onnx2tf is skipped on 3.14 by its marker; the error must say why rather
+    # than repeat an install command that cannot add it.
+    import libreyolo.export.tflite as tflite_export
+
+    monkeypatch.setattr(tflite_export.sys, "version_info", (3, 14, 0))
+    with pytest.raises(ImportError, match="Python 3.12 or 3.13"):
+        tflite_export.check_tflite_export_available()
 
 
 def test_tflite_exporter_runs_static_onnx_then_helper(monkeypatch, tmp_path):

@@ -19,7 +19,7 @@ def _import_clearml_task():
     except ImportError as exc:
         raise ImportError(
             "ClearMLLogger requires the 'clearml' package. "
-            "Install it with: pip install libreyolo[clearml]"
+            'Install it with: pip install "libreyolo[clearml]"'
         ) from exc
     return Task
 

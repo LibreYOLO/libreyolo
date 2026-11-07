@@ -20,7 +20,7 @@ def _import_summary_writer():
     except ImportError as exc:
         raise ImportError(
             "TensorBoardLogger requires the 'tensorboard' package. "
-            "Install it with: pip install libreyolo[tensorboard]"
+            'Install it with: pip install "libreyolo[tensorboard]"'
         ) from exc
     return SummaryWriter
 

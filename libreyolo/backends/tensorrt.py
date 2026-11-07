@@ -54,9 +54,12 @@ class TensorRTBackend(BaseBackend):
         try:
             import tensorrt as trt
         except ImportError as e:
+            from ..export.tensorrt import tensorrt_python_version_note
+
+            note = tensorrt_python_version_note()
             raise ImportError(
                 "TensorRT inference requires tensorrt. "
-                "Install with: pip install tensorrt"
+                + (note or "Install with: pip install tensorrt")
             ) from e
 
         if not torch.cuda.is_available():

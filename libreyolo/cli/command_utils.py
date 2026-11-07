@@ -221,7 +221,7 @@ def resolve_model_or_exit(out: OutputHandler, model: str) -> str:
             out,
             "model_load_failed",
             f"'{model}' needs RF-DETR support, which requires extra dependencies.",
-            suggestion="pip install libreyolo[rfdetr]",
+            suggestion='pip install "libreyolo[rfdetr]"',
         )
 
     all_names = get_all_cli_names()

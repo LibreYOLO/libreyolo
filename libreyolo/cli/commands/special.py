@@ -395,7 +395,7 @@ def models_cmd(
                 "python_class": metadata["class"],
                 "available": metadata["available"],
                 "optional_extra": extra,
-                "install_hint": f"pip install libreyolo[{extra}]" if extra else None,
+                "install_hint": f'pip install "libreyolo[{extra}]"' if extra else None,
             }
         )
 
