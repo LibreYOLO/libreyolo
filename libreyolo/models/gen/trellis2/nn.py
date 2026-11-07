@@ -73,47 +73,46 @@ def convert_module_to(module: nn.Module, dtype: torch.dtype) -> None:
 def rope_phases(
     positions: torch.Tensor, head_dim: int, freq: Tuple[float, float] = (1.0, 10000.0)
 ) -> torch.Tensor:
-    """Unit complex phases ``[N, head_dim // 2]`` of integer 3D ``positions`` ``[N, 3]``.
+    """Unit phases of integer 3D ``positions`` ``[N, 3]`` as ``[N, head_dim // 2, 2]`` (cos, sin).
 
     Each axis gets ``head_dim // 6`` frequencies; the leftover pairs rotate by
-    zero, as upstream pads them.
+    zero, as upstream pads them. The phases are stored as real (cos, sin)
+    pairs, not complex numbers, so they can live on MPS builds without
+    complex-tensor support. Off MPS they are upstream's ``torch.polar``
+    values, bit for bit.
     """
     freq_dim = head_dim // 2 // 3
     freqs = torch.arange(freq_dim, dtype=torch.float32) / freq_dim
     freqs = (freq[0] / (freq[1] ** freqs)).to(positions.device)
     angles = torch.outer(positions.reshape(-1), freqs)
-    phases = torch.polar(torch.ones_like(angles), angles)
-    phases = phases.reshape(*positions.shape[:-1], -1)
-    pad = head_dim // 2 - phases.shape[-1]
+    if angles.device.type == "mps":
+        phases = torch.stack([torch.cos(angles), torch.sin(angles)], dim=-1)
+    else:
+        phases = torch.view_as_real(torch.polar(torch.ones_like(angles), angles))
+    phases = phases.reshape(*positions.shape[:-1], -1, 2)
+    pad = head_dim // 2 - phases.shape[-2]
     if pad > 0:
-        phases = torch.cat(
-            [
-                phases,
-                torch.polar(
-                    torch.ones(*phases.shape[:-1], pad, device=phases.device),
-                    torch.zeros(*phases.shape[:-1], pad, device=phases.device),
-                ),
-            ],
-            dim=-1,
-        )
+        identity = torch.zeros(*phases.shape[:-2], pad, 2, device=phases.device)
+        identity[..., 0] = 1.0
+        phases = torch.cat([phases, identity], dim=-2)
     return phases
 
 
 def apply_rope(x: torch.Tensor, phases: torch.Tensor) -> torch.Tensor:
-    """Rotate channel pairs of ``x`` ``[..., L, H, C]`` by ``phases`` ``[L, C // 2]`` (complex).
+    """Rotate channel pairs of ``x`` ``[..., L, H, C]`` by ``phases`` ``[L, C // 2, 2]`` (cos, sin).
 
-    Upstream multiplies in complex64; so does this on CUDA and CPU. MPS has no
-    complex multiply, so there the same product is written out in real
+    Upstream multiplies in complex64; so does this on CUDA and CPU. MPS may
+    have no complex tensors, so there the same product is written out in real
     arithmetic (equal up to fp32 rounding).
     """
     pairs = x.float().reshape(*x.shape[:-1], -1, 2)
-    phases = phases.unsqueeze(-2)
+    phases = phases.float().unsqueeze(-3)
     if x.device.type == "mps":
-        cos, sin = phases.real, phases.imag
+        cos, sin = phases[..., 0], phases[..., 1]
         a, b = pairs[..., 0], pairs[..., 1]
         rotated = torch.stack([a * cos - b * sin, a * sin + b * cos], dim=-1)
         return rotated.reshape(x.shape).to(x.dtype)
-    rotated = torch.view_as_complex(pairs) * phases
+    rotated = torch.view_as_complex(pairs) * torch.view_as_complex(phases)
     return torch.view_as_real(rotated).reshape(x.shape).to(x.dtype)
 
 

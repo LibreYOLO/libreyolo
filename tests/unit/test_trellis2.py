@@ -181,15 +181,31 @@ def test_channel_to_spatial_matches_a_loop():
 def test_rope_rotates_pairs_like_the_real_formula():
     positions = torch.randint(0, 16, (10, 3))
     phases = t2nn.rope_phases(positions, 28)
-    assert phases.shape == (10, 14) and torch.allclose(phases.abs(), torch.ones(10, 14))
+    assert phases.shape == (10, 14, 2) and not phases.is_complex()
+    assert torch.allclose(phases.norm(dim=-1), torch.ones(10, 14))
     # 3 axes x 4 frequencies rotate 12 pairs; the last 2 pairs stay put.
     x = torch.randn(10, 2, 28)
     rotated = t2nn.apply_rope(x, phases)
     a, b = x[..., 0::2], x[..., 1::2]
-    cos, sin = phases.real.unsqueeze(1), phases.imag.unsqueeze(1)
+    cos, sin = phases[..., 0].unsqueeze(1), phases[..., 1].unsqueeze(1)
     expected = torch.stack([a * cos - b * sin, a * sin + b * cos], dim=-1).reshape(x.shape)
     assert torch.allclose(rotated, expected, atol=1e-6)
     assert torch.equal(rotated[..., 24:], x[..., 24:])
+
+
+def test_rope_phases_are_upstreams_polar_values_bit_for_bit():
+    positions = torch.randint(0, 64, (50, 3))
+    phases = t2nn.rope_phases(positions, 64)
+    freqs = torch.arange(10, dtype=torch.float32) / 10
+    angles = torch.outer(positions.reshape(-1), 1.0 / (10000.0**freqs))
+    polar = torch.polar(torch.ones_like(angles), angles).reshape(50, -1)
+    assert torch.equal(torch.view_as_complex(phases[:, :30].contiguous()), polar)
+
+
+def test_dense_flow_holds_no_complex_buffers():
+    # MPS builds without complex tensors fail to move a complex buffer at load.
+    flow = t2nn.SparseStructureFlowModel(resolution=4, dtype="float32", **TINY["flow"])
+    assert not any(buffer.is_complex() for buffer in flow.buffers())
 
 
 # ---------------------------------------------------------------------------
@@ -541,3 +557,211 @@ def test_tiny_pipeline_runs_on_mps_like_on_cpu():
         shape=stage,
     )
     assert torch.isfinite(full["vertices"]).all() and full["faces"].shape[0] > 0
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
+def test_tiny_pipeline_runs_on_mps_without_complex_tensors(monkeypatch):
+    """Older MPS builds have no complex tensors: no complex op may see an MPS tensor."""
+
+    def cpu_only(op):
+        def guarded(*args, **kwargs):
+            if any(isinstance(a, torch.Tensor) and a.device.type == "mps" for a in args):
+                raise RuntimeError("complex tensors are not supported on MPS")
+            return op(*args, **kwargs)
+
+        return guarded
+
+    for name in ("polar", "view_as_complex", "view_as_real"):
+        monkeypatch.setattr(torch, name, cpu_only(getattr(torch, name)))
+    modules = _tiny_modules("mps")
+    for name in ("structure_flow", "shape_flow_512", "shape_flow_1024"):
+        net = getattr(modules, name)
+        assert not any(buffer.is_complex() for buffer in net.buffers())
+    prepared = t2pipe.preprocess_image(_image(), _CentreBlob())
+    stage = _stage(
+        {"guidance_rescale": 0.5, "guidance_interval": [0.6, 1.0], "rescale_t": 3.0}
+    )
+    out = t2pipe.run_stages(
+        modules, prepared, 5, resolution=512, structure=stage, shape=stage, stop_after="latent"
+    )
+    assert torch.isfinite(out["shape_latent"].feats).all()
+
+
+class _Recorded(torch.nn.Module):
+    """Stands in for a network at load: records its constructor arguments."""
+
+    built = []
+
+    def __init__(self, **args):
+        super().__init__()
+        self.args = args
+        _Recorded.built.append(args)
+
+    def load_state_dict(self, state, strict=True):
+        return [], []
+
+    def to(self, *args, **kwargs):
+        return self
+
+
+def _load_with_stubs(monkeypatch, tmp_path, device, macos):
+    import platform
+
+    huggingface_hub = pytest.importorskip("huggingface_hub")
+    safetensors_torch = pytest.importorskip("safetensors.torch")
+    transformers = pytest.importorskip("transformers")
+
+    from libreyolo.models.birefnet import nn as birefnet_nn
+    from libreyolo.models.gen.trellis2 import model as t2model
+
+    names = {
+        **{stem: "SLatFlowModel" for key, stem in t2model._NETWORKS.items() if "flow" in key},
+        t2model._NETWORKS["structure_flow"]: "SparseStructureFlowModel",
+        t2model._NETWORKS["shape_decoder"]: "FlexiDualGridVaeDecoder",
+        t2model._STRUCTURE_DECODER: "SparseStructureDecoder",
+    }
+    for stem, name in names.items():
+        args = {"dtype": "bfloat16"} if "Flow" in name else {"use_fp16": True}
+        (tmp_path / f"{stem}.json").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f"{stem}.json").write_text(json.dumps({"name": name, "args": args}))
+        (tmp_path / f"{stem}.safetensors").touch()
+    (tmp_path / t2model._BIREFNET_FILE).touch()
+    sampler = {"params": {}}
+    (tmp_path / "pipeline.json").write_text(
+        json.dumps(
+            {
+                "args": {
+                    "sparse_structure_sampler": sampler,
+                    "shape_slat_sampler": sampler,
+                    "shape_slat_normalization": {"mean": [0.0], "std": [1.0]},
+                }
+            }
+        )
+    )
+    _Recorded.built = []
+    for name in set(names.values()):
+        monkeypatch.setattr(t2nn, name, _Recorded)
+    monkeypatch.setattr(safetensors_torch, "load_file", lambda path: {})
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", None)
+    monkeypatch.setattr(birefnet_nn, "LibreBiRefNetModel", lambda size: _Recorded())
+    monkeypatch.setattr(
+        transformers.AutoModel, "from_pretrained", lambda *a, **k: _Recorded()
+    )
+    monkeypatch.setattr(platform, "mac_ver", lambda: (macos, ("", "", ""), "arm64"))
+    model = LibreTRELLIS2(device="cpu")
+    model.device = torch.device(device)  # _load only reads the device type
+    model._load(str(tmp_path))
+    flows = [args["dtype"] for args in _Recorded.built if "dtype" in args]
+    decoders = [args["use_fp16"] for args in _Recorded.built if "use_fp16" in args]
+    return flows, decoders
+
+
+@pytest.mark.parametrize(
+    "device, macos, flow_dtype, fp16_decoders",
+    [
+        ("mps", "13.6", "float32", True),  # MPS has no bf16 before macOS 14
+        ("mps", "14.5", "bfloat16", True),
+        ("cpu", "14.5", "float32", False),
+    ],
+)
+def test_load_picks_flow_precision_the_device_supports(
+    monkeypatch, tmp_path, device, macos, flow_dtype, fp16_decoders
+):
+    flows, decoders = _load_with_stubs(monkeypatch, tmp_path, device, macos)
+    assert flows == [flow_dtype] * 3
+    assert decoders == [fp16_decoders] * 2
+
+
+# ---------------------------------------------------------------------------
+# Parity gate (weights/parity_trellis2.py needs CUDA and upstream; only its
+# pass/fail rule runs here, lifted out of the script without importing it)
+# ---------------------------------------------------------------------------
+
+
+_GATE_NAMES = (
+    "BITWISE",
+    "FP32_RATIO",
+    "FP32_FLOOR",
+    "FP32_STAGES",
+    "FP32_MEAN_LIMITS",
+    "VOXEL_IOU",
+    "VOXEL_STAGES",
+    "VOXEL_FP32_SLACK",
+)
+
+
+def _parity_gate():
+    import ast
+    import math
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "weights" / "parity_trellis2.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    keep = [
+        node
+        for node in tree.body
+        if (isinstance(node, ast.FunctionDef) and node.name in ("_finite", "gate_failures"))
+        or (
+            isinstance(node, ast.Assign)
+            and all(isinstance(t, ast.Name) and t.id in _GATE_NAMES for t in node.targets)
+        )
+    ]
+    scope = {"math": math}
+    exec(compile(ast.Module(body=keep, type_ignores=[]), str(path), "exec"), scope)
+    return scope
+
+
+def _recorded_row():
+    """A case shaped like the recorded A100 run (PR #1018): every stage in its limit."""
+    gate = _parity_gate()
+    row = {k: {"equal": True, "max": 0.0, "mean": 0.0} for k in gate["BITWISE"]}
+    for k, (port, up) in {
+        "ss_flow_forward": (0.004, 0.004),
+        "ss_sample": (0.076, 0.077),
+        "shape512_flow_forward": (0.01, 0.01),
+        "shape512_sample": (0.067, 0.064),
+        "shape1024_flow_forward": (0.01, 0.01),
+        "shape1024_sample": (0.065, 0.066),
+        "decoder_dual_vertices": (0.002, 0.002),
+    }.items():
+        row[k] = {"equal": False, "mean": 0.01, "port_vs_fp32_mean": port, "upstream_vs_fp32_mean": up}
+    row["ss_voxels"] = {"iou": 1.0, "same": True}
+    row["cascade_hr_voxels"] = {"iou": 0.996, "same": False}
+    row["cascade_hr_voxels_fp32"] = {"port": 0.997, "upstream": 0.997}
+    row["decoder_voxels"] = {"iou": 0.995, "same": False}
+    row["decoder_voxels_fp32"] = {"port": 0.995, "upstream": 0.996}
+    row["decoder_intersected_agree"] = {
+        "port_vs_upstream": 0.999,
+        "port_vs_fp32": 0.999,
+        "upstream_vs_fp32": 0.999,
+    }
+    return gate, row
+
+
+def test_parity_gate_passes_the_recorded_run():
+    gate, row = _recorded_row()
+    assert gate["gate_failures"](row) == []
+
+
+@pytest.mark.parametrize(
+    "stage, key, value",
+    [
+        ("shape512_sample", "port_vs_fp32_mean", 0.5),  # far from fp32, as broken shapes are
+        ("ss_sample", "port_vs_fp32_mean", 0.098),  # 1.27x upstream's distance
+        ("shape1024_sample", "port_vs_fp32_mean", float("nan")),
+        ("decoder_dual_vertices", "port_vs_fp32_mean", 0.05),
+        ("cascade_hr_voxels", "iou", 0.9),
+        ("decoder_voxels", "iou", float("nan")),
+        ("decoder_voxels_fp32", "port", 0.95),
+        ("decoder_intersected_agree", "port_vs_fp32", 0.9),
+        ("ss_voxels", "same", False),
+        ("shape512_flow_forward_same_attention", "equal", False),
+        ("dinov3_512", "max", float("nan")),  # equal infinities: equal, NaN distance
+    ],
+)
+def test_parity_gate_fails_wrong_or_missing_values(stage, key, value):
+    gate, row = _recorded_row()
+    row[stage][key] = value
+    assert stage in gate["gate_failures"](row)
+    del row[stage]
+    assert stage in gate["gate_failures"](row)

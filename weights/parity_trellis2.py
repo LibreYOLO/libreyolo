@@ -26,6 +26,11 @@ structure sampler 0.018 / 0.023 and 0.076 / 0.077, 512 shape sampler 0.045 /
 0.066); the decoder's predicted voxels overlap upstream's at IoU 0.998 and
 0.996, as upstream's overlap the fp32 run's.
 
+The run fails (exit 1, "MISMATCH") when any comparison is missing,
+non-finite or outside the limits gate_failures() applies: bitwise stages
+must be equal, the other stages' distance to fp32 is bounded by upstream's,
+the samplers' by an absolute cap, and the voxel sets by an IoU floor.
+
 Prereqs (a CUDA machine with nvcc; throwaway env, NOT the main .venv):
     pip install -e ".[gen]" transformers==4.57.1 flash-attn==2.7.3 easydict opencv-python-headless trimesh zstandard plyfile
     git clone --recursive https://github.com/microsoft/TRELLIS.2 && git -C TRELLIS.2 checkout 75fbf0183001ed9876c8dbb35de6b68552ee08bd
@@ -38,6 +43,7 @@ Run:
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -85,8 +91,73 @@ BITWISE = (
     "ss_flow_forward_sdpa",
     "ss_sample_sdpa",
     "ss_decoder",
+    "shape512_flow_forward_same_attention",
     "mesh_from_upstream_fields",
 )
+# Stages that run flash-attn / FlexGEMM upstream: the port may be at most
+# FP32_RATIO times as far from the fp32 reference as upstream is (recorded:
+# 0.78 to 1.05 times on two examples), plus FP32_FLOOR for stages where both
+# are near zero.
+FP32_RATIO = 1.25
+FP32_FLOOR = 1e-3
+FP32_STAGES = (
+    "ss_flow_forward",
+    "ss_sample",
+    "shape512_flow_forward",
+    "shape512_sample",
+    "shape1024_flow_forward",
+    "shape1024_sample",
+    "decoder_dual_vertices",
+)
+# Absolute caps on the samplers' mean |diff| to fp32 (recorded at most 0.076).
+FP32_MEAN_LIMITS = {"ss_sample": 0.1, "shape512_sample": 0.1, "shape1024_sample": 0.1}
+# Voxel sets port vs upstream (recorded IoU 0.998 and 0.996 for the cascade
+# voxels); the structure stage is bitwise, so its voxels must be the same.
+VOXEL_IOU = 0.99
+VOXEL_STAGES = ("cascade_hr_voxels", "decoder_voxels")
+# The port's voxel IoU to the fp32 run may trail upstream's by at most this.
+VOXEL_FP32_SLACK = 0.005
+
+
+def _finite(*values):
+    return all(isinstance(v, (int, float)) and math.isfinite(v) for v in values)
+
+
+def gate_failures(row):
+    """Every comparison in ``row`` that is missing, non-finite or out of its limit."""
+    failures = [
+        k
+        for k in BITWISE
+        if not row.get(k, {}).get("equal")
+        # A tensor equal to upstream's must also be finite (equal infinities give NaN).
+        or ("mean" in row[k] and not _finite(row[k]["mean"], row[k].get("max")))
+    ]
+    for k in FP32_STAGES:
+        c = row.get(k, {})
+        port, up = c.get("port_vs_fp32_mean"), c.get("upstream_vs_fp32_mean")
+        if (
+            not _finite(c.get("mean"), port, up)
+            or port > FP32_RATIO * up + FP32_FLOOR
+            or port > FP32_MEAN_LIMITS.get(k, math.inf)
+        ):
+            failures.append(k)
+    if not row.get("ss_voxels", {}).get("same"):
+        failures.append("ss_voxels")
+    for k in VOXEL_STAGES:
+        iou = row.get(k, {}).get("iou")
+        if not _finite(iou) or iou < VOXEL_IOU:
+            failures.append(k)
+        fp32 = row.get(f"{k}_fp32", {})
+        port, up = fp32.get("port"), fp32.get("upstream")
+        if not _finite(port, up) or port < up - VOXEL_FP32_SLACK:
+            failures.append(f"{k}_fp32")
+    agree = row.get("decoder_intersected_agree", {})
+    port, up = agree.get("port_vs_fp32"), agree.get("upstream_vs_fp32")
+    if not _finite(agree.get("port_vs_upstream"), port, up) or (
+        1 - port > FP32_RATIO * (1 - up) + FP32_FLOOR
+    ):
+        failures.append("decoder_intersected_agree")
+    return failures
 
 
 def cmp(a, b, ref=None):
@@ -109,22 +180,33 @@ def cmp(a, b, ref=None):
     return out
 
 
+def voxel_keys(coords, size):
+    c = coords.cpu().long()
+    return (((c[:, 0] * size + c[:, 1]) * size + c[:, 2]) * size + c[:, 3]).numpy()
+
+
 def coord_sets(a, b):
     """Overlap of two voxel sets: counts, intersection over union, and the row maps."""
     a, b = a.cpu().long(), b.cpu().long()
     size = int(max(a.max(), b.max())) + 1
-
-    def key(c):
-        return ((c[:, 0] * size + c[:, 1]) * size + c[:, 2]) * size + c[:, 3]
-
-    ka, kb = key(a), key(b)
-    common = np.intersect1d(ka.numpy(), kb.numpy())
+    ka, kb = voxel_keys(a, size), voxel_keys(b, size)
+    common = np.intersect1d(ka, kb)
     return {
         "port": int(a.shape[0]),
         "upstream": int(b.shape[0]),
-        "iou": float(len(common) / len(np.union1d(ka.numpy(), kb.numpy()))),
+        "iou": float(len(common) / len(np.union1d(ka, kb))),
         "same": bool(torch.equal(a, b)),
     }
+
+
+def shared_rows(*coords):
+    """Row indices into each voxel set of the voxels all of them hold, in one order."""
+    size = int(max(int(c.max()) for c in coords)) + 1
+    keys = [voxel_keys(c, size) for c in coords]
+    common = keys[0]
+    for k in keys[1:]:
+        common = np.intersect1d(common, k)
+    return [torch.from_numpy(np.intersect1d(common, k, return_indices=True)[2]) for k in keys]
 
 
 # -- Upstream ----------------------------------------------------------------
@@ -403,11 +485,25 @@ for name in images:
         "intersected": h_up.feats[:, 3:6] > 0,
         "split_weight": torch.nn.functional.softplus(h_up.feats[:, 6:7]),
     }
-    if row["decoder_voxels"]["same"]:
-        row["decoder_dual_vertices"] = cmp(fields_port["dual_vertices"], up_fields["dual_vertices"], fields_ref["dual_vertices"])
-        row["decoder_intersected_agree"] = float(
-            (fields_port["intersected"] == up_fields["intersected"]).float().mean()
-        )
+    # Vertex offsets and edge flags on the voxels all three runs predicted.
+    rows = shared_rows(fields_port["coords"], h_up.coords, fields_ref["coords"])
+    on = {
+        name: {key: fields[key][r.to(fields[key].device)] for key in ("dual_vertices", "intersected")}
+        for name, fields, r in zip(("port", "upstream", "fp32"), (fields_port, up_fields, fields_ref), rows)
+    }
+    row["decoder_dual_vertices"] = cmp(
+        on["port"]["dual_vertices"], on["upstream"]["dual_vertices"], on["fp32"]["dual_vertices"]
+    )
+
+    def agree(a, b):
+        a, b = a.cpu(), b.cpu()
+        return float((a == b).float().mean()) if a.numel() else float("nan")
+
+    row["decoder_intersected_agree"] = {
+        "port_vs_upstream": agree(on["port"]["intersected"], on["upstream"]["intersected"]),
+        "port_vs_fp32": agree(on["port"]["intersected"], on["fp32"]["intersected"]),
+        "upstream_vs_fp32": agree(on["upstream"]["intersected"], on["fp32"]["intersected"]),
+    }
     v, f = pmesh.flexible_dual_grid_to_mesh(
         h_up.coords[:, 1:], up_fields["dual_vertices"], up_fields["intersected"], up_fields["split_weight"], hr_res
     )
@@ -416,7 +512,7 @@ for name in images:
         "faces": [int(f.shape[0]), int(meshes_up[0].faces.shape[0])],
     }
 
-    row["failures"] = [k for k in BITWISE if not row[k].get("equal")]
+    row["failures"] = gate_failures(row)
     row["seconds"] = round(time.time() - t_case, 1)
     print(json.dumps(row), flush=True)
     report.append(row)
@@ -429,12 +525,19 @@ json.dump(
         "upstream_commit": "75fbf0183001ed9876c8dbb35de6b68552ee08bd",
         "weights_revision": "af44b45f2e35a493886929c6d786e563ec68364d",
         "bitwise_stages": BITWISE,
-        "all_bitwise_pass": passed,
+        "limits": {
+            "fp32_ratio": FP32_RATIO,
+            "fp32_floor": FP32_FLOOR,
+            "fp32_mean": FP32_MEAN_LIMITS,
+            "voxel_iou": VOXEL_IOU,
+            "voxel_fp32_slack": VOXEL_FP32_SLACK,
+        },
+        "all_pass": passed,
         "cases": report,
     },
     open(ARGS.report, "w"),
     indent=1,
 )
 print("peak GiB", round(torch.cuda.max_memory_allocated() / 2**30, 2))
-print("ALL BITWISE STAGES PASS" if passed else "MISMATCH")
+print("ALL PASS" if passed else "MISMATCH")
 sys.exit(0 if passed else 1)

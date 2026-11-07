@@ -143,12 +143,17 @@ class LibreTRELLIS2(LibreGen3DModel):
         # and MPS, as upstream runs; fp32 on CPU, where half-precision 3D
         # convolution and fast bf16 matmuls are not available.
         reduced = self.device.type in ("cuda", "mps")
+        # MPS has bf16 only from macOS 14; there the bf16 flows run in fp32,
+        # the shared _resolve_dtype() choice. fp16 decoders work on any MPS.
+        bf16_flows = reduced and not (
+            self.device.type == "mps" and self._resolve_dtype() == torch.float32
+        )
 
         def build(config: Dict[str, Any], weights: Path):
             args = dict(config["args"])
             if "use_fp16" in args or config["name"] == "SparseStructureDecoder":
                 args["use_fp16"] = reduced
-            if "dtype" in args and not reduced:
+            if "dtype" in args and not bf16_flows:
                 args["dtype"] = "float32"
             module = getattr(networks, config["name"])(**args)
             module.load_state_dict(load_file(str(weights)), strict=True)
