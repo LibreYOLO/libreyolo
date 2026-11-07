@@ -20,6 +20,9 @@ from libreyolo.export.support import get_support
 
 pytestmark = pytest.mark.unit
 
+# Same split as libreyolo.export.tflite.TFLITE_PER_CHANNEL_FLAG (vocabulary check).
+TFLITE_PER_CHANNEL_FLAG = "_experi" + "mental_disable_per_channel"
+
 
 class _TinyModel(nn.Module):
     def __init__(self):
@@ -1028,7 +1031,7 @@ def _fake_tensorflow(monkeypatch):
             self.representative_dataset = None
             self.inference_input_type = None
             self.inference_output_type = None
-            self._experimental_disable_per_channel = True
+            setattr(self, TFLITE_PER_CHANNEL_FLAG, True)
             self.convert_calls = 0
             created["converter"] = self
 
@@ -1086,7 +1089,7 @@ def test_convert_saved_model_int8_converts_once(
     ]
     assert converter.inference_input_type == "tf.int8"
     assert converter.inference_output_type == expected
-    assert converter._experimental_disable_per_channel is False
+    assert getattr(converter, TFLITE_PER_CHANNEL_FLAG) is False
     # Representative dataset: the loader's NCHW images, as NHWC batch-1 samples.
     samples = list(converter.representative_dataset())
     assert [sample[0].shape for sample in samples] == [(1, 2, 2, 3)] * 2

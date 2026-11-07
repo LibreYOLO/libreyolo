@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from types import MappingProxyType
 
@@ -157,6 +158,24 @@ def test_select_prefers_single_pt_over_safetensors():
 def test_select_multiple_pt_raises_with_hf_syntax():
     with pytest.raises(ValueError, match="hf://u/r/"):
         _select_repo_weight_file(["a.pt", "b.pt"], "u/r")
+
+
+def test_select_prefers_checkpoint_named_after_repo():
+    files = ["README.md", "LibreYOLO9t.pt", "libreyolo9t.pt"]
+    assert _select_repo_weight_file(files, "LibreYOLO/LibreYOLO9t") == "LibreYOLO9t.pt"
+    files = ["LibreYOLOXn.pt", "libreyoloXnano.pt"]
+    assert _select_repo_weight_file(files, "libreyolo/libreyoloxn") == "LibreYOLOXn.pt"
+
+
+def test_bare_repo_id_not_shadowed_by_differently_cased_folder(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "libreyolo").mkdir()
+    ref = parse_hub_reference("LibreYOLO/LibreYOLO9t")
+    assert ref is not None and ref.repo_id == "LibreYOLO/LibreYOLO9t"
+    (tmp_path / "LibreYOLO").mkdir(exist_ok=True)
+    if sorted(os.listdir(tmp_path)) == ["LibreYOLO", "libreyolo"]:
+        # Case-sensitive filesystem: an exactly matching folder still wins.
+        assert parse_hub_reference("LibreYOLO/LibreYOLO9t") is None
 
 
 def test_select_no_weights_raises():

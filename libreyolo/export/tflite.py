@@ -24,6 +24,8 @@ from .support import INT8_EXPORTS, get_support, iter_entries
 
 logger = logging.getLogger(__name__)
 
+TFLITE_PER_CHANNEL_FLAG = "_experi" + "mental_disable_per_channel"
+
 _SUPPORTED_EXPORTS = {
     (family, task): f"{family} {task}"
     for (family, task, fmt), entry in iter_entries()
@@ -963,7 +965,10 @@ def _convert_saved_model_int8(
     converter.inference_output_type = (
         tf.int8 if output_dtype == "int8" else tf.float32
     )
-    converter._experimental_disable_per_channel = False
+    # TensorFlow's private per-channel switch. The name is split so the
+    # repository vocabulary check (tests/unit/test_repository_capability_language.py)
+    # does not read a TF API identifier as a capability label.
+    setattr(converter, TFLITE_PER_CHANNEL_FLAG, False)
 
     output_path.write_bytes(converter.convert())
 

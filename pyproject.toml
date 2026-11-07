@@ -1,6 +1,6 @@
 [project]
 name = "libreyolo"
-version = "1.7.2"
+version = "1.7.3"
 description = "MIT-licensed computer vision library: one Python API for YOLO, RF-DETR, RT-DETR and dozens more model families, with training and export where a family supports them."
 keywords = [
     "yolo",
@@ -60,6 +60,12 @@ dependencies = [
     # rejects lambdas/closures; cloudpickle carries transportable __main__
     # callbacks without importing and re-running the user's training script.
     "cloudpickle>=3.0.0",
+    # LibreYOLO("owner/repo") loads from the Hugging Face Hub out of the box,
+    # which the Hub's "Use this model" snippet relies on. Only list_repo_files
+    # and hf_hub_download are needed, both in 0.x; the bound stays below 1.0
+    # so the molmo2 extra (transformers 4.57.1 needs huggingface_hub<1.0)
+    # still resolves. The hf extra keeps >=1.0 for gated-download metadata.
+    "huggingface_hub>=0.34.0",
 ]
 
 [dependency-groups]
