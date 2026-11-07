@@ -747,6 +747,7 @@ def test_parity_gate_passes_the_recorded_run():
         ("end_to_end_1024", "chamfer_mean", 0.1),
         ("end_to_end_1024", "vertices", [1000, 2465434]),
         ("mesh512", "hausdorff_p99", float("nan")),
+        ("sdf512_values", "rel_mean", None),  # shapes differed: no distance recorded
     ],
 )
 def test_parity_gate_fails_wrong_values(stage, key, value):

@@ -181,6 +181,12 @@ def gate_cases(shared, cases):
 
 def stat(name, a, b, stage):
     a, b = a.float().cpu(), b.float().cpu()
+    if a.shape != b.shape:
+        # Recorded, not raised: the gate fails it (no rel_mean) and the report is still written.
+        row = {"shapes": [list(a.shape), list(b.shape)], "bitwise": False, "stage": stage}
+        REPORT[name] = row
+        print(f"{name:40s} {json.dumps(row)}", flush=True)
+        return row
     d = (a - b).abs()
     scale = b.abs().mean().item() + 1e-12
     row = {
