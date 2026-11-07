@@ -327,6 +327,11 @@ with torch.no_grad():
     ROW["raw_counts"] = {"port": [len(port_v), len(port_f)], "upstream": [len(up_v[0]), len(up_f)]}
     pv, pf = R.clean_mesh(port_v.cpu().numpy(), port_f.cpu().numpy())
     ROW["clean_counts_port"] = [len(pv), len(pf)]
+    # Both colour heads at the same points (the port's cleaned vertices), so
+    # the gate does not depend on upstream's optional cleanup below.
+    points = torch.from_numpy(np.asarray(pv, dtype=np.float32)).to(DEV)
+    up_colors = up_crm.rgbMlp(up_crm.decoder(up_feat, points[None])).squeeze()
+    ROW["vertex_colors"] = cmp(R.vertex_colors(port_net, up_feat, points), up_colors)
     try:
         from kiui.mesh_utils import clean_mesh as up_clean
         from scipy.spatial import cKDTree
@@ -340,10 +345,6 @@ with torch.no_grad():
         d1, _ = cKDTree(uv_).query(pv)
         d2, _ = cKDTree(pv).query(uv_)
         ROW["clean_chamfer"] = {"mean": float((d1.mean() + d2.mean()) / 2), "max": float(max(d1.max(), d2.max()))}
-        up_dec = up_crm.decoder(up_feat, torch.from_numpy(uv_).to(DEV)[None])
-        up_colors = up_crm.rgbMlp(up_dec).squeeze()
-        port_colors = R.vertex_colors(port_net, up_feat, torch.from_numpy(uv_).to(DEV))
-        ROW["vertex_colors"] = cmp(port_colors, up_colors)
     except ImportError as exc:
         ROW["clean_upstream"] = f"skipped: {exc}"
 
@@ -396,8 +397,9 @@ LIMITS = {"text_prompt": 6e-3, "text_negative": 6e-3, "image_tokens": 6e-3,
           "stage1_views": 0.5, "stage2_ccms": 0.5, "triplane_features": 1e-4,
           "raw_vertices": 1e-5, "vertex_colors": 1e-4}
 BITWISE += ("raw_faces",)
-failures = [k for k in BITWISE if not ROW[k].get("equal")]
-failures += [k for k, lim in LIMITS.items() if "mean" not in ROW[k] or ROW[k]["mean"] > lim]
+# A missing entry is a failure, never a KeyError that loses the report.
+failures = [k for k in BITWISE if not ROW.get(k, {}).get("equal")]
+failures += [k for k, lim in LIMITS.items() if "mean" not in ROW.get(k, {}) or ROW[k]["mean"] > lim]
 ROW["failures"] = failures
 ROW["seconds"] = time.time() - t0
 print(json.dumps(ROW, indent=1))
