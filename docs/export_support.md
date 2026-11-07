@@ -76,6 +76,7 @@ in preflight.
 | gtr | semantic | available | available |  |  |  |  |  |  |  |  |  |  |
 | hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | hvi_cidnet | restore |  |  |  |  |  |  |  |  |  |  |  |  |
+| instanthmr | mesh | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | internvl3 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | kosmos2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | l2cs | gaze | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
@@ -341,6 +342,7 @@ A check mark applies only under any constraint listed here.
 - `hrnet` / `pose` / `torchscript`: PyTorch 2.11, ONNX 1.20.1 / ONNX Runtime 1.26 or TorchScript, CPU FP32, batch 1, fixed checkpoint-native 256x192 (W32) or 384x288 (W48) person-crop input; the full-image person detector is not in-graph
 - `hrnet` / `pose` / `tensorrt`: TensorRT 10.16.1.11, CUDA 12.8, RTX 5070 Ti, FP32, batch 1, fixed checkpoint-native 256x192 (W32) or 384x288 (W48) person-crop input; the full-image person detector is not in-graph
 - `hrnet` / `pose` / `openvino`: OpenVINO 2026.2.1 CPU FP32, batch 1, fixed checkpoint-native 256x192 (W32) or 384x288 (W48) person-crop input; the full-image person detector is not in-graph
+- `instanthmr` / `mesh` / `onnx`: raw fixed-288 person-crop contract: image, cliff_cond -> mhr_params, shape_params, cam_trans, joints_2d, joints_3d, vertices; mesh faces in metadata
 - `l2cs` / `gaze` / `onnx`: head-only contract: each input image is one face crop
 - `l2cs` / `gaze` / `torchscript`: head-only contract: each input image is one face crop
 - `l2cs` / `gaze` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed 448x448 face crop
@@ -1309,6 +1311,17 @@ These converter paths are callable with the recorded validation context.
 - `hvi_cidnet` / `restore` / `tflite`: HVI-CIDNet export has not defined metadata and runtime semantics for its gamma, saturation, and intensity controls, and no exported runtime parity gate has been recorded. Use native PyTorch inference.
 - `hvi_cidnet` / `restore` / `coreml`: HVI-CIDNet export has not defined metadata and runtime semantics for its gamma, saturation, and intensity controls, and no exported runtime parity gate has been recorded. Use native PyTorch inference.
 - `hvi_cidnet` / `restore` / `coreai`: HVI-CIDNet export has not defined metadata and runtime semantics for its gamma, saturation, and intensity controls, and no exported runtime parity gate has been recorded. Use native PyTorch inference.
+- `instanthmr` / `mesh` / `torchscript`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `executorch`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `tensorrt`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `openvino`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `paddle`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `mnn`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `rknn`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `ncnn`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `tflite`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `coreml`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `coreai`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `internvl3` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `internvl3` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `internvl3` / `detect` / `executorch`: Generative VLM export is out of scope for v1.

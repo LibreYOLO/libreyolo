@@ -682,6 +682,27 @@ project the weights were derived from. Per-family summary:
              LibreYOLO's own MIT wrapper around the optional upstream
              package. See THIRD_PARTY_NOTICES.txt for the full description.
 
+    InstantHMR (LibreInstantHMR{n,t,s,m}-mesh)        CC BY-NC 4.0 (non-commercial)
+    InstantHMR (LibreInstantHMRm-mesh-commercial)    Apache-2.0
+             upstream: Naturalpad-studio/InstantHMR (code Apache-2.0, commit
+               5437400d4b25c1972821e51916fac34bd96acce6); weights:
+               momolesang/InstantHMR revision
+               07988f51c8c8908cfc7bb44fc18f645c9551b0bf, published as ONNX
+               only and converted to PyTorch by
+               weights/convert_instanthmr_weights.py (a format conversion
+               of the released weights; BatchNorm layers are rebuilt from
+               the folded graph and given running statistics measured on
+               coco128 person crops, with unchanged eval-mode output).
+             The n/t/s/m weights are CC BY-NC 4.0 because part of their
+             training images (SA-1B, AI Challenger) are non-commercial. The
+             commercial variant was trained on Harmony4D and commercially
+             licensed COCO images only and is Apache-2.0. Every variant was
+             trained on the SAM 3D Body dataset annotations, released by
+             Meta under the SAM License, whose terms are passed through with
+             the weights. The checkpoints embed the MHR body constants (MHR,
+             Apache-2.0). A notice is printed before auto-download. NOT
+             covered by LibreYOLO's permissive license.
+
     Face recognition (librefacerec-l.onnx,             per-file, see below
               librefacerec-det.onnx)
              librefacerec-l.onnx: the AuraFace-v1 embedding graph
