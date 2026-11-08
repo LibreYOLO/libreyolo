@@ -80,6 +80,27 @@ def preprocess_image(
     return as_batched_input(img_chw), original_img, original_size, ratio
 
 
+def preprocess_pose_numpy(
+    img_rgb_hwc: np.ndarray,
+    input_size: int = 640,
+) -> Tuple[np.ndarray, float]:
+    """YOLO-NAS pose preprocessing for an RGB HWC uint8 array.
+
+    The pose checkpoints take BGR channel order: the image is flipped to BGR,
+    its longest side resized to 640 and padded bottom-right with 127.
+
+    Returns ``(CHW float32 in [0, 1] BGR, ratio)``.
+    """
+    bgr = img_rgb_hwc[:, :, ::-1]
+    return preprocess_numpy(
+        bgr,
+        input_size=input_size,
+        pad_value=YOLO_NAS_POSE_PAD_VALUE,
+        resize_size=YOLO_NAS_POSE_RESIZE_SIZE,
+        padding_mode="bottom_right",
+    )
+
+
 def preprocess_pose_image(
     image: ImageInput,
     input_size: int = 640,
@@ -88,15 +109,7 @@ def preprocess_pose_image(
     img = ImageLoader.load(image, color_format=color_format)
     original_size = img.size
     original_img = img.copy()
-    rgb = np.array(img)
-    bgr = rgb[:, :, ::-1]
-    img_chw, ratio = preprocess_numpy(
-        bgr,
-        input_size=input_size,
-        pad_value=YOLO_NAS_POSE_PAD_VALUE,
-        resize_size=YOLO_NAS_POSE_RESIZE_SIZE,
-        padding_mode="bottom_right",
-    )
+    img_chw, ratio = preprocess_pose_numpy(np.array(img), input_size=input_size)
     return as_batched_input(img_chw), original_img, original_size, ratio
 
 
@@ -168,4 +181,5 @@ __all__ = [
     "preprocess_obb_image",
     "preprocess_obb_numpy",
     "preprocess_pose_image",
+    "preprocess_pose_numpy",
 ]
