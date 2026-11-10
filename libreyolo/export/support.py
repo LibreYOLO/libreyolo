@@ -22,6 +22,7 @@ EXPORT_FORMATS = (
     "tflite",
     "coreml",
     "coreai",
+    "gguf",
 )
 
 
@@ -791,6 +792,19 @@ _add(
     ("segment",),
     EXPORT_FORMATS,
     reason="YOLO9 segmentation export is not supported; YOLO9 is detection-only in LibreYOLO.",
+)
+_add(
+    "available",
+    ("yolo9",),
+    ("detect",),
+    ("gguf",),
+    reason=(
+        "BatchNorm-folded, RepConv-fused weights plus preprocessing and DFL "
+        "decode metadata for vision.cpp; tests/unit/test_export_gguf.py covers "
+        "the fold and the file round trip. Runtime parity is recorded in "
+        "vision.cpp, not yet in LibreYOLO."
+    ),
+    constraint="FP32 or FP16 weights; any input size that is a multiple of 32",
 )
 _add("validated", ("yolo9_p2",), ("detect",), ("onnx",), since="1.3")
 _add(
@@ -4015,6 +4029,12 @@ def get_support(family: str, task: str, fmt: str) -> SupportEntry:
         return SupportEntry(
             "blocked",
             "This family and task are not covered by the family-aware CoreML wrapper.",
+        )
+    if fmt == "gguf":
+        return SupportEntry(
+            "blocked",
+            "GGUF export is limited to the families vision.cpp implements; "
+            "this family and task have no vision.cpp graph yet.",
         )
     return SupportEntry(
         "available",

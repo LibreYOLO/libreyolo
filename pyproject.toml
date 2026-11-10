@@ -278,6 +278,11 @@ ncnn = [
     "pnnx",
     "ncnn",
 ]
+gguf = [
+    # GGUF writer for vision.cpp export (MIT, from llama.cpp's gguf-py).
+    # 0.19 is the first tested release (typed u32 arrays via sub_type).
+    "gguf>=0.19.0",
+]
 tflite = [
     "libreyolo[onnx]",
     # onnx2tf 2.4.3 includes the RF-DETR conversion fixes required by this path.
@@ -393,6 +398,7 @@ all = [
     # 3.13 wheels. Install libreyolo[paddle] on its own.
     "libreyolo[mnn]",
     "libreyolo[ncnn]",
+    "libreyolo[gguf]",
     "libreyolo[tracking]",
     "libreyolo[rtdetr]",
     "libreyolo[gaze]",

@@ -19,6 +19,7 @@ Example::
 """
 
 from .exporter import BaseExporter
+from .gguf import GgufExporter
 from .rknn import (
     compare_rknn_outputs,
     export_rknn,
@@ -29,6 +30,7 @@ from .support import SupportEntry, get_support
 
 __all__ = [
     "BaseExporter",
+    "GgufExporter",
     "SupportEntry",
     "compare_rknn_outputs",
     "export_rknn",

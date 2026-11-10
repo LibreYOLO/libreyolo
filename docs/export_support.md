@@ -7,201 +7,201 @@ Do not edit the matrix by hand.
 with the validation context described below, and an empty cell is blocked
 in preflight.
 
-| Family | Task | onnx | torchscript | executorch | tensorrt | openvino | paddle | mnn | rknn | ncnn | tflite | coreml | coreai |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 3dmood | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| act_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |
-| alexnet | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
-| ben2 | matte | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
-| birefnet | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |
-| centernet | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
-| clip | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  | ✓ |
-| clip | embed | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
-| convnext | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
-| convnextv2 | classify | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
-| crm | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| ddcolor | restore |  |  |  |  |  |  |  |  |  |  |  |  |
-| deeplabv3 | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
-| deepseekocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
-| deformable_detr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |
-| deim | detect | ✓ | ✓ |  | available | available | ✓ | ✓ |  |  |  |  | ✓ |
-| deimv2 | detect | available | ✓ |  | available | available | ✓ | available |  |  |  |  | ✓ |
-| deit | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
-| dekr | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
-| depth_anything | depth | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  | ✓ |
-| depth_anything3 | depth | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
-| detany3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| detr | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
-| dexined | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  |
-| dfine | detect | ✓ | ✓ |  | available | ✓ | ✓ | ✓ |  |  |  |  | ✓ |
-| dfine | segment | ✓ | ✓ |  | available | ✓ |  |  |  |  |  |  |  |
-| diffusion_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |
-| dinodetr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |
-| dinov2 | semantic | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
-| dinov2 | classify | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  | available |
-| dinov2 | embed | ✓ | ✓ | available | available | available |  |  |  |  | ✓ |  |  |
-| domedetr | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| dpflow | flow |  |  |  |  |  |  |  |  |  |  |  |  |
-| ec | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  | ✓ |
-| ec | pose | ✓ | ✓ | ✓ | available | available | ✓ |  |  |  |  |  |  |
-| ec | segment | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  |  |  |
-| edgetam | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| efficientdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
-| efficientnetv2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
-| eomt | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
-| eomt | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| eomt | panoptic |  |  |  |  |  |  |  |  |  |  |  |  |
-| falconocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
-| falconperception | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| falconperception | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| faster_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
-| fcn | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
-| fcos | detect | ✓ | ✓ |  |  | available |  |  |  |  |  |  |  |
-| fcos3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| feynobg | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |
-| florence2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| flowseek | flow |  |  |  |  |  |  |  |  |  |  |  |  |
-| flux2_klein | generate |  |  |  |  |  |  |  |  |  |  |  |  |
-| fomo | point | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
-| gemma4 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| glmocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
-| ground_florence2 | point |  |  |  |  |  |  |  |  |  |  |  |  |
-| ground_qwen3vl | point |  |  |  |  |  |  |  |  |  |  |  |  |
-| grounding_dino | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| gtr | detect | available | available |  |  |  |  |  |  |  |  |  |  |
-| gtr | segment | available | available |  |  |  |  |  |  |  |  |  |  |
-| gtr | pose | available | available |  |  |  |  |  |  |  |  |  |  |
-| gtr | obb | available | available |  |  |  |  |  |  |  |  |  |  |
-| gtr | depth | available | available |  |  |  |  |  |  |  |  |  |  |
-| gtr | semantic | available | available |  |  |  |  |  |  |  |  |  |  |
-| hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
-| hvi_cidnet | restore |  |  |  |  |  |  |  |  |  |  |  |  |
-| instanthmr | mesh | ✓ |  |  |  |  |  |  |  |  |  |  |  |
-| internvl3 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| kosmos2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| l2cs | gaze | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
-| lama | restore |  |  |  |  |  |  |  |  |  |  |  |  |
-| levjepa | embed | available | ✓ | available | available | available |  |  |  |  |  |  |  |
-| lfm2vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| lgm | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| libremodus | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| libremodus | depth |  |  |  |  |  |  |  |  |  |  |  |  |
-| libremodus | normal |  |  |  |  |  |  |  |  |  |  |  |  |
-| libremodus | edge |  |  |  |  |  |  |  |  |  |  |  |  |
-| lingbotvision | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  | ✓ |
-| locateanything | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| locateanything | point |  |  |  |  |  |  |  |  |  |  |  |  |
-| lwdetr | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
-| marigold_v2 | depth |  |  |  |  |  |  |  |  |  |  |  |  |
-| marigold_v2 | normal |  |  |  |  |  |  |  |  |  |  |  |  |
-| marigold_v2 | albedo |  |  |  |  |  |  |  |  |  |  |  |  |
-| mask_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
-| mask_rcnn | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |
-| memfof | flow |  |  |  |  |  |  |  |  |  |  |  |  |
-| midas | depth | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
-| mobilenetv4 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
-| mobilesam | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| moge2 | normal | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available |  |  |  |
-| moge3 | depth |  |  |  |  |  |  |  |  |  |  |  |  |
-| moge3 | normal | ✓ | ✓ |  |  |  |  |  |  |  |  |  |  |
-| molmo2 | point |  |  |  |  |  |  |  |  |  |  |  |  |
-| moondream | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| moondream | point |  |  |  |  |  |  |  |  |  |  |  |  |
-| nafnet | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
-| neuflowv2 | flow |  |  |  |  |  |  |  |  |  |  |  |  |
-| northmicrovision | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| omdet_turbo | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| ov_deim | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| owlv2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| paddleocrvl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
-| pe | classify | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
-| pe | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
-| picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | ✓ |  |  | ✓ |
-| picosam3 | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |
-| pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
-| ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
-| ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
-| ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
-| ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
-| prx | generate |  |  |  |  |  |  |  |  |  |  |  |  |
-| prxpixel | generate |  |  |  |  |  |  |  |  |  |  |  |  |
-| quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
-| qwen3vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| qwen3vl_embedding | embed |  |  |  |  |  |  |  |  |  |  |  |  |
-| raft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
-| realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
-| resnet | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
-| retinanet | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
-| rfdetr | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ |  |  |  | available | ✓ |
-| rfdetr | segment | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |
-| rfdetr | pose | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |
-| rfdetr | obb | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |
-| riodetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
-| rtdetr | detect | ✓ | ✓ | ✓ | available | ✓ |  | ✓ |  |  |  | available | ✓ |
-| rtdetrv2 | detect | ✓ | ✓ | ✓ | available | available |  | ✓ |  |  |  |  | ✓ |
-| rtdetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
-| rtdetrv4 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  | ✓ |
-| rtmdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  |  |  | ✓ |
-| rtmdet | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| sam | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| sam2 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| sam3 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| sam31 | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| sam3dbody | mesh |  |  |  |  |  |  |  |  |  |  |  |  |
-| sana_sprint | generate |  |  |  |  |  |  |  |  |  |  |  |  |
-| searaft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
-| segformer | semantic | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
-| sensenovavision | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| sensenovavision | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| sensenovavision | panoptic |  |  |  |  |  |  |  |  |  |  |  |  |
-| sensenovavision | pose |  |  |  |  |  |  |  |  |  |  |  |  |
-| sensenovavision | point |  |  |  |  |  |  |  |  |  |  |  |  |
-| sensenovavision | depth |  |  |  |  |  |  |  |  |  |  |  |  |
-| sensenovavision | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
-| showui | point |  |  |  |  |  |  |  |  |  |  |  |  |
-| siglip2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  | ✓ |
-| siglip2 | embed | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  |
-| smolvla | act |  |  |  |  |  |  |  |  |  |  |  |  |
-| smolvlm2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| speridlabs_idol | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| ssd | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
-| swin | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
-| swinir | restore | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  | ✓ |  |  |
-| teed | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  |
-| tinyformer | detect | available | available | available | available | available |  |  |  |  |  |  |  |
-| trellis | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| triposplat | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| triposr | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| direct3d_s2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |
-| unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |
-| vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
-| video_depth_anything | depth |  |  |  |  |  |  |  |  |  |  |  |  |
-| vit | classify | ✓ | available | available | available | available |  |  |  | available |  |  |  |
-| vitmatte | matte |  |  |  |  |  |  |  |  |  |  |  |  |
-| vjepa2 | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
-| vjepa2 | classify | available | available | available | available | available |  |  |  |  |  |  |  |
-| waft | flow |  |  |  |  |  |  |  |  |  |  |  |  |
-| wevisonevl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
-| wevisonevl | point |  |  |  |  |  |  |  |  |  |  |  |  |
-| wevisonevl | segment |  |  |  |  |  |  |  |  |  |  |  |  |
-| wevisonevl | matte |  |  |  |  |  |  |  |  |  |  |  |  |
-| wevisonevl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |
-| wilddet3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |
-| yolo1 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
-| yolo2 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  | ✓ |
-| yolo3 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
-| yolo4 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
-| yolo7 | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ |  |  | ✓ |
-| yolo9 | detect | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | available | ✓ | ✓ | available | ✓ |
-| yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ |  | ✓ |
-| yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | available |  |  | ✓ |
-| yolonas | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ |  | ✓ |
-| yolonas | pose | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  | ✓ |  |  |  |
-| yolonas | obb | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
-| yolox | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ | available | ✓ |
-| zipdepth | depth | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ |  |  | ✓ |
-| trellis2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |
+| Family | Task | onnx | torchscript | executorch | tensorrt | openvino | paddle | mnn | rknn | ncnn | tflite | coreml | coreai | gguf |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 3dmood | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| act_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| alexnet | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |  |
+| ben2 | matte | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |  |
+| birefnet | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |  |
+| centernet | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| clip | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  | ✓ |  |
+| clip | embed | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| convnext | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |  |
+| convnextv2 | classify | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |  |
+| crm | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| ddcolor | restore |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| deeplabv3 | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| deepseekocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| deformable_detr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |  |
+| deim | detect | ✓ | ✓ |  | available | available | ✓ | ✓ |  |  |  |  | ✓ |  |
+| deimv2 | detect | available | ✓ |  | available | available | ✓ | available |  |  |  |  | ✓ |  |
+| deit | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |  |
+| dekr | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| depth_anything | depth | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  | ✓ |  |
+| depth_anything3 | depth | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| detany3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| detr | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| dexined | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  |  |
+| dfine | detect | ✓ | ✓ |  | available | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |
+| dfine | segment | ✓ | ✓ |  | available | ✓ |  |  |  |  |  |  |  |  |
+| diffusion_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| dinodetr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |  |
+| dinov2 | semantic | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| dinov2 | classify | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  | available |  |
+| dinov2 | embed | ✓ | ✓ | available | available | available |  |  |  |  | ✓ |  |  |  |
+| domedetr | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| dpflow | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| ec | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |
+| ec | pose | ✓ | ✓ | ✓ | available | available | ✓ |  |  |  |  |  |  |  |
+| ec | segment | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  |  |  |  |
+| edgetam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| efficientdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |  |
+| efficientnetv2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |  |
+| eomt | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| eomt | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| eomt | panoptic |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| falconocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| falconperception | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| falconperception | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| faster_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
+| fcn | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| fcos | detect | ✓ | ✓ |  |  | available |  |  |  |  |  |  |  |  |
+| fcos3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| feynobg | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |  |
+| florence2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| flowseek | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| flux2_klein | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| fomo | point | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |  |
+| gemma4 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| glmocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| ground_florence2 | point |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| ground_qwen3vl | point |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| grounding_dino | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| gtr | detect | available | available |  |  |  |  |  |  |  |  |  |  |  |
+| gtr | segment | available | available |  |  |  |  |  |  |  |  |  |  |  |
+| gtr | pose | available | available |  |  |  |  |  |  |  |  |  |  |  |
+| gtr | obb | available | available |  |  |  |  |  |  |  |  |  |  |  |
+| gtr | depth | available | available |  |  |  |  |  |  |  |  |  |  |  |
+| gtr | semantic | available | available |  |  |  |  |  |  |  |  |  |  |  |
+| hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| hvi_cidnet | restore |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| instanthmr | mesh | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
+| internvl3 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| kosmos2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| l2cs | gaze | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| lama | restore |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| levjepa | embed | available | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| lfm2vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| lgm | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| libremodus | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| libremodus | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| libremodus | normal |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| libremodus | edge |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| lingbotvision | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  | ✓ |  |
+| locateanything | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| locateanything | point |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| lwdetr | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| marigold_v2 | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| marigold_v2 | normal |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| marigold_v2 | albedo |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| mask_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
+| mask_rcnn | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
+| memfof | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| midas | depth | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |  |
+| mobilenetv4 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |  |
+| mobilesam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| moge2 | normal | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available |  |  |  |  |
+| moge3 | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| moge3 | normal | ✓ | ✓ |  |  |  |  |  |  |  |  |  |  |  |
+| molmo2 | point |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| moondream | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| moondream | point |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| nafnet | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |  |
+| neuflowv2 | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| northmicrovision | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| omdet_turbo | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| ov_deim | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| owlv2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| paddleocrvl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| pe | classify | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| pe | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | ✓ |  |  | ✓ |  |
+| picosam3 | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
+| pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ |  | ✓ |  |
+| ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |  |
+| prx | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| prxpixel | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |  |
+| qwen3vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| qwen3vl_embedding | embed |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| raft | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |  |
+| resnet | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |  |
+| retinanet | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
+| rfdetr | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ |  |  |  | available | ✓ |  |
+| rfdetr | segment | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |  |
+| rfdetr | pose | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |  |
+| rfdetr | obb | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |  |
+| riodetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| rtdetr | detect | ✓ | ✓ | ✓ | available | ✓ |  | ✓ |  |  |  | available | ✓ |  |
+| rtdetrv2 | detect | ✓ | ✓ | ✓ | available | available |  | ✓ |  |  |  |  | ✓ |  |
+| rtdetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| rtdetrv4 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |
+| rtmdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  |  |  | ✓ |  |
+| rtmdet | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sam2 | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sam3 | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sam31 | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sam3dbody | mesh |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sana_sprint | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| searaft | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| segformer | semantic | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| sensenovavision | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sensenovavision | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sensenovavision | panoptic |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sensenovavision | pose |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sensenovavision | point |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sensenovavision | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| sensenovavision | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| showui | point |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| siglip2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  | ✓ |  |
+| siglip2 | embed | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  |  |
+| smolvla | act |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| smolvlm2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| speridlabs_idol | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| ssd | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
+| swin | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |  |
+| swinir | restore | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  | ✓ |  |  |  |
+| teed | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  |  |
+| tinyformer | detect | available | available | available | available | available |  |  |  |  |  |  |  |  |
+| trellis | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| triposplat | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| triposr | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| direct3d_s2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |  |
+| video_depth_anything | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| vit | classify | ✓ | available | available | available | available |  |  |  | available |  |  |  |  |
+| vitmatte | matte |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| vjepa2 | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| vjepa2 | classify | available | available | available | available | available |  |  |  |  |  |  |  |  |
+| waft | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| wevisonevl | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| wevisonevl | point |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| wevisonevl | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| wevisonevl | matte |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| wevisonevl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| wilddet3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| yolo1 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |  |
+| yolo2 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  | ✓ |  |
+| yolo3 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |  |
+| yolo4 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |  |
+| yolo7 | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ |  |  | ✓ |  |
+| yolo9 | detect | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | available | ✓ | ✓ | available | ✓ | available |
+| yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ |  | ✓ |  |
+| yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | available |  |  | ✓ |  |
+| yolonas | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ |  | ✓ |  |
+| yolonas | pose | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  | ✓ |  |  |  |  |
+| yolonas | obb | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |  |
+| yolox | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ | available | ✓ |  |
+| zipdepth | depth | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ |  |  | ✓ |  |
+| trellis2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 
 ## Parity thresholds
 
@@ -695,6 +695,7 @@ These converter paths are callable with the recorded validation context.
 - `yolo7` / `detect` / `tensorrt`: TensorRT 10.16 FP32 exports and reloads, but the permissively licensed trained checkpoint changes the public top-k class membership.
 - `yolo9` / `detect` / `rknn`: Exact small variants passed RKNN Toolkit2 2.3.2 compilation, RK3588 PC-simulator raw-output gates, and matched post-NMS detections on a real image. Support is limited to YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s; on-device latency and parity have not been measured. Constraint: RKNN Toolkit2 2.3.2, RK3588 PC simulator, vendor floating build, batch 1, fixed square input
 - `yolo9` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
+- `yolo9` / `detect` / `gguf`: BatchNorm-folded, RepConv-fused weights plus preprocessing and DFL decode metadata for vision.cpp; tests/unit/test_export_gguf.py covers the fold and the file round trip. Runtime parity is recorded in vision.cpp, not yet in LibreYOLO. Constraint: FP32 or FP16 weights; any input size that is a multiple of 32
 - `yolo9_e2e` / `detect` / `tensorrt`: Repeated TensorRT 10.16 FP32 engine builds with the permissively licensed trained checkpoint alternate between public top-k class drift and parity.
 - `yolo9_e2e` / `detect` / `rknn`: Exact small variants passed RKNN Toolkit2 2.3.2 compilation, RK3588 PC-simulator raw-output gates, and matched post-NMS detections on a real image. Support is limited to YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s; on-device latency and parity have not been measured. Constraint: RKNN Toolkit2 2.3.2, RK3588 PC simulator, vendor floating build, batch 1, fixed square input
 - `yolo9_p2` / `detect` / `tensorrt`: TensorRT 10.16 FP32 exports and reloads, but the pinned permissive YOLO9 transfer fixture changes the public top-k class membership.
@@ -722,6 +723,7 @@ These converter paths are callable with the recorded validation context.
 - `3dmood` / `detect3d` / `tflite`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `3dmood` / `detect3d` / `coreml`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `3dmood` / `detect3d` / `coreai`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `gguf`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `act_policy` / `act` / `onnx`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `act_policy` / `act` / `torchscript`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `act_policy` / `act` / `executorch`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
@@ -734,18 +736,21 @@ These converter paths are callable with the recorded validation context.
 - `act_policy` / `act` / `tflite`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `act_policy` / `act` / `coreml`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `act_policy` / `act` / `coreai`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `gguf`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `alexnet` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `alexnet` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `alexnet` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `alexnet` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `alexnet` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `alexnet` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `alexnet` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `ben2` / `matte` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ben2` / `matte` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ben2` / `matte` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `ben2` / `matte` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ben2` / `matte` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ben2` / `matte` / `coreai`: This family and task have not been validated for Core AI export.
+- `ben2` / `matte` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `birefnet` / `matte` / `executorch`: Strict capture succeeds at the fixed 1024x1024 canvas, but ExecuTorch 1.2 lowering has no out variant for torchvision::deform_conv2d.
 - `birefnet` / `matte` / `tensorrt`: TensorRT 10.16 reaches the shared ONNX DeformConv node but cannot parse it because ModulatedDeformConv2d is absent from the plugin registry.
 - `birefnet` / `matte` / `openvino`: OpenVINO 2026.2 cannot lower the shared matte decoder's standard ONNX DeformConv-19 operation.
@@ -756,6 +761,7 @@ These converter paths are callable with the recorded validation context.
 - `birefnet` / `matte` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `birefnet` / `matte` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `birefnet` / `matte` / `coreai`: The decoder needs torchvision deform_conv2d, which the Core AI converter cannot lower ('unable to handle call function op: deform_conv2d.default'). The same operator already blocks the NCNN path. An encoder-only contract is the realistic route, matching the seam the CUDA graph work used.
+- `birefnet` / `matte` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `centernet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `centernet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `centernet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -763,12 +769,14 @@ These converter paths are callable with the recorded validation context.
 - `centernet` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `centernet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `centernet` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `centernet` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `clip` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `clip` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `clip` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `clip` / `classify` / `ncnn`: No parity-valid frozen-class artifact is available for this runtime.
 - `clip` / `classify` / `tflite`: onnx2tf 2.6.7 emits a LiteRT graph whose TRANSPOSE receives a rank-5 permutation for a rank-4 tensor.
 - `clip` / `classify` / `coreml`: No parity-valid frozen-class artifact is available for this runtime.
+- `clip` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `clip` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `clip` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `clip` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -776,16 +784,19 @@ These converter paths are callable with the recorded validation context.
 - `clip` / `embed` / `tflite`: onnx2tf 2.6.7 emits a LiteRT graph whose TRANSPOSE receives a rank-5 permutation for a rank-4 tensor.
 - `clip` / `embed` / `coreml`: No parity-valid embedding artifact is available for this runtime.
 - `clip` / `embed` / `coreai`: No parity-valid embedding artifact is available for this runtime.
+- `clip` / `embed` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `convnext` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `convnext` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `convnext` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `convnext` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `convnext` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `convnextv2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `convnextv2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `convnextv2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `convnextv2` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `convnextv2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `convnextv2` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `convnextv2` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `crm` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `crm` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `crm` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
@@ -798,6 +809,7 @@ These converter paths are callable with the recorded validation context.
 - `crm` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `crm` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `crm` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `crm` / `generate3d` / `gguf`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `ddcolor` / `restore` / `onnx`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `ddcolor` / `restore` / `torchscript`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `ddcolor` / `restore` / `executorch`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
@@ -810,6 +822,7 @@ These converter paths are callable with the recorded validation context.
 - `ddcolor` / `restore` / `tflite`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `ddcolor` / `restore` / `coreml`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `ddcolor` / `restore` / `coreai`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
+- `ddcolor` / `restore` / `gguf`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `deeplabv3` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -818,6 +831,7 @@ These converter paths are callable with the recorded validation context.
 - `deeplabv3` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `deeplabv3` / `semantic` / `gguf`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deepseekocr` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
 - `deepseekocr` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
 - `deepseekocr` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
@@ -830,6 +844,7 @@ These converter paths are callable with the recorded validation context.
 - `deepseekocr` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
 - `deepseekocr` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
 - `deepseekocr` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
+- `deepseekocr` / `ocr` / `gguf`: Generative VLM export is out of scope for v1.
 - `deformable_detr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `deformable_detr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `deformable_detr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -837,22 +852,26 @@ These converter paths are callable with the recorded validation context.
 - `deformable_detr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deformable_detr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `deformable_detr` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `deformable_detr` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `deim` / `detect` / `executorch`: The trained nano model captures, lowers, and serializes, but ExecuTorch 1.2 runtime execution fails with an invalid delegated tensor dimension order.
 - `deim` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `deim` / `detect` / `ncnn`: NCNN export is not supported for DEIM: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deim` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deim` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `deim` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `deimv2` / `detect` / `executorch`: The trained atto model captures, lowers, and serializes, but the ExecuTorch 1.2 runtime process terminates while executing forward.
 - `deimv2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `deimv2` / `detect` / `ncnn`: NCNN export is not supported for DEIMv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deimv2` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deimv2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `deimv2` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `deit` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `deit` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `deit` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `deit` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deit` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `deit` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `deit` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `dekr` / `pose` / `executorch`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `paddle`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `mnn`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
@@ -861,12 +880,14 @@ These converter paths are callable with the recorded validation context.
 - `dekr` / `pose` / `tflite`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `coreml`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `coreai`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
+- `dekr` / `pose` / `gguf`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `depth_anything` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `depth_anything` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `depth_anything` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `depth_anything` / `depth` / `ncnn`: PNNX 20260526 reports unsupported batch-index reshapes in the DINOv2 transformer graph; the produced NCNN artifact fails numeric parity.
 - `depth_anything` / `depth` / `tflite`: onnx2tf 2.6.7 converts the DINOv2 depth graph, but LiteRT 2.1.2 cannot broadcast [1,3,3,32] and [1,72,72,32] in a generated ADD.
 - `depth_anything` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `depth_anything` / `depth` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `depth_anything3` / `depth` / `paddle`: Depth Anything 3 currently rejects export for every format; its depth graph has not been added to the exported-runtime contract.
 - `depth_anything3` / `depth` / `mnn`: Depth Anything 3 currently rejects export for every format; its depth graph has not been added to the exported-runtime contract.
 - `depth_anything3` / `depth` / `rknn`: Depth Anything 3 currently rejects export for every format; its depth graph has not been added to the exported-runtime contract.
@@ -874,6 +895,7 @@ These converter paths are callable with the recorded validation context.
 - `depth_anything3` / `depth` / `tflite`: Depth Anything 3 currently rejects export for every format; its depth graph has not been added to the exported-runtime contract.
 - `depth_anything3` / `depth` / `coreml`: Depth Anything 3 currently rejects export for every format; its depth graph has not been added to the exported-runtime contract.
 - `depth_anything3` / `depth` / `coreai`: The model raises NotImplementedError for every format: depth export is out of scope per ADR 0006, the depth task contract. Depth Anything V2 exports and validates at 5.2e-06, so this is specific to the V3 family and not a Core AI limitation.
+- `depth_anything3` / `depth` / `gguf`: Depth Anything 3 currently rejects export for every format; its depth graph has not been added to the exported-runtime contract.
 - `detany3d` / `detect3d` / `onnx`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `detany3d` / `detect3d` / `torchscript`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `detany3d` / `detect3d` / `executorch`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
@@ -886,6 +908,7 @@ These converter paths are callable with the recorded validation context.
 - `detany3d` / `detect3d` / `tflite`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `detany3d` / `detect3d` / `coreml`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `detany3d` / `detect3d` / `coreai`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `detany3d` / `detect3d` / `gguf`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `detr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `detr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `detr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -893,17 +916,20 @@ These converter paths are callable with the recorded validation context.
 - `detr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `detr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `detr` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `detr` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `dexined` / `edge` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dexined` / `edge` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dexined` / `edge` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `dexined` / `edge` / `ncnn`: PNNX 20260526 leaves an unsupported Tensor.index channel-reversal node, so the generated NCNN network has no runnable input.
 - `dexined` / `edge` / `coreml`: This edge runtime has no parity-valid artifact for the requested format.
 - `dexined` / `edge` / `coreai`: This edge runtime has no parity-valid artifact for the requested format.
+- `dexined` / `edge` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `dfine` / `detect` / `executorch`: Strict capture reaches an unsupported ContextVar read in deformable attention. Forcing the manual exported grid-sample path permits serialization, but ExecuTorch 1.2 runtime execution still fails with an invalid delegated tensor dimension order.
 - `dfine` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `dfine` / `detect` / `ncnn`: NCNN export is not supported for D-FINE: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dfine` / `detect` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError.
 - `dfine` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `dfine` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `dfine` / `segment` / `executorch`: Strict capture reaches the same untraceable deformable-attention ContextVar read as detection. Forcing the manual capture path permits serialization, but ExecuTorch 1.2 runtime execution fails with an invalid delegated tensor dimension order.
 - `dfine` / `segment` / `paddle`: The trained LibreDFINEn segmentation graph converts and reloads, but mask-logit relative RMS error is 3.52% and minimum matched-mask IoU is only 0.582.
 - `dfine` / `segment` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
@@ -912,6 +938,7 @@ These converter paths are callable with the recorded validation context.
 - `dfine` / `segment` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError.
 - `dfine` / `segment` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `dfine` / `segment` / `coreai`: This family and task have not been validated for Core AI export.
+- `dfine` / `segment` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `diffusion_policy` / `act` / `onnx`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `diffusion_policy` / `act` / `torchscript`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `diffusion_policy` / `act` / `executorch`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
@@ -924,6 +951,7 @@ These converter paths are callable with the recorded validation context.
 - `diffusion_policy` / `act` / `tflite`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `diffusion_policy` / `act` / `coreml`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `diffusion_policy` / `act` / `coreai`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `gguf`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `dinodetr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dinodetr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dinodetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -931,6 +959,7 @@ These converter paths are callable with the recorded validation context.
 - `dinodetr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `dinodetr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `dinodetr` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `dinodetr` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `dinov2` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `dinov2` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `dinov2` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -938,18 +967,21 @@ These converter paths are callable with the recorded validation context.
 - `dinov2` / `semantic` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct lowering cannot lower the backbone's cubic Resize because its input C/H/W signature remains dynamic.
 - `dinov2` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
 - `dinov2` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `dinov2` / `semantic` / `gguf`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `dinov2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dinov2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dinov2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `dinov2` / `classify` / `ncnn`: LibreDINOv2 classify export is not implemented for this format.
 - `dinov2` / `classify` / `tflite`: LibreDINOv2 classify export is not implemented for this format.
 - `dinov2` / `classify` / `coreml`: LibreDINOv2 classify export is not implemented for this format.
+- `dinov2` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `dinov2` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dinov2` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dinov2` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `dinov2` / `embed` / `ncnn`: PNNX 20260526 cannot lower the DINOv2 attention graph's batch-axis broadcasts and leaves an unsupported pnnx.Expression node.
 - `dinov2` / `embed` / `coreml`: No parity-valid embedding artifact is available for this runtime.
 - `dinov2` / `embed` / `coreai`: No parity-valid embedding artifact is available for this runtime.
+- `dinov2` / `embed` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `domedetr` / `detect` / `onnx`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `domedetr` / `detect` / `torchscript`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `domedetr` / `detect` / `executorch`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
@@ -962,6 +994,7 @@ These converter paths are callable with the recorded validation context.
 - `domedetr` / `detect` / `tflite`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `domedetr` / `detect` / `coreml`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `domedetr` / `detect` / `coreai`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
+- `domedetr` / `detect` / `gguf`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `dpflow` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `dpflow` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `dpflow` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -974,22 +1007,26 @@ These converter paths are callable with the recorded validation context.
 - `dpflow` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `dpflow` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `dpflow` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `dpflow` / `flow` / `gguf`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `ec` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `ec` / `detect` / `ncnn`: NCNN export is not supported for EC: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ec` / `detect` / `tflite`: onnx2tf 2.6.7 emits an ONNX_LAYERNORMALIZATION custom operation that LiteRT 2.1.2 cannot prepare.
 - `ec` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `ec` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `ec` / `pose` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ec` / `pose` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `ec` / `pose` / `ncnn`: NCNN export is not supported for EC: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ec` / `pose` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ec` / `pose` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ec` / `pose` / `coreai`: This family and task have not been validated for Core AI export.
+- `ec` / `pose` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `ec` / `segment` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ec` / `segment` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `ec` / `segment` / `ncnn`: NCNN export is not supported for EC: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ec` / `segment` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ec` / `segment` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ec` / `segment` / `coreai`: This family and task have not been validated for Core AI export.
+- `ec` / `segment` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `edgetam` / `segment` / `onnx`: Promptable model export is out of scope for the v1 runtime contract.
 - `edgetam` / `segment` / `torchscript`: Promptable model export is out of scope for the v1 runtime contract.
 - `edgetam` / `segment` / `executorch`: Promptable model export is out of scope for the v1 runtime contract.
@@ -1002,16 +1039,19 @@ These converter paths are callable with the recorded validation context.
 - `edgetam` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
 - `edgetam` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
 - `edgetam` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
+- `edgetam` / `segment` / `gguf`: Promptable model export is out of scope for the v1 runtime contract.
 - `efficientdet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `efficientdet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `efficientdet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `efficientdet` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `efficientdet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `efficientdet` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `efficientdet` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `efficientnetv2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `efficientnetv2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `efficientnetv2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `efficientnetv2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `efficientnetv2` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `eomt` / `semantic` / `executorch`: Strict torch.export capture fails on a data-dependent symbolic expression in the mask path before XNNPACK lowering.
 - `eomt` / `semantic` / `paddle`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `semantic` / `mnn`: EoMT instance and panoptic export do not yet have runtime parsing.
@@ -1020,6 +1060,7 @@ These converter paths are callable with the recorded validation context.
 - `eomt` / `semantic` / `tflite`: The dense-logits runtime contract is implemented, but this transformer graph has not produced a parity-valid edge-runtime artifact.
 - `eomt` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
 - `eomt` / `semantic` / `coreai`: torch.export refuses the graph: GuardOnDataDependentSymNode, 'Could not guard on data-dependent expression Eq(u0, 1)'. Something in the mask path reads a value off a tensor and branches on it, which becomes an unbacked symbol with no hint the tracer can resolve. This is a real capture failure, not a missing operator and not the task gate: it was measured with the gate open. Fixing it means finding the host read and making the shape static for a fixed export canvas, the same shape of fix as the rfdetr torch._assert.
+- `eomt` / `semantic` / `gguf`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `segment` / `onnx`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `segment` / `torchscript`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `segment` / `executorch`: EoMT instance and panoptic export do not yet have runtime parsing.
@@ -1032,6 +1073,7 @@ These converter paths are callable with the recorded validation context.
 - `eomt` / `segment` / `tflite`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `segment` / `coreml`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `segment` / `coreai`: EoMT instance and panoptic export do not yet have runtime parsing.
+- `eomt` / `segment` / `gguf`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `panoptic` / `onnx`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `panoptic` / `torchscript`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `panoptic` / `executorch`: EoMT instance and panoptic export do not yet have runtime parsing.
@@ -1044,6 +1086,7 @@ These converter paths are callable with the recorded validation context.
 - `eomt` / `panoptic` / `tflite`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `panoptic` / `coreml`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `eomt` / `panoptic` / `coreai`: EoMT instance and panoptic export do not yet have runtime parsing.
+- `eomt` / `panoptic` / `gguf`: EoMT instance and panoptic export do not yet have runtime parsing.
 - `falconocr` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
 - `falconocr` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
 - `falconocr` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1056,6 +1099,7 @@ These converter paths are callable with the recorded validation context.
 - `falconocr` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
 - `falconocr` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
 - `falconocr` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
+- `falconocr` / `ocr` / `gguf`: Generative VLM export is out of scope for v1.
 - `falconperception` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `falconperception` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `falconperception` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1068,6 +1112,7 @@ These converter paths are callable with the recorded validation context.
 - `falconperception` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `falconperception` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `falconperception` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `falconperception` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `falconperception` / `segment` / `onnx`: Generative VLM export is out of scope for v1.
 - `falconperception` / `segment` / `torchscript`: Generative VLM export is out of scope for v1.
 - `falconperception` / `segment` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1080,6 +1125,7 @@ These converter paths are callable with the recorded validation context.
 - `falconperception` / `segment` / `tflite`: Generative VLM export is out of scope for v1.
 - `falconperception` / `segment` / `coreml`: Generative VLM export is out of scope for v1.
 - `falconperception` / `segment` / `coreai`: Generative VLM export is out of scope for v1.
+- `falconperception` / `segment` / `gguf`: Generative VLM export is out of scope for v1.
 - `faster_rcnn` / `detect` / `torchscript`: The variable-length two-stage detection graph has only been validated through the ONNX runtime contract.
 - `faster_rcnn` / `detect` / `executorch`: The variable-length two-stage detection graph has only been validated through the ONNX runtime contract.
 - `faster_rcnn` / `detect` / `tensorrt`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
@@ -1091,6 +1137,7 @@ These converter paths are callable with the recorded validation context.
 - `faster_rcnn` / `detect` / `tflite`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
 - `faster_rcnn` / `detect` / `coreml`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
 - `faster_rcnn` / `detect` / `coreai`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
+- `faster_rcnn` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `fcn` / `semantic` / `executorch`: This runtime has no parity-valid FCN artifact yet; only ONNX, TorchScript, TensorRT, and OpenVINO were assessed for this port.
 - `fcn` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `fcn` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -1099,6 +1146,7 @@ These converter paths are callable with the recorded validation context.
 - `fcn` / `semantic` / `tflite`: This runtime has no parity-valid FCN artifact yet; only ONNX, TorchScript, TensorRT, and OpenVINO were assessed for this port.
 - `fcn` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
 - `fcn` / `semantic` / `coreai`: This runtime has no parity-valid FCN artifact yet; only ONNX, TorchScript, TensorRT, and OpenVINO were assessed for this port.
+- `fcn` / `semantic` / `gguf`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `fcos` / `detect` / `executorch`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `tensorrt`: FCOS requires dynamic padded H/W to preserve its 800/1333 aspect transform, while the current TensorRT runtime profiles dynamic batch only.
 - `fcos` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
@@ -1108,6 +1156,7 @@ These converter paths are callable with the recorded validation context.
 - `fcos` / `detect` / `tflite`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `coreml`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `coreai`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
+- `fcos` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `fcos3d` / `detect3d` / `onnx`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `fcos3d` / `detect3d` / `torchscript`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `fcos3d` / `detect3d` / `executorch`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
@@ -1120,6 +1169,7 @@ These converter paths are callable with the recorded validation context.
 - `fcos3d` / `detect3d` / `tflite`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `fcos3d` / `detect3d` / `coreml`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `fcos3d` / `detect3d` / `coreai`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `gguf`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `feynobg` / `matte` / `executorch`: The fixed 1024x1024 large graph exceeded the local conversion timebox while its working set grew past 4.7 GB; no .pte artifact was produced, so runtime parity remains untested.
 - `feynobg` / `matte` / `tensorrt`: TensorRT 10.16 reaches the shared ONNX DeformConv node but cannot parse it because ModulatedDeformConv2d is absent from the plugin registry.
 - `feynobg` / `matte` / `openvino`: OpenVINO 2026.2 cannot lower the shared matte decoder's standard ONNX DeformConv-19 operation.
@@ -1130,6 +1180,7 @@ These converter paths are callable with the recorded validation context.
 - `feynobg` / `matte` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `feynobg` / `matte` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `feynobg` / `matte` / `coreai`: This family and task have not been validated for Core AI export.
+- `feynobg` / `matte` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `florence2` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `florence2` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `florence2` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1142,6 +1193,7 @@ These converter paths are callable with the recorded validation context.
 - `florence2` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `florence2` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `florence2` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `florence2` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `flowseek` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `flowseek` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `flowseek` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -1154,6 +1206,7 @@ These converter paths are callable with the recorded validation context.
 - `flowseek` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `flowseek` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `flowseek` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `flowseek` / `flow` / `gguf`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `flux2_klein` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
@@ -1166,11 +1219,13 @@ These converter paths are callable with the recorded validation context.
 - `flux2_klein` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `flux2_klein` / `generate` / `gguf`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `fomo` / `point` / `paddle`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `mnn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `rknn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `tflite`: LiteRT 2.1.2 cannot invoke the onnx2tf 2.6.7 graph because a DEPTHWISE_CONV_2D reports 16 filter channels versus zero input channels.
 - `fomo` / `point` / `coreml`: The CoreML wrapper does not implement the raw point-heatmap contract.
+- `fomo` / `point` / `gguf`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `gemma4` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `gemma4` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `gemma4` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1183,6 +1238,7 @@ These converter paths are callable with the recorded validation context.
 - `gemma4` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `gemma4` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `gemma4` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `gemma4` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `glmocr` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
 - `glmocr` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
 - `glmocr` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1195,6 +1251,7 @@ These converter paths are callable with the recorded validation context.
 - `glmocr` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
 - `glmocr` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
 - `glmocr` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
+- `glmocr` / `ocr` / `gguf`: Generative VLM export is out of scope for v1.
 - `ground_florence2` / `point` / `onnx`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_florence2` / `point` / `torchscript`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_florence2` / `point` / `executorch`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
@@ -1207,6 +1264,7 @@ These converter paths are callable with the recorded validation context.
 - `ground_florence2` / `point` / `tflite`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_florence2` / `point` / `coreml`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_florence2` / `point` / `coreai`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `ground_florence2` / `point` / `gguf`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_qwen3vl` / `point` / `onnx`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_qwen3vl` / `point` / `torchscript`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_qwen3vl` / `point` / `executorch`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
@@ -1219,6 +1277,7 @@ These converter paths are callable with the recorded validation context.
 - `ground_qwen3vl` / `point` / `tflite`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_qwen3vl` / `point` / `coreml`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `ground_qwen3vl` / `point` / `coreai`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `ground_qwen3vl` / `point` / `gguf`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `grounding_dino` / `detect` / `onnx`: Open-vocabulary runtime export is out of scope for v1.
 - `grounding_dino` / `detect` / `torchscript`: Open-vocabulary runtime export is out of scope for v1.
 - `grounding_dino` / `detect` / `executorch`: Open-vocabulary runtime export is out of scope for v1.
@@ -1231,6 +1290,7 @@ These converter paths are callable with the recorded validation context.
 - `grounding_dino` / `detect` / `tflite`: Open-vocabulary runtime export is out of scope for v1.
 - `grounding_dino` / `detect` / `coreml`: Open-vocabulary runtime export is out of scope for v1.
 - `grounding_dino` / `detect` / `coreai`: Open-vocabulary runtime export is out of scope for v1.
+- `grounding_dino` / `detect` / `gguf`: Open-vocabulary runtime export is out of scope for v1.
 - `gtr` / `detect` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1241,6 +1301,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `detect` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `gguf`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1251,6 +1312,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `segment` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `gguf`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1261,6 +1323,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `pose` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `gguf`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1271,6 +1334,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `obb` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `gguf`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1281,6 +1345,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `depth` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `gguf`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1291,6 +1356,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `semantic` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `gguf`: GTR currently implements only portable ONNX and TorchScript export.
 - `hrnet` / `pose` / `executorch`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `paddle`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `mnn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
@@ -1299,6 +1365,7 @@ These converter paths are callable with the recorded validation context.
 - `hrnet` / `pose` / `tflite`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `coreml`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `coreai`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
+- `hrnet` / `pose` / `gguf`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hvi_cidnet` / `restore` / `onnx`: HVI-CIDNet export has not defined metadata and runtime semantics for its gamma, saturation, and intensity controls, and no exported runtime parity gate has been recorded. Use native PyTorch inference.
 - `hvi_cidnet` / `restore` / `torchscript`: HVI-CIDNet export has not defined metadata and runtime semantics for its gamma, saturation, and intensity controls, and no exported runtime parity gate has been recorded. Use native PyTorch inference.
 - `hvi_cidnet` / `restore` / `executorch`: HVI-CIDNet export has not defined metadata and runtime semantics for its gamma, saturation, and intensity controls, and no exported runtime parity gate has been recorded. Use native PyTorch inference.
@@ -1311,6 +1378,7 @@ These converter paths are callable with the recorded validation context.
 - `hvi_cidnet` / `restore` / `tflite`: HVI-CIDNet export has not defined metadata and runtime semantics for its gamma, saturation, and intensity controls, and no exported runtime parity gate has been recorded. Use native PyTorch inference.
 - `hvi_cidnet` / `restore` / `coreml`: HVI-CIDNet export has not defined metadata and runtime semantics for its gamma, saturation, and intensity controls, and no exported runtime parity gate has been recorded. Use native PyTorch inference.
 - `hvi_cidnet` / `restore` / `coreai`: HVI-CIDNet export has not defined metadata and runtime semantics for its gamma, saturation, and intensity controls, and no exported runtime parity gate has been recorded. Use native PyTorch inference.
+- `hvi_cidnet` / `restore` / `gguf`: HVI-CIDNet export has not defined metadata and runtime semantics for its gamma, saturation, and intensity controls, and no exported runtime parity gate has been recorded. Use native PyTorch inference.
 - `instanthmr` / `mesh` / `torchscript`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `instanthmr` / `mesh` / `executorch`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `instanthmr` / `mesh` / `tensorrt`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
@@ -1322,6 +1390,7 @@ These converter paths are callable with the recorded validation context.
 - `instanthmr` / `mesh` / `tflite`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `instanthmr` / `mesh` / `coreml`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `instanthmr` / `mesh` / `coreai`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `instanthmr` / `mesh` / `gguf`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `internvl3` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `internvl3` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `internvl3` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1334,6 +1403,7 @@ These converter paths are callable with the recorded validation context.
 - `internvl3` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `internvl3` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `internvl3` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `internvl3` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `kosmos2` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `kosmos2` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `kosmos2` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1346,6 +1416,7 @@ These converter paths are callable with the recorded validation context.
 - `kosmos2` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `kosmos2` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `kosmos2` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `kosmos2` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `l2cs` / `gaze` / `paddle`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `mnn`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `rknn`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
@@ -1353,6 +1424,7 @@ These converter paths are callable with the recorded validation context.
 - `l2cs` / `gaze` / `tflite`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `coreml`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `coreai`: The model itself refuses: 'LibreL2CS export to coreai is not implemented. The gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.' That is a model-side decision, unchanged by opening the support gate, so nothing about Core AI is being tested here.
+- `l2cs` / `gaze` / `gguf`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `lama` / `restore` / `onnx`: LibreLaMa already embeds and executes the exact upstream QDQ ONNX artifact. Re-exporting that opaque graph through PyTorch is neither meaningful nor supported.
 - `lama` / `restore` / `torchscript`: LibreLaMa already embeds and executes the exact upstream QDQ ONNX artifact. Re-exporting that opaque graph through PyTorch is neither meaningful nor supported.
 - `lama` / `restore` / `executorch`: LibreLaMa already embeds and executes the exact upstream QDQ ONNX artifact. Re-exporting that opaque graph through PyTorch is neither meaningful nor supported.
@@ -1365,6 +1437,7 @@ These converter paths are callable with the recorded validation context.
 - `lama` / `restore` / `tflite`: LibreLaMa already embeds and executes the exact upstream QDQ ONNX artifact. Re-exporting that opaque graph through PyTorch is neither meaningful nor supported.
 - `lama` / `restore` / `coreml`: LibreLaMa already embeds and executes the exact upstream QDQ ONNX artifact. Re-exporting that opaque graph through PyTorch is neither meaningful nor supported.
 - `lama` / `restore` / `coreai`: LibreLaMa already embeds and executes the exact upstream QDQ ONNX artifact. Re-exporting that opaque graph through PyTorch is neither meaningful nor supported.
+- `lama` / `restore` / `gguf`: LibreLaMa already embeds and executes the exact upstream QDQ ONNX artifact. Re-exporting that opaque graph through PyTorch is neither meaningful nor supported.
 - `levjepa` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `levjepa` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `levjepa` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1372,6 +1445,7 @@ These converter paths are callable with the recorded validation context.
 - `levjepa` / `embed` / `tflite`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `levjepa` / `embed` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `levjepa` / `embed` / `coreai`: This family and task have not been validated for Core AI export.
+- `levjepa` / `embed` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `lfm2vl` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `lfm2vl` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `lfm2vl` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1384,6 +1458,7 @@ These converter paths are callable with the recorded validation context.
 - `lfm2vl` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `lfm2vl` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `lfm2vl` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `lfm2vl` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `lgm` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `lgm` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `lgm` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
@@ -1396,6 +1471,7 @@ These converter paths are callable with the recorded validation context.
 - `lgm` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `lgm` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `lgm` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `lgm` / `generate3d` / `gguf`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `libremodus` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `libremodus` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `libremodus` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1408,6 +1484,7 @@ These converter paths are callable with the recorded validation context.
 - `libremodus` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `libremodus` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `libremodus` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `libremodus` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `libremodus` / `depth` / `onnx`: Generative VLM export is out of scope for v1.
 - `libremodus` / `depth` / `torchscript`: Generative VLM export is out of scope for v1.
 - `libremodus` / `depth` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1420,6 +1497,7 @@ These converter paths are callable with the recorded validation context.
 - `libremodus` / `depth` / `tflite`: Generative VLM export is out of scope for v1.
 - `libremodus` / `depth` / `coreml`: Generative VLM export is out of scope for v1.
 - `libremodus` / `depth` / `coreai`: Generative VLM export is out of scope for v1.
+- `libremodus` / `depth` / `gguf`: Generative VLM export is out of scope for v1.
 - `libremodus` / `normal` / `onnx`: Generative VLM export is out of scope for v1.
 - `libremodus` / `normal` / `torchscript`: Generative VLM export is out of scope for v1.
 - `libremodus` / `normal` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1432,6 +1510,7 @@ These converter paths are callable with the recorded validation context.
 - `libremodus` / `normal` / `tflite`: Generative VLM export is out of scope for v1.
 - `libremodus` / `normal` / `coreml`: Generative VLM export is out of scope for v1.
 - `libremodus` / `normal` / `coreai`: Generative VLM export is out of scope for v1.
+- `libremodus` / `normal` / `gguf`: Generative VLM export is out of scope for v1.
 - `libremodus` / `edge` / `onnx`: Generative VLM export is out of scope for v1.
 - `libremodus` / `edge` / `torchscript`: Generative VLM export is out of scope for v1.
 - `libremodus` / `edge` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1444,12 +1523,14 @@ These converter paths are callable with the recorded validation context.
 - `libremodus` / `edge` / `tflite`: Generative VLM export is out of scope for v1.
 - `libremodus` / `edge` / `coreml`: Generative VLM export is out of scope for v1.
 - `libremodus` / `edge` / `coreai`: Generative VLM export is out of scope for v1.
+- `libremodus` / `edge` / `gguf`: Generative VLM export is out of scope for v1.
 - `lingbotvision` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `lingbotvision` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `lingbotvision` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `lingbotvision` / `semantic` / `ncnn`: The dense-logits runtime contract is implemented, but this transformer graph has not produced a parity-valid edge-runtime artifact.
 - `lingbotvision` / `semantic` / `tflite`: The dense-logits runtime contract is implemented, but this transformer graph has not produced a parity-valid edge-runtime artifact.
 - `lingbotvision` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
+- `lingbotvision` / `semantic` / `gguf`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `locateanything` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `locateanything` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `locateanything` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1462,6 +1543,7 @@ These converter paths are callable with the recorded validation context.
 - `locateanything` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `locateanything` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `locateanything` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `locateanything` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `locateanything` / `point` / `onnx`: Generative VLM export is out of scope for v1.
 - `locateanything` / `point` / `torchscript`: Generative VLM export is out of scope for v1.
 - `locateanything` / `point` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1474,6 +1556,7 @@ These converter paths are callable with the recorded validation context.
 - `locateanything` / `point` / `tflite`: Generative VLM export is out of scope for v1.
 - `locateanything` / `point` / `coreml`: Generative VLM export is out of scope for v1.
 - `locateanything` / `point` / `coreai`: Generative VLM export is out of scope for v1.
+- `locateanything` / `point` / `gguf`: Generative VLM export is out of scope for v1.
 - `lwdetr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `lwdetr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `lwdetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1481,6 +1564,7 @@ These converter paths are callable with the recorded validation context.
 - `lwdetr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `lwdetr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `lwdetr` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `lwdetr` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `marigold_v2` / `depth` / `onnx`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `depth` / `torchscript`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `depth` / `executorch`: Marigold V2 quantized diffusion export has not been integrated or validated.
@@ -1493,6 +1577,7 @@ These converter paths are callable with the recorded validation context.
 - `marigold_v2` / `depth` / `tflite`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `depth` / `coreml`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `depth` / `coreai`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `gguf`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `normal` / `onnx`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `normal` / `torchscript`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `normal` / `executorch`: Marigold V2 quantized diffusion export has not been integrated or validated.
@@ -1505,6 +1590,7 @@ These converter paths are callable with the recorded validation context.
 - `marigold_v2` / `normal` / `tflite`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `normal` / `coreml`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `normal` / `coreai`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `gguf`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `albedo` / `onnx`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `albedo` / `torchscript`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `albedo` / `executorch`: Marigold V2 quantized diffusion export has not been integrated or validated.
@@ -1517,6 +1603,7 @@ These converter paths are callable with the recorded validation context.
 - `marigold_v2` / `albedo` / `tflite`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `albedo` / `coreml`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `marigold_v2` / `albedo` / `coreai`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `gguf`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `mask_rcnn` / `detect` / `torchscript`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `executorch`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `tensorrt`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
@@ -1528,6 +1615,7 @@ These converter paths are callable with the recorded validation context.
 - `mask_rcnn` / `detect` / `tflite`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `coreml`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `coreai`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
+- `mask_rcnn` / `detect` / `gguf`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `torchscript`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `executorch`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `tensorrt`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
@@ -1539,6 +1627,7 @@ These converter paths are callable with the recorded validation context.
 - `mask_rcnn` / `segment` / `tflite`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `coreml`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `coreai`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
+- `mask_rcnn` / `segment` / `gguf`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `memfof` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `memfof` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `memfof` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -1551,16 +1640,19 @@ These converter paths are callable with the recorded validation context.
 - `memfof` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `memfof` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `memfof` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `memfof` / `flow` / `gguf`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `midas` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `midas` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `midas` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `midas` / `depth` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `midas` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `midas` / `depth` / `coreai`: This family and task have not been validated for Core AI export.
+- `midas` / `depth` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `mobilenetv4` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `mobilenetv4` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `mobilenetv4` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `mobilenetv4` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `mobilenetv4` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `mobilesam` / `segment` / `onnx`: Promptable model export is out of scope for the v1 runtime contract.
 - `mobilesam` / `segment` / `torchscript`: Promptable model export is out of scope for the v1 runtime contract.
 - `mobilesam` / `segment` / `executorch`: Promptable model export is out of scope for the v1 runtime contract.
@@ -1573,12 +1665,14 @@ These converter paths are callable with the recorded validation context.
 - `mobilesam` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
 - `mobilesam` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
 - `mobilesam` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
+- `mobilesam` / `segment` / `gguf`: Promptable model export is out of scope for the v1 runtime contract.
 - `moge2` / `normal` / `paddle`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
 - `moge2` / `normal` / `mnn`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
 - `moge2` / `normal` / `rknn`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
 - `moge2` / `normal` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct lowering cannot lower the encoder's cubic Resize because its input C/H/W signature remains dynamic.
 - `moge2` / `normal` / `coreml`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
 - `moge2` / `normal` / `coreai`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
+- `moge2` / `normal` / `gguf`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
 - `moge3` / `depth` / `onnx`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
 - `moge3` / `depth` / `torchscript`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
 - `moge3` / `depth` / `executorch`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
@@ -1591,6 +1685,7 @@ These converter paths are callable with the recorded validation context.
 - `moge3` / `depth` / `tflite`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
 - `moge3` / `depth` / `coreml`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
 - `moge3` / `depth` / `coreai`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
+- `moge3` / `depth` / `gguf`: The sparse refiner builds data-dependent voxel sets and camera recovery runs a CPU least-squares solve, so the depth graph is not capturable. Use the native .pt model for depth.
 - `moge3` / `normal` / `executorch`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
 - `moge3` / `normal` / `tensorrt`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
 - `moge3` / `normal` / `openvino`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
@@ -1601,6 +1696,7 @@ These converter paths are callable with the recorded validation context.
 - `moge3` / `normal` / `tflite`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
 - `moge3` / `normal` / `coreml`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
 - `moge3` / `normal` / `coreai`: MoGe-3 normal export is validated for ONNX and TorchScript only; this runtime has not been run for the family.
+- `moge3` / `normal` / `gguf`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
 - `molmo2` / `point` / `onnx`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `molmo2` / `point` / `torchscript`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `molmo2` / `point` / `executorch`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
@@ -1613,6 +1709,7 @@ These converter paths are callable with the recorded validation context.
 - `molmo2` / `point` / `tflite`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `molmo2` / `point` / `coreml`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `molmo2` / `point` / `coreai`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `gguf`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `moondream` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `moondream` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `moondream` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1625,6 +1722,7 @@ These converter paths are callable with the recorded validation context.
 - `moondream` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `moondream` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `moondream` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `moondream` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `moondream` / `point` / `onnx`: Generative VLM export is out of scope for v1.
 - `moondream` / `point` / `torchscript`: Generative VLM export is out of scope for v1.
 - `moondream` / `point` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1637,11 +1735,13 @@ These converter paths are callable with the recorded validation context.
 - `moondream` / `point` / `tflite`: Generative VLM export is out of scope for v1.
 - `moondream` / `point` / `coreml`: Generative VLM export is out of scope for v1.
 - `moondream` / `point` / `coreai`: Generative VLM export is out of scope for v1.
+- `moondream` / `point` / `gguf`: Generative VLM export is out of scope for v1.
 - `nafnet` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `nafnet` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `nafnet` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `nafnet` / `restore` / `tflite`: onnx2tf 2.6.7 converts the fixed-canvas graph, but LiteRT 2.1.2 fails at invoke time because input tensor 4539 lacks data.
 - `nafnet` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `nafnet` / `restore` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `neuflowv2` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `neuflowv2` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `neuflowv2` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -1654,6 +1754,7 @@ These converter paths are callable with the recorded validation context.
 - `neuflowv2` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `neuflowv2` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `neuflowv2` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `neuflowv2` / `flow` / `gguf`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `northmicrovision` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `northmicrovision` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `northmicrovision` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1666,6 +1767,7 @@ These converter paths are callable with the recorded validation context.
 - `northmicrovision` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `northmicrovision` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `northmicrovision` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `northmicrovision` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `omdet_turbo` / `detect` / `onnx`: Open-vocabulary runtime export is out of scope for v1.
 - `omdet_turbo` / `detect` / `torchscript`: Open-vocabulary runtime export is out of scope for v1.
 - `omdet_turbo` / `detect` / `executorch`: Open-vocabulary runtime export is out of scope for v1.
@@ -1678,6 +1780,7 @@ These converter paths are callable with the recorded validation context.
 - `omdet_turbo` / `detect` / `tflite`: Open-vocabulary runtime export is out of scope for v1.
 - `omdet_turbo` / `detect` / `coreml`: Open-vocabulary runtime export is out of scope for v1.
 - `omdet_turbo` / `detect` / `coreai`: Open-vocabulary runtime export is out of scope for v1.
+- `omdet_turbo` / `detect` / `gguf`: Open-vocabulary runtime export is out of scope for v1.
 - `ov_deim` / `detect` / `onnx`: Open-vocabulary runtime export is out of scope for v1.
 - `ov_deim` / `detect` / `torchscript`: Open-vocabulary runtime export is out of scope for v1.
 - `ov_deim` / `detect` / `executorch`: Open-vocabulary runtime export is out of scope for v1.
@@ -1690,6 +1793,7 @@ These converter paths are callable with the recorded validation context.
 - `ov_deim` / `detect` / `tflite`: Open-vocabulary runtime export is out of scope for v1.
 - `ov_deim` / `detect` / `coreml`: Open-vocabulary runtime export is out of scope for v1.
 - `ov_deim` / `detect` / `coreai`: Open-vocabulary runtime export is out of scope for v1.
+- `ov_deim` / `detect` / `gguf`: Open-vocabulary runtime export is out of scope for v1.
 - `owlv2` / `detect` / `onnx`: Open-vocabulary runtime export is out of scope for v1.
 - `owlv2` / `detect` / `torchscript`: Open-vocabulary runtime export is out of scope for v1.
 - `owlv2` / `detect` / `executorch`: Open-vocabulary runtime export is out of scope for v1.
@@ -1702,6 +1806,7 @@ These converter paths are callable with the recorded validation context.
 - `owlv2` / `detect` / `tflite`: Open-vocabulary runtime export is out of scope for v1.
 - `owlv2` / `detect` / `coreml`: Open-vocabulary runtime export is out of scope for v1.
 - `owlv2` / `detect` / `coreai`: Open-vocabulary runtime export is out of scope for v1.
+- `owlv2` / `detect` / `gguf`: Open-vocabulary runtime export is out of scope for v1.
 - `paddleocrvl` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
 - `paddleocrvl` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
 - `paddleocrvl` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1714,6 +1819,7 @@ These converter paths are callable with the recorded validation context.
 - `paddleocrvl` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
 - `paddleocrvl` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
 - `paddleocrvl` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
+- `paddleocrvl` / `ocr` / `gguf`: Generative VLM export is out of scope for v1.
 - `pe` / `classify` / `paddle`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `pe` / `classify` / `rknn`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
@@ -1721,6 +1827,7 @@ These converter paths are callable with the recorded validation context.
 - `pe` / `classify` / `tflite`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `classify` / `coreml`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `classify` / `coreai`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
+- `pe` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `pe` / `embed` / `paddle`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `pe` / `embed` / `rknn`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
@@ -1728,10 +1835,12 @@ These converter paths are callable with the recorded validation context.
 - `pe` / `embed` / `tflite`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `embed` / `coreml`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `embed` / `coreai`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
+- `pe` / `embed` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `picodet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `picodet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `picodet` / `detect` / `tflite`: LiteRT 2.1.2 cannot prepare the onnx2tf 2.6.7 artifact because a RESHAPE maps 19,200 input elements to 9,600 output elements.
 - `picodet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `picodet` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `picosam3` / `segment` / `torchscript`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
 - `picosam3` / `segment` / `executorch`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
 - `picosam3` / `segment` / `tensorrt`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
@@ -1743,10 +1852,12 @@ These converter paths are callable with the recorded validation context.
 - `picosam3` / `segment` / `tflite`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
 - `picosam3` / `segment` / `coreml`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
 - `picosam3` / `segment` / `coreai`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
+- `picosam3` / `segment` / `gguf`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
 - `pidnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
+- `pidnet` / `semantic` / `gguf`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ppdoclayoutv3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1754,6 +1865,7 @@ These converter paths are callable with the recorded validation context.
 - `ppdoclayoutv3` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ppdoclayoutv3` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ppdoclayoutv3` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `ppdoclayoutv3` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `ppliteseg` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -1762,6 +1874,7 @@ These converter paths are callable with the recorded validation context.
 - `ppliteseg` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ppliteseg` / `semantic` / `gguf`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppocr` / `ocr` / `onnx`: OCR uses two networks for detection and recognition with dynamic per-region cropping, so it does not fit the single-graph export contract.
 - `ppocr` / `ocr` / `torchscript`: OCR uses two networks for detection and recognition with dynamic per-region cropping, so it does not fit the single-graph export contract.
 - `ppocr` / `ocr` / `executorch`: OCR uses two networks for detection and recognition with dynamic per-region cropping, so it does not fit the single-graph export contract.
@@ -1774,12 +1887,14 @@ These converter paths are callable with the recorded validation context.
 - `ppocr` / `ocr` / `tflite`: OCR uses two networks for detection and recognition with dynamic per-region cropping, so it does not fit the single-graph export contract.
 - `ppocr` / `ocr` / `coreml`: OCR uses two networks for detection and recognition with dynamic per-region cropping, so it does not fit the single-graph export contract.
 - `ppocr` / `ocr` / `coreai`: OCR uses two networks for detection and recognition with dynamic per-region cropping, so it does not fit the single-graph export contract.
+- `ppocr` / `ocr` / `gguf`: OCR uses two networks for detection and recognition with dynamic per-region cropping, so it does not fit the single-graph export contract.
 - `ppyoloe` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppyoloe` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ppyoloe` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `ppyoloe` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ppyoloe` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ppyoloe` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `ppyoloe` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `prx` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `prx` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `prx` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
@@ -1792,6 +1907,7 @@ These converter paths are callable with the recorded validation context.
 - `prx` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `prx` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `prx` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prx` / `generate` / `gguf`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `prxpixel` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `prxpixel` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `prxpixel` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
@@ -1804,12 +1920,14 @@ These converter paths are callable with the recorded validation context.
 - `prxpixel` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `prxpixel` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `prxpixel` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `prxpixel` / `generate` / `gguf`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `quicksrnet` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `quicksrnet` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `quicksrnet` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `quicksrnet` / `restore` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `quicksrnet` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `quicksrnet` / `restore` / `coreai`: This family and task have not been validated for Core AI export.
+- `quicksrnet` / `restore` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `qwen3vl` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `qwen3vl` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `qwen3vl` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1822,6 +1940,7 @@ These converter paths are callable with the recorded validation context.
 - `qwen3vl` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `qwen3vl` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `qwen3vl` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `qwen3vl` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `qwen3vl_embedding` / `embed` / `onnx`: VLM embedding export is out of scope for v1.
 - `qwen3vl_embedding` / `embed` / `torchscript`: VLM embedding export is out of scope for v1.
 - `qwen3vl_embedding` / `embed` / `executorch`: VLM embedding export is out of scope for v1.
@@ -1834,6 +1953,7 @@ These converter paths are callable with the recorded validation context.
 - `qwen3vl_embedding` / `embed` / `tflite`: VLM embedding export is out of scope for v1.
 - `qwen3vl_embedding` / `embed` / `coreml`: VLM embedding export is out of scope for v1.
 - `qwen3vl_embedding` / `embed` / `coreai`: VLM embedding export is out of scope for v1.
+- `qwen3vl_embedding` / `embed` / `gguf`: VLM embedding export is out of scope for v1.
 - `raft` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `raft` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `raft` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -1846,14 +1966,17 @@ These converter paths are callable with the recorded validation context.
 - `raft` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `raft` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `raft` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `raft` / `flow` / `gguf`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `realesrgan` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `realesrgan` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `realesrgan` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `realesrgan` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `realesrgan` / `restore` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `resnet` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `resnet` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `resnet` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `resnet` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `resnet` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `retinanet` / `detect` / `torchscript`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
 - `retinanet` / `detect` / `executorch`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
 - `retinanet` / `detect` / `tensorrt`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
@@ -1865,10 +1988,12 @@ These converter paths are callable with the recorded validation context.
 - `retinanet` / `detect` / `tflite`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
 - `retinanet` / `detect` / `coreml`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
 - `retinanet` / `detect` / `coreai`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
+- `retinanet` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `rfdetr` / `detect` / `paddle`: RF-DETR requires ONNX opset 17 and GridSample, while X2Paddle 1.6.0 accepts opset 15 or lower and has no GridSample mapper.
 - `rfdetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `rfdetr` / `detect` / `ncnn`: NCNN export is not supported for RF-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rfdetr` / `detect` / `tflite`: onnx2tf emits a flatbuffer at the native 384x384 canvas, but LiteRT cannot allocate it because STRIDED_SLICE receives an input above its supported 5-D rank.
+- `rfdetr` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `rfdetr` / `segment` / `paddle`: RF-DETR requires ONNX opset 17 and GridSample, while X2Paddle 1.6.0 accepts opset 15 or lower and has no GridSample mapper.
 - `rfdetr` / `segment` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rfdetr` / `segment` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1876,6 +2001,7 @@ These converter paths are callable with the recorded validation context.
 - `rfdetr` / `segment` / `tflite`: onnx2tf 2.4.x assigns an invalid NHWC layout to the segmentation-head Einsum (78 channels versus the required 256), so conversion fails.
 - `rfdetr` / `segment` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rfdetr` / `segment` / `coreai`: This family and task have not been validated for Core AI export.
+- `rfdetr` / `segment` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `rfdetr` / `pose` / `paddle`: RF-DETR requires ONNX opset 17 and GridSample, while X2Paddle 1.6.0 accepts opset 15 or lower and has no GridSample mapper.
 - `rfdetr` / `pose` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rfdetr` / `pose` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1883,6 +2009,7 @@ These converter paths are callable with the recorded validation context.
 - `rfdetr` / `pose` / `tflite`: RF-DETR pose-x TFLite conversion exceeded the CPU timebox and 8 GB working memory without producing an artifact on this toolchain.
 - `rfdetr` / `pose` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rfdetr` / `pose` / `coreai`: This family and task have not been validated for Core AI export.
+- `rfdetr` / `pose` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `rfdetr` / `obb` / `paddle`: RF-DETR requires ONNX opset 17 and GridSample, while X2Paddle 1.6.0 accepts opset 15 or lower and has no GridSample mapper.
 - `rfdetr` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rfdetr` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1890,6 +2017,7 @@ These converter paths are callable with the recorded validation context.
 - `rfdetr` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rfdetr` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rfdetr` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
+- `rfdetr` / `obb` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `riodetrv2` / `obb` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `riodetrv2` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `riodetrv2` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1897,15 +2025,18 @@ These converter paths are callable with the recorded validation context.
 - `riodetrv2` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `riodetrv2` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `riodetrv2` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
+- `riodetrv2` / `obb` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `rtdetr` / `detect` / `paddle`: The trained graphs require ONNX GridSample at opset 16 or newer, while X2Paddle 1.6.0 accepts opset 15 or lower.
 - `rtdetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `rtdetr` / `detect` / `ncnn`: NCNN export is not supported for RT-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetr` / `detect` / `tflite`: LiteRT 2.1.2 rejects the onnx2tf 2.6.7 graph because a CONCATENATION receives incompatible 256 and 1 dimensions.
+- `rtdetr` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `rtdetrv2` / `detect` / `paddle`: The trained graphs require ONNX GridSample at opset 16 or newer, while X2Paddle 1.6.0 accepts opset 15 or lower.
 - `rtdetrv2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `rtdetrv2` / `detect` / `ncnn`: NCNN export is not supported for RT-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv2` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rtdetrv2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `rtdetrv2` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `rtdetrv2` / `obb` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `rtdetrv2` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rtdetrv2` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1913,16 +2044,19 @@ These converter paths are callable with the recorded validation context.
 - `rtdetrv2` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rtdetrv2` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rtdetrv2` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
+- `rtdetrv2` / `obb` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `rtdetrv4` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `rtdetrv4` / `detect` / `ncnn`: NCNN export is not supported for RT-DETRv4: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv4` / `detect` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError at the native 640x640 canvas.
 - `rtdetrv4` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `rtdetrv4` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `rtmdet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `rtmdet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rtmdet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `rtmdet` / `detect` / `ncnn`: PNNX 20260526 reports an unregistered nn.Conv2d layer and leaves the RTMDet NCNN graph without usable input blobs.
 - `rtmdet` / `detect` / `tflite`: onnx2tf 2.6.7 exports, reloads, and preserves raw output parity, but at the native 640x640 canvas public boxes fall to 0.911 IoU with 29.9 px coordinate drift.
 - `rtmdet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `rtmdet` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `rtmdet` / `segment` / `onnx`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
 - `rtmdet` / `segment` / `torchscript`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
 - `rtmdet` / `segment` / `executorch`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
@@ -1935,6 +2069,7 @@ These converter paths are callable with the recorded validation context.
 - `rtmdet` / `segment` / `tflite`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
 - `rtmdet` / `segment` / `coreml`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
 - `rtmdet` / `segment` / `coreai`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
+- `rtmdet` / `segment` / `gguf`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
 - `sam` / `segment` / `onnx`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam` / `segment` / `torchscript`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam` / `segment` / `executorch`: Promptable model export is out of scope for the v1 runtime contract.
@@ -1947,6 +2082,7 @@ These converter paths are callable with the recorded validation context.
 - `sam` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam` / `segment` / `gguf`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam2` / `segment` / `onnx`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam2` / `segment` / `torchscript`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam2` / `segment` / `executorch`: Promptable model export is out of scope for the v1 runtime contract.
@@ -1959,6 +2095,7 @@ These converter paths are callable with the recorded validation context.
 - `sam2` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam2` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam2` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam2` / `segment` / `gguf`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `onnx`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `torchscript`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `executorch`: Promptable model export is out of scope for the v1 runtime contract.
@@ -1971,6 +2108,7 @@ These converter paths are callable with the recorded validation context.
 - `sam3` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam3` / `segment` / `gguf`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam31` / `segment` / `onnx`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam31` / `segment` / `torchscript`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam31` / `segment` / `executorch`: Promptable model export is out of scope for the v1 runtime contract.
@@ -1983,6 +2121,7 @@ These converter paths are callable with the recorded validation context.
 - `sam31` / `segment` / `tflite`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam31` / `segment` / `coreml`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam31` / `segment` / `coreai`: Promptable model export is out of scope for the v1 runtime contract.
+- `sam31` / `segment` / `gguf`: Promptable model export is out of scope for the v1 runtime contract.
 - `sam3dbody` / `mesh` / `onnx`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sam3dbody` / `mesh` / `torchscript`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sam3dbody` / `mesh` / `executorch`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
@@ -1995,6 +2134,7 @@ These converter paths are callable with the recorded validation context.
 - `sam3dbody` / `mesh` / `tflite`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sam3dbody` / `mesh` / `coreml`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sam3dbody` / `mesh` / `coreai`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
+- `sam3dbody` / `mesh` / `gguf`: Body-mesh export is blocked until its graph outputs, metadata, and backend runtime contract are defined.
 - `sana_sprint` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `sana_sprint` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `sana_sprint` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
@@ -2007,6 +2147,7 @@ These converter paths are callable with the recorded validation context.
 - `sana_sprint` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `sana_sprint` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `sana_sprint` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `sana_sprint` / `generate` / `gguf`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `searaft` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `searaft` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `searaft` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -2019,6 +2160,7 @@ These converter paths are callable with the recorded validation context.
 - `searaft` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `searaft` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `searaft` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `searaft` / `flow` / `gguf`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `segformer` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `segformer` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `segformer` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -2026,6 +2168,7 @@ These converter paths are callable with the recorded validation context.
 - `segformer` / `semantic` / `tflite`: onnx2tf 2.6.7 emits a flatbuffer, but LiteRT 2.1.2 cannot prepare its attention reshape (1024 input elements versus 256 output elements).
 - `segformer` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `segformer` / `semantic` / `coreai`: The SegFormer Core AI capture path has not been assessed. Its published weights are non-commercial regardless of export format.
+- `segformer` / `semantic` / `gguf`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `sensenovavision` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2038,6 +2181,7 @@ These converter paths are callable with the recorded validation context.
 - `sensenovavision` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `sensenovavision` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `segment` / `onnx`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `segment` / `torchscript`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `segment` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2050,6 +2194,7 @@ These converter paths are callable with the recorded validation context.
 - `sensenovavision` / `segment` / `tflite`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `segment` / `coreml`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `segment` / `coreai`: Generative VLM export is out of scope for v1.
+- `sensenovavision` / `segment` / `gguf`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `panoptic` / `onnx`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `panoptic` / `torchscript`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `panoptic` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2062,6 +2207,7 @@ These converter paths are callable with the recorded validation context.
 - `sensenovavision` / `panoptic` / `tflite`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `panoptic` / `coreml`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `panoptic` / `coreai`: Generative VLM export is out of scope for v1.
+- `sensenovavision` / `panoptic` / `gguf`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `pose` / `onnx`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `pose` / `torchscript`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `pose` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2074,6 +2220,7 @@ These converter paths are callable with the recorded validation context.
 - `sensenovavision` / `pose` / `tflite`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `pose` / `coreml`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `pose` / `coreai`: Generative VLM export is out of scope for v1.
+- `sensenovavision` / `pose` / `gguf`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `point` / `onnx`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `point` / `torchscript`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `point` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2086,6 +2233,7 @@ These converter paths are callable with the recorded validation context.
 - `sensenovavision` / `point` / `tflite`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `point` / `coreml`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `point` / `coreai`: Generative VLM export is out of scope for v1.
+- `sensenovavision` / `point` / `gguf`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `depth` / `onnx`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `depth` / `torchscript`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `depth` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2098,6 +2246,7 @@ These converter paths are callable with the recorded validation context.
 - `sensenovavision` / `depth` / `tflite`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `depth` / `coreml`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `depth` / `coreai`: Generative VLM export is out of scope for v1.
+- `sensenovavision` / `depth` / `gguf`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2110,6 +2259,7 @@ These converter paths are callable with the recorded validation context.
 - `sensenovavision` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
 - `sensenovavision` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
+- `sensenovavision` / `ocr` / `gguf`: Generative VLM export is out of scope for v1.
 - `showui` / `point` / `onnx`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `showui` / `point` / `torchscript`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `showui` / `point` / `executorch`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
@@ -2122,17 +2272,20 @@ These converter paths are callable with the recorded validation context.
 - `showui` / `point` / `tflite`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `showui` / `point` / `coreml`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `showui` / `point` / `coreai`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `showui` / `point` / `gguf`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `siglip2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `siglip2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `siglip2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `siglip2` / `classify` / `ncnn`: No parity-valid frozen-class artifact is available for this runtime.
 - `siglip2` / `classify` / `coreml`: No parity-valid frozen-class artifact is available for this runtime.
+- `siglip2` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `siglip2` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `siglip2` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `siglip2` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `siglip2` / `embed` / `ncnn`: PNNX 20260526 leaves unsupported pnnx.Expression nodes in the SigLIP2 attention graph, so the generated NCNN network has no runnable input.
 - `siglip2` / `embed` / `coreml`: No parity-valid embedding artifact is available for this runtime.
 - `siglip2` / `embed` / `coreai`: No parity-valid embedding artifact is available for this runtime.
+- `siglip2` / `embed` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `smolvla` / `act` / `onnx`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `smolvla` / `act` / `torchscript`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `smolvla` / `act` / `executorch`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
@@ -2145,6 +2298,7 @@ These converter paths are callable with the recorded validation context.
 - `smolvla` / `act` / `tflite`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `smolvla` / `act` / `coreml`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `smolvla` / `act` / `coreai`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `gguf`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `smolvlm2` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `smolvlm2` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `smolvlm2` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2157,6 +2311,7 @@ These converter paths are callable with the recorded validation context.
 - `smolvlm2` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `smolvlm2` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `smolvlm2` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `smolvlm2` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `speridlabs_idol` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `speridlabs_idol` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `speridlabs_idol` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
@@ -2169,6 +2324,7 @@ These converter paths are callable with the recorded validation context.
 - `speridlabs_idol` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `speridlabs_idol` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `speridlabs_idol` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `speridlabs_idol` / `generate3d` / `gguf`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `ssd` / `detect` / `torchscript`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
 - `ssd` / `detect` / `executorch`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
 - `ssd` / `detect` / `tensorrt`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
@@ -2180,12 +2336,14 @@ These converter paths are callable with the recorded validation context.
 - `ssd` / `detect` / `tflite`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
 - `ssd` / `detect` / `coreml`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
 - `ssd` / `detect` / `coreai`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
+- `ssd` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `swin` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `swin` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `swin` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `swin` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `swin` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `swin` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `swin` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `swinir` / `restore` / `executorch`: The fixed-canvas graph captures, lowers, serializes, and reloads, but ExecuTorch 1.2 runtime execution fails in aten::alias_copy.out because the source and destination tensors have different dimension orders.
 - `swinir` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `swinir` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
@@ -2193,12 +2351,14 @@ These converter paths are callable with the recorded validation context.
 - `swinir` / `restore` / `ncnn`: PNNX writes NCNN artifacts after reporting unsupported 5-rank Permute operations, but the NCNN runtime process exits while loading or executing the resulting graph.
 - `swinir` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `swinir` / `restore` / `coreai`: The export process DIES rather than hangs, and the kill point moves between runs, which is the signature of memory exhaustion rather than a stuck loop. One run reached 'Step 3/3: Optimizing and writing the asset' before stopping; a later run of the same graph at the same 128 canvas died inside to_coreai() before returning, in both cases with a leaked-semaphore warning and no traceback. Window attention unrolls into a very large number of small ops, so the converter's peak memory is the prime suspect on a 16 GB machine. Next steps: watch RSS during conversion, try the smallest available size at a 64 canvas, and check the system log for a memory kill. Do NOT assume optimize() is at fault; an earlier note said so on the strength of a single run and the second run contradicted it.
+- `swinir` / `restore` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `teed` / `edge` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `teed` / `edge` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `teed` / `edge` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `teed` / `edge` / `ncnn`: PNNX 20260526 leaves an unsupported Tensor.index channel-reversal node, so the generated NCNN network has no runnable input.
 - `teed` / `edge` / `coreml`: This edge runtime has no parity-valid artifact for the requested format.
 - `teed` / `edge` / `coreai`: This edge runtime has no parity-valid artifact for the requested format.
+- `teed` / `edge` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `tinyformer` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `tinyformer` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `tinyformer` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -2206,6 +2366,7 @@ These converter paths are callable with the recorded validation context.
 - `tinyformer` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `tinyformer` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `tinyformer` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `tinyformer` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `trellis` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
@@ -2218,6 +2379,7 @@ These converter paths are callable with the recorded validation context.
 - `trellis` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis` / `generate3d` / `gguf`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
@@ -2230,6 +2392,7 @@ These converter paths are callable with the recorded validation context.
 - `triposplat` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposplat` / `generate3d` / `gguf`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposr` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposr` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposr` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
@@ -2242,6 +2405,7 @@ These converter paths are callable with the recorded validation context.
 - `triposr` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposr` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposr` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `triposr` / `generate3d` / `gguf`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `direct3d_s2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `direct3d_s2` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `direct3d_s2` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
@@ -2254,6 +2418,7 @@ These converter paths are callable with the recorded validation context.
 - `direct3d_s2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `direct3d_s2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `direct3d_s2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `gguf`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `unet` / `semantic` / `onnx`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -2266,6 +2431,7 @@ These converter paths are callable with the recorded validation context.
 - `unet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `gguf`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unimatch` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `unimatch` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `unimatch` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -2278,12 +2444,14 @@ These converter paths are callable with the recorded validation context.
 - `unimatch` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `unimatch` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `unimatch` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `unimatch` / `flow` / `gguf`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `vgg` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vgg` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vgg` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `vgg` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `vgg` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vgg` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `vgg` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `video_depth_anything` / `depth` / `onnx`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
 - `video_depth_anything` / `depth` / `torchscript`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
 - `video_depth_anything` / `depth` / `executorch`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
@@ -2296,12 +2464,14 @@ These converter paths are callable with the recorded validation context.
 - `video_depth_anything` / `depth` / `tflite`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
 - `video_depth_anything` / `depth` / `coreml`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
 - `video_depth_anything` / `depth` / `coreai`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
+- `video_depth_anything` / `depth` / `gguf`: Video Depth Anything rejects export for every format: the network reads a 32-frame window and windows are stitched on the host, which the single-image depth export contract does not describe.
 - `vit` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vit` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vit` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `vit` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `vit` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vit` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `vit` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `vitmatte` / `matte` / `onnx`: ViTMatte needs a documented four-channel RGB-plus-trimap runtime input contract and guided-backend parity before export can be advertised. Use native PyTorch inference.
 - `vitmatte` / `matte` / `torchscript`: ViTMatte needs a documented four-channel RGB-plus-trimap runtime input contract and guided-backend parity before export can be advertised. Use native PyTorch inference.
 - `vitmatte` / `matte` / `executorch`: ViTMatte needs a documented four-channel RGB-plus-trimap runtime input contract and guided-backend parity before export can be advertised. Use native PyTorch inference.
@@ -2314,6 +2484,7 @@ These converter paths are callable with the recorded validation context.
 - `vitmatte` / `matte` / `tflite`: ViTMatte needs a documented four-channel RGB-plus-trimap runtime input contract and guided-backend parity before export can be advertised. Use native PyTorch inference.
 - `vitmatte` / `matte` / `coreml`: ViTMatte needs a documented four-channel RGB-plus-trimap runtime input contract and guided-backend parity before export can be advertised. Use native PyTorch inference.
 - `vitmatte` / `matte` / `coreai`: ViTMatte needs a documented four-channel RGB-plus-trimap runtime input contract and guided-backend parity before export can be advertised. Use native PyTorch inference.
+- `vitmatte` / `matte` / `gguf`: ViTMatte needs a documented four-channel RGB-plus-trimap runtime input contract and guided-backend parity before export can be advertised. Use native PyTorch inference.
 - `vjepa2` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vjepa2` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vjepa2` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -2321,6 +2492,7 @@ These converter paths are callable with the recorded validation context.
 - `vjepa2` / `embed` / `tflite`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `vjepa2` / `embed` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vjepa2` / `embed` / `coreai`: This family and task have not been validated for Core AI export.
+- `vjepa2` / `embed` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `vjepa2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vjepa2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vjepa2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -2328,6 +2500,7 @@ These converter paths are callable with the recorded validation context.
 - `vjepa2` / `classify` / `tflite`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `vjepa2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vjepa2` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
+- `vjepa2` / `classify` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `waft` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `waft` / `flow` / `torchscript`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `waft` / `flow` / `executorch`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -2340,6 +2513,7 @@ These converter paths are callable with the recorded validation context.
 - `waft` / `flow` / `tflite`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `waft` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `waft` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
+- `waft` / `flow` / `gguf`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `wevisonevl` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2352,6 +2526,7 @@ These converter paths are callable with the recorded validation context.
 - `wevisonevl` / `detect` / `tflite`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `detect` / `coreml`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `detect` / `coreai`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `detect` / `gguf`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `point` / `onnx`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `point` / `torchscript`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `point` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2364,6 +2539,7 @@ These converter paths are callable with the recorded validation context.
 - `wevisonevl` / `point` / `tflite`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `point` / `coreml`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `point` / `coreai`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `point` / `gguf`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `segment` / `onnx`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `segment` / `torchscript`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `segment` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2376,6 +2552,7 @@ These converter paths are callable with the recorded validation context.
 - `wevisonevl` / `segment` / `tflite`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `segment` / `coreml`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `segment` / `coreai`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `segment` / `gguf`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `matte` / `onnx`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `matte` / `torchscript`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `matte` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2388,6 +2565,7 @@ These converter paths are callable with the recorded validation context.
 - `wevisonevl` / `matte` / `tflite`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `matte` / `coreml`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `matte` / `coreai`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `matte` / `gguf`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `ocr` / `onnx`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `ocr` / `torchscript`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `ocr` / `executorch`: Generative VLM export is out of scope for v1.
@@ -2400,6 +2578,7 @@ These converter paths are callable with the recorded validation context.
 - `wevisonevl` / `ocr` / `tflite`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `ocr` / `coreml`: Generative VLM export is out of scope for v1.
 - `wevisonevl` / `ocr` / `coreai`: Generative VLM export is out of scope for v1.
+- `wevisonevl` / `ocr` / `gguf`: Generative VLM export is out of scope for v1.
 - `wilddet3d` / `detect3d` / `onnx`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `wilddet3d` / `detect3d` / `torchscript`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `wilddet3d` / `detect3d` / `executorch`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
@@ -2412,56 +2591,69 @@ These converter paths are callable with the recorded validation context.
 - `wilddet3d` / `detect3d` / `tflite`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `wilddet3d` / `detect3d` / `coreml`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `wilddet3d` / `detect3d` / `coreai`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `wilddet3d` / `detect3d` / `gguf`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `yolo1` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo1` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo1` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo1` / `detect` / `tflite`: onnx2tf 2.6.7 emits an ONNX_EINSUM custom operation that LiteRT 2.1.2 cannot prepare at the native 448x448 canvas.
 - `yolo1` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `yolo1` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `yolo2` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo2` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo2` / `detect` / `ncnn`: The public-domain trained checkpoint exports through PNNX 20260526, but NCNN 20260526 on Windows terminates the runtime with a native integer divide-by-zero during output extraction.
 - `yolo2` / `detect` / `tflite`: LiteRT 2.1.2 cannot prepare the onnx2tf 2.6.7 artifact because a RESHAPE maps 4,225 input elements to one output element.
 - `yolo2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `yolo2` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `yolo3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo3` / `detect` / `tflite`: A public-domain trained checkpoint exports, reloads, and preserves normalized raw parity, but public top-k class membership changes.
 - `yolo3` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `yolo3` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `yolo4` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo4` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo4` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo4` / `detect` / `tflite`: onnx2tf 2.6.7 exports and runs, but public boxes fall to 0 IoU with 176 px coordinate drift on the deterministic full model.
 - `yolo4` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `yolo4` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `yolo7` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo7` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo7` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo7` / `detect` / `tflite`: The converted LiteRT graph changes decoded box coordinates beyond the detector parity tolerance.
 - `yolo7` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `yolo7` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `yolo9_e2e` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `yolo9_e2e` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `yolo9_p2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo9_p2` / `detect` / `tflite`: onnx2tf 2.6.9 exports a runnable artifact, but public top-k class membership changes after LiteRT 2.1.2 conversion.
 - `yolo9_p2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `yolo9_p2` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `yolonas` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `yolonas` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `yolonas` / `pose` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolonas` / `pose` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolonas` / `pose` / `tflite`: LiteRT rejects the converted pose graph because a CONCATENATION input has an unsupported/invalid tensor type.
 - `yolonas` / `pose` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolonas` / `pose` / `coreai`: This family and task have not been validated for Core AI export.
+- `yolonas` / `pose` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `yolonas` / `obb` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolonas` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolonas` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolonas` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `yolonas` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolonas` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
+- `yolonas` / `obb` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `yolox` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolox` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolox` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `yolox` / `detect` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `zipdepth` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `zipdepth` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `zipdepth` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `zipdepth` / `depth` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct conversion does not support the edge-mode Pad operation in ZipDepth's convex upsampler.
 - `zipdepth` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `zipdepth` / `depth` / `gguf`: GGUF export is limited to the families vision.cpp implements; this family and task have no vision.cpp graph yet.
 - `trellis2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis2` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis2` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
@@ -2474,3 +2666,4 @@ These converter paths are callable with the recorded validation context.
 - `trellis2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `gguf`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
