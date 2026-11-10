@@ -1844,3 +1844,24 @@ def test_backend_rejects_unsupported_explicit_task():
 def test_backend_accepts_fomo_point_task_with_shared_parser():
     backend = _DummyBackend("fomo", task="point", supported_tasks=("point",))
     assert backend.task == "point"
+
+
+@pytest.mark.parametrize(
+    ("task", "expected"),
+    [("detect", "YOLONASValPreprocessor"), ("pose", "YOLONASValPreprocessor"),
+     ("obb", "YOLONASOBBValPreprocessor")],
+)
+def test_exported_yolonas_backend_validates_with_the_task_geometry(task, expected):
+    """OBB uses longest-side resize + bottom-right pad; validating an exported
+    OBB model with the detect preprocessor collapsed its mAP to ~0."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "yolonas"
+    backend.task = task
+    backend.imgsz = 1024
+    assert type(backend._get_val_preprocessor(1024)).__name__ == expected
+

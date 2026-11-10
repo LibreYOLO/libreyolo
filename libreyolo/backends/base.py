@@ -4461,6 +4461,7 @@ class BaseBackend(ABC):
             StandardValPreprocessor,
             YOLO9E2EValPreprocessor,
             YOLO9ValPreprocessor,
+            YOLONASOBBValPreprocessor,
             YOLONASValPreprocessor,
             YOLOXValPreprocessor,
         )
@@ -4510,7 +4511,13 @@ class BaseBackend(ABC):
             "yolo9": YOLO9ValPreprocessor,
             "yolo9_e2e": YOLO9E2EValPreprocessor,
             "yolo9_p2": YOLO9ValPreprocessor,
-            "yolonas": YOLONASValPreprocessor,
+            # OBB resizes the longest side and pads bottom-right; the detect
+            # recipe would mis-map every box (see LibreYOLONAS._get_val_preprocessor).
+            "yolonas": (
+                YOLONASOBBValPreprocessor
+                if getattr(self, "task", "detect") == "obb"
+                else YOLONASValPreprocessor
+            ),
             "yolox": YOLOXValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
         if preprocessor_cls in (YOLO9ValPreprocessor, YOLO9E2EValPreprocessor):

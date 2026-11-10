@@ -80,6 +80,9 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Validating an exported YOLO-NAS-R (oriented boxes) model no longer reports mAP near 0.**
+  `val()` on an ONNX, TensorRT or other exported YOLO-NAS-R model resized and padded the images with the detection recipe while the postprocessing undid the oriented-box recipe (longest side to 1024, bottom-right padding), so every box landed in the wrong place: mAP50 0.003 instead of 0.72 on a 300-tile DOTA-v2.0 subset. Exported backends now pick the oriented-box validation preprocessing, as the PyTorch model already did. `predict()` was not affected.
+
 - **`pip install "libreyolo[all]"` works on Python 3.12 and 3.13, Apple Silicon and Linux ARM. (#989)**
   On Python 3.12 and newer the `paddle` and `tflite` extras in `all` pinned incompatible ONNX versions, so pip failed or fell back to an older LibreYOLO release. On macOS and Linux ARM, `vlm`, `vlm-train`, `ground` and `all` failed on `decord`, which ships wheels for Linux x86_64 and Windows only; it is now installed only there, the platforms where LocateAnything can run. `tensorrt-cu12`, which has no ARM wheels, is skipped on Linux ARM, where JetPack provides TensorRT. Loading LocateAnything where decord is not available now says so before downloading its weights, and Core AI export on Python 3.10 says it needs Python 3.11 instead of repeating the install command. Thanks @gboeer.
 
