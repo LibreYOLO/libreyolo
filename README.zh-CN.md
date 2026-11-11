@@ -1,13 +1,9 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/logo-dark.png">
-  <img src="docs/readme/logo-light.png" alt="LibreYOLO logo" width="88">
-</picture>
+<img src="docs/readme/banner.png" alt="LibreYOLO，采用 MIT 许可证的计算机视觉库。pip install libreyolo" width="100%">
 
-# LibreYOLO
+<br>
 
-**采用 MIT 许可证的计算机视觉库。**<br>
 检测、分割、姿态、深度、OCR 等任务共用一套精简 API，<br>
 训练和导出均已内置。
 
@@ -17,6 +13,7 @@
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-LibreYOLO-yellow)](https://huggingface.co/LibreYOLO)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LibreYOLO/libreyolo/blob/release/notebooks/quickstart.ipynb)
+[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -24,32 +21,14 @@
 
 > **注意：** 本中文 README 由 AI 翻译，可能包含不准确或不自然的表述。请以英文 README 为准。
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/readme/task-detect.jpg" width="276" alt="目标检测"><br><b>检测</b><br><sub><code>LibreYOLO9s.pt</code></sub></td>
-    <td align="center"><img src="docs/readme/task-segment.jpg" width="276" alt="实例分割"><br><b>实例分割</b><br><sub><code>LibreRFDETRn-seg.pt</code></sub></td>
-    <td align="center"><img src="docs/readme/task-pose.jpg" width="276" alt="姿态估计"><br><b>姿态</b><br><sub><code>LibreGTRs-pose.pt</code></sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/readme/task-depth.jpg" width="276" alt="单目深度估计"><br><b>深度</b><br><sub><code>LibreDepthAnythingV2s-depth.pt</code></sub></td>
-    <td align="center"><img src="docs/readme/task-matte.jpg" width="276" alt="背景移除"><br><b>背景移除</b><br><sub><code>LibreBEN2b-matte.pt</code></sub></td>
-    <td align="center"><img src="docs/readme/task-ocr.jpg" width="276" alt="文字识别"><br><b>OCR</b><br><sub><code>LibrePPOCRt-ocr.pt</code></sub></td>
-  </tr>
-</table>
-
 > ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](CONTRIBUTING.md)）。 如果你愿意在经济上支持项目，非常欢迎：请查看[赞助计划](SPONSORS.md)。
+
+<p align="center"><img src="libreyolo/assets/guggenheim-bilbao_result.jpg" width="520" alt="LibreYOLO 在毕尔巴鄂古根海姆图片上的检测结果"></p>
 
 ## 安装
 
 ```bash
 pip install libreyolo
-```
-
-```python
-from libreyolo import LibreYOLO, SAMPLE_IMAGE
-
-model = LibreYOLO("LibreYOLO9t.pt")
-result = model(SAMPLE_IMAGE, save=True)
 ```
 
 <details>
@@ -112,7 +91,55 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 </details>
 
-## 一套 API，二十二种任务
+## 训练
+
+```python
+from libreyolo import LibreYOLO
+
+model = LibreYOLO("LibreYOLO9t.pt")
+model.train(data="dataset.yaml", epochs=100, imgsz=640)
+```
+
+```bash
+libreyolo train --model yolo9-t --data dataset.yaml --epochs 100
+```
+
+多 GPU、LoRA、层冻结、蒸馏、从零训练，以及 TensorBoard、MLflow、
+Weights & Biases、Comet、ClearML、Neptune 和 DVCLive 日志记录均受支持。
+详见[训练指南](https://www.libreyolo.com/docs/train)。
+
+## 推理
+
+```python
+from libreyolo import LibreYOLO, SAMPLE_IMAGE
+
+model = LibreYOLO("LibreYOLO9t.pt")
+result = model(SAMPLE_IMAGE, save=True)
+```
+
+直接用名称从 Hugging Face 加载任意模型：`LibreYOLO("LibreYOLO/LibreYOLO9t")`。
+
+输入源不只是文件。它还可以是摄像头、RTSP 流、视频、目录、YouTube 链接或你的屏幕：
+
+```bash
+libreyolo predict --model yolo9-t --source 0 --show          # 摄像头
+libreyolo predict --model yolo9-t --source rtsp://camera/1   # 网络摄像头
+libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
+```
+
+## 导出
+
+十二种格式：ONNX、TorchScript、TensorRT、OpenVINO、CoreML、Core AI、
+TFLite（LiteRT）、NCNN、MNN、RKNN、Paddle 和 ExecuTorch。另支持 NVIDIA
+Triton 服务和 DeepStream 配置生成。
+
+```bash
+libreyolo export --model yolo9-t --format onnx
+```
+
+支持范围因模型系列和任务而异，见[导出矩阵](https://www.libreyolo.com/docs/reference/export-matrix)。
+
+## 不止检测
 
 每种任务都是同样的三行代码，只有权重文件不同。
 
@@ -128,14 +155,6 @@ LibreYOLO("LibreRTDETRv2n-obb.pt")("aerial.jpg", save=True)      # 旋转框
 LibreYOLO("LibreSEARAFTm-flow.pt")("clip.mp4", save=True)        # 光流，每对相邻帧输出一个结果
 ```
 
-输入源不只是文件。它还可以是摄像头、RTSP 流、视频、目录、YouTube 链接或你的屏幕：
-
-```bash
-libreyolo predict --model yolo9-t --source 0 --show          # 摄像头
-libreyolo predict --model yolo9-t --source rtsp://camera/1   # 网络摄像头
-libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
-```
-
 ## 为什么选择 LibreYOLO
 
 <table>
@@ -143,7 +162,7 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
   <tr><td><b>内置训练</b></td><td><code>model.train()</code> 支持多 GPU、LoRA、层冻结和蒸馏。</td></tr>
   <tr><td><b>内置导出</b></td><td>十二种格式，从 ONNX、TensorRT 到 CoreML、RKNN 和 ExecuTorch。</td></tr>
   <tr><td><b>沿用你的数据集</b></td><td>支持读取 YOLO 格式数据集，现有工作流只需少量改动即可迁移。</td></tr>
-  <tr><td><b>一套 API</b></td><td>所有任务使用同样的调用方式。换权重，不换代码。</td></tr>
+  <tr><td><b>一套 API</b></td><td>二十三种任务使用同样的调用方式。换权重，不换代码。</td></tr>
   <tr><td><b>权重许可证清晰</b></td><td><a href="https://huggingface.co/LibreYOLO">Hugging Face</a> 上的每个模型都标明了许可证。</td></tr>
 </table>
 
@@ -207,41 +226,18 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 
 各模型系列的尺寸、权重与一致性验证证据见[模型参考](https://www.libreyolo.com/docs/models)。
 
-## 训练
-
-```python
-from libreyolo import LibreYOLO
-
-model = LibreYOLO("LibreYOLO9t.pt")
-model.train(data="dataset.yaml", epochs=100, imgsz=640)
-```
-
-```bash
-libreyolo train --model yolo9-t --data dataset.yaml --epochs 100
-```
-
-多 GPU、LoRA、层冻结、蒸馏、从零训练，以及 TensorBoard、MLflow、
-Weights & Biases、Comet、ClearML、Neptune 和 DVCLive 日志记录均受支持。
-详见[训练指南](https://www.libreyolo.com/docs/train)。
-
-## 导出与部署
-
-十二种格式：ONNX、TorchScript、TensorRT、OpenVINO、CoreML、Core AI、
-TFLite（LiteRT）、NCNN、MNN、RKNN、Paddle 和 ExecuTorch。另支持 NVIDIA
-Triton 服务和 DeepStream 配置生成。
-
-```bash
-libreyolo export --model yolo9-t --format onnx
-```
-
-支持范围因模型系列和任务而异，见[导出矩阵](https://www.libreyolo.com/docs/reference/export-matrix)。
-
 ## 文档
 
 - [文档](https://www.libreyolo.com/docs)涵盖安装、任务、模型、训练、推理、导出和 CLI
 - [基准测试](https://www.visionanalysis.org/)提供独立的第三方数据
 - [CHANGELOG.md](CHANGELOG.md) 记录版本变更
 - [LinkedIn](https://www.linkedin.com/company/libreyolo/) 发布版本动态
+
+## 贡献者
+
+<a href="https://github.com/LibreYOLO/libreyolo/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=LibreYOLO/libreyolo" alt="LibreYOLO 贡献者">
+</a>
 
 ## 赞助
 
@@ -253,15 +249,7 @@ libreyolo export --model yolo9-t --format onnx
 
 <a href="https://github.com/picjul" title="Mattia Di Giusto"><img src="docs/readme/supporters/picjul.png" width="48" height="48" alt="Mattia Di Giusto"></a> <a href="https://github.com/Magellol" title="Thomas Lefebvre (ma.ge)"><img src="docs/readme/supporters/Magellol.png" width="48" height="48" alt="Thomas Lefebvre"></a>
 
-暂无企业赞助商。
-
 ## 许可证
 
 - **代码：** MIT License。
-- **权重：** 预训练权重可能继承原始来源的许可证，且并非全部为宽松许可。
-  商用前请先查看具体 Hugging Face 仓库上的许可证。每个 LibreYOLO
-  Hugging Face 模型都会标明其许可证。
-
-<br>
-
-[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
+- **权重：** 商用前请先查看具体 Hugging Face 仓库的许可证。每个 LibreYOLO Hugging Face 模型都会标明其许可证。
