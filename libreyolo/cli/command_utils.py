@@ -29,10 +29,12 @@ def exit_with_error(
 # Inclusive (low, high) bounds; None leaves that side open.
 _VALUE_RANGES: dict[str, tuple[Optional[float], Optional[float]]] = {
     "conf": (0.0, 1.0),
+    "track_conf": (0.0, 1.0),
     "iou": (0.0, 1.0),
     "max_det": (1, None),
     "batch": (1, None),
     "epochs": (1, None),
+    "vid_stride": (1, None),
 }
 
 

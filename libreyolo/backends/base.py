@@ -5552,6 +5552,90 @@ class BaseBackend(ABC):
         """Alias for __call__ method."""
         return self(*args, **kwargs)
 
+    def track(
+        self,
+        source,
+        *,
+        track_conf: float = 0.25,
+        conf: Optional[float] = None,
+        iou: float = 0.45,
+        imgsz: Optional[ImageSize] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        save: bool = False,
+        show: bool = False,
+        vid_stride: int = 1,
+        fps: float = 30.0,
+        color_format: str = "auto",
+        output_path: Optional[str] = None,
+        tracker="bytetrack",
+        tracker_config=None,
+        augment: bool = False,
+        persist: bool = False,
+        **tracker_kwargs,
+    ) -> Generator[Results, None, None]:
+        """Track objects across video frames or an image sequence.
+
+        Same contract as the native ``BaseModel.track()``: each frame runs
+        through this backend's inference and the detections are associated
+        by the selected tracker (``"bytetrack"``, ``"botsort"``, ``"ocsort"``,
+        ``"deepocsort"`` or a ``libreyolo.tracking.Tracker`` instance).
+        Yields one Results per frame with ``track_id`` set. ``persist=True``
+        keeps the tracker, and so the track IDs, across calls on this
+        backend. Deep OC-SORT runs its ReID network in PyTorch, on this
+        backend's device when PyTorch understands it, else on its default.
+        Test-time augmentation is not available for exported backends.
+        """
+        if augment:
+            raise ValueError(
+                "Test-time augmentation is not supported for exported backends"
+            )
+        from ..tracking.run import run_track
+
+        classes = normalize_classes(classes)
+
+        def predict_frame(pil_img, **predict_kwargs):
+            return self._predict_single(pil_img, color_format="rgb", **predict_kwargs)
+
+        def reid_device():
+            # torch.device() only parses the name; it does not check that this
+            # PyTorch build can use the device (e.g. ONNX Runtime on CUDA with
+            # CPU-only torch). Return None so the ReID model falls back to CPU.
+            try:
+                dev = torch.device(str(self.device))
+            except (RuntimeError, TypeError, ValueError):
+                return None
+            if dev.type == "cuda" and not torch.cuda.is_available():
+                return None
+            if dev.type == "mps" and not torch.backends.mps.is_available():
+                return None
+            return str(self.device)
+
+        yield from run_track(
+            self,
+            source,
+            predict_frame=predict_frame,
+            task=self.task,
+            reid_device=reid_device,
+            track_conf=track_conf,
+            conf=conf,
+            iou=iou,
+            imgsz=imgsz,
+            classes=classes,
+            max_det=max_det,
+            save=save,
+            show=show,
+            vid_stride=vid_stride,
+            fps=fps,
+            color_format=color_format,
+            output_path=output_path,
+            tracker=tracker,
+            tracker_config=tracker_config,
+            persist=persist,
+            tracker_kwargs=tracker_kwargs,
+            backend=True,
+        )
+
     def _predict_video(
         self,
         source: Union[str, Path, FrameSource],

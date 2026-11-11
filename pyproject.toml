@@ -52,7 +52,9 @@ dependencies = [
     "mss>=9.0.1",
     "tqdm>=4.65.0",
     "pycocotools>=2.0.0",
-    "typer>=0.9.0",
+    # typer 0.29 vendors its own Click and breaks --help-json and error output;
+    # stay below it until the CLI is migrated.
+    "typer>=0.9.0,<0.29",
     "click>=8.0.0",
     "safetensors>=0.4.0",
     "scipy>=1.7.0",

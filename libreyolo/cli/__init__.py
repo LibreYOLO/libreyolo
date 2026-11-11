@@ -107,7 +107,7 @@ def entrypoint() -> None:
     logging_argv = _normalize_logging_flags(argv)
     _setup_logging_from_argv(logging_argv)
 
-    from .commands import special, predict, train, val, export, quantize, ui, doctor, label, profile, monitor  # noqa: F401
+    from .commands import special, predict, track, train, val, export, quantize, ui, doctor, label, profile, monitor  # noqa: F401
     from .parsing import KeyValueCommand
 
     # Special commands
@@ -140,6 +140,7 @@ def entrypoint() -> None:
 
     # Core mode commands
     app.command("predict", cls=KeyValueCommand)(predict.predict_cmd)
+    app.command("track", cls=KeyValueCommand)(track.track_cmd)
     app.command("train", cls=KeyValueCommand)(train.train_cmd)
     app.command("val", cls=KeyValueCommand)(val.val_cmd)
     app.command("export", cls=KeyValueCommand)(export.export_cmd)

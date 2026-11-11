@@ -11,9 +11,7 @@ import dataclasses
 import functools
 import inspect
 import logging
-import math
 import re
-import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import (
@@ -31,7 +29,6 @@ from typing import (
     Union,
 )
 
-import numpy as np
 import torch
 import torch.nn as nn
 from PIL import Image
@@ -78,9 +75,6 @@ logger = logging.getLogger(__name__)
 # raise ``TypeError: got multiple values``. ``TrainConfig.to_yaml()`` writes
 # both, so a user-generated starter yaml hits this naturally.
 _WRAPPER_OWNED_CFG_KEYS = frozenset({"size", "num_classes"})
-
-# Built-in trackers selectable by name in track().
-_BUILTIN_TRACKERS = frozenset({"bytetrack", "botsort", "ocsort", "deepocsort"})
 
 # Saved training arguments a resume does not restore: the wrapper owns the
 # architecture keys (pose trainers also take the keypoint layout from the
@@ -2170,393 +2164,33 @@ class BaseModel(ABC):
         Yields:
             Results with ``track_id`` attribute set as an (N,) int tensor.
         """
-        task = getattr(self, "task", "detect")
-        if task == "classify":
-            raise NotImplementedError(
-                "Tracking does not support classification models. Use predict()."
-            )
-        if task == "obb":
-            raise NotImplementedError(
-                "Tracking does not support oriented boxes yet. "
-                "Use predict() for OBB models."
-            )
-        if task == "point":
-            raise NotImplementedError(
-                "Tracking does not support point results yet. "
-                "Use predict() for point models."
-            )
-        if task == "depth":
-            raise NotImplementedError(
-                "Tracking does not support depth maps yet. "
-                "Use predict() for depth models."
-            )
-        if task == "flow":
-            raise NotImplementedError(
-                "Tracking does not apply to optical flow: a flow result is a "
-                "dense displacement field with no objects to associate. "
-                "Use predict() for flow models."
-            )
-        if task == "normal":
-            raise NotImplementedError(
-                "Tracking does not support surface-normal maps. "
-                "Use predict() for normal models."
-            )
-        if task == "albedo":
-            raise NotImplementedError("Tracking does not support albedo maps. Use predict().")
-        if task == "edge":
-            raise NotImplementedError(
-                "Tracking does not support edge maps. Use predict() for edge models."
-            )
-        if task == "semantic":
-            raise NotImplementedError(
-                "Tracking does not support semantic segmentation yet. "
-                "Use predict() for semantic models."
-            )
-        if task == "panoptic":
-            raise NotImplementedError(
-                "Tracking does not support panoptic segmentation yet. "
-                "Use predict() for panoptic models."
-            )
-        if task == "restore":
-            raise NotImplementedError(
-                "Tracking does not support restoration models. Use predict()."
-            )
-        if task == "mesh":
-            raise NotImplementedError(
-                "Tracking does not support body-mesh models yet. Use predict(). "
-                "Associating meshes over time also needs a temporal contract "
-                "(track IDs on the mesh rows, and a world frame) that the mesh "
-                "task does not define yet."
-            )
-        if task == "ocr":
-            raise NotImplementedError(
-                "Tracking does not support OCR models yet. Use predict()."
-            )
+        from ...tracking.run import run_track
 
-        from ...tracking import (
-            BoTSortConfig,
-            BoTSortTracker,
-            ByteTracker,
-            DeepOCSortConfig,
-            DeepOCSortTracker,
-            OCSortConfig,
-            OCSortTracker,
-            TrackConfig,
-        )
-        from ...utils.drawing import draw_boxes, draw_masks
-        from ...utils.image_loader import ImageLoader
-        from ...utils.source import ImageSequenceSource, SourceKind, classify_source
-        from ...utils.video import run_video_inference
+        def predict_frame(pil_img, **predict_kwargs):
+            return self._runner(pil_img, color_format="rgb", **predict_kwargs)
 
-        # Classified up front (rather than after the tracker is built) so a
-        # non-video source can seed the tracker's frame_rate default below.
-        source_spec = classify_source(source)
-        image_sequence_kinds = {
-            SourceKind.IMAGE,
-            SourceKind.IMAGE_BATCH,
-            SourceKind.IMAGE_SEQUENCE,
-            SourceKind.DIRECTORY,
-        }
-        if source_spec.kind in image_sequence_kinds:
-            try:
-                fps = float(fps)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"fps must be a finite value > 0, got {fps!r}"
-                ) from exc
-            if not math.isfinite(fps) or fps <= 0:
-                raise ValueError(f"fps must be a finite value > 0, got {fps!r}")
-
-        # persist=True continues the tracker kept by the previous persist=True
-        # call (per-frame loops); a different tracker or config, or a different
-        # video file/directory, starts a fresh one. In-memory frames and image
-        # paths carry no stream identity, so they continue the stream.
-        # persist=False always starts fresh and drops the kept tracker.
-        source_key = (
-            str(Path(source_spec.source).resolve())
-            if source_spec.kind in (SourceKind.VIDEO, SourceKind.DIRECTORY)
-            else None
-        )
-        kept = getattr(self, "_track_state", None) if persist else None
-        if kept is not None and kept["source"] != source_key:
-            kept = None
-
-        custom_tracker = tracker is not None and not isinstance(tracker, str)
-        if custom_tracker:
-            if isinstance(tracker, type) or not all(
-                callable(getattr(tracker, method, None))
-                for method in ("update", "reset")
-            ):
-                raise TypeError(
-                    "tracker must be a built-in name or an instance with "
-                    "update(results, image=None) and reset() methods."
-                )
-            if tracker_config is not None or tracker_kwargs:
-                raise ValueError(
-                    "Configure a custom tracker instance directly; tracker_config "
-                    "and tracker kwargs cannot be used with it."
-                )
-            if not math.isfinite(track_conf) or not 0 <= track_conf <= 1:
-                raise ValueError("track_conf must be finite and between 0 and 1.")
-            tracker_obj = tracker
-            effective_conf = track_conf
-            tracker_key = tracker_obj
-            reused = kept is not None and kept["key"] is tracker_obj
-        else:
-            # A provided config picks the tracker; otherwise honour the selector.
-            if isinstance(tracker_config, BoTSortConfig):
-                # BoTSortConfig subclasses TrackConfig, so it must be checked first.
-                tracker = "botsort"
-            elif isinstance(tracker_config, DeepOCSortConfig):
-                tracker = "deepocsort"
-            elif isinstance(tracker_config, OCSortConfig):
-                tracker = "ocsort"
-            elif isinstance(tracker_config, TrackConfig):
-                tracker = "bytetrack"
-            tracker = (tracker or "bytetrack").lower()
-            tracker_file = Path(tracker)
-            if (
-                tracker_file.suffix in (".yaml", ".yml")
-                and tracker_file.parent == Path(".")
-                and tracker_file.stem in _BUILTIN_TRACKERS
-            ):
-                # The ecosystem names its built-in trackers by config file.
-                if tracker_file.is_file():
-                    raise ValueError(
-                        f"tracker={tracker!r} names a local file; LibreYOLO does not "
-                        f"read tracker yaml files. Use tracker={tracker_file.stem!r} "
-                        "and pass its settings as keyword arguments or tracker_config."
-                    )
-                tracker = tracker_file.stem
-
-            if (
-                tracker in ("bytetrack", "botsort")
-                and source_spec.kind in image_sequence_kinds
-            ):
-                # update() runs once per retained frame, so frame_rate must be
-                # fps / vid_stride.
-                retained_fps = fps / max(1, vid_stride)
-                if tracker_config is None:
-                    # Pass the exact fraction: tracker.py already truncates via
-                    # int(), so pre-rounding here would double-round and can
-                    # shift max_time_lost by a frame at the expiry boundary.
-                    tracker_kwargs.setdefault("frame_rate", retained_fps)
-                else:
-                    # frame_rate is a typed int field, so compare against the
-                    # nearest achievable value rather than the exact fraction.
-                    nearest_retained_fps = max(1, round(retained_fps))
-                    current = getattr(tracker_config, "frame_rate", nearest_retained_fps)
-                    if current != nearest_retained_fps:
-                        # tracker_config always wins and is never overwritten --
-                        # just warn so a silent mismatch doesn't linger.
-                        warnings.warn(
-                            f"tracker_config.frame_rate={tracker_config.frame_rate} does "
-                            f"not match this image sequence's retained-frame rate "
-                            f"(fps / vid_stride ≈ {nearest_retained_fps}). "
-                            "tracker_config is used as-is for tracker timing, so lost "
-                            "tracks will be kept recoverable for the wrong duration "
-                            "unless "
-                            f"you set frame_rate={nearest_retained_fps} on it yourself.",
-                            stacklevel=2,
-                        )
-
-            if tracker == "deepocsort":
-                if tracker_config is None:
-                    tracker_kwargs.setdefault("det_thresh", track_conf)
-                    tracker_config = DeepOCSortConfig.from_kwargs(**tracker_kwargs)
-                # Deep OC-SORT has no low-score recovery band; the detector only
-                # needs to produce boxes down to det_thresh.
-                effective_conf = tracker_config.det_thresh
-                tracker_cls = functools.partial(
-                    DeepOCSortTracker, device=str(self.device)
-                )
-            elif tracker == "ocsort":
-                if tracker_config is None:
-                    tracker_kwargs.setdefault("det_thresh", track_conf)
-                    tracker_config = OCSortConfig.from_kwargs(**tracker_kwargs)
-                # OC-SORT consumes low-score detections (>0.1) for recovery.
-                effective_conf = min(0.1, tracker_config.det_thresh)
-                tracker_cls = OCSortTracker
-            elif tracker == "botsort":
-                if tracker_config is None:
-                    tracker_kwargs.setdefault("track_high_thresh", track_conf)
-                    tracker_config = BoTSortConfig.from_kwargs(**tracker_kwargs)
-                # BoT-SORT keeps ByteTrack's low-confidence recovery stage.
-                effective_conf = tracker_config.track_low_thresh
-                tracker_cls = BoTSortTracker
-            elif tracker == "bytetrack":
-                if tracker_config is None:
-                    tracker_kwargs.setdefault("track_high_thresh", track_conf)
-                    tracker_config = TrackConfig.from_kwargs(**tracker_kwargs)
-                # ByteTrack needs to see low-confidence detections.
-                effective_conf = tracker_config.track_low_thresh
-                tracker_cls = ByteTracker
-            else:
-                raise ValueError(
-                    f"Unknown tracker {tracker!r}; "
-                    "choose 'bytetrack', 'botsort', 'ocsort' or 'deepocsort' "
-                    "(a .yaml suffix is accepted)."
-                )
-            tracker_key = (
-                tracker,
-                tracker_config,
-                str(self.device) if tracker == "deepocsort" else None,
-            )
-            reused = kept is not None and kept["key"] == tracker_key
-            tracker_obj = (
-                kept["tracker"] if reused else tracker_cls(config=tracker_config)
-            )
-
-        default_stem = "sequence"
-        if source_spec.kind == SourceKind.VIDEO:
-            frame_source: Union[Path, ImageSequenceSource] = Path(source_spec.source)
-            if not frame_source.exists():
-                raise FileNotFoundError(f"Video file not found: {frame_source}")
-            default_stem = frame_source.stem
-        elif source_spec.kind == SourceKind.DIRECTORY:
-            images = ImageLoader.collect_images(source_spec.source)
-            if not images:
-                return
-            default_stem = Path(source_spec.source).name
-            frame_source = ImageSequenceSource(
-                images,
-                vid_stride=vid_stride,
-                fps=fps,
-                save_name=default_stem,
-                color_format=color_format,
-            )
-        elif source_spec.kind == SourceKind.IMAGE_BATCH:
-            frame_source = ImageSequenceSource(
-                list(source_spec.items),
-                vid_stride=vid_stride,
-                fps=fps,
-                save_name=default_stem,
-                color_format=color_format,
-            )
-        elif source_spec.kind == SourceKind.IMAGE_SEQUENCE:
-            frame_source = ImageSequenceSource(
-                source_spec.source,
-                vid_stride=vid_stride,
-                fps=fps,
-                save_name=default_stem,
-                color_format=color_format,
-            )
-        elif source_spec.kind == SourceKind.IMAGE:
-            # A single already-loaded image or path, treated as a one-frame
-            # sequence so predict()-style single-image inputs also work.
-            frame_source = ImageSequenceSource(
-                [source_spec.source],
-                vid_stride=vid_stride,
-                fps=fps,
-                save_name=default_stem,
-                color_format=color_format,
-            )
-        else:
-            raise NotImplementedError(
-                f"track() does not yet support {source_spec.kind.value!r} sources. "
-                "Pass a video file, a directory or list of images, or an "
-                "image iterator."
-            )
-
-        if custom_tracker and not reused:
-            tracker_obj.reset()
-        self._track_state = (
-            {"key": tracker_key, "source": source_key, "tracker": tracker_obj}
-            if persist
-            else None
-        )
-
-        if conf is not None:
-            if not math.isfinite(conf) or not 0 <= conf <= 1:
-                raise ValueError("conf must be finite and between 0 and 1.")
-            effective_conf = conf
-
-        model_names = self.names
-
-        def predict_and_track(pil_img):
-            result = self._runner(
-                pil_img,
-                conf=effective_conf,
-                iou=iou,
-                imgsz=imgsz,
-                classes=classes,
-                max_det=max_det,
-                color_format="rgb",
-            )
-            if custom_tracker:
-                tracked = tracker_obj.update(result, image=pil_img)
-                if not isinstance(tracked, Results):
-                    raise TypeError("Custom tracker update() must return Results.")
-                ids = tracked.track_id
-                if (
-                    not isinstance(ids, (torch.Tensor, np.ndarray))
-                    or ids.ndim != 1
-                    or len(ids) != len(tracked)
-                ):
-                    raise ValueError(
-                        "Custom tracker Results.track_id must be a one-dimensional "
-                        "integer tensor/array aligned with the result rows."
-                    )
-                if isinstance(ids, torch.Tensor):
-                    integer_ids = ids.dtype in (
-                        torch.int8, torch.int16, torch.int32, torch.int64, torch.uint8
-                    )
-                else:
-                    integer_ids = ids.dtype.kind in "iu"
-                if not integer_ids:
-                    raise ValueError("Custom tracker track_id must contain integers.")
-                boxes = tracked.boxes.xyxy
-                if isinstance(ids, torch.Tensor) != isinstance(boxes, torch.Tensor):
-                    raise ValueError("Custom tracker IDs and boxes must use the same backend.")
-                if isinstance(ids, torch.Tensor) and ids.device != boxes.device:
-                    raise ValueError("Custom tracker IDs and boxes must use the same device.")
-                tracked.boxes._id = ids
-                return tracked
-            if isinstance(tracker_obj, (BoTSortTracker, DeepOCSortTracker)):
-                # BoT-SORT needs pixels for camera motion; Deep OC-SORT needs
-                # them for ReID crops.
-                return tracker_obj.update(result, pil_img)
-            return tracker_obj.update(result)
-
-        def annotate_tracked(pil_img, result):
-            if len(result) == 0:
-                return pil_img
-            img = pil_img
-            if result.masks is not None:
-                masks_np = result.masks.data
-                if isinstance(masks_np, torch.Tensor):
-                    masks_np = masks_np.cpu().numpy()
-                img = draw_masks(img, masks_np, result.boxes.cls.tolist())
-            tid_list = result.track_id.tolist() if result.track_id is not None else None
-            return draw_boxes(
-                img,
-                result.boxes.xyxy.tolist(),
-                result.boxes.conf.tolist(),
-                result.boxes.cls.tolist(),
-                class_names=model_names,
-                track_ids=tid_list,
-            )
-
-        # Use runs/track/ prefix instead of runs/detect/
-        track_output = output_path
-        if save and output_path is None:
-            from ...utils.general import increment_path
-
-            track_output = str(
-                increment_path(
-                    Path("runs") / "track" / f"{default_stem}.mp4",
-                    exist_ok=False,
-                )
-            )
-
-        yield from run_video_inference(
-            frame_source,
-            predict_and_track,
-            vid_stride=vid_stride,
+        yield from run_track(
+            self,
+            source,
+            predict_frame=predict_frame,
+            task=getattr(self, "task", "detect"),
+            reid_device=lambda: str(self.device),
+            track_conf=track_conf,
+            conf=conf,
+            iou=iou,
+            imgsz=imgsz,
+            classes=classes,
+            max_det=max_det,
             save=save,
             show=show,
-            output_path=track_output,
-            annotate_fn=annotate_tracked,
+            vid_stride=vid_stride,
+            fps=fps,
+            color_format=color_format,
+            output_path=output_path,
+            tracker=tracker,
+            tracker_config=tracker_config,
+            persist=persist,
+            tracker_kwargs=tracker_kwargs,
         )
 
     def quantize(
