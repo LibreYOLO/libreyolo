@@ -296,6 +296,14 @@ def __getattr__(name):
         module_path, attr = _lazy[name]
         mod = importlib.import_module(module_path, package=__name__)
         return getattr(mod, attr)
+
+    # Ultralytics class names (YOLO, RTDETR, ...) get the LibreYOLO spelling
+    # in the error. Not an alias: the name still does not resolve.
+    from .utils.ultralytics_hints import class_name_hint, raise_class_name_hint
+
+    hint = class_name_hint(name)
+    if hint is not None:
+        raise_class_name_hint(name, __name__, __file__, hint)
     raise AttributeError(f"module 'libreyolo' has no attribute '{name}'")
 
 

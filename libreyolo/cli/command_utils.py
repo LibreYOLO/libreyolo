@@ -226,6 +226,23 @@ def resolve_model_or_exit(out: OutputHandler, model: str) -> str:
             suggestion="pip install libreyolo[rfdetr]",
         )
 
+    from libreyolo.utils.ultralytics_hints import MODELS_URL, ultralytics_weight_hint
+
+    ultralytics_hint = ultralytics_weight_hint(model)
+    if ultralytics_hint is not None:
+        if ultralytics_hint.ultralytics:
+            message = (
+                f"'{model}' is an Ultralytics model name. LibreYOLO does not "
+                "load Ultralytics weights."
+            )
+        else:
+            message = f"Unknown model '{model}'."
+        if ultralytics_hint.cli:
+            suggestion = f"Use model={ultralytics_hint.cli} (all models: {MODELS_URL})"
+        else:
+            suggestion = f"In Python: {ultralytics_hint.python}"
+        exit_with_error(out, "model_not_found", message, suggestion=suggestion)
+
     all_names = get_all_cli_names()
     suggestion = suggest_key(model, all_names)
     hint = f" Did you mean '{suggestion}'?" if suggestion else ""
