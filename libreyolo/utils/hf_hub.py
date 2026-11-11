@@ -90,8 +90,20 @@ def canonical_hf_url(url: str) -> str:
 
 def _is_connection_failure(exc: BaseException | None) -> bool:
     """True if ``exc`` or anything in its cause chain is a network failure
-    (cannot connect, DNS failure, connection reset, timeout)."""
-    network_types: list[type] = [ConnectionError, TimeoutError, socket.timeout]
+    (cannot connect, DNS failure, connection reset, timeout).
+
+    An HTTP status error (401, 404, 500, ...) means the server answered, so a
+    mirror would not help: it is checked first and stops the walk.
+    """
+    from urllib.error import HTTPError, URLError
+
+    network_types: list[type] = [
+        ConnectionError,
+        TimeoutError,
+        socket.timeout,
+        URLError,
+    ]
+    status_types: list[type] = [HTTPError]
     try:
         import requests
 
@@ -99,18 +111,27 @@ def _is_connection_failure(exc: BaseException | None) -> bool:
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,
         ]
+        status_types.append(requests.exceptions.HTTPError)
     except ImportError:  # pragma: no cover - requests is a core dependency
         pass
-    try:
-        from urllib.error import URLError
+    try:  # huggingface_hub 1.x talks to the Hub through httpx
+        import httpx
 
-        network_types.append(URLError)
-    except ImportError:  # pragma: no cover
+        network_types += [
+            httpx.NetworkError,  # ConnectError, ReadError, WriteError, ...
+            httpx.TimeoutException,  # ConnectTimeout, ReadTimeout, ...
+            httpx.ProxyError,
+        ]
+        status_types.append(httpx.HTTPStatusError)
+    except ImportError:
         pass
+    network, status = tuple(network_types), tuple(status_types)
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen:
         seen.add(id(exc))
-        if isinstance(exc, tuple(network_types)):
+        if isinstance(exc, status):
+            return False
+        if isinstance(exc, network):
             return True
         exc = exc.__cause__ or exc.__context__
     return False

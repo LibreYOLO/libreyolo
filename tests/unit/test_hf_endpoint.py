@@ -284,3 +284,67 @@ def test_hub_cache_miss_error_carries_the_hint(monkeypatch, no_endpoint):
     ref = hf_hub.HubRef(repo_id="someone/model", filename="model.pt")
     with pytest.raises(ConnectionError, match="export HF_ENDPOINT="):
         hf_hub.resolve_hub_checkpoint(ref)
+
+
+def test_no_hint_for_urllib_http_status_errors(no_endpoint):
+    # HTTPError subclasses URLError, but a status code means the Hub answered.
+    for code in (401, 404, 500):
+        err = urllib.error.HTTPError(
+            "https://huggingface.co/x", code, "status", {}, None
+        )
+        assert hf_unreachable_hint(err) == ""
+    wrapped = RuntimeError("outer")
+    wrapped.__cause__ = urllib.error.HTTPError(
+        "https://huggingface.co/x", 404, "Not Found", {}, None
+    )
+    assert hf_unreachable_hint(wrapped) == ""
+
+
+def _httpx_request():
+    httpx = pytest.importorskip("httpx")
+    return httpx, httpx.Request("GET", "https://huggingface.co/x/resolve/main/x.pt")
+
+
+@pytest.mark.parametrize("name", ["ConnectError", "ConnectTimeout", "ReadTimeout"])
+def test_httpx_connection_failure_under_hub_error_gets_hint(no_endpoint, name):
+    pytest.importorskip("huggingface_hub")
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    httpx, request = _httpx_request()
+    try:
+        try:
+            raise getattr(httpx, name)("blocked", request=request)
+        except httpx.TransportError as e:
+            raise LocalEntryNotFoundError("not cached") from e
+    except LocalEntryNotFoundError as hub_err:
+        assert "export HF_ENDPOINT=" in hf_unreachable_hint(hub_err)
+
+
+def test_no_hint_for_httpx_http_status_error(no_endpoint):
+    httpx, request = _httpx_request()
+    response = httpx.Response(404, request=request)
+    err = httpx.HTTPStatusError("404", request=request, response=response)
+    wrapped = RuntimeError("outer")
+    wrapped.__cause__ = err
+    assert hf_unreachable_hint(err) == ""
+    assert hf_unreachable_hint(wrapped) == ""
+
+
+def test_hub_cache_miss_from_httpx_carries_the_hint(monkeypatch, no_endpoint):
+    pytest.importorskip("huggingface_hub")
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    httpx, request = _httpx_request()
+
+    def fake_download(**_kwargs):
+        try:
+            raise httpx.ConnectError("blocked", request=request)
+        except httpx.ConnectError as e:
+            raise LocalEntryNotFoundError("not cached") from e
+
+    import huggingface_hub
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", fake_download)
+    ref = hf_hub.HubRef(repo_id="someone/model", filename="model.pt")
+    with pytest.raises(ConnectionError, match="export HF_ENDPOINT="):
+        hf_hub.resolve_hub_checkpoint(ref)
