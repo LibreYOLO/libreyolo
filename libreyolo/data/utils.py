@@ -395,14 +395,26 @@ def load_data_config(
                 )
                 config[split] = str(split_path)
 
+            img_files = []
             try:
                 img_files = get_img_files(split_path, formats={".npy"} if profile else None)
                 if img_files:
                     config[f"{split}_img_files"] = img_files
                     config[f"{split}_label_files"] = img2label_paths(img_files)
-            except (FileNotFoundError, ValueError):
+            except (FileNotFoundError, ValueError) as e:
                 # Split path doesn't exist yet or contains no supported images.
-                pass
+                search_error = e
+            else:
+                search_error = None
+            if not img_files:
+                logger.warning(
+                    "No images found for split '%s' at %s (dataset root %s, from %s)%s",
+                    split,
+                    split_path,
+                    dataset_path,
+                    yaml_path,
+                    f": {search_error}" if search_error else ".",
+                )
 
     _resolve_coco_annotation_paths(config, dataset_path)
 
@@ -490,24 +502,47 @@ def resolve_default_coco_image_dir(data_path: Path | str, split: str, json_file:
 
 
 def _resolve_dataset_path(config: Dict, yaml_path: Path) -> Path:
-    """Resolve the dataset root path from config."""
-    if "path" in config:
-        path = Path(config["path"])
-        if path.is_absolute():
-            return path
-        # Check relative to DATASETS_DIR first
-        datasets_path = DATASETS_DIR / path
-        if datasets_path.exists():
-            return datasets_path
-        # Check relative to YAML file location
-        yaml_relative = yaml_path.parent / path
-        if yaml_relative.exists():
-            return yaml_relative.resolve()
-        # Default to DATASETS_DIR for new downloads
-        return datasets_path
-    else:
+    """Resolve the dataset root path from config.
+
+    A relative ``path`` in a user's own YAML (including ``.`` and ``./sub``)
+    means "relative to the folder this YAML is in", as in the Ultralytics
+    format. Bundled YAMLs (``coco8.yaml`` and friends) live inside the package,
+    so their relative ``path`` names a folder under ``DATASETS_DIR`` instead,
+    which is also where they auto-download.
+    """
+    if not config.get("path"):
         # Use YAML file's parent directory
-        return yaml_path.parent
+        return yaml_path.parent.resolve()
+
+    path = Path(config["path"]).expanduser()
+    if path.is_absolute():
+        return path
+
+    datasets_path = DATASETS_DIR / path
+    yaml_relative = (yaml_path.parent / path).resolve()
+
+    if _is_builtin_yaml(yaml_path):
+        if datasets_path.exists() or not yaml_relative.exists():
+            return datasets_path
+        return yaml_relative
+
+    # User YAML: its own folder wins.
+    if yaml_relative.exists():
+        return yaml_relative
+    # Backward compatibility: a named folder already under DATASETS_DIR.
+    if datasets_path.exists():
+        return datasets_path
+    # Nothing on disk yet: a downloadable dataset lands in DATASETS_DIR,
+    # anything else is reported against the YAML's folder.
+    return datasets_path if config.get("download") else yaml_relative
+
+
+def _is_builtin_yaml(yaml_path: Path) -> bool:
+    try:
+        Path(yaml_path).resolve().relative_to(BUILTIN_DATASETS_DIR.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def check_dataset(
@@ -673,6 +708,47 @@ def download_dataset(url: str, dest: Path) -> None:
     logger.info("Dataset extracted to %s", dest)
 
 
+def _merge_into(src: Path, dst: Path, root: Optional[Path] = None) -> None:
+    """Move ``src``'s contents into ``dst`` without deleting or overwriting anything.
+
+    Never follows symlinks in ``dst`` and never writes outside ``root``
+    (the top-level destination), so a download cannot escape the dataset
+    folder through an existing link.
+    """
+    root = (root or dst).resolve()
+    if not src.is_dir() or src.is_symlink():
+        return
+    dst.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        target = dst / item.name
+        if target.is_symlink():
+            logger.warning("Skipping %s: the destination is a symlink.", target)
+            continue
+        if not target.resolve().is_relative_to(root):
+            logger.warning("Skipping %s: it resolves outside %s.", target, root)
+            continue
+        if item.is_symlink():
+            logger.warning("Skipping %s: symlinks in downloaded archives are ignored.", item.name)
+            continue
+        if not target.exists():
+            shutil.move(str(item), str(target))
+        elif item.is_dir() and target.is_dir():
+            _merge_into(item, target, root)
+        else:
+            logger.warning("Keeping existing %s; not overwritten by the download.", target)
+
+
+def _safe_archive_root(name: str) -> bool:
+    """A ZIP root folder name that cannot point outside the extraction folder."""
+    return (
+        name not in ("", ".", "..")
+        and "\\" not in name
+        and ":" not in name
+        and not Path(name).is_absolute()
+        and len(Path(name).parts) == 1
+    )
+
+
 def _download_and_extract_zip(url: str, dest: Path) -> None:
     """Download and extract a ZIP file."""
     # Create temp file for download
@@ -694,16 +770,20 @@ def _download_and_extract_zip(url: str, dest: Path) -> None:
                 # Get the common prefix (root directory in zip)
                 root_dirs = set(n.split("/")[0] for n in names if "/" in n)
                 if len(root_dirs) == 1:
-                    # Extract to parent and rename
+                    # Extract into a private scratch folder, then move the
+                    # root folder's contents into dest. Never delete dest or
+                    # anything beside it: dest can be a user's own folder
+                    # (a YAML with ``path: .``).
                     root_dir = root_dirs.pop()
-                    extract_to = dest.parent
-                    zf.extractall(extract_to)
-                    # If extracted dir is different from dest, rename
-                    extracted_path = extract_to / root_dir
-                    if extracted_path != dest and extracted_path.exists():
-                        if dest.exists():
-                            shutil.rmtree(dest)
-                        extracted_path.rename(dest)
+                    scratch = Path(tempfile.mkdtemp(prefix=".libreyolo-extract-", dir=dest.parent))
+                    try:
+                        zf.extractall(scratch)
+                        src = scratch / root_dir if _safe_archive_root(root_dir) else scratch
+                        if not src.resolve().is_relative_to(scratch.resolve()):
+                            src = scratch
+                        _merge_into(src, dest)
+                    finally:
+                        shutil.rmtree(scratch, ignore_errors=True)
                 else:
                     # Extract directly to dest
                     zf.extractall(dest)

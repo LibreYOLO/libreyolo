@@ -2,6 +2,7 @@
 
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+import os
 import pytest
 import yaml
 from PIL import Image
@@ -252,3 +253,184 @@ def test_get_img_files_names_a_missing_directory(tmp_path):
         (tmp_path / "notes.md").write_text("x")
         get_img_files(tmp_path / "notes.md")
 
+
+
+def _make_split_dataset(root: Path) -> None:
+    for split in ("train", "valid"):
+        img_dir = root / split / "images"
+        lbl_dir = root / split / "labels"
+        img_dir.mkdir(parents=True)
+        lbl_dir.mkdir(parents=True)
+        Image.new("RGB", (8, 8)).save(img_dir / "a.jpg")
+        (lbl_dir / "a.txt").write_text("0 0.5 0.5 0.2 0.2\n")
+
+
+@pytest.fixture
+def fake_datasets_dir(tmp_path, monkeypatch):
+    """A populated ~/datasets and a CWD elsewhere, like a real user machine."""
+    import libreyolo.data.utils as data_utils
+
+    home = tmp_path / "home"
+    datasets_dir = home / "datasets"
+    (datasets_dir / "other" / "train" / "images").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(data_utils, "DATASETS_DIR", datasets_dir)
+    cwd = tmp_path / "elsewhere"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    return datasets_dir
+
+
+@pytest.mark.parametrize("rel", [".", "./"])
+def test_path_dot_resolves_to_yaml_folder(tmp_path, fake_datasets_dir, rel):
+    ds = tmp_path / "hf_cache" / "cells-uyemf"
+    _make_split_dataset(ds)
+    yaml_path = ds / "data.yaml"
+    yaml_path.write_text(
+        f"path: {rel}\ntrain: train/images\nval: valid/images\nnc: 1\nnames: [cell]\n"
+    )
+
+    cfg = load_data_config(str(yaml_path), autodownload=False)
+
+    assert Path(cfg["path"]) == ds.resolve()
+    assert len(cfg["train_img_files"]) == 1
+    assert len(cfg["val_img_files"]) == 1
+
+
+def test_path_subfolder_resolves_to_yaml_folder(tmp_path, fake_datasets_dir):
+    ds = tmp_path / "proj"
+    _make_split_dataset(ds / "sub")
+    yaml_path = ds / "data.yaml"
+    yaml_path.write_text("path: ./sub\ntrain: train/images\nval: valid/images\nnames: [cell]\n")
+
+    cfg = load_data_config(str(yaml_path), autodownload=False)
+
+    assert Path(cfg["path"]) == (ds / "sub").resolve()
+    assert len(cfg["train_img_files"]) == 1
+
+
+def test_named_path_still_falls_back_to_datasets_dir(tmp_path, fake_datasets_dir):
+    _make_split_dataset(fake_datasets_dir / "mine")
+    yaml_path = tmp_path / "mine.yaml"
+    yaml_path.write_text("path: mine\ntrain: train/images\nval: valid/images\nnames: [x]\n")
+
+    cfg = load_data_config(str(yaml_path), autodownload=False)
+
+    assert Path(cfg["path"]) == fake_datasets_dir / "mine"
+    assert len(cfg["train_img_files"]) == 1
+
+
+def test_builtin_yaml_path_points_into_datasets_dir(fake_datasets_dir):
+    cfg = load_data_config("coco8.yaml", autodownload=False)
+    assert Path(cfg["path"]) == fake_datasets_dir / "coco8"
+
+
+def test_zero_images_warning_names_resolved_path(tmp_path, fake_datasets_dir, caplog):
+    ds = tmp_path / "empty"
+    (ds / "train" / "images").mkdir(parents=True)
+    yaml_path = ds / "data.yaml"
+    yaml_path.write_text("path: .\ntrain: train/images\nnames: [x]\n")
+
+    with caplog.at_level("WARNING"):
+        load_data_config(str(yaml_path), autodownload=False)
+
+    expected = str(ds.resolve() / "train" / "images")
+    assert any("No images found" in r.getMessage() and expected in r.getMessage()
+               for r in caplog.records)
+
+
+def test_zip_download_never_deletes_existing_dest(tmp_path, monkeypatch):
+    """A ZIP whose single root folder has another name must not wipe dest."""
+    import zipfile
+
+    import libreyolo.data.utils as data_utils
+
+    src_zip = tmp_path / "ds.zip"
+    with zipfile.ZipFile(src_zip, "w") as zf:
+        zf.writestr("other-name/train/images/a.jpg", b"x")
+        zf.writestr("other-name/data.yaml", b"from zip")
+
+    def fake_download(url, dest, chunk_size=8192):
+        dest.write_bytes(src_zip.read_bytes())
+
+    monkeypatch.setattr(data_utils, "_download_file", fake_download)
+
+    project = tmp_path / "parent" / "project"
+    project.mkdir(parents=True)
+    (project / "data.yaml").write_text("mine")
+    (project / "notes.txt").write_text("keep me")
+    sibling = tmp_path / "parent" / "other-name"
+    sibling.mkdir()
+    (sibling / "untouched.txt").write_text("sibling")
+
+    data_utils._download_and_extract_zip("https://example.invalid/ds.zip", project)
+
+    assert (project / "notes.txt").read_text() == "keep me"
+    assert (project / "data.yaml").read_text() == "mine"  # not overwritten
+    assert (project / "train" / "images" / "a.jpg").exists()
+    assert (sibling / "untouched.txt").read_text() == "sibling"
+    assert not list((tmp_path / "parent").glob(".libreyolo-extract-*"))
+
+
+def test_zero_images_warning_includes_search_error(tmp_path, fake_datasets_dir, caplog):
+    ds = tmp_path / "partial"
+    _make_split_dataset(ds)
+    yaml_path = ds / "data.yaml"
+    yaml_path.write_text(
+        "path: .\ntrain: [train/images, train/missing]\nval: valid/images\nnames: [x]\n"
+    )
+
+    with caplog.at_level("WARNING"):
+        load_data_config(str(yaml_path), autodownload=False)
+
+    msgs = [r.getMessage() for r in caplog.records if "No images found" in r.getMessage()]
+    assert msgs and "missing" in msgs[0]
+
+
+def _fake_zip_download(monkeypatch, tmp_path, entries):
+    import zipfile
+
+    import libreyolo.data.utils as data_utils
+
+    src_zip = tmp_path / "evil.zip"
+    with zipfile.ZipFile(src_zip, "w") as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+
+    def fake_download(url, dest, chunk_size=8192):
+        dest.write_bytes(src_zip.read_bytes())
+
+    monkeypatch.setattr(data_utils, "_download_file", fake_download)
+    return data_utils
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_zip_download_does_not_follow_symlinks_out_of_dest(tmp_path, monkeypatch):
+    data_utils = _fake_zip_download(
+        monkeypatch, tmp_path, {"bundle/assets/payload.txt": b"x", "bundle/ok.txt": b"y"}
+    )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    project = tmp_path / "parent" / "project"
+    project.mkdir(parents=True)
+    (project / "assets").symlink_to(outside, target_is_directory=True)
+
+    data_utils._download_and_extract_zip("https://example.invalid/evil.zip", project)
+
+    assert not (outside / "payload.txt").exists()
+    assert (project / "ok.txt").exists()
+
+
+def test_zip_download_rejects_parent_dir_root(tmp_path, monkeypatch):
+    data_utils = _fake_zip_download(monkeypatch, tmp_path, {"../payload.txt": b"x"})
+    parent = tmp_path / "parent"
+    project = parent / "project"
+    project.mkdir(parents=True)
+    neighbour = parent / "neighbour.txt"
+    neighbour.write_text("stay here")
+
+    data_utils._download_and_extract_zip("https://example.invalid/evil.zip", project)
+
+    assert neighbour.read_text() == "stay here"
+    assert not (project / "neighbour.txt").exists()
+    assert not list(parent.glob(".libreyolo-extract-*"))
