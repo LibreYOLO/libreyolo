@@ -405,3 +405,33 @@ def test_wrong_variant_folder_is_refused(tiny_runtime, tmp_path):
     model = LibreSperidlabsIrisZ("9b", device="cpu", task="depth", checkpoint_dir=str(root))
     with pytest.raises(ValueError, match="not Iris-Z-small"):
         model(np.zeros((32, 32, 3), dtype=np.uint8))
+
+
+def test_qwen3_falls_back_to_dequantized_without_the_fp8_kernel(monkeypatch, caplog):
+    import transformers
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", lambda *a, **k: object())
+    loads = []
+
+    class FakeModel:
+        def __init__(self, dequantize):
+            self.dequantize = dequantize
+            self.device = torch.device("cpu")
+
+        def __call__(self, **kwargs):
+            if not self.dequantize:
+                raise ImportError("finegrained-fp8 kernel unavailable")
+
+    def fake_load(device, dequantize):
+        loads.append((str(device), dequantize))
+        return FakeModel(dequantize)
+
+    monkeypatch.setattr(irisz_text.Qwen3Embedder, "_load", staticmethod(fake_load))
+    with caplog.at_level("WARNING"):
+        encoder = irisz_text.Qwen3Embedder(device="cuda")
+    assert loads == [("cuda", False), ("cuda", True)]
+    assert not encoder.fp8 and encoder.model.dequantize
+    assert "dequantized" in caplog.text
+    loads.clear()
+    encoder = irisz_text.Qwen3Embedder(device="cpu")
+    assert loads == [("cpu", True)] and not encoder.fp8

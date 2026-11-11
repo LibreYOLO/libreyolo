@@ -17,10 +17,13 @@ publishers (Apache-2.0) at pinned revisions.
 
 from __future__ import annotations
 
+import logging
 from typing import Dict, List, Sequence
 
 import torch
 from torch import nn
+
+logger = logging.getLogger(__name__)
 
 MAX_LENGTH = 512
 
@@ -101,17 +104,48 @@ class Qwen3Embedder(nn.Module):
 
     def __init__(self, device="cpu"):
         super().__init__()
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoTokenizer
 
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.tokenizer = AutoTokenizer.from_pretrained(QWEN3_REPO, revision=QWEN3_REVISION)
+        self.fp8 = torch.device(device).type == "cuda"
+        self.model = None
+        if self.fp8:
+            self.model = self._load(device, dequantize=False)
+            try:
+                # transformers loads the FP8 matmul kernel on the first call.
+                with torch.no_grad():
+                    self.model(input_ids=torch.tensor([[0]], device=self.model.device))
+            except ImportError as exc:
+                logger.warning(
+                    "Qwen3 8B FP8 runs dequantized in bfloat16 because the FP8 kernel is "
+                    "unavailable (%s). Prompt embeddings are close to upstream's, not identical.",
+                    exc,
+                )
+                self.model = None
+                self.fp8 = False
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+        if self.model is None:
+            self.model = self._load(device, dequantize=True)
+
+    @staticmethod
+    def _load(device, dequantize: bool):
+        from transformers import AutoModelForCausalLM, FineGrainedFP8Config
+
+        kwargs = {}
+        if dequantize:
+            # FP8 needs CUDA and transformers' FP8 kernel; elsewhere the
+            # checkpoint's block-scaled weights are expanded to bfloat16.
+            kwargs["quantization_config"] = FineGrainedFP8Config(dequantize=True)
+        return AutoModelForCausalLM.from_pretrained(
             QWEN3_REPO,
             revision=QWEN3_REVISION,
             # Upstream loads with torch_dtype=None under transformers 4.57, which
             # keeps the unquantized layers in float32; transformers 5 defaults to "auto".
-            dtype=torch.float32,
+            dtype=torch.bfloat16 if dequantize else torch.float32,
             device_map=str(device),
+            **kwargs,
         )
-        self.tokenizer = AutoTokenizer.from_pretrained(QWEN3_REPO, revision=QWEN3_REVISION)
 
     @property
     def device(self) -> torch.device:
