@@ -28,7 +28,7 @@ from .onnx import (
     export_onnx,
     quantize_onnx_int8,
 )
-from .support import INT8_EXPORTS, REFUSED_SIZES, get_support, validated_alternatives
+from .support import INT8_EXPORTS, SIZE_ACCURACY_NOTES, get_support, validated_alternatives
 from .torchscript import export_torchscript
 
 logger = logging.getLogger(__name__)
@@ -1013,7 +1013,9 @@ def _fuse_darknet_batchnorms(net: torch.nn.Module) -> int:
     return fused_count
 
 
-def _darknet_raw_heads_wrapper(holder: torch.nn.Module, task: str = "detect"):
+def _darknet_raw_heads_wrapper(
+    holder: torch.nn.Module, task: str = "detect", output_windows=None
+):
     """Raw-head wrapper for a Darknet ``[yolo]`` detector (LibreYOLO3, LibreYOLO4)."""
     if task != "detect":
         raise ValueError(f"Darknet raw-head export supports detect only, got {task!r}.")
@@ -1037,6 +1039,7 @@ def _darknet_raw_heads_wrapper(holder: torch.nn.Module, task: str = "detect"):
         anchors=[spec.anchors for spec in specs],
         num_classes=specs[0].num_classes,
         scale_x_y=[spec.scale_x_y for spec in specs],
+        output_windows=output_windows,
     )
 
 
@@ -1665,11 +1668,12 @@ class BaseExporter(ABC):
                 f"{support.reason}{alternatives_text}"
             )
         size = str(getattr(self.model, "size", "") or "")
-        refused = REFUSED_SIZES.get((family, task, self.format_name), {}).get(size)
-        if refused:
-            raise NotImplementedError(
-                f"{family}-{size} {task} export to {self.format_name} is blocked: "
-                f"{refused}"
+        note = SIZE_ACCURACY_NOTES.get((family, task, self.format_name), {}).get(size)
+        if note:
+            # Supported, not validated: export anyway and say what was measured.
+            logger.warning(
+                "%s-%s %s export to %s is supported but not validated: %s.",
+                family, size, task, self.format_name, note,
             )
         if kwargs.get("nms") and not self.supports_embedded_nms:
             raise NotImplementedError(
@@ -3543,6 +3547,20 @@ class AxeleraExporter(BaseExporter):
         task = getattr(self.model, "task", "detect")
         return task if isinstance(task, str) else "detect"
 
+
+    def _size_recipe(self) -> dict:
+        """The per-size recipe (``AXELERA_SIZE_RECIPES``) for this model, if any."""
+        from .axelera import size_recipe
+
+        recipe = size_recipe(
+            self.model._get_model_name(),
+            self._task(),
+            str(getattr(self.model, "size", "") or ""),
+        )
+        if recipe and not getattr(self, "_recipe_logged", False):
+            logger.info("Axelera: using the measured per-size recipe %s", recipe)
+            self._recipe_logged = True
+        return recipe
     def _preflight(self, **kwargs):
         # Support tier first, so a blocked family fails before any SDK check.
         super()._preflight(**kwargs)
@@ -3744,7 +3762,9 @@ class AxeleraExporter(BaseExporter):
             )
         if self._task() == "classify":
             net = copy.deepcopy(self.model.model).eval()
-            if self.model._get_model_name() == "mobilenetv4":
+            if self.model._get_model_name() == "mobilenetv4" and self._size_recipe().get(
+                "stream_transform", True
+            ):
                 self._prepare_mobilenetv4(net, dummy)
             self._raw_wrapper = _ClassifyLogitsWrapper(net).eval()
             logger.info("Step 1/2: Exporting classifier ONNX (%s)", onnx_output)
@@ -3769,7 +3789,9 @@ class AxeleraExporter(BaseExporter):
             self._raw_wrapper = _yolo7_raw_heads_wrapper(live, self._task()).eval()
         elif self.model._get_model_name() in ("yolo3", "yolo4"):
             self._pose_bounds = {}
-            self._raw_wrapper = _darknet_raw_heads_wrapper(live, self._task()).eval()
+            self._raw_wrapper = _darknet_raw_heads_wrapper(
+                live, self._task(), output_windows=self._size_recipe().get("output_windows")
+            ).eval()
         elif self.model._get_model_name() == "yolo9":
             # No reparameterization step; BatchNorm folds into the convs
             # during the ONNX export.
@@ -3792,7 +3814,13 @@ class AxeleraExporter(BaseExporter):
                 live, fused, self._task(), imgsz
             )
             self._pose_bounds = (
-                _bound_yolonas_pose_inputs(fused, samples) if samples else {}
+                _bound_yolonas_pose_inputs(
+                    fused,
+                    samples,
+                    towers=self._size_recipe().get("pose_bounded_towers", _POSE_BOUNDED_TOWERS),
+                )
+                if samples
+                else {}
             )
             self._raw_wrapper = _YOLONASRawHeadsWrapper(fused, self._task()).eval()
         out = Path(output_path)
@@ -3910,7 +3938,10 @@ class AxeleraExporter(BaseExporter):
         family, task = self.model._get_model_name(), self._task()
         # A per-model exception wins; otherwise graphs with depthwise
         # convolutions get per-channel ranges for the depthwise inputs.
-        if (family, task) not in DEFAULT_QUANTIZATION_SCHEME_BY_MODEL and (
+        recipe_scheme = self._size_recipe().get("quantization_scheme")
+        if recipe_scheme:
+            quantization_scheme = recipe_scheme
+        elif (family, task) not in DEFAULT_QUANTIZATION_SCHEME_BY_MODEL and (
             _has_depthwise_convs(self._raw_wrapper)
         ):
             quantization_scheme = DEPTHWISE_QUANTIZATION_SCHEME

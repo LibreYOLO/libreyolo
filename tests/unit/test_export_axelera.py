@@ -268,11 +268,6 @@ def exporter_sdk(monkeypatch, fake_sdk):
     monkeypatch.setattr(axrt, "_module_available", lambda module: True)
     monkeypatch.setattr(axrt, "_installed_version", lambda package: ax.AXELERA_SDK_VERSION)
     monkeypatch.setattr(ax, "check_compile_platform", lambda: None)
-    # The small test pose model is size n, which Metis refuses (measured, see
-    # test_pose_sizes_below_the_bar_are_refused); its export path stays tested.
-    from libreyolo.export.support import REFUSED_SIZES
-
-    monkeypatch.setitem(REFUSED_SIZES, ("yolonas", "pose", "axelera"), {})
     seen = {}
     original_quantize = fake_sdk.module.quantize
 
@@ -510,21 +505,17 @@ def test_yolo9_export_uses_the_yolo9_raw_head_layout(exporter_sdk, tmp_path):
 
 @pytest.mark.parametrize("size", ["n", "t"])
 def test_yolox_export_uses_the_yolox_raw_head_layout(exporter_sdk, tmp_path, size):
-    from unittest import mock
 
     import torch
     import yaml
 
     from libreyolo import LibreYOLOX
-    from libreyolo.export.support import REFUSED_SIZES
     from libreyolo.postprocess.yolonas_raw import raw_head_output_names
 
     torch.manual_seed(0)
     model = LibreYOLOX(None, size=size, nb_classes=3, device="cpu")
     destination = tmp_path / "yx_axelera_model"
-    # n is refused on Metis by measurement; lift that to check its graph.
-    with mock.patch.dict(REFUSED_SIZES, {("yolox", "detect", "axelera"): {}}):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+    model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
 
     layout = "yolox_raw_heads_v1"
     assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout)
@@ -540,12 +531,17 @@ def test_yolox_export_uses_the_yolox_raw_head_layout(exporter_sdk, tmp_path, siz
     assert meta["axelera"]["quantization_scheme"] == expected
 
 
-def test_yolox_n_is_refused_with_its_numbers(tmp_path):
+def test_yolox_n_exports_with_its_measured_drop(exporter_sdk, tmp_path, caplog):
+    """No accuracy gate: a size below the 1.0-point bar exports and says so once."""
     from libreyolo import LibreYOLOX
 
     model = LibreYOLOX(None, size="n", nb_classes=3, device="cpu")
-    with pytest.raises(NotImplementedError, match=r"yolox-n detect export to axelera is blocked: .*1\.66 points"):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+    with caplog.at_level(logging.WARNING):
+        out = model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64,
+                           output_path=str(tmp_path / "yxn_axelera_model"))
+    assert Path(out).exists()
+    warnings = [r.getMessage() for r in caplog.records if "supported but not validated" in r.getMessage()]
+    assert len(warnings) == 1 and "1.81 points" in warnings[0] and "COCO val2017" in warnings[0]
 
 
 def test_yolo4_export_uses_the_anchor_raw_head_layout(exporter_sdk, tmp_path):
@@ -627,21 +623,17 @@ def test_yolo7_export_uses_the_anchor_raw_head_layout(exporter_sdk, tmp_path):
 
 
 def test_ppyoloe_export_uses_the_ppyoloe_raw_head_layout(exporter_sdk, tmp_path):
-    from unittest import mock
 
     import torch
     import yaml
 
     from libreyolo import LibrePPYOLOE
-    from libreyolo.export.support import REFUSED_SIZES
     from libreyolo.postprocess.yolonas_raw import raw_head_output_names
 
     torch.manual_seed(0)
     model = LibrePPYOLOE(None, size="s", nb_classes=3, device="cpu")
     destination = tmp_path / "pp_axelera_model"
-    # s is refused on Metis by measurement; lift that to check its graph.
-    with mock.patch.dict(REFUSED_SIZES, {("ppyoloe", "detect", "axelera"): {}}):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+    model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
 
     layout = "ppyoloe_raw_heads_v1"
     assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout, (32, 16, 8))
@@ -895,14 +887,14 @@ def test_verify_reads_the_quantized_model_before_compile_lowers_it(exporter_sdk,
 def test_support_matrix_rows_for_axelera():
     from libreyolo.export.support import get_support, precision_support
 
-    from libreyolo.export.support import REFUSED_SIZES
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES
 
     for task in ("detect", "pose", "obb"):
         assert get_support("yolonas", task, "axelera").tier == "validated"
         assert precision_support("yolonas", task, "axelera") == (True, True)
     assert "DOTA" in get_support("yolonas", "obb", "axelera").reason
     assert "validated sizes: m, l" in get_support("yolonas", "pose", "axelera").constraint
-    assert sorted(REFUSED_SIZES[("yolonas", "pose", "axelera")]) == ["n", "s"]
+    assert sorted(SIZE_ACCURACY_NOTES[("yolonas", "pose", "axelera")]) == ["n", "s"]
     assert get_support("yolo9", "detect", "axelera").tier in {"available", "validated"}
     assert precision_support("yolo9", "detect", "axelera") == (True, True)
     for family in ("yolo9_e2e", "yolo9_p2"):
@@ -917,34 +909,70 @@ def test_support_matrix_rows_for_axelera():
     assert precision_support("yolo3", "detect", "axelera") == (True, True)
     yolo4 = get_support("yolo4", "detect", "axelera")
     assert yolo4.tier == "validated" and "validated sizes: t" in yolo4.constraint
-    assert sorted(REFUSED_SIZES[("yolo4", "detect", "axelera")]) == ["b"]
+    assert sorted(SIZE_ACCURACY_NOTES[("yolo4", "detect", "axelera")]) == ["b"]
     assert precision_support("yolo4", "detect", "axelera") == (True, True)
     ppyoloe = get_support("ppyoloe", "detect", "axelera")
     assert ppyoloe.tier == "validated" and "validated sizes: l" in ppyoloe.constraint
-    assert sorted(REFUSED_SIZES[("ppyoloe", "detect", "axelera")]) == ["m", "s", "x"]
+    assert sorted(SIZE_ACCURACY_NOTES[("ppyoloe", "detect", "axelera")]) == ["m", "s", "x"]
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
     other = get_support("rtmdet", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
-    assert mnv4.tier == "validated" and "validated sizes: m " in mnv4.constraint
-    assert sorted(REFUSED_SIZES[("mobilenetv4", "classify", "axelera")]) == ["l", "s"]
+    assert mnv4.tier == "validated" and "validated sizes: m;" in mnv4.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("mobilenetv4", "classify", "axelera")]) == ["l", "s"]
+    assert sorted(SIZE_ACCURACY_NOTES[("yolox", "detect", "axelera")]) == ["n"]
+    for notes in SIZE_ACCURACY_NOTES.values():
+        assert all(note.startswith("measured ") and " vs FP32 " in note for note in notes.values())
     fcn = get_support("fcn", "semantic", "axelera")
     assert fcn.tier == "validated" and "validated sizes: r50" in fcn.constraint
 
 
-def test_mobilenetv4_sizes_below_the_bar_are_refused(tmp_path):
-    from libreyolo import LibreMobileNetV4
+def test_pose_sizes_below_the_bar_export_with_a_warning(exporter_sdk, tmp_path, caplog):
+    """Pose n misses the 1.0-point bar on Metis: it exports, and the warning names the numbers."""
+    with caplog.at_level(logging.WARNING):
+        out = _model("pose").export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64,
+                                    output_path=str(tmp_path / "pn_axelera_model"))
+    assert Path(out).exists()
+    assert any("yolonas-n pose export to axelera is supported but not validated" in r.getMessage()
+               and "1.30 points" in r.getMessage() for r in caplog.records)
 
-    model = LibreMobileNetV4(size="s", nb_classes=5, device="cpu")
-    with pytest.raises(NotImplementedError, match=r"blocked: .*1\.7 points"):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
+def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
+    """Each per-size recipe changes the export it is keyed on (checked on small
+    stand-ins whose size attribute is set to the recipe's key)."""
+    import torch
+    import yaml
 
-def test_pose_sizes_below_the_bar_are_refused(tmp_path):
-    """Pose n and s miss the 1.0-point bar on Metis; the refusal names the numbers."""
-    with pytest.raises(NotImplementedError, match=r"yolonas-n pose export to axelera is blocked: .*1\.30 points"):
-        _model("pose").export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+    from libreyolo import LibreMobileNetV4, LibreYOLO4
+    from libreyolo.export.axelera import AXELERA_SIZE_RECIPES, size_recipe
+
+    assert size_recipe("yolo4", "detect", "t") == {}
+    assert set(AXELERA_SIZE_RECIPES) == {
+        ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
+        ("mobilenetv4", "classify", "l"), ("yolonas", "pose", "s"),
+    }
+    data = str(_dataset(tmp_path))
+    # YOLOv4-b: histogram ranges and a [-6, 6] window on the box output.
+    torch.manual_seed(0)
+    model = LibreYOLO4(None, size="t", nb_classes=3, device="cpu")
+    monkeypatch.setattr(model, "size", "b")
+    out = model.export(format="axelera", data=data, imgsz=64,
+                       output_path=str(tmp_path / "y4b_axelera_model"))
+    meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
+    assert meta["output_windows"] == {"reg": [-6.0, 6.0]}
+    assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+    # MobileNetV4-s: no residual-stream transform, histogram ranges.
+    import libreyolo.models.mobilenetv4.quantize as q
+
+    calls = []
+    original = q.prepare_for_int8
+    monkeypatch.setattr(q, "prepare_for_int8", lambda *a, **k: calls.append(1) or original(*a, **k))
+    small = LibreMobileNetV4(size="s", nb_classes=5, device="cpu")
+    out = small.export(format="axelera", data=data, imgsz=64,
+                       output_path=str(tmp_path / "mn4s_axelera_model"))
+    meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
+    assert calls == [] and meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
 
 
 def _pad_maxpool_graph(pad_value):

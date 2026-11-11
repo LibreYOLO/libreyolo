@@ -3984,7 +3984,8 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "validated sizes: m, l (n and s are refused, see docs/axelera.md). "
+        "validated sizes: m, l; n and s are supported with a measured drop "
+        "(SIZE_ACCURACY_NOTES, docs/axelera.md). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
         "batch 1, fixed square input"
     ),
@@ -4042,7 +4043,8 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "validated sizes: m (s and l are refused, see docs/axelera.md), "
+        "validated sizes: m; s and l are supported with a measured drop "
+        "(SIZE_ACCURACY_NOTES, docs/axelera.md), "
         "calibrated with in-domain images (data=). axelera-devkit / axelera-rt "
         "1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input"
     ),
@@ -4079,7 +4081,8 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "validated sizes: t, s, m, l, x (on-device results in docs/axelera.md). "
+        "validated sizes: t, s, m, l, x; n is supported with a measured drop "
+        "(on-device results in docs/axelera.md). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
         "batch 1, fixed input size"
     ),
@@ -4098,7 +4101,8 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "validated sizes: t (on-device results in docs/axelera.md). "
+        "validated sizes: t; b is supported with a measured drop (on-device "
+        "results in docs/axelera.md). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
         "batch 1, fixed input size"
     ),
@@ -4157,7 +4161,8 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "validated sizes: l (s, m and x are refused, see docs/axelera.md). "
+        "validated sizes: l; s, m and x are supported with a measured drop "
+        "(SIZE_ACCURACY_NOTES, docs/axelera.md). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
         "batch 1, fixed input size"
     ),
@@ -4291,64 +4296,61 @@ def iter_blocked() -> Iterator[tuple[tuple[str, str, str], SupportEntry]]:
     return iter_entries("blocked")
 
 
-#: Sizes refused although their (family, task, format) tier allows the export,
-#: each with its measured reason (the tier's constraint lists the sizes that pass).
-REFUSED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+#: Sizes that export and run but sit more than 1.0 point below FP32 on their
+#: paired measurement set: supported, not validated. Informational only: the
+#: export logs the note as one warning and proceeds. Each note quotes the number
+#: measured with the recipe the library uses for that size
+#: (``libreyolo.export.axelera.AXELERA_SIZE_RECIPES``).
+SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
     ("mobilenetv4", "classify", "axelera"): {
         "s": (
-            "on a Metis device MobileNetV4-s keeps top-1 1.7 points below FP32 "
-            "at best (0.607 vs 0.624 on a paired 1000-image ImageNetV2 set), "
-            "outside the 1.0-point bar; use m."
+            "measured top-1 drop 1.7 points vs FP32 (0.607 vs 0.624 on a paired "
+            "1000-image ImageNetV2 set; histogram ranges, no residual-stream "
+            "transform)"
         ),
         "l": (
-            "on a Metis device MobileNetV4-l keeps top-1 1.7 points below FP32 "
-            "at best (0.710 vs 0.727 on a paired 1000-image ImageNetV2 set), "
-            "outside the 1.0-point bar; use m."
+            "measured top-1 drop 1.7 points vs FP32 (0.710 vs 0.727 on a paired "
+            "1000-image ImageNetV2 set; min-max ranges with the residual-stream "
+            "transform)"
         ),
     },
     ("ppyoloe", "detect", "axelera"): {
         "s": (
-            "on a Metis device PP-YOLOE-s keeps mAP50-95 1.23 points below FP32 "
-            "(0.396 vs 0.409 on 1000 COCO val2017 images; output windows and "
-            "histogram ranges did not help), outside the 1.0-point bar; use l."
+            "measured mAP50-95 drop 1.23 points vs FP32 (0.396 vs 0.409 on 1000 "
+            "COCO val2017 images)"
         ),
         "m": (
-            "on a Metis device PP-YOLOE-m keeps mAP50-95 1.22 points below FP32 "
-            "(0.442 vs 0.454 on 1000 COCO val2017 images), outside the 1.0-point "
-            "bar; use l."
+            "measured mAP50-95 drop 1.22 points vs FP32 (0.442 vs 0.454 on 1000 "
+            "COCO val2017 images)"
         ),
         "x": (
-            "on a Metis device PP-YOLOE-x keeps mAP50-95 1.71 points below FP32 "
-            "(0.475 vs 0.492 on 1000 COCO val2017 images), outside the 1.0-point "
-            "bar; use l."
+            "measured mAP50-95 drop 1.71 points vs FP32 (0.475 vs 0.492 on 1000 "
+            "COCO val2017 images)"
         ),
     },
     ("yolo4", "detect", "axelera"): {
         "b": (
-            "on a Metis device YOLOv4 (size b) keeps mAP50-95 1.5 points below "
-            "FP32 at best (0.465 vs 0.481 on 1000 COCO val2017 images, with "
-            "histogram activation ranges and a box-output window; 6.8 points "
-            "with the default ranges), outside the 1.0-point bar; use t."
+            "measured mAP50-95 drop 1.52 points vs FP32 (0.465 vs 0.481 on 1000 "
+            "COCO val2017 images; histogram ranges and a [-6, 6] box-output "
+            "window, without which the drop is 6.8)"
         ),
     },
     ("yolox", "detect", "axelera"): {
         "n": (
-            "on a Metis device YOLOX-n keeps mAP50-95 1.66 points below FP32 at "
-            "best (0.244 vs 0.261 on 300 COCO val2017 images, with per-channel "
-            "ranges for its depthwise inputs), outside the 1.0-point bar; use t."
+            "measured mAP50-95 drop 1.81 points vs FP32 (0.243 vs 0.261 on 300 "
+            "COCO val2017 images, 64 calibration images; 1.66 with 128)"
         ),
     },
     ("yolonas", "pose", "axelera"): {
         "n": (
-            "on a Metis device YOLO-NAS-pose-n keeps keypoint mAP50-95 1.30 "
-            "points below FP32 (0.696 vs 0.709 on 300 COCO val2017 person "
-            "images; 1.11 with person-image calibration), outside the "
-            "1.0-point bar; use m or l."
+            "measured keypoint mAP50-95 drop 1.30 points vs FP32 (0.696 vs 0.709 "
+            "on 300 COCO val2017 person images; 1.11 when calibrated on person "
+            "images)"
         ),
         "s": (
-            "on a Metis device YOLO-NAS-pose-s keeps keypoint mAP50-95 2.21 "
-            "points below FP32 at best (0.734 vs 0.757 on 300 COCO val2017 "
-            "person images), outside the 1.0-point bar; use m or l."
+            "measured keypoint mAP50-95 drop 2.21 points vs FP32 (0.734 vs 0.757 "
+            "on 300 COCO val2017 person images; class and keypoint towers both "
+            "bounded)"
         ),
     },
 }
@@ -4409,7 +4411,7 @@ __all__ = [
     "EXPORT_FORMATS",
     "FP32_ONLY_FAMILIES",
     "INT8_EXPORTS",
-    "REFUSED_SIZES",
+    "SIZE_ACCURACY_NOTES",
     "SUPPORT",
     "SupportEntry",
     "Tier",

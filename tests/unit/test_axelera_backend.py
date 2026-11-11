@@ -188,16 +188,9 @@ def _export(tmp_path, task="detect"):
                 head.cls_pred.bias.add_(4.0)
     from unittest import mock
 
-    from libreyolo.export.support import REFUSED_SIZES
-
     # The pose input bound changes FP32 keypoints by design (tested in
-    # test_yolonas_raw_heads); without it these stay strict decode tests. The
-    # small test pose and YOLOX models are size n, refused on Metis by measurement.
-    with mock.patch("libreyolo.export.exporter._bound_yolonas_pose_inputs", lambda *a, **k: {}), \
-            mock.patch.dict(
-                REFUSED_SIZES,
-                {("yolonas", "pose", "axelera"): {}, ("yolox", "detect", "axelera"): {}},
-            ):
+    # test_yolonas_raw_heads); without it these stay strict decode tests.
+    with mock.patch("libreyolo.export.exporter._bound_yolonas_pose_inputs", lambda *a, **k: {}):
         out = model.export(
             format="axelera", data=str(_dataset(tmp_path)), imgsz=96,
             output_path=str(tmp_path / f"{task}_axelera_model"),

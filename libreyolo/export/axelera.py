@@ -62,6 +62,42 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 }
 
 
+#: Per-size recipes, keyed by (family, task, size): the best measured way to
+#: compile that size, applied by AxeleraExporter. Keys:
+#: ``quantization_scheme`` (wins over the per-model, depthwise and task
+#: defaults), ``output_windows`` (raw-head part -> (low, high), anchor heads),
+#: ``stream_transform`` (MobileNetV4 residual-stream equalization and bound,
+#: default on) and ``pose_bounded_towers`` (YOLO-NAS-pose towers whose input is
+#: bounded). Results with these recipes are in docs/axelera.md.
+AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
+    # Histogram ranges recover most of the Mish backbone's loss (-6.8 -> -1.4);
+    # the box-output window takes the rest of the way to -1.52 on 1000 images.
+    ("yolo4", "detect", "b"): {
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+        "output_windows": {"reg": (-6.0, 6.0)},
+    },
+    # MobileNetV4: the stream transform + histogram recipe that validates m
+    # costs s 2.6 and l 3.0 points; their best measured recipes differ.
+    ("mobilenetv4", "classify", "s"): {
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+        "stream_transform": False,
+    },
+    ("mobilenetv4", "classify", "l"): {
+        "quantization_scheme": "per_tensor_min_max",
+        "stream_transform": True,
+    },
+    # YOLO-NAS-pose-s needs its keypoint tower bounded as well as the class tower.
+    ("yolonas", "pose", "s"): {
+        "pose_bounded_towers": (("cls_convs", "cls_pred"), ("pose_convs", "pose_pred")),
+    },
+}
+
+
+def size_recipe(family: str, task: str, size: str) -> dict:
+    """The per-size recipe for ``family``/``task``/``size`` (empty when the defaults apply)."""
+    return dict(AXELERA_SIZE_RECIPES.get((family, task, str(size)), {}))
+
+
 def default_quantization_scheme(family: str, task: str) -> str:
     """The activation-range scheme LibreYOLO compiles ``family``/``task`` with."""
     by_model = DEFAULT_QUANTIZATION_SCHEME_BY_MODEL.get((family, task))

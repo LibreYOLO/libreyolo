@@ -1,45 +1,57 @@
 # Axelera Metis export
 
-> **PREVIEW.** Axelera Metis support is new in 1.8.0. Only the sizes in the
-> table below are validated; every other family, task or size is refused or
-> blocked with its reason (`docs/export_support.md`). Results are from one
-> Metis M.2 Max with axelera-devkit / axelera-rt 1.9.0.
+> **PREVIEW.** Axelera Metis support is new in 1.8.0. Every size below
+> compiles, runs on a Metis device and exports. "validated" means the INT8
+> result is within 1.0 point of FP32 on the paired set; "supported" means it
+> works with a larger measured drop, which the export logs once as a warning.
+> Accuracy never blocks an export; "blocked" is only for families that do not
+> compile, do not run or give meaningless output (`docs/export_support.md`).
+> Results are from one Metis M.2 Max with axelera-devkit / axelera-rt 1.9.0.
 
-Validated on device, paired INT8 vs FP32 on the same images (section 7 has
-calibration details and the refused sizes):
+Measured on device, paired INT8 vs FP32 on the same images, each size with the
+recipe LibreYOLO applies to it (section 7 has calibration details):
 
-| Family | Size | Task | Dataset (paired) | FP32 | Metis INT8 | Delta |
-| --- | --- | --- | --- | --- | --- | --- |
-| YOLO-NAS | s | detect | COCO val2017, 1000 | 0.4549 | 0.4519 | -0.30 |
-| YOLO-NAS | m | detect | COCO val2017, 1000 | 0.4942 | 0.4893 | -0.49 |
-| YOLO-NAS | l | detect | COCO val2017, 1000 | 0.5036 | 0.5025 | -0.11 |
-| YOLO-NAS-pose | m | pose | COCO val2017 persons, 300 | 0.7885 | 0.7821 | -0.64 |
-| YOLO-NAS-pose | l | pose | COCO val2017 persons, 300 | 0.7922 | 0.7884 | -0.38 |
-| YOLO-NAS-R | s | obb | DOTA-v2.0 val, 300 tiles | 0.3844 | 0.3747 | -0.97 |
-| YOLO-NAS-R | m | obb | DOTA-v2.0 val, 300 tiles | 0.4141 | 0.4105 | -0.36 |
-| YOLO-NAS-R | l | obb | DOTA-v2.0 val, 300 tiles | 0.4327 | 0.4348 | +0.21 |
-| YOLO9 | t | detect | COCO val2017, 1000 | 0.3669 | 0.3624 | -0.45 |
-| YOLO9 | s | detect | COCO val2017, 1000 | 0.4502 | 0.4450 | -0.52 |
-| YOLO9 | m | detect | COCO val2017, 1000 | 0.4913 | 0.4896 | -0.17 |
-| YOLO9 | c | detect | COCO val2017, 1000 | 0.5127 | 0.5093 | -0.34 |
-| YOLOX | t | detect | COCO val2017, 1000 | 0.3238 | 0.3202 | -0.36 |
-| YOLOX | s | detect | COCO val2017, 1000 | 0.3981 | 0.3933 | -0.48 |
-| YOLOX | m | detect | COCO val2017, 1000 | 0.4582 | 0.4516 | -0.66 |
-| YOLOX | l | detect | COCO val2017, 1000 | 0.4849 | 0.4781 | -0.68 |
-| YOLOX | x | detect | COCO val2017, 1000 | 0.4943 | 0.4867 | -0.76 |
-| YOLOv3 | t | detect | COCO val2017, 1000 | 0.1023 | 0.1006 | -0.17 |
-| YOLOv3 | b | detect | COCO val2017, 1000 | 0.3656 | 0.3580 | -0.76 |
-| YOLOv3 | spp | detect | COCO val2017, 1000 | 0.4304 | 0.4261 | -0.43 |
-| YOLOv4 | t | detect | COCO val2017, 1000 | 0.2021 | 0.1968 | -0.53 |
-| YOLOv7 | b | detect | COCO val2017, 1000 | 0.2843 | 0.2859 | +0.16 |
-| PP-YOLOE | l | detect | COCO val2017, 1000 | 0.4771 | 0.4740 | -0.31 |
-| ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 |
-| ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 |
-| ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 |
-| ResNet | 101 | classify (top-1) | ImageNetV2, 1000 | 0.713 | 0.708 | -0.5 |
-| MobileNetV4 | m | classify (top-1) | ImageNetV2, 1000 | 0.682 | 0.684 | +0.2 |
-| FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 |
-| FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 |
+| Family | Size | Task | Dataset (paired) | FP32 | Metis INT8 | Delta | Label |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| YOLO-NAS | s | detect | COCO val2017, 1000 | 0.4549 | 0.4519 | -0.30 | validated |
+| YOLO-NAS | m | detect | COCO val2017, 1000 | 0.4942 | 0.4893 | -0.49 | validated |
+| YOLO-NAS | l | detect | COCO val2017, 1000 | 0.5036 | 0.5025 | -0.11 | validated |
+| YOLO-NAS-pose | n | pose | COCO val2017 persons, 300 | 0.7089 | 0.6959 | -1.30 | supported |
+| YOLO-NAS-pose | s | pose | COCO val2017 persons, 300 | 0.7565 | 0.7344 | -2.21 | supported |
+| YOLO-NAS-pose | m | pose | COCO val2017 persons, 300 | 0.7885 | 0.7821 | -0.64 | validated |
+| YOLO-NAS-pose | l | pose | COCO val2017 persons, 300 | 0.7922 | 0.7884 | -0.38 | validated |
+| YOLO-NAS-R | s | obb | DOTA-v2.0 val, 300 tiles | 0.3844 | 0.3747 | -0.97 | validated |
+| YOLO-NAS-R | m | obb | DOTA-v2.0 val, 300 tiles | 0.4141 | 0.4105 | -0.36 | validated |
+| YOLO-NAS-R | l | obb | DOTA-v2.0 val, 300 tiles | 0.4327 | 0.4348 | +0.21 | validated |
+| YOLO9 | t | detect | COCO val2017, 1000 | 0.3669 | 0.3624 | -0.45 | validated |
+| YOLO9 | s | detect | COCO val2017, 1000 | 0.4502 | 0.4450 | -0.52 | validated |
+| YOLO9 | m | detect | COCO val2017, 1000 | 0.4913 | 0.4896 | -0.17 | validated |
+| YOLO9 | c | detect | COCO val2017, 1000 | 0.5127 | 0.5093 | -0.34 | validated |
+| YOLOX | n | detect | COCO val2017, 300 | 0.2609 | 0.2428 | -1.81 | supported |
+| YOLOX | t | detect | COCO val2017, 1000 | 0.3238 | 0.3202 | -0.36 | validated |
+| YOLOX | s | detect | COCO val2017, 1000 | 0.3981 | 0.3933 | -0.48 | validated |
+| YOLOX | m | detect | COCO val2017, 1000 | 0.4582 | 0.4516 | -0.66 | validated |
+| YOLOX | l | detect | COCO val2017, 1000 | 0.4849 | 0.4781 | -0.68 | validated |
+| YOLOX | x | detect | COCO val2017, 1000 | 0.4943 | 0.4867 | -0.76 | validated |
+| YOLOv3 | t | detect | COCO val2017, 1000 | 0.1023 | 0.1006 | -0.17 | validated |
+| YOLOv3 | b | detect | COCO val2017, 1000 | 0.3656 | 0.3580 | -0.76 | validated |
+| YOLOv3 | spp | detect | COCO val2017, 1000 | 0.4304 | 0.4261 | -0.43 | validated |
+| YOLOv4 | t | detect | COCO val2017, 1000 | 0.2021 | 0.1968 | -0.53 | validated |
+| YOLOv4 | b | detect | COCO val2017, 1000 | 0.4806 | 0.4654 | -1.52 | supported |
+| YOLOv7 | b | detect | COCO val2017, 1000 | 0.2843 | 0.2859 | +0.16 | validated |
+| PP-YOLOE | s | detect | COCO val2017, 1000 | 0.4085 | 0.3962 | -1.23 | supported |
+| PP-YOLOE | m | detect | COCO val2017, 1000 | 0.4538 | 0.4416 | -1.22 | supported |
+| PP-YOLOE | l | detect | COCO val2017, 1000 | 0.4771 | 0.4740 | -0.31 | validated |
+| PP-YOLOE | x | detect | COCO val2017, 1000 | 0.4918 | 0.4747 | -1.71 | supported |
+| ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 | validated |
+| ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated |
+| ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 | validated |
+| ResNet | 101 | classify (top-1) | ImageNetV2, 1000 | 0.713 | 0.708 | -0.5 | validated |
+| MobileNetV4 | s | classify (top-1) | ImageNetV2, 1000 | 0.624 | 0.607 | -1.7 | supported |
+| MobileNetV4 | m | classify (top-1) | ImageNetV2, 1000 | 0.682 | 0.684 | +0.2 | validated |
+| MobileNetV4 | l | classify (top-1) | ImageNetV2, 1000 | 0.727 | 0.710 | -1.7 | supported |
+| FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated |
+| FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated |
 
 Detection and pose report mAP50-95; ImageNetV2 is used locally under its
 licence terms and not redistributed.
@@ -53,17 +65,17 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | Family | Task | Sizes | Tier |
 | --- | --- | --- | --- |
 | YOLO-NAS | detect | s, m, l | see `docs/export_support.md` |
-| YOLO-NAS | pose | m, l (n and s refused, section 7) | see `docs/export_support.md` |
+| YOLO-NAS | pose | n, s, m, l (n and s supported with a measured drop) | see `docs/export_support.md` |
 | YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) |
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` |
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` |
-| MobileNetV4 | classify | m (s and l refused, section 7) | see `docs/export_support.md` |
+| MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` |
-| YOLOX | detect | t, s, m, l, x (n refused, section 7) | see `docs/export_support.md` |
+| YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` |
 | YOLOv3 | detect | t, b, spp | see `docs/export_support.md` |
-| YOLOv4 | detect | t (b refused, section 7) | see `docs/export_support.md` |
+| YOLOv4 | detect | t, b (b supported with a measured drop) | see `docs/export_support.md` |
 | YOLOv7 | detect | b | see `docs/export_support.md` |
-| PP-YOLOE | detect | l (s, m and x refused, section 7) | see `docs/export_support.md` |
+| PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` |
 | YOLO9-E2E, YOLO9-P2, RF-DETR, other families | all | all | blocked (section 11) |
 
 The tiers in `docs/export_support.md` are generated from
@@ -227,8 +239,8 @@ not comparable to published full-set results; the deltas are the point.
 | YOLO-NAS-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4549 | 0.4519 | -0.30 |
 | YOLO-NAS-m | detect | COCO val2017, 1000 images | 128 coco128 | 0.4942 | 0.4893 | -0.49 |
 | YOLO-NAS-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.5036 | 0.5025 | -0.11 |
-| YOLO-NAS-pose-n | pose | COCO val2017 persons, 300 images | 128 coco128 | 0.7089 | 0.6959 | -1.30 (refused) |
-| YOLO-NAS-pose-s | pose | COCO val2017 persons, 300 images | 128 coco128 | 0.7565 | 0.7249 | -3.16 (refused) |
+| YOLO-NAS-pose-n | pose | COCO val2017 persons, 300 images | 128 coco128 | 0.7089 | 0.6959 | -1.30 (supported) |
+| YOLO-NAS-pose-s | pose | COCO val2017 persons, 300 images | 128 coco128 | 0.7565 | 0.7344 | -2.21 (supported; class and keypoint towers bounded) |
 | YOLO-NAS-pose-m | pose | COCO val2017 persons, 300 images | 128 coco128 | 0.7885 | 0.7821 | -0.64 |
 | YOLO-NAS-pose-l | pose | COCO val2017 persons, 300 images | 128 coco128 | 0.7922 | 0.7884 | -0.38 |
 | YOLO-NAS-R-s | obb | DOTA-v2.0 val, 300 tiles | 64 DOTA tiles | 0.3844 | 0.3747 | -0.97 |
@@ -238,7 +250,7 @@ not comparable to published full-set results; the deltas are the point.
 | YOLO9-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4502 | 0.4450 | -0.52 |
 | YOLO9-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4913 | 0.4896 | -0.17 |
 | YOLO9-c | detect | COCO val2017, 1000 images | 64 coco128 | 0.5127 | 0.5093 | -0.34 |
-| YOLOX-n | detect | COCO val2017, 300 images | 128 coco128 | 0.2609 | 0.2443 | -1.66 (refused) |
+| YOLOX-n | detect | COCO val2017, 300 images | 64 coco128 | 0.2609 | 0.2428 | -1.81 (supported; -1.66 with 128 calibration images) |
 | YOLOX-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.3238 | 0.3202 | -0.36 |
 | YOLOX-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.3981 | 0.3933 | -0.48 |
 | YOLOX-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4582 | 0.4516 | -0.66 |
@@ -248,12 +260,12 @@ not comparable to published full-set results; the deltas are the point.
 | YOLOv3-b | detect | COCO val2017, 1000 images | 64 coco128 | 0.3656 | 0.3580 | -0.76 |
 | YOLOv3-spp | detect | COCO val2017, 1000 images | 64 coco128 | 0.4304 | 0.4261 | -0.43 |
 | YOLOv4-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.2021 | 0.1968 | -0.53 |
-| YOLOv4-b | detect | COCO val2017, 1000 images | 64 coco128 | 0.4806 | 0.4654 | -1.52 (refused) |
+| YOLOv4-b | detect | COCO val2017, 1000 images | 64 coco128 | 0.4806 | 0.4654 | -1.52 (supported; histogram ranges + [-6, 6] box window) |
 | YOLOv7 | detect | COCO val2017, 1000 images | 64 coco128 | 0.2843 | 0.2859 | +0.16 |
-| PP-YOLOE-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4085 | 0.3962 | -1.23 (refused) |
-| PP-YOLOE-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4538 | 0.4416 | -1.22 (refused) |
+| PP-YOLOE-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4085 | 0.3962 | -1.23 (supported) |
+| PP-YOLOE-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4538 | 0.4416 | -1.22 (supported) |
 | PP-YOLOE-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4771 | 0.4740 | -0.31 |
-| PP-YOLOE-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.4918 | 0.4747 | -1.71 (refused) |
+| PP-YOLOE-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.4918 | 0.4747 | -1.71 (supported) |
 
 Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
 class, a set with ImageNet's licence terms used locally only), calibrated on
@@ -281,9 +293,10 @@ then calibrates with histogram activation ranges
 | --- | --- | --- | --- | --- | --- |
 | MobileNetV4-m | 224 | 0.682 | 0.684 | +0.2 | 3.1 min |
 
-MobileNetV4-s and -l are refused: their best results stay 1.7 points below
-FP32 (s 0.607 vs 0.624 with histogram ranges and no stream transform; l
-0.710 vs 0.727 with min-max ranges and the stream transform). The recipe
+MobileNetV4-s and -l are supported with a measured drop of 1.7 points each
+(s 0.607 vs 0.624 with histogram ranges and no stream transform; l 0.710
+vs 0.727 with min-max ranges and the stream transform; LibreYOLO applies
+these per-size recipes). The recipe
 that passes on m costs s 2.6 and l 3.0 points. Axelera's
 `quantize_dw_channel_wise` and `smoothquant_coefficient` options changed
 nothing measurable.
@@ -313,23 +326,24 @@ first depthwise convolution has channel maxima from 0.02 to 106, and one
 per-tensor scale scored 0.011 vs FP32 0.261 on 300 images. Per-channel
 depthwise ranges bring it to 0.244 (128 calibration images), still 1.66
 points below FP32; the loss is spread over the network, not in the outputs
-(windowing the logits or SmoothQuant changed nothing), so YOLOX-n export is
-refused. Use YOLOX-t.
+(windowing the logits or SmoothQuant changed nothing). YOLOX-n is supported
+with that drop: -1.81 with the default 64 calibration images, -1.66 with 128.
+YOLOX-t is validated.
 
 YOLOv4-b (608x608, Mish backbone) loses 6.8 points with the default
 min-max ranges, almost all of it in the box outputs (swapping them back to
 FP32 recovers 6.1 of 6.4 points on 300 images). Histogram activation ranges
-plus a [-6, 6] box-output window bring it to -1.5 on 1000 images, still
-outside the bar, so its export is refused.
+plus a [-6, 6] box-output window bring it to -1.52 on 1000 images; LibreYOLO
+applies that recipe to size b, which is supported with that drop.
 
 The pose rows include everything LibreYOLO applies to pose heads: ReLU6
 output windows, equalization of the keypoint branch from calibration
 images, a cap on the class branch's last activation at its 99.5th
 calibration percentile, and histogram activation ranges. Without them
-pose-s measured 0.0758. Pose m and l pass; n and s stay outside the
-one-point bar and their export is refused (best measured: n -1.11 with
-person-image calibration, s -2.21 with an extra cap on the keypoint branch,
-which helps s but costs n, m and l several points).
+pose-s measured 0.0758. Pose m and l are validated; n (-1.30, -1.11 with
+person-image calibration) and s are supported with their drop. Size s also
+gets a cap on the keypoint branch (-2.21 instead of -3.16), which helps s but
+costs n, m and l several points, so only s uses it.
 
 YOLO9 FP32 values come from the same raw-head graph and host decode as the
 device run; the PyTorch model gives the same numbers.
@@ -447,15 +461,15 @@ compiles their own.
 ## 11. Known limits and out of scope
 
 - YOLO-NAS-R (obb): validated on 300 DOTA-v2.0 tiles (the paired set prepared for this work), not on a 1000-image set.
-- YOLOX-n: refused; mAP50-95 stays 1.66 points below FP32 at best (section 7).
-- PP-YOLOE-s, -m and -x: refused; mAP50-95 stays 1.2 to 1.7 points below FP32 (section 7). The loss is in the box-distribution outputs and does not come from their output range: windowing them, or histogram ranges, did not help. Use PP-YOLOE-l.
-- YOLOv4-b: refused; mAP50-95 stays 1.5 points below FP32 at best (section 7): its box outputs lose resolution in the Mish backbone; histogram ranges recover most of it (-6.8 to -1.5), not enough. Use YOLOv4-t.
-- YOLO-NAS-pose n and s: refused; keypoint mAP50-95 stays 1.1 to 2.2 points below FP32 at best (section 7). Use m or l.
+- YOLOX-n: supported, mAP50-95 1.81 points below FP32 (1.66 with 128 calibration images; section 7).
+- PP-YOLOE-s, -m and -x: supported, mAP50-95 1.2 to 1.7 points below FP32 (section 7). The loss is in the box-distribution outputs and does not come from their output range: windowing them, or histogram ranges, did not help. PP-YOLOE-l is validated.
+- YOLOv4-b: supported, mAP50-95 1.52 points below FP32 with its recipe (section 7): its box outputs lose resolution in the Mish backbone; histogram ranges and a box-output window recover most of it (-6.8 to -1.52).
+- YOLO-NAS-pose n and s: supported, keypoint mAP50-95 1.3 and 2.2 points below FP32 (section 7); m and l are validated.
 - YOLO9-E2E and YOLO9-P2: not compiled or measured; blocked.
 - RF-DETR and other transformer families: attention, data-dependent TopK and
   grid sampling are outside what the compiler places on the AIPU, and the host
   can only run operators before or after the accelerated graph.
-- MobileNetV4 (classify) s and l: refused; top-1 stays 1.7 points below FP32
+- MobileNetV4 (classify) s and l: supported, top-1 1.7 points below FP32
   at best (section 7). Per-tensor INT8 of the inverted-residual streams (the
   stage-2 stream of s spans about +-400 while its median channel stays
   within +-14) is the cause. Use m.

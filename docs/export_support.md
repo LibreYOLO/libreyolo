@@ -364,7 +364,7 @@ A check mark applies only under any constraint listed here.
 - `mobilenetv4` / `classify` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `mobilenetv4` / `classify` / `tensorrt`: FP32 with fixed family-native input resolution
 - `mobilenetv4` / `classify` / `openvino`: fixed family-native input resolution
-- `mobilenetv4` / `classify` / `axelera`: validated sizes: m (s and l are refused, see docs/axelera.md), calibrated with in-domain images (data=). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
+- `mobilenetv4` / `classify` / `axelera`: validated sizes: m; s and l are supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md), calibrated with in-domain images (data=). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `mobilenetv4` / `classify` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 at the family-native input resolution; two-input raw parity, factory reload, metadata, and public predict parity
 - `mobilenetv4` / `classify` / `coreai`: fixed export canvas; a representative published trained ImageNet checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
 - `moge2` / `normal` / `onnx`: fixed square batch-1 export canvas divisible by 14; exported inference rejects non-square sources rather than stretching image-plane geometry; the official MIT ViT-S/B/L normal checkpoints are covered by FP32 same-canvas native-versus-ONNX angular parity below 0.1 degree
@@ -405,7 +405,7 @@ A check mark applies only under any constraint listed here.
 - `ppyoloe` / `detect` / `torchscript`: Fixed 640 canvas, FP32, batch 1 and 2
 - `ppyoloe` / `detect` / `tensorrt`: TensorRT 10.16, FP32 engine (half=False), fixed 640 canvas, fixed batch 1
 - `ppyoloe` / `detect` / `openvino`: OpenVINO CPU FP32, fixed 640 canvas, batch 1 and 2
-- `ppyoloe` / `detect` / `axelera`: validated sizes: l (s, m and x are refused, see docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `ppyoloe` / `detect` / `axelera`: validated sizes: l; s, m and x are supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `quicksrnet` / `restore` / `onnx`: FP32, dynamic spatial input
 - `quicksrnet` / `restore` / `torchscript`: FP32, fixed-resolution export canvas
 - `realesrgan` / `restore` / `onnx`: dynamic spatial input
@@ -515,7 +515,7 @@ A check mark applies only under any constraint listed here.
 - `yolo4` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolo4` / `detect` / `tensorrt`: FP32 with a fixed export canvas
 - `yolo4` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
-- `yolo4` / `detect` / `axelera`: validated sizes: t (on-device results in docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `yolo4` / `detect` / `axelera`: validated sizes: t; b is supported with a measured drop (on-device results in docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolo4` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with public-domain trained checkpoints; two-input raw parity, factory reload, metadata, and public predict parity
 - `yolo4` / `detect` / `coreai`: fixed family-native canvases (YOLO1 448, YOLO2 608, YOLO3 416, YOLO4 608); representative published trained checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; Core AI graph preparation exactly folds Darknet inference batch normalization into the preceding convolutions because Core AI 0.4.1 does not preserve Darknet's epsilon-after-square-root formula
 - `yolo7` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
@@ -552,7 +552,7 @@ A check mark applies only under any constraint listed here.
 - `yolonas` / `pose` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolonas` / `pose` / `openvino`: fixed export canvas
 - `yolonas` / `pose` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
-- `yolonas` / `pose` / `axelera`: validated sizes: m, l (n and s are refused, see docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
+- `yolonas` / `pose` / `axelera`: validated sizes: m, l; n and s are supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
 - `yolonas` / `pose` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with deterministic synthetic trained fixtures; two-input raw parity, factory reload, metadata, and public predict parity; pose additionally validates matched keypoints; this validates conversion, not task accuracy
 - `yolonas` / `obb` / `onnx`: fixed 1024x1024 export canvas, batch 1, FP32; the official YOLO-NAS-R-S DOTA2 checkpoint exports, reloads through the factory, and its public OBB results match native inference on the same image (max xywhr delta 6e-08 px TorchScript, 0.06 px ONNX, 0.04 px OpenVINO, 0.18 px TensorRT; max score delta 0.0, 1.0e-03, 1.5e-03 and 1.6e-03 respectively). Rotated NMS is not embedded in the graph
 - `yolonas` / `obb` / `torchscript`: fixed 1024x1024 export canvas, batch 1, FP32; the official YOLO-NAS-R-S DOTA2 checkpoint exports, reloads through the factory, and its public OBB results match native inference on the same image (max xywhr delta 6e-08 px TorchScript, 0.06 px ONNX, 0.04 px OpenVINO, 0.18 px TensorRT; max score delta 0.0, 1.0e-03, 1.5e-03 and 1.6e-03 respectively). Rotated NMS is not embedded in the graph
@@ -561,7 +561,7 @@ A check mark applies only under any constraint listed here.
 - `yolonas` / `obb` / `axelera`: validated sizes: s, m, l (300 DOTA-v2.0 tiles). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
 - `yolox` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolox` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
-- `yolox` / `detect` / `axelera`: validated sizes: t, s, m, l, x (on-device results in docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `yolox` / `detect` / `axelera`: validated sizes: t, s, m, l, x; n is supported with a measured drop (on-device results in docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolox` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with permissively licensed trained checkpoints; two-input raw parity, factory reload, metadata, and public predict parity
 - `yolox` / `detect` / `coreai`: fixed export canvas; a representative published trained checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; RT-DETRv2 permits one shared whole-query permutation across its box and logit outputs because DETR query rows are an unordered set
 - `zipdepth` / `depth` / `onnx`: fixed-resolution export canvas
