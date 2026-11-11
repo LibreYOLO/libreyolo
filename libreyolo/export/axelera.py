@@ -61,6 +61,8 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
     ("mobilenetv4", "classify"): "hybrid_per_tensor_per_channel",
     # EfficientNetV2-b0: top-1 -1.7 (min-max) -> -1.0 / -1.1 points (same set).
     ("efficientnetv2", "classify"): "hybrid_per_tensor_per_channel",
+    # MobileNetV3 depthwise backbone: per-channel ranges on depthwise inputs.
+    ("deeplabv3", "semantic"): "hybrid_per_tensor_per_channel",
 }
 
 
@@ -662,6 +664,197 @@ def _dw_channel_groups(model, samples=None) -> int:
 
 
 #: Passes that measure the graph on calibration samples (``samples=``).
+_MAX_REDUCTION_BLOCKS = 128
+
+
+def _pooled_branch_split(model) -> int:
+    """Split ``Resize(1x1 -> HxW) -> Concat -> Conv 1x1`` (ASPP image pooling).
+
+    DeepLabV3's image-pooling branch upsamples a 1x1 map to the feature size
+    and concatenates it before a 1x1 projection. The compiler lowers that
+    Resize to a depthwise op whose window (2H - 1 rows) does not fit the
+    depthwise unit's scratchpad. The projection is linear, so it splits
+    exactly into a convolution over the other branches plus a 1x1 convolution
+    of the pooled vector, added as a per-channel ``[1, C, 1, 1]`` term.
+    Returns the number of rewritten sites.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, _, consumers, weights = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for resize in [node for node in graph.node if node.op_type == "Resize"]:
+        source_shape = shapes.get(resize.input[0])
+        users = consumers.get(resize.output[0], [])
+        if not source_shape or len(source_shape) != 4 or source_shape[2:] != [1, 1]:
+            continue
+        if len(users) != 1 or users[0].op_type != "Concat":
+            continue
+        concat = users[0]
+        if _attributes(concat).get("axis") not in (1, -3):
+            continue
+        projections = consumers.get(concat.output[0], [])
+        if len(projections) != 1 or projections[0].op_type != "Conv":
+            continue
+        conv = projections[0]
+        attrs = _attributes(conv)
+        if (
+            attrs.get("group", 1) != 1
+            or list(attrs.get("kernel_shape", [1, 1])) != [1, 1]
+            or conv.input[1] not in weights
+        ):
+            continue
+        weight = weights[conv.input[1]]
+        offsets, start = {}, 0
+        for name in concat.input:
+            offsets[name] = (start, start + shapes[name][1])
+            start += shapes[name][1]
+        others = [name for name in concat.input if name != resize.output[0]]
+        keep = np.concatenate([np.arange(*offsets[name]) for name in others])
+        low, high = offsets[resize.output[0]]
+        tag = (conv.name or conv.output[0]).strip("/").replace("/", "_")
+        graph.initializer.extend(
+            [
+                numpy_helper.from_array(
+                    weight[:, keep].astype(np.float32), f"{tag}_main_w"
+                ),
+                numpy_helper.from_array(
+                    weight[:, low:high].astype(np.float32), f"{tag}_pool_w"
+                ),
+            ]
+        )
+        bias = [conv.input[2]] if len(conv.input) > 2 and conv.input[2] else []
+        nodes = [
+            helper.make_node(
+                "Concat", others, [f"{tag}_branches"], name=f"{tag}_branches", axis=1
+            ),
+            helper.make_node(
+                "Conv",
+                [resize.input[0], f"{tag}_pool_w"],
+                [f"{tag}_pool"],
+                name=f"{tag}_pool",
+                kernel_shape=[1, 1],
+            ),
+            helper.make_node(
+                "Conv",
+                [f"{tag}_branches", f"{tag}_main_w", *bias],
+                [f"{tag}_main"],
+                name=f"{tag}_main",
+                kernel_shape=[1, 1],
+            ),
+            helper.make_node(
+                "Add",
+                [f"{tag}_main", f"{tag}_pool"],
+                [conv.output[0]],
+                name=f"{tag}_add",
+            ),
+        ]
+        for node in (resize, concat, conv):
+            graph.node.remove(node)
+        graph.node.extend(nodes)
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+        _topological_sort(graph)
+    return count
+
+
+def _conv_reduction_split(model) -> int:
+    """Split convolutions whose reduction is too large into channel slices.
+
+    ``conv(x) = sum_i conv_i(x[:, slice_i])`` with the weight's input channels
+    sliced the same way: exact up to summation order. Channel-axis Slice and
+    same-shape Add run on the AIPU. Used for DeepLabV3-ResNet's ASPP 3x3
+    convolutions on 2048 channels (288 blocks). Returns the number of
+    rewritten convolutions.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    _, _, _, weights = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for conv in [node for node in graph.node if node.op_type == "Conv"]:
+        attrs = _attributes(conv)
+        if attrs.get("group", 1) != 1 or conv.input[1] not in weights:
+            continue
+        weight = weights[conv.input[1]]
+        _, channels, kh, kw = weight.shape
+        if -(-channels * kh * kw // 64) <= _MAX_REDUCTION_BLOCKS:
+            continue
+        parts = next(
+            (
+                k
+                for k in range(2, channels + 1)
+                if channels % k == 0
+                and (channels // k) % 64 == 0
+                and -(-(channels // k) * kh * kw // 64) <= _MAX_REDUCTION_BLOCKS
+            ),
+            None,
+        )
+        if parts is None:
+            continue
+        step = channels // parts
+        tag = (conv.name or conv.output[0]).strip("/").replace("/", "_") + "_split"
+        graph.initializer.append(
+            numpy_helper.from_array(np.array([1], np.int64), f"{tag}_axis")
+        )
+        bias = [conv.input[2]] if len(conv.input) > 2 and conv.input[2] else []
+        nodes, total = [], None
+        for part in range(parts):
+            graph.initializer.extend(
+                [
+                    numpy_helper.from_array(
+                        np.array([part * step], np.int64), f"{tag}_s{part}"
+                    ),
+                    numpy_helper.from_array(
+                        np.array([(part + 1) * step], np.int64), f"{tag}_e{part}"
+                    ),
+                    numpy_helper.from_array(
+                        np.ascontiguousarray(
+                            weight[:, part * step : (part + 1) * step]
+                        ).astype(np.float32),
+                        f"{tag}_w{part}",
+                    ),
+                ]
+            )
+            nodes.append(
+                helper.make_node(
+                    "Slice",
+                    [conv.input[0], f"{tag}_s{part}", f"{tag}_e{part}", f"{tag}_axis"],
+                    [f"{tag}_x{part}"],
+                    name=f"{tag}_x{part}",
+                )
+            )
+            nodes.append(
+                helper.make_node(
+                    "Conv",
+                    [f"{tag}_x{part}", f"{tag}_w{part}", *(bias if part == 0 else [])],
+                    [f"{tag}_y{part}"],
+                    name=f"{tag}_y{part}",
+                    **attrs,
+                )
+            )
+            if total is None:
+                total = f"{tag}_y{part}"
+                continue
+            out = conv.output[0] if part == parts - 1 else f"{tag}_sum{part}"
+            nodes.append(
+                helper.make_node("Add", [total, f"{tag}_y{part}"], [out], name=out)
+            )
+            total = out
+        index = list(graph.node).index(conv)
+        graph.node.remove(conv)
+        for offset, node in enumerate(nodes):
+            graph.node.insert(index + offset, node)
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+    return count
+
+
+
 _DATA_PASSES = {"dw_channel_groups"}
 
 #: Named exact ONNX rewrites an export may request (``graph_passes``); each
@@ -669,6 +862,8 @@ _DATA_PASSES = {"dw_channel_groups"}
 GRAPH_PASSES = {
     "channel_shuffle_to_conv": _channel_shuffle_to_conv,
     "dw_channel_groups": _dw_channel_groups,
+    "pooled_branch_split": _pooled_branch_split,
+    "conv_reduction_split": _conv_reduction_split,
 }
 
 

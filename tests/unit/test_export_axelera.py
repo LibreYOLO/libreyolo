@@ -1176,12 +1176,15 @@ def test_graph_passes_leave_other_graphs_alone(tmp_path):
         ax.apply_graph_passes(str(source), tmp_path, ["no_such_pass"])
 
 
-def test_only_picodet_requests_graph_passes():
+def test_only_picodet_and_deeplabv3_request_graph_passes():
     from libreyolo.export.exporter import _AXELERA_GRAPH_PASSES
 
     # Every other family's graph reaches the compiler unchanged by these
-    # passes (test_graph_passes_leave_other_graphs_alone covers the no-op).
-    assert _AXELERA_GRAPH_PASSES == {"picodet": ("channel_shuffle_to_conv",)}
+    # passes (the leave-other-graphs-alone tests cover the no-op).
+    assert _AXELERA_GRAPH_PASSES == {
+        "picodet": ("channel_shuffle_to_conv",),
+        "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
+    }
     requested = {name for names in _AXELERA_GRAPH_PASSES.values() for name in names}
     assert requested <= set(ax.GRAPH_PASSES)
 
@@ -1261,3 +1264,122 @@ def test_dw_channel_groups_needs_samples_and_a_target(tmp_path):
         str(source), tmp_path, ["dw_channel_groups"], samples=[None]
     ) == str(source)
     assert source.read_bytes() == plain and before != plain
+
+
+def _onnx_model(nodes, inputs, outputs, initializers):
+    from onnx import TensorProto, helper
+
+    graph = helper.make_graph(
+        nodes,
+        "pass_test",
+        [helper.make_tensor_value_info(n, TensorProto.FLOAT, s) for n, s in inputs],
+        [helper.make_tensor_value_info(n, TensorProto.FLOAT, s) for n, s in outputs],
+        initializer=initializers,
+    )
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("", 13)], ir_version=8
+    )
+
+
+
+def _pooled_branch_graph():
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    rng = np.random.default_rng(0)
+
+    def weight(name, shape):
+        return numpy_helper.from_array(rng.normal(size=shape).astype(np.float32), name)
+
+    sizes = numpy_helper.from_array(np.array([1, 4, 5, 5], np.int64), "sizes")
+    nodes = [
+        helper.make_node("Conv", ["x", "w_branch"], ["branch"]),
+        helper.make_node("GlobalAveragePool", ["x"], ["pooled"]),
+        helper.make_node("Conv", ["pooled", "w_pool"], ["pooled_conv"]),
+        helper.make_node(
+            "Resize",
+            ["pooled_conv", "", "", "sizes"],
+            ["pooled_up"],
+            mode="linear",
+            coordinate_transformation_mode="half_pixel",
+        ),
+        helper.make_node("Concat", ["branch", "pooled_up"], ["cat"], axis=1),
+        helper.make_node("Conv", ["cat", "w_proj", "b_proj"], ["y"]),
+    ]
+    inits = [
+        weight("w_branch", (4, 8, 1, 1)),
+        weight("w_pool", (4, 8, 1, 1)),
+        weight("w_proj", (3, 8, 1, 1)),
+        weight("b_proj", (3,)),
+        sizes,
+    ]
+    return _onnx_model(nodes, [("x", [1, 8, 5, 5])], [("y", [1, 3, 5, 5])], inits)
+
+
+
+def _wide_conv_graph():
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    rng = np.random.default_rng(1)
+    w = numpy_helper.from_array(
+        rng.normal(size=(4, 1024, 3, 3)).astype(np.float32) * 0.03, "w"
+    )
+    b = numpy_helper.from_array(rng.normal(size=(4,)).astype(np.float32), "b")
+    node = helper.make_node(
+        "Conv", ["x", "w", "b"], ["y"], pads=[1, 1, 1, 1], dilations=[2, 2]
+    )
+    return _onnx_model([node], [("x", [1, 1024, 6, 6])], [("y", [1, 4, 4, 4])], [w, b])
+
+
+
+@pytest.mark.parametrize(
+    ("graph", "name", "shape", "gone"),
+    [
+        (_pooled_branch_graph, "pooled_branch_split", (1, 8, 5, 5), "Resize"),
+        (_wide_conv_graph, "conv_reduction_split", (1, 1024, 6, 6), None),
+    ],
+)
+def test_graph_passes_are_exact(tmp_path, graph, name, shape, gone):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    source = tmp_path / "model.onnx"
+    onnx.save(graph(), str(source))
+
+    rewritten = ax.apply_graph_passes(str(source), tmp_path, [name])
+
+    assert rewritten != str(source)
+    ops = [node.op_type for node in onnx.load(rewritten).graph.node]
+    if gone:
+        assert gone not in ops
+    else:  # 1024 x 3 x 3 = 144 blocks -> two 512-channel convolutions
+        assert ops.count("Conv") == 2 and ops.count("Slice") == 2
+    x = np.random.default_rng(2).normal(size=shape).astype(np.float32)
+    before = ort.InferenceSession(str(source)).run(None, {"x": x})[0]
+    after = ort.InferenceSession(rewritten).run(None, {"x": x})[0]
+    np.testing.assert_allclose(after, before, rtol=1e-5, atol=1e-5)
+
+
+
+def test_deeplabv3_graph_passes_leave_other_graphs_alone(tmp_path):
+    onnx = pytest.importorskip("onnx")
+    from onnx import helper
+
+    plain = _onnx_model(
+        [helper.make_node("Relu", ["x"], ["y"])],
+        [("x", [1, 8, 5, 5])],
+        [("y", [1, 8, 5, 5])],
+        [],
+    )
+    source = tmp_path / "model.onnx"
+    onnx.save(plain, str(source))
+    before = source.read_bytes()
+
+    names = ["pooled_branch_split", "conv_reduction_split"]
+    assert ax.apply_graph_passes(str(source), tmp_path, names) == str(source)
+    assert ax.apply_graph_passes(str(source), tmp_path, []) == str(source)
+    assert source.read_bytes() == before
+    with pytest.raises(ValueError, match="Unknown Axelera graph pass"):
+        ax.apply_graph_passes(str(source), tmp_path, ["no_such_pass"])
+

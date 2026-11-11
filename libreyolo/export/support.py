@@ -4108,6 +4108,27 @@ _add(
     ),
 )
 _add(
+    "available",
+    ("deeplabv3",),
+    ("semantic",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole DeepLabV3 graph "
+        "runs on the Metis AIPU after two exact graph rewrites (the ASPP "
+        "image-pooling branch becomes a broadcast add, oversized ASPP "
+        "convolutions are split by channels), and the host upsamples the class "
+        "logits. Supported, not validated: DeepLabV3-MobileNetV3 keeps mIoU 3.77 "
+        "points below FP32 on a paired 300-image COCO val2017 set with VOC-21 "
+        "masks (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: mv3 (measured drop, SIZE_ACCURACY_NOTES); r50 and r101 "
+        "do not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux "
+        "x86_64 compile, INT8, batch 1, fixed 520x520 input"
+    ),
+)
+_add(
     "validated",
     ("fcn",),
     ("semantic",),
@@ -4418,6 +4439,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "1000 COCO val2017 images; 1.28 on 300)"
         ),
     },
+    ("deeplabv3", "semantic", "axelera"): {
+        "mv3": (
+            "measured mIoU drop 3.77 points vs FP32 (0.4853 vs 0.5230 on 300 COCO "
+            "val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
+            "through the same path)"
+        ),
+    },
     ("ppyoloe", "detect", "axelera"): {
         "s": (
             "measured mAP50-95 drop 1.23 points vs FP32 (0.396 vs 0.409 on 1000 "
@@ -4474,6 +4502,15 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "two output buffers for its one output"
         ),
     },
+    ("deeplabv3", "semantic", "axelera"): {
+        size: (
+            f"does not compile for Metis with the 1.9 SDK: it quantizes, but at "
+            "output stride 8 its ASPP convolutions (dilation up to 36) need the "
+            "whole 64x64 feature map at once and lowering finds no L1 tiling that "
+            "fits"
+        )
+        for size in ("r50", "r101")
+    },
 }
 
 #: Sizes not exportable yet because nobody has measured them on a Metis. This
@@ -4506,6 +4543,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("efficientnetv2", "classify"),
             ("quicksrnet", "restore"),
             ("midas", "depth"),
+            ("deeplabv3", "semantic"),
             ("fcn", "semantic"),
             ("yolox", "detect"),
             ("yolo4", "detect"),

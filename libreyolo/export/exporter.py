@@ -3549,6 +3549,7 @@ _AXELERA_GRAPH_OUTPUTS = {
     ("fcn", "semantic"): ("semantic_logits",),
     ("quicksrnet", "restore"): ("restored",),
     ("midas", "depth"): ("depth",),
+    ("deeplabv3", "semantic"): ("semantic_logits",),
 }
 
 
@@ -3582,6 +3583,7 @@ class _GraphOutputsWrapper(torch.nn.Module):
 #: than the compiler accepts.
 _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
     "picodet": ("channel_shuffle_to_conv",),
+    "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
 }
 
 

@@ -28,6 +28,7 @@ CASES = {
     "picodet": ("LibrePICODET", dict(size='s', nb_classes=3)),
     "quicksrnet": ("LibreQuickSRNet", dict(size='m2')),
     "midas": ("LibreMiDaS", dict(size='s')),
+    "deeplabv3": ("LibreDeepLabv3", dict(size='mv3', nb_classes=3)),
 }
 
 SUPPORT_KEYS = {
@@ -47,6 +48,7 @@ SUPPORT_KEYS = {
     "picodet": ('picodet', 'detect'),
     "quicksrnet": ('quicksrnet', 'restore'),
     "midas": ('midas', 'depth'),
+    "deeplabv3": ('deeplabv3', 'semantic'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).

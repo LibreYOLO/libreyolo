@@ -56,6 +56,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated |
 | QuickSRNet | m2 | restore 2x (PSNR, dB) | COCO crops from 128 px, 296 | 29.12 | 28.66 | -0.46 | supported |
 | MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported |
+| DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported |
 
 Detection and pose report mAP50-95; ImageNetV2 is used locally under its
 licence terms and not redistributed.
@@ -78,6 +79,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | FCN | semantic | r50, r101 | see `docs/export_support.md` |
 | QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` |
 | MiDaS | depth | s (supported with a measured drop; l not measured yet) | see `docs/export_support.md` |
+| DeepLabV3 | semantic | mv3 (supported with a measured drop; r50 and r101 blocked: do not compile) | see `docs/export_support.md` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` |
 | YOLOv3 | detect | t, b, spp | see `docs/export_support.md` |
 | YOLOv4 | detect | t, b (b supported with a measured drop) | see `docs/export_support.md` |
@@ -475,6 +477,7 @@ Blocked for structural reasons (accuracy never blocks an export):
 - EfficientNetV2-b1 and -b2: do not compile with SDK 1.9.0 (the compiled model has two output buffers for its one output at 224 and 240 px; at 256 px the squeeze-excitation pooling exceeds a reduction limit).
 - HRNet (pose): compiles, but the device output drifts from the quantized model stage by stage (keypoint mAP 0.000 on device vs a working CPU-quantized model).
 - ZipDepth: after an exact ReduceMean-to-pooling rewrite, quantization fails on the GCNet context MatMul.
+- DeepLabV3-ResNet50/101: quantize, but at output stride 8 the ASPP convolutions need the whole 64x64 feature map and lowering finds no L1 tiling.
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
