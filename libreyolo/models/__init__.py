@@ -402,6 +402,7 @@ def LibreYOLO(
         hub_source = model_path
         model_path = hub_checkpoint
 
+    requested_path = model_path
     model_path = _resolve_weights_path(model_path)
 
     # librefacerec-* names route to the face-embedding family regardless of
@@ -548,15 +549,27 @@ def LibreYOLO(
                         raise
             if size is None:
                 from ..utils.hf_hub import looks_like_repo_id
+                from ..utils.ultralytics_hints import (
+                    ultralytics_weight_hint,
+                    weight_name_message,
+                )
+
+                ultralytics_hint = ultralytics_weight_hint(model_path)
+                if ultralytics_hint is not None:
+                    raise ValueError(
+                        weight_name_message(model_path, ultralytics_hint)
+                    )
 
                 hub_hint = ""
-                if looks_like_repo_id(model_path):
+                # Test what the caller typed: a bare "name" has already become
+                # "weights/name", which looks like owner/repo but is not one.
+                if looks_like_repo_id(requested_path):
                     # A same-named local file or directory shadowed the bare
                     # owner/repo form (local always wins), so point at the
                     # explicit Hub syntax that bypasses that precedence.
                     hub_hint = (
                         f"\nIf you meant a Hugging Face Hub model, use the "
-                        f"explicit form: LibreYOLO('hf://{model_path}')."
+                        f"explicit form: LibreYOLO('hf://{requested_path}')."
                     )
                 raise ValueError(
                     f"Model weights file not found: {model_path}\n"
@@ -572,6 +585,14 @@ def LibreYOLO(
             logger.warning("Auto-download failed: %s", e)
 
     if not Path(model_path).exists():
+        from ..utils.ultralytics_hints import (
+            ultralytics_weight_hint,
+            weight_name_message,
+        )
+
+        ultralytics_hint = ultralytics_weight_hint(model_path)
+        if ultralytics_hint is not None:
+            raise FileNotFoundError(weight_name_message(model_path, ultralytics_hint))
         if download_error is not None:
             raise FileNotFoundError(
                 f"Model weights file not found: {model_path}\n"
@@ -598,6 +619,17 @@ def LibreYOLO(
                 context="model inspection",
             )
     except Exception as e:
+        # Ultralytics checkpoints pickle their own classes, so they always land
+        # here. Never hand them to the autoconverter, and drop torch's error,
+        # whose advice is to unpickle the file with weights_only=False.
+        from ..utils.ultralytics_hints import (
+            checkpoint_message,
+            is_ultralytics_checkpoint,
+        )
+
+        if is_ultralytics_checkpoint(model_path, e):
+            raise RuntimeError(checkpoint_message(model_path)) from None
+
         # Upstream flagship checkpoints can fail the safe inspection load — e.g.
         # RF-DETR embeds an argparse.Namespace that weights_only=True rejects.
         # Try auto-converting to a LibreYOLO v1.0 checkpoint and reload it.

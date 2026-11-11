@@ -195,6 +195,12 @@ def get_loaded_model_input_size(
     return default
 
 
+def _current_command_name() -> Optional[str]:
+    """Name of the running CLI subcommand (``train``, ``info``...), if any."""
+    ctx = _current_context()
+    return ctx.info_name if ctx is not None else None
+
+
 def resolve_model_or_exit(out: OutputHandler, model: str) -> str:
     """Resolve a model reference or fail with a consistent CLI error."""
     from libreyolo.backends.triton import is_triton_model_url
@@ -225,6 +231,33 @@ def resolve_model_or_exit(out: OutputHandler, model: str) -> str:
             f"'{model}' needs RF-DETR support, which requires extra dependencies.",
             suggestion="pip install libreyolo[rfdetr]",
         )
+
+    from libreyolo.utils.ultralytics_hints import MODELS_URL, ultralytics_weight_hint
+
+    ultralytics_hint = ultralytics_weight_hint(model)
+    if ultralytics_hint is not None:
+        if ultralytics_hint.ultralytics:
+            message = (
+                f"'{model}' is an Ultralytics model name. LibreYOLO does not "
+                "load Ultralytics weights."
+            )
+        else:
+            message = f"Unknown model '{model}'."
+        if ultralytics_hint.cli and ultralytics_hint.untrained:
+            # Only train accepts pretrained=; elsewhere show the full command.
+            if _current_command_name() == "train":
+                suggestion = f"Use model={ultralytics_hint.cli} pretrained=False"
+            else:
+                suggestion = (
+                    "To train it from scratch: libreyolo train "
+                    f"model={ultralytics_hint.cli} pretrained=False data=your_data.yaml"
+                )
+            suggestion += f" (all models: {MODELS_URL})"
+        elif ultralytics_hint.cli:
+            suggestion = f"Use model={ultralytics_hint.cli} (all models: {MODELS_URL})"
+        else:
+            suggestion = f"In Python: {ultralytics_hint.python}"
+        exit_with_error(out, "model_not_found", message, suggestion=suggestion)
 
     all_names = get_all_cli_names()
     suggestion = suggest_key(model, all_names)
@@ -321,8 +354,8 @@ def exit_imgsz_error(out: OutputHandler, exc: BaseException) -> NoReturn:
     )
 
 
-def get_user_provided_params() -> Set[str]:
-    """Return parameter names explicitly provided on the current command line."""
+def _current_context():
+    """The running click context, from click or typer's vendored click."""
     ctx = click.get_current_context(silent=True)
     if ctx is None:
         # typer >= 0.26 vendors its own click as typer._click with a separate
@@ -334,6 +367,12 @@ def get_user_provided_params() -> Set[str]:
             ctx = _typer_get_ctx(silent=True)
         except ImportError:
             pass
+    return ctx
+
+
+def get_user_provided_params() -> Set[str]:
+    """Return parameter names explicitly provided on the current command line."""
+    ctx = _current_context()
     if ctx is None:
         return set()
     # KeyValueCommand.parse_args stores the set in ctx.meta for reliable access
