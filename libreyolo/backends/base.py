@@ -4445,6 +4445,7 @@ class BaseBackend(ABC):
             DEIMv2ValPreprocessor,
             DeformableDETRValPreprocessor,
             CenterNetValPreprocessor,
+            DarknetValPreprocessor,
             DETRValPreprocessor,
             DFINEValPreprocessor,
             ECValPreprocessor,
@@ -4519,6 +4520,11 @@ class BaseBackend(ABC):
                 else YOLONASValPreprocessor
             ),
             "yolox": YOLOXValPreprocessor,
+            # Darknet letterbox (top-left, 128 fill), as the PyTorch models
+            # validate; the standard recipe mis-maps every box.
+            "yolo2": DarknetValPreprocessor,
+            "yolo3": DarknetValPreprocessor,
+            "yolo4": DarknetValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
         if preprocessor_cls in (YOLO9ValPreprocessor, YOLO9E2EValPreprocessor):
             return preprocessor_cls(

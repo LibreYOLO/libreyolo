@@ -1846,6 +1846,23 @@ def test_backend_accepts_fomo_point_task_with_shared_parser():
     assert backend.task == "point"
 
 
+@pytest.mark.parametrize("family", ["yolo2", "yolo3", "yolo4"])
+def test_exported_darknet_backend_validates_with_the_darknet_letterbox(family):
+    """Exported Darknet models validated with the standard preprocessor scored
+    0.031 instead of 0.22 mAP50-95 (yolo4-t ONNX, 100 COCO val images)."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = family
+    backend.task = "detect"
+    backend.imgsz = 416
+    preprocessor = backend._get_val_preprocessor(416)
+    assert type(preprocessor).__name__ == "DarknetValPreprocessor"
+
+
 @pytest.mark.parametrize(
     ("task", "expected"),
     [("detect", "YOLONASValPreprocessor"), ("pose", "YOLONASValPreprocessor"),
