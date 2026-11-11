@@ -638,3 +638,36 @@ def test_quicksrnet_backend_matches_the_onnx_backend(sdk, tmp_path):
     with pytest.raises(ValueError, match="fixed-resolution"):
         backend(_image(5, shape=(imgsz + 8, imgsz, 3)))
 
+
+def test_midas_backend_matches_the_onnx_backend(sdk, tmp_path):
+    """Whole-graph depth: the device returns the ONNX graph's inverse depth;
+    calibration stretches images to the canvas like the backend."""
+    pytest.importorskip("timm")  # MiDaS-s backbone (libreyolo[midas])
+    import torch
+    import yaml
+
+    from libreyolo import LibreMiDaS, LibreYOLO
+    from libreyolo.backends.base import BaseBackend
+    from libreyolo.export.exporter import AxeleraExporter
+
+    torch.manual_seed(0)
+    model, imgsz = LibreMiDaS(None, size="s", device="cpu"), 64
+    rgb = _image(6, shape=(60, 100, 3))
+    chw, _ = AxeleraExporter(model)._calibration_preprocess()(rgb, (imgsz, imgsz))
+    expected_chw = BaseBackend._preprocess_depth(rgb, (imgsz, imgsz), "rgb", cubic=True)[0][0]
+    torch.testing.assert_close(torch.from_numpy(chw), expected_chw)
+    artifact = Path(model.export(
+        format="axelera", data=str(_dataset(tmp_path)), imgsz=imgsz,
+        output_path=str(tmp_path / "midas_axelera_model"),
+    ))
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "graph_outputs_v1" and meta["graph_outputs"] == ["depth"]
+    backend = LibreYOLO(str(artifact))
+    reference = LibreYOLO(model.export(
+        format="onnx", imgsz=imgsz, dynamic=False, output_path=str(tmp_path / "midas.onnx"),
+    ))
+    image = _image(4)
+    np.testing.assert_allclose(
+        backend(image)[0].depth_map.data, reference(image)[0].depth_map.data, rtol=1e-4, atol=1e-4
+    )
+

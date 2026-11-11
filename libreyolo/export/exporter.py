@@ -3448,6 +3448,7 @@ class _ClassifyLogitsWrapper(torch.nn.Module):
 _AXELERA_GRAPH_OUTPUTS = {
     ("fcn", "semantic"): ("semantic_logits",),
     ("quicksrnet", "restore"): ("restored",),
+    ("midas", "depth"): ("depth",),
 }
 
 

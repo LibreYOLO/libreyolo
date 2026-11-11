@@ -98,7 +98,7 @@ in preflight.
 | mask_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | mask_rcnn | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | memfof | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| midas | depth | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  | available |  |  |  |
+| midas | depth | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available | available |  |  |  |
 | mobilenetv4 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |  | ✓ |
 | mobilesam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | moge2 | normal | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | available |  |  |  |
@@ -645,6 +645,7 @@ These converter paths are callable with the recorded validation context.
 - `lwdetr` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `lwdetr` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `midas` / `depth` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `midas` / `depth` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole MiDaS-s graph runs on the Metis AIPU and the host resizes the relative inverse depth. Supported, not validated: the device depth agrees with FP32 at AbsRel 0.069 (delta1 0.94) on 300 COCO val2017 images at 256 px (docs/axelera.md). Constraint: supported sizes: s (measured drop, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (images are stretched to it)
 - `midas` / `depth` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `moge2` / `normal` / `ncnn`: PNNX/NCNN 20260526 exports, reloads, and runs, but the measured two-image raw signal is only 4.5x conversion error; validation requires more than 20x.
 - `pe` / `classify` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -1655,7 +1656,6 @@ These converter paths are callable with the recorded validation context.
 - `midas` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `midas` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `midas` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `midas` / `depth` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `midas` / `depth` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `midas` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `midas` / `depth` / `coreai`: This family and task have not been validated for Core AI export.

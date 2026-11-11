@@ -4089,6 +4089,25 @@ _add(
     ),
 )
 _add(
+    "available",
+    ("midas",),
+    ("depth",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole MiDaS-s graph "
+        "runs on the Metis AIPU and the host resizes the relative inverse depth. "
+        "Supported, not validated: the device depth agrees with FP32 at AbsRel "
+        "0.069 (delta1 0.94) on 300 COCO val2017 images at 256 px "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: s (measured drop, SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed input canvas (images are stretched to it)"
+    ),
+)
+_add(
     "validated",
     ("fcn",),
     ("semantic",),
@@ -4366,6 +4385,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "for restoration is 0.3 dB)"
         ),
     },
+    ("midas", "depth", "axelera"): {
+        "s": (
+            "measured depth error vs FP32 (AbsRel 0.069, delta1 0.94 between the "
+            "device and the FP32 model on 300 COCO val2017 images at 256 px; "
+            "the validated bar is AbsRel 0.02)"
+        ),
+    },
     ("ppyoloe", "detect", "axelera"): {
         "s": (
             "measured mAP50-95 drop 1.23 points vs FP32 (0.396 vs 0.409 on 1000 "
@@ -4441,6 +4467,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("mobilenetv4", "classify"),
             ("efficientnetv2", "classify"),
             ("quicksrnet", "restore"),
+            ("midas", "depth"),
             ("fcn", "semantic"),
             ("yolox", "detect"),
             ("yolo4", "detect"),
