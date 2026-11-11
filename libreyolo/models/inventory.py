@@ -102,6 +102,7 @@ OPTIONAL_MODELS = (
     ("libreyolo.models.gen.prx", "LibrePRX", "gen", "diffusers"),
     ("libreyolo.models.gen.prx", "LibrePRXPixel", "gen", "diffusers"),
     ("libreyolo.models.gen.speridlabs_idol", "LibreSperidlabsIdol", "gen", "diffusers"),
+    ("libreyolo.models.gen.speridlabs_irisz", "LibreSperidlabsIrisZ", "gen", "diffusers"),
     ("libreyolo.models.gen.triposplat", "LibreTripoSplat", "gen", "diffusers"),
     ("libreyolo.models.gen.trellis", "LibreTRELLIS", "gen", "transformers"),
     ("libreyolo.models.gen.lgm", "LibreLGM", "gen", "diffusers"),

@@ -2,8 +2,10 @@
 
 `LibreGen` runs generative models behind the same call as every other
 LibreYOLO task: text in and an image out, or an image in and a 3D object
-out. The contracts live in `docs/adr/0030-libregen-contract.md` (images)
-and `docs/adr/0031-generate3d-contract.md` (3D objects).
+out. Speridlabs Iris-Z also turns an image into depth. The contracts live in
+`docs/adr/0030-libregen-contract.md` (images),
+`docs/adr/0031-generate3d-contract.md` (3D objects) and
+`docs/adr/0033-speridlabs-irisz.md` (Iris-Z's two tasks).
 
 ## Install
 
@@ -77,6 +79,8 @@ model("a red fox", steps=8, guidance=1.0)
 | `prx-512-dc-ae-sft`, `prx-512-dc-ae` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 16 GB | as above; DC-AE autoencoder MIT |
 | `prx-256-sft`, `prx-256` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 16 GB | as above |
 | `prxpixel-7b` | 7B | `steps` (28), `guidance` (5.0), `negative` ("") | about 18 GB | Apache-2.0 (Qwen3-VL text encoder, no autoencoder) |
+| `speridlabs-iris-z` (`-9b`, `-small`) | 9.1B (plus Qwen3 8B FP8 text encoder) | `steps` (50), `guidance` (4.0) | about 18 GB, plus 9 GB text encoder and 0.2 GB VAE | FLUX Non-Commercial (weights); Apache-2.0 text encoder and VAE |
+| `speridlabs-iris-z-32b` (`-big`) | 32.2B (plus Mistral Small 3.2 24B text encoder) | `steps` (50), `guidance` (3.5) | about 64 GB, plus 48 GB text encoder and 0.2 GB VAE | as above |
 
 `flux2-klein` and `sana-sprint` are short aliases; `prx` is `prx-1024-beta`
 and `prxpixel` is `prxpixel-7b`.
@@ -117,12 +121,53 @@ libreyolo generate prompt="a red fox" model=sana-sprint-0.6b seed=0 n=4
 libreyolo generate prompt="a red fox" imgsz=768x1024
 libreyolo generate prompt="a red fox" model=prx-512-sft negative="blurry"
 libreyolo generate prompt_file=prompts.txt steps=8 --json
+libreyolo generate prompt="a lighthouse at dusk" model=speridlabs-iris-z
+libreyolo generate source=street.jpg task=depth                # speridlabs-iris-z
+libreyolo generate source=photos/ task=depth ensemble=10 imgsz=1024
 ```
 
 `prompt` is always literal text. `prompt_file` reads a text file with one
 prompt per line; pass one or the other. `imgsz` is `1024` for a square image
 or `HEIGHTxWIDTH` such as `768x1024`. Images are saved by default; pass
 `--no-save` to skip.
+
+## Image to depth
+
+Speridlabs Iris-Z by [Speridlabs](https://speridlabs.com/research/iris-z)
+is one model for images and their depth: the same weights generate images
+from a prompt (above) and estimate depth from a photo in 4 steps. Load it
+with `task="depth"`:
+
+```python
+model = LibreGen("speridlabs-iris-z", task="depth")     # 9b; or speridlabs-iris-z-32b
+result = model("street.jpg")
+result.depth_map.data          # (H, W) relative log depth at the photo's size
+result.depth_map.encoding      # "log_depth": larger is farther
+result.depth_map.valid_mask    # False on sky, which sits at the far end
+result.save("depth.png")       # coloured depth
+
+model(["a.jpg", "b.jpg"], save=True)       # runs/depth/predict/*.png
+model("street.jpg", ensemble=10)           # median of 10 seeds, as in the paper's benchmarks
+model("street.jpg", imgsz=1024)            # working resolution: 512 or 1024
+```
+
+Sources are what predict takes. `imgsz` defaults to 512 for images under
+half a megapixel and 1024 above. The default seed is 0, so depth repeats;
+`ensemble=k` takes the per-pixel median over seeds `seed .. seed+k-1`, each
+affinely aligned to the first. Knobs: `steps` (4) and `ensemble` (1).
+
+Depth loads no text encoder: about 20 GB of GPU memory for `9b` and 66 GB
+for `32b`. Generation also loads the text encoder (about 33 GB and 112 GB
+in all); `offload=True` keeps it on the CPU between prompts. One H200 takes
+0.5 s (9b, 512) to 5.3 s (32b, 1024) per depth map and 10 s to 123 s per
+generated image (Speridlabs' numbers).
+
+Weights are not redistributed by LibreYOLO: they download from Speridlabs'
+own repo `speridlabs/iris-z`, at a pinned revision, under the FLUX
+Non-Commercial License (non-commercial use; section 2(e) asks for filtering
+or review of generated images before they are shared). Nothing is gated:
+the FLUX.2 VAE comes from the Apache-2.0 FLUX.2 klein repo, and the text
+encoders from Mistral AI and Qwen (Apache-2.0).
 
 ## Image to 3D
 
@@ -377,7 +422,10 @@ Direct3D-S2 repository, the TripoSR networks adapted from the MIT TripoSR
 repository and the CRM networks adapted from the MIT CRM repository with
 FlexiCubes from NVIDIA's Apache-2.0 release (see each family's `NOTICE`).
 LGM's networks and its ImageDream sampler are adapted from the MIT LGM
-repository. Text-to-image models load through the Apache-2.0 `diffusers` API.
+repository. The Speridlabs Iris-Z transformer, samplers and prompt embedders
+are ported from the Apache-2.0 Iris-Z SDK, whose model code is from FLUX.2
+(Apache-2.0). Other text-to-image models load through the Apache-2.0
+`diffusers` API.
 
 Weights are downloaded from the upstream Hub repos at pinned revisions. The
 exceptions are the DINOv3 encoders Idol and TripoSplat (ViT-H+, mirrored in

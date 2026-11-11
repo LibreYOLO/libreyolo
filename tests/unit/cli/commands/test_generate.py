@@ -303,3 +303,60 @@ def test_texture_reaches_the_family(calls3d):
     result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
     assert result.exit_code == 0, result.output
     assert calls3d[1][2]["texture"] is True
+
+
+@pytest.fixture
+def calls_depth(monkeypatch):
+    import libreyolo.models.gen as gen
+    from libreyolo.utils.results import DepthMap, Results
+
+    recorded = []
+
+    class Model:
+        task = "depth"
+
+        def __init__(self, name, **kwargs):
+            recorded.append(("load", name, kwargs))
+
+        def __call__(self, source=None, **kwargs):
+            recorded.append(("call", source, kwargs))
+            depth = DepthMap(np.zeros((8, 8), dtype=np.float32), encoding="log_depth")
+            return Results(None, (8, 8), path=source, depth_map=depth)
+
+    monkeypatch.setattr(gen, "LibreGen", Model)
+    return recorded
+
+
+def test_task_depth_turns_an_image_into_depth(calls_depth):
+    args = ["source=street.jpg", "task=depth", "ensemble=10", "imgsz=1024"]
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["task"] == "depth"
+    assert payload["model"] == "speridlabs-iris-z"
+    assert payload["results"][0]["name"] == "depth_map"
+    assert calls_depth[0] == (
+        "load",
+        "speridlabs-iris-z",
+        {"device": "auto", "dtype": "auto", "offload": False, "task": "depth"},
+    )
+    assert calls_depth[1] == (
+        "call",
+        "street.jpg",
+        {"imgsz": 1024, "seed": None, "save": False, "output_path": None, "ensemble": 10},
+    )
+
+
+@pytest.mark.parametrize(
+    "args, match",
+    [
+        (["task=depth", "prompt=a fox"], "needs source"),
+        (["task=depth", "source=a.jpg", "n=2"], "ensemble"),
+        (["task=depth", "source=a.jpg", "imgsz=512x768"], "one side"),
+        (["task=nope", "source=a.jpg"], "Unsupported task"),
+    ],
+)
+def test_task_depth_errors(calls_depth, args, match):
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 2, result.output
+    assert match in result.output

@@ -2817,6 +2817,28 @@
     "group": "s",
     "cli_command": "generate"
   },
+  "speridlabs_irisz": {
+    "class": "libreyolo.models.gen.speridlabs_irisz.model.LibreSperidlabsIrisZ",
+    "tasks": [
+      "generate",
+      "depth"
+    ],
+    "default_task": "generate",
+    "sizes": {
+      "9b": 1024,
+      "32b": 1024
+    },
+    "default_imgsz": {
+      "9b": 1024,
+      "32b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "ssd": {
     "class": "libreyolo.models.ssd.model.LibreSSD",
     "tasks": [

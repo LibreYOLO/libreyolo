@@ -3904,6 +3904,37 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+Speridlabs Iris-Z transformer, samplers and prompt embedders
+------------------------------------------------------------
+
+Upstream: Speridlabs, https://github.com/speridlabs/iris-z-sdk
+Commit: 6c8925f42a2a3581127609d771aa5bfece557467
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright 2026 SperidLabs.
+Used for: the Speridlabs Iris-Z family (libreyolo/models/gen/speridlabs_irisz/):
+          the transformer forward pass, the text-to-image and image-to-depth
+          samplers, the schedule, the depth decoding and the prompt
+          embedders. Parameter names are unchanged so the released
+          safetensors load strictly.
+
+The SDK's model code is from FLUX.2:
+Source: https://github.com/black-forest-labs/flux2
+License: Apache-2.0
+Copyright Black Forest Labs.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+speridlabs/iris-z (FLUX Non-Commercial License, revision
+16239e1a5444c484b11a04b61d633eceb768574c), the FLUX.2 VAE from
+black-forest-labs/FLUX.2-klein-4B (Apache-2.0, revision
+e7b7dc27f91deacad38e78976d1f2b499d76a294),
+mistralai/Mistral-Small-3.2-24B-Instruct-2506 (Apache-2.0, revision
+95a6d26c4bfb886c58daf9d3f7332c857cb27b43) with the processor of
+mistralai/Mistral-Small-3.1-24B-Instruct-2503 (Apache-2.0, revision
+68faf511d618ef198fef186659617cfd2eb8e33a) and Qwen/Qwen3-8B-FP8
+(Apache-2.0, revision 220b46e3b2180893580a4454f21f22d3ebb187d3) download
+from their publishers.
+
+--------------------------------------------------------------------
 Speridlabs Idol image-to-3D networks and pipeline
 -------------------------------------------------
 

@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Speridlabs Iris-Z: text to image and image to depth from one model, `LibreGen("speridlabs-iris-z")`.**
+  Speridlabs' FLUX.2 fine-tune that denoises an image and its depth together. `LibreGen("speridlabs-iris-z")("a lighthouse at dusk")` generates images (50 steps); `LibreGen("speridlabs-iris-z", task="depth")("street.jpg")` returns `Results.depth_map` as relative log depth at the photo's size, with sky masked, in 4 steps (`ensemble=10` for the multi-seed median of the paper's benchmarks). Sizes `9b` (Iris-Z-small, default) and `32b` (Iris-Z-big). CLI: `libreyolo generate source=street.jpg task=depth`. The transformer, samplers and prompt embedders are ported from the Apache-2.0 Iris-Z SDK; weights are not mirrored and download from `speridlabs/iris-z` at a pinned revision (FLUX Non-Commercial License), the FLUX.2 VAE from FLUX.2 klein and the text encoders from Mistral AI and Qwen (Apache-2.0). Nothing is gated. Install `libreyolo[gen]`. See ADR 0033 and `docs/libregen.md`.
+
 - **LGM, image to 3D Gaussians through four generated views: `LibreGen("lgm")`.**
   LGM (MIT) behind the same call as the other image-to-3D families: ImageDream samples four views of the object, LGM turns them into Gaussian splats, `libreyolo generate source=chair.jpg model=lgm`. Upstream needs xformers on CUDA; LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `elevation`. Weights download from LibreYOLO's mirrors `LibreYOLO/LibreLGM0.4b` (MIT) and `LibreYOLO/LibreImageDream` (OpenRAIL use restrictions apply).
 

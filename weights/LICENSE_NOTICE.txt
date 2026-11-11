@@ -1166,6 +1166,32 @@ bfloat16 mirror LibreYOLO/LibreDINOv3vith16plus under Meta's DINOv3 License
 libreyolo/models/gen/speridlabs_idol/NOTICE.
 
 
+Speridlabs Iris-Z (LibreSperidlabsIrisZ 9b, 32b)        FLUX Non-Commercial
+Text-to-image and image-to-depth
+--------------------------------
+
+Upstream: Speridlabs, https://huggingface.co/speridlabs/iris-z
+License: FLUX Non-Commercial License,
+https://huggingface.co/black-forest-labs/FLUX.2-dev/blob/main/LICENSE.txt
+(the weights are derived from FLUX.2 [dev] and FLUX.2 [klein] Base 9B).
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+speridlabs/iris-z @ 16239e1a5444c484b11a04b61d633eceb768574c
+  (9b: Iris-Z-small/, 32b: Iris-Z-big/)
+
+Non-commercial use only. Section 2(e) of the license asks for content
+filtering or review of generated images before they are shared. The FLUX.2
+VAE comes from black-forest-labs/FLUX.2-klein-4B (see the FLUX.2 klein entry
+below). Text encoders, downloaded from their publishers (Apache-2.0):
+mistralai/Mistral-Small-3.2-24B-Instruct-2506 @
+95a6d26c4bfb886c58daf9d3f7332c857cb27b43 with the processor of
+mistralai/Mistral-Small-3.1-24B-Instruct-2503 @
+68faf511d618ef198fef186659617cfd2eb8e33a (32b), and Qwen/Qwen3-8B-FP8 @
+220b46e3b2180893580a4454f21f22d3ebb187d3 (9b). Ported inference code: see
+libreyolo/models/gen/speridlabs_irisz/NOTICE.
+
+
 LGM (LibreLGM 0.4b)                                     MIT
 Image-to-3D Gaussian splats
 ---------------------------
@@ -1362,8 +1388,8 @@ Ported inference code: see libreyolo/models/gen/crm/NOTICE.
 
 
 FLUX.2 klein (LibreFlux2Klein 4b)                       Apache-2.0
-Text-to-image pipeline, also the VAE source for Speridlabs Idol and TripoSplat
------------------------------------------------------------------------------
+Text-to-image pipeline, also the VAE source for Speridlabs Idol, Iris-Z and TripoSplat
+-------------------------------------------------------------------------------------
 
 Upstream: Black Forest Labs, https://huggingface.co/black-forest-labs/FLUX.2-klein-4B
 License: Apache-2.0, as declared by the official model repository.

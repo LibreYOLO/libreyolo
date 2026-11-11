@@ -3878,6 +3878,11 @@ _FAMILY_BLOCKS = {
         "the single-image depth export contract does not describe."
     ),
     "marigold_v2": "Marigold V2 quantized diffusion export has not been integrated or validated.",
+    "speridlabs_irisz": (
+        "Speridlabs Iris-Z export is blocked for both tasks: image generation and "
+        "depth run a multi-step sampling loop over a transformer and the FLUX.2 "
+        "VAE, which has no exportable graph and backend runtime contract (ADR 0030)."
+    ),
     "depth_anything3": (
         "Depth Anything 3 currently rejects export for every format; its "
         "depth graph has not been added to the exported-runtime contract."
