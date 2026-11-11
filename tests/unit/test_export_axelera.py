@@ -1084,13 +1084,26 @@ def test_efficientnetv2_b0_exports_with_histogram_ranges(exporter_sdk, tmp_path,
                for r in caplog.records)
 
 
-@pytest.mark.parametrize("size", ["b1", "b2", "b3"])
+@pytest.mark.parametrize("size", ["b1", "b2"])
 def test_efficientnetv2_sizes_that_do_not_compile_are_blocked(tmp_path, size):
-    """Structural blocks only: these sizes do not compile (or were never compiled)."""
+    """Structural blocks only: these sizes do not compile."""
     from libreyolo import LibreEfficientNetV2
 
     model = LibreEfficientNetV2(size=size, nb_classes=5, device="cpu")
     with pytest.raises(NotImplementedError, match=rf"efficientnetv2-{size} classify export to axelera is blocked"):
+        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+
+
+def test_unmeasured_sizes_are_not_exportable_and_not_called_blocked(tmp_path):
+    """A size nobody has measured on a Metis raises, but is never labelled blocked."""
+    from libreyolo import LibreEfficientNetV2
+    from libreyolo.export.support import BLOCKED_SIZES, UNMEASURED_SIZES
+
+    for key, sizes in UNMEASURED_SIZES.items():
+        assert not set(sizes) & set(BLOCKED_SIZES.get(key, {})), key
+        assert all("not been measured on a Metis" in reason for reason in sizes.values()), key
+    model = LibreEfficientNetV2(size="b3", nb_classes=5, device="cpu")
+    with pytest.raises(NotImplementedError, match=r"efficientnetv2-b3 classify export to axelera is not available yet: it has not been measured on a Metis yet"):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 

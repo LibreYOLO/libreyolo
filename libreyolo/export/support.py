@@ -4064,8 +4064,8 @@ _add(
     since="1.7",
     constraint=(
         "supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1 and b2 do "
-        "not compile with SDK 1.9.0 and b3 is not compiled yet (BLOCKED_SIZES). "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "not compile with SDK 1.9.0 (BLOCKED_SIZES); b3 is not measured on a "
+        "Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed 224 input"
     ),
 )
@@ -4102,9 +4102,9 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "supported sizes: s (measured drop, SIZE_ACCURACY_NOTES). "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed input canvas (images are stretched to it)"
+        "supported sizes: s (measured drop, SIZE_ACCURACY_NOTES); l is not "
+        "measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (images are stretched to it)"
     ),
 )
 _add(
@@ -4241,7 +4241,7 @@ _add(
     since="1.7",
     constraint=(
         "supported sizes: s (measured drop, SIZE_ACCURACY_NOTES); m and l are not "
-        "compiled yet (BLOCKED_SIZES). axelera-devkit / "
+        "measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
@@ -4473,11 +4473,19 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "does not compile with Axelera's SDK 1.9.0: the compiled model has "
             "two output buffers for its one output"
         ),
-        "b3": "has not been compiled or measured on Axelera Metis",
     },
+}
+
+#: Sizes not exportable yet because nobody has measured them on a Metis. This
+#: is not a block (nothing is known to fail); the export raises until a
+#: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
+UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("efficientnetv2", "classify", "axelera"): {
+        "b3": "has not been measured on a Metis yet",
+    },
+    ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("picodet", "detect", "axelera"): {
-        "m": "has not been compiled or measured on Axelera Metis",
-        "l": "has not been compiled or measured on Axelera Metis",
+        size: "has not been measured on a Metis yet" for size in ("m", "l")
     },
 }
 
@@ -4543,6 +4551,7 @@ __all__ = [
     "INT8_EXPORTS",
     "BLOCKED_SIZES",
     "SIZE_ACCURACY_NOTES",
+    "UNMEASURED_SIZES",
     "SUPPORT",
     "SupportEntry",
     "Tier",

@@ -30,6 +30,7 @@ from .onnx import (
 )
 from .support import (
     BLOCKED_SIZES,
+    UNMEASURED_SIZES,
     INT8_EXPORTS,
     SIZE_ACCURACY_NOTES,
     get_support,
@@ -1772,6 +1773,12 @@ class BaseExporter(ABC):
             raise NotImplementedError(
                 f"{family}-{size} {task} export to {self.format_name} is blocked: "
                 f"it {structural}."
+            )
+        unmeasured = UNMEASURED_SIZES.get((family, task, self.format_name), {}).get(size)
+        if unmeasured:
+            raise NotImplementedError(
+                f"{family}-{size} {task} export to {self.format_name} is not "
+                f"available yet: it {unmeasured}."
             )
         note = SIZE_ACCURACY_NOTES.get((family, task, self.format_name), {}).get(size)
         if note:

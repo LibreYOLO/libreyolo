@@ -74,17 +74,18 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` |
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` |
 | MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` |
-| EfficientNetV2 | classify | b0 (supported with a measured drop; b1-b3 blocked: do not compile) | see `docs/export_support.md` |
+| EfficientNetV2 | classify | b0 (supported with a measured drop; b1 and b2 blocked: do not compile; b3 not measured yet) | see `docs/export_support.md` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` |
 | QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` |
-| MiDaS | depth | s (supported with a measured drop; l is a ViT and not compiled) | see `docs/export_support.md` |
+| MiDaS | depth | s (supported with a measured drop; l not measured yet) | see `docs/export_support.md` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` |
 | YOLOv3 | detect | t, b, spp | see `docs/export_support.md` |
 | YOLOv4 | detect | t, b (b supported with a measured drop) | see `docs/export_support.md` |
 | YOLOv7 | detect | b | see `docs/export_support.md` |
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` |
-| PicoDet | detect | s (supported with a measured drop; m and l not compiled yet) | see `docs/export_support.md` |
-| YOLO9-E2E, YOLO9-P2, RF-DETR, other families | all | all | blocked (section 11) |
+| PicoDet | detect | s (supported with a measured drop; m and l not measured yet) | see `docs/export_support.md` |
+| YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) |
+| RF-DETR and other transformer families | all | all | out of scope (section 11) |
 
 The tiers in `docs/export_support.md` are generated from
 `libreyolo/export/support.py`; `libreyolo formats --family yolonas` prints
@@ -471,16 +472,23 @@ compiles their own.
 
 Blocked for structural reasons (accuracy never blocks an export):
 
-- EfficientNetV2-b1 and -b2: do not compile with SDK 1.9.0 (the compiled model has two output buffers for its one output at 224 and 240 px; at 256 px the squeeze-excitation pooling exceeds a reduction limit). b3 has not been compiled.
+- EfficientNetV2-b1 and -b2: do not compile with SDK 1.9.0 (the compiled model has two output buffers for its one output at 224 and 240 px; at 256 px the squeeze-excitation pooling exceeds a reduction limit).
 - HRNet (pose): compiles, but the device output drifts from the quantized model stage by stage (keypoint mAP 0.000 on device vs a working CPU-quantized model).
 - ZipDepth: after an exact ReduceMean-to-pooling rewrite, quantization fails on the GCNet context MatMul.
+
+Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
+
+- EfficientNetV2-b3, PicoDet-m and -l, MiDaS-l.
+- YOLO9-E2E and YOLO9-P2.
+- Other families.
+
+Other known limits:
 
 - YOLO-NAS-R (obb): validated on 300 DOTA-v2.0 tiles (the paired set prepared for this work), not on a 1000-image set.
 - YOLOX-n: supported, mAP50-95 1.81 points below FP32 (1.66 with 128 calibration images; section 7).
 - PP-YOLOE-s, -m and -x: supported, mAP50-95 1.2 to 1.7 points below FP32 (section 7). The loss is in the box-distribution outputs and does not come from their output range: windowing them, or histogram ranges, did not help. PP-YOLOE-l is validated.
 - YOLOv4-b: supported, mAP50-95 1.52 points below FP32 with its recipe (section 7): its box outputs lose resolution in the Mish backbone; histogram ranges and a box-output window recover most of it (-6.8 to -1.52).
 - YOLO-NAS-pose n and s: supported, keypoint mAP50-95 1.3 and 2.2 points below FP32 (section 7); m and l are validated.
-- YOLO9-E2E and YOLO9-P2: not compiled or measured; blocked.
 - RF-DETR and other transformer families: attention, data-dependent TopK and
   grid sampling are outside what the compiler places on the AIPU, and the host
   can only run operators before or after the accelerated graph.
@@ -488,6 +496,5 @@ Blocked for structural reasons (accuracy never blocks an export):
   at best (section 7). Per-tensor INT8 of the inverted-residual streams (the
   stage-2 stream of s spans about +-400 while its median channel stays
   within +-14) is the cause. Use m.
-- Other families: not compiled or measured.
 - Europa and multi-device scheduling: not covered.
 - Large models on M.2 cards can hit the card's power limit.
