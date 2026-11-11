@@ -2733,6 +2733,29 @@ class TFLiteExporter(BaseExporter):
             check_tflite_int8_available,
         )
 
+        # Validate the INT8 options before anything can touch the live model
+        # (e.g. merging LoRA adapters), so a rejected request leaves it as is.
+        int8_backend = kwargs.get("int8_backend", "converter")
+        int8_output_dtype = kwargs.get("int8_output_dtype", "int8")
+        if int8_backend not in {"converter", "onnx2tf"}:
+            raise ValueError(
+                f"int8_backend must be 'converter' or 'onnx2tf', got {int8_backend!r}"
+            )
+        if int8_output_dtype not in {"int8", "float32"}:
+            raise ValueError(
+                "int8_output_dtype must be 'int8' or 'float32', "
+                f"got {int8_output_dtype!r}"
+            )
+        if (
+            kwargs.get("int8")
+            and int8_backend == "onnx2tf"
+            and int8_output_dtype != "int8"
+        ):
+            raise ValueError(
+                "int8_backend='onnx2tf' always writes int8 input and output tensors; "
+                "int8_output_dtype='float32' requires the default in-process backend."
+            )
+
         family = self.model._get_model_name()
         task = getattr(self.model, "task", "detect")
         self._split_outputs = False
