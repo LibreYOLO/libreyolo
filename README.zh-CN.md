@@ -17,6 +17,15 @@ LibreYOLO 是一个采用 MIT 许可证的计算机视觉库，用于训练、�
 
 </div>
 
+> [!IMPORTANT]
+> **致中国的 LibreYOLO 用户：我需要你的帮助。**
+>
+> 你好！我身在西方国家，不太了解你们使用时会遇到哪些限制。我知道 Hugging Face 在中国无法访问，也许把模型权重镜像到 hf-mirror.com、modelscope.ai 或 modelscope.cn 会对你有帮助，又或者有更好的办法。
+>
+> 如果你知道怎样让 LibreYOLO 在中国更好用，请[开一个 issue](https://github.com/LibreYOLO/libreyolo/issues/new?title=%5B%E4%B8%AD%E5%9B%BD%E7%94%A8%E6%88%B7%5D%20%E5%A6%82%E4%BD%95%E8%AE%A9%20LibreYOLO%20%E5%9C%A8%E4%B8%AD%E5%9B%BD%E6%9B%B4%E5%A5%BD%E7%94%A8&body=%E4%BD%A0%E6%89%80%E5%9C%A8%E7%9A%84%E5%9C%B0%E5%8C%BA%20/%20%E7%BD%91%E7%BB%9C%E7%8E%AF%E5%A2%83%EF%BC%9A%0A%0A%E4%BD%BF%E7%94%A8%20LibreYOLO%20%E6%97%B6%E9%81%87%E5%88%B0%E7%9A%84%E9%97%AE%E9%A2%98%EF%BC%9A%0A%0A%E4%BD%A0%E5%B8%8C%E6%9C%9B%E7%9A%84%E6%96%B9%E6%A1%88%EF%BC%88%E4%BE%8B%E5%A6%82%20hf-mirror.com%E3%80%81ModelScope%20%E9%95%9C%E5%83%8F%EF%BC%8C%E6%88%96%E5%85%B6%E4%BB%96%E5%8A%9E%E6%B3%95%EF%BC%89%EF%BC%9A%0A)，告诉我们怎样改进。非常感谢！
+>
+> Xuban，LibreYOLO 维护者
+
 > **注意：** 本中文 README 由 AI 翻译，可能包含不准确或不自然的表述。请以英文 README 为准。
 
 > ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](CONTRIBUTING.md)）。如果你愿意在经济上支持项目，非常欢迎：请查看[赞助计划](SPONSORS.md)。
