@@ -122,6 +122,9 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Validating an exported SSD model uses SSD's own preprocessing.**
+  `val()` on an ONNX or other exported SSD300 model used the standard preprocessor, which feeds BGR 0-1 pixels to a model that expects RGB 0-255 pixels with SSD's mean subtracted, so on 100 COCO val2017 images the ONNX export scored mAP50-95 0.023 instead of 0.250 for the PyTorch model. Exported backends now validate SSD with its own preprocessing: the ONNX export scores 0.2497, identical to the PyTorch model. `predict()` was not affected.
+
 - **Validating an exported RetinaNet model works.**
   `val()` on an ONNX or other exported RetinaNet model used the standard preprocessing, whose geometry does not match RetinaNet's resize (shorter side 800, longer side up to 1333), so it raised "anchor count does not match preprocessing geometry" (120087 vs 182403 anchors for r50). Exported backends now validate RetinaNet with its own preprocessing and validator, one image at a time because the input size varies per image: on 100 COCO val2017 images the ONNX export scores mAP50-95 0.3785, identical to the PyTorch model. `predict()` was not affected.
 

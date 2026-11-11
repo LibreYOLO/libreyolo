@@ -4535,6 +4535,7 @@ class BaseBackend(ABC):
             RTDETRv2ValPreprocessor,
             RetinaNetValPreprocessor,
             RTMDetValPreprocessor,
+            SSDValPreprocessor,
             StandardValPreprocessor,
             YOLO9E2EValPreprocessor,
             YOLO9ValPreprocessor,
@@ -4607,6 +4608,8 @@ class BaseBackend(ABC):
             # normalization, pad to /32; the parser rebuilds its anchors
             # from that geometry.
             "retinanet": RetinaNetValPreprocessor,
+            # SSD300: RGB stretch with SSD's own 0-255 mean subtraction.
+            "ssd": SSDValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
         if preprocessor_cls is RetinaNetValPreprocessor:
             return preprocessor_cls(

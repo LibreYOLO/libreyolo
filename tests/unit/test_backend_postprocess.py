@@ -1861,6 +1861,21 @@ def test_exported_retinanet_backend_validates_with_the_retinanet_geometry():
     assert type(backend._get_val_preprocessor(800)).__name__ == "RetinaNetValPreprocessor"
 
 
+def test_exported_ssd_backend_validates_with_the_ssd_preprocessing():
+    """The standard preprocessor fed SSD BGR 0-1 pixels instead of its RGB
+    mean-subtracted input: 0.023 vs 0.250 mAP50-95 (ONNX, 100 COCO images)."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "ssd"
+    backend.task = "detect"
+    backend.imgsz = 300
+    assert type(backend._get_val_preprocessor(300)).__name__ == "SSDValPreprocessor"
+
+
 def test_exported_yolo7_backend_validates_like_the_pytorch_model():
     """StandardValPreprocessor feeds 0-255 pixels; YOLOv7 expects 0-1."""
 
