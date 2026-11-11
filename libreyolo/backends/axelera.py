@@ -51,6 +51,10 @@ _DEVICE_ALIASES = {"auto", "cpu", "axelera", "metis", "aipu"}
 
 #: Layout of classifier exports: one output, the ``[B, nc]`` logits.
 CLASSIFY_LOGITS_LAYOUT = "classify_logits_v1"
+#: Whole-graph dense exports (super-resolution, depth, semantic, heatmap pose):
+#: the outputs are the family's ONNX outputs, decoded by the shared parsers.
+GRAPH_OUTPUTS_LAYOUT = "graph_outputs_v1"
+_PASS_THROUGH_LAYOUTS = (CLASSIFY_LOGITS_LAYOUT, GRAPH_OUTPUTS_LAYOUT)
 
 
 def axelera_install_command(package: str) -> str:
@@ -212,6 +216,10 @@ class AxeleraBackend(BaseBackend):
         >>> result = model("image.jpg")
     """
 
+    # Compiled graphs have one input shape: restoration pads into that canvas
+    # instead of running at the image's own size.
+    fixed_input_shape = True
+
     def __init__(
         self,
         model_path: str | Path,
@@ -227,7 +235,7 @@ class AxeleraBackend(BaseBackend):
         if not isinstance(meta, dict) or meta.get("format") != "axelera":
             raise _foreign_artifact(axm, "metadata.yaml has no format: axelera")
         layout = meta.get("output_layout")
-        if layout not in YOLONAS_RAW_LAYOUTS and layout != CLASSIFY_LOGITS_LAYOUT:
+        if layout not in YOLONAS_RAW_LAYOUTS and layout not in _PASS_THROUGH_LAYOUTS:
             if isinstance(layout, str) and layout:
                 raise ValueError(
                     f"{metadata_path} uses output layout {layout!r}, which this "
@@ -265,6 +273,10 @@ class AxeleraBackend(BaseBackend):
         strides = tuple(int(s) for s in meta.get("strides", (8, 16, 32)))
         if layout == CLASSIFY_LOGITS_LAYOUT:
             layout_names = ["logits"]
+        elif layout == GRAPH_OUTPUTS_LAYOUT:
+            layout_names = [str(name) for name in meta.get("graph_outputs") or ()]
+            if not layout_names:
+                raise _foreign_artifact(axm, "no graph_outputs in metadata.yaml")
         else:
             layout_names = raw_head_output_names(layout, strides)
         # ``output_names`` lists the outputs in the order the compiled model
@@ -279,7 +291,7 @@ class AxeleraBackend(BaseBackend):
         try:
             output_windows = (
                 {}
-                if layout == CLASSIFY_LOGITS_LAYOUT
+                if layout in _PASS_THROUGH_LAYOUTS
                 else check_output_windows(layout, meta.get("output_windows"))
             )
         except ValueError as exc:
@@ -372,6 +384,8 @@ class AxeleraBackend(BaseBackend):
         arrays = [np.asarray(out, dtype=np.float32) for out in outputs]
         if self._layout == CLASSIFY_LOGITS_LAYOUT:
             arrays = [a.reshape(1, -1) for a in arrays]
+        elif self._layout == GRAPH_OUTPUTS_LAYOUT:
+            pass  # already the ONNX graph's tensors, batch dimension included
         else:
             arrays = [a if a.ndim == 4 else a.reshape((1, *a.shape)) for a in arrays]
         return [arrays[index] for index in self._layout_order]
@@ -389,8 +403,8 @@ class AxeleraBackend(BaseBackend):
             raw = self._invoke_batch(images)
         else:
             raw = [self._invoke(image) for image in images]
-        if self._layout == CLASSIFY_LOGITS_LAYOUT:
-            decoded = [[np.array(arrays[0], copy=True)] for arrays in raw]
+        if self._layout in _PASS_THROUGH_LAYOUTS:
+            decoded = [[np.array(a, copy=True) for a in arrays] for arrays in raw]
         else:
             decoded = [
                 decode_raw_heads(self._layout, arrays, **self._decode_params)
@@ -406,6 +420,7 @@ __all__ = [
     "AXELERA_INDEX_URL",
     "AXELERA_SDK_VERSION",
     "CLASSIFY_LOGITS_LAYOUT",
+    "GRAPH_OUTPUTS_LAYOUT",
     "AxeleraBackend",
     "axelera_install_command",
     "is_axelera_artifact",

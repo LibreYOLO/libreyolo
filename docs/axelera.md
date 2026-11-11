@@ -16,6 +16,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` |
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` |
 | MobileNetV4 | classify | m (s and l refused, section 7) | see `docs/export_support.md` |
+| FCN | semantic | r50, r101 | see `docs/export_support.md` |
 | YOLO9-E2E, YOLO9-P2, RF-DETR, other families | all | all | blocked (section 11) |
 
 The tiers in `docs/export_support.md` are generated from
@@ -224,6 +225,19 @@ that passes on m costs s 2.6 and l 3.0 points. Axelera's
 `quantize_dw_channel_wise` and `smoothquant_coefficient` options changed
 nothing measurable.
 
+Semantic segmentation, FCN-ResNet50/101 (VOC-21 head) at 520x520, mIoU on 300
+COCO val2017 images with VOC-21 masks rasterized from COCO's instance
+annotations (the 20 VOC classes all exist in COCO; crowd regions, other
+objects and pixels claimed by two classes are ignored), calibrated on
+coco128. Both columns go through the same exported-model path (stretch to
+the canvas, host upsampling of the logits), so the delta is INT8 and the
+device only:
+
+| Model | Input | FP32 (ONNX) mIoU | Metis INT8 mIoU | Delta | Compile (28 W host) |
+| --- | --- | --- | --- | --- | --- |
+| FCN-ResNet50 | 520 | 0.6515 | 0.6492 | -0.23 | 26 min |
+| FCN-ResNet101 | 520 | 0.6798 | 0.6779 | -0.19 | 51 min |
+
 Values are mAP50-95 (box, rotated box for obb, keypoint OKS for pose). On
 mAP50 the obb deltas are -1.36 (s), -0.11 (m) and -0.43 (l).
 
@@ -304,6 +318,14 @@ on the AIPU and returns the logits (layout `classify_logits_v1`); the host
 applies the softmax, with the same resize, crop and normalization as the
 PyTorch model (recorded in `metadata.yaml`).
 
+Dense models (super-resolution, depth, semantic segmentation, HRNet's
+person-crop heatmaps) also run whole on the AIPU (layout `graph_outputs_v1`):
+the device returns the same tensors as the family's ONNX export, under the
+same names, and LibreYOLO's shared parsers turn them into results on the
+host. The input is fixed at export: depth and semantic models stretch each
+image to the canvas, super-resolution pads smaller images into it and
+rejects larger ones. Calibration images go through that same preprocessing.
+
 `metadata.yaml` holds LibreYOLO's export metadata (`schema_version`,
 `model_family`, `task`, `names`, `imgsz`, ...) plus:
 
@@ -311,8 +333,9 @@ PyTorch model (recorded in `metadata.yaml`).
 | --- | --- |
 | `format` | `axelera` |
 | `axm` | the `.axm` file name |
-| `output_layout` | output contract, for example `yolonas_raw_heads_v1` or `classify_logits_v1` |
+| `output_layout` | output contract, for example `yolonas_raw_heads_v1`, `classify_logits_v1` or `graph_outputs_v1` |
 | `output_names` | output names in the order the compiled model returns them |
+| `graph_outputs` | output names in graph order (`graph_outputs_v1`) |
 | `output_windows` | parts emitted through a ReLU6 window, as `[low, high]` logit bounds (YOLO-NAS pose and YOLO9 exports); the backend maps them back before decoding |
 | `strides`, `reg_max`, `grid_cell_offset` | decode constants |
 | `crop_pct`, `interpolation` | classifier eval transform |

@@ -759,6 +759,8 @@ def test_support_matrix_rows_for_axelera():
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
     assert mnv4.tier == "validated" and "validated sizes: m " in mnv4.constraint
     assert sorted(REFUSED_SIZES[("mobilenetv4", "classify", "axelera")]) == ["l", "s"]
+    fcn = get_support("fcn", "semantic", "axelera")
+    assert fcn.tier == "validated" and "validated sizes: r50" in fcn.constraint
 
 
 def test_mobilenetv4_sizes_below_the_bar_are_refused(tmp_path):

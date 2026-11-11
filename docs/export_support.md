@@ -55,7 +55,7 @@ in preflight.
 | falconperception | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | falconperception | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | faster_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
-| fcn | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| fcn | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | ✓ |  |  |  |  |
 | fcos | detect | ✓ | ✓ |  |  | available |  |  |  |  |  |  |  |  |
 | fcos3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | feynobg | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |  |
@@ -330,6 +330,7 @@ A check mark applies only under any constraint listed here.
 - `fcn` / `semantic` / `torchscript`: FP32, batch 1, fixed square input divisible by 8
 - `fcn` / `semantic` / `tensorrt`: TensorRT 10.16 FP32, batch 1, fixed square input divisible by 8
 - `fcn` / `semantic` / `openvino`: OpenVINO 2026.2 CPU FP32, batch 1, fixed square input divisible by 8
+- `fcn` / `semantic` / `axelera`: validated sizes: r50, r101. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 520x520 input
 - `fcos` / `detect` / `onnx`: FP32, batch 1, out-of-graph aspect resize, opset 18, dynamic padded H/W
 - `fcos` / `detect` / `torchscript`: FP32, batch 1, out-of-graph aspect resize, variable padded H/W
 - `feynobg` / `matte` / `torchscript`: fixed 1024x1024 input
@@ -1147,7 +1148,6 @@ These converter paths are callable with the recorded validation context.
 - `fcn` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `fcn` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `fcn` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `fcn` / `semantic` / `axelera`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `fcn` / `semantic` / `ncnn`: This runtime has no parity-valid FCN artifact yet; only ONNX, TorchScript, TensorRT, and OpenVINO were assessed for this port.
 - `fcn` / `semantic` / `tflite`: This runtime has no parity-valid FCN artifact yet; only ONNX, TorchScript, TensorRT, and OpenVINO were assessed for this port.
 - `fcn` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.

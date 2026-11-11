@@ -436,3 +436,77 @@ def test_device_argument(exports, caplog):
     assert "ignored" in caplog.text
     with pytest.raises(ValueError, match="Unsupported device"):
         AxeleraBackend(artifact, device="tpu")
+
+
+# ---------------------------------------------------------------------------
+# Whole-graph dense exports (layout graph_outputs_v1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def dense_allowed(monkeypatch):
+    """Let a dense family through the support gate whatever its committed tier."""
+    import libreyolo.export.exporter as exporter
+    from libreyolo.export.support import INT8_EXPORTS, SupportEntry
+
+    original = exporter.get_support
+
+    def gate(family, task, fmt):
+        if fmt == "axelera":
+            return SupportEntry("available", "unit test")
+        return original(family, task, fmt)
+
+    monkeypatch.setattr(exporter, "get_support", gate)
+    pairs = {("fcn", "semantic")}
+    monkeypatch.setitem(INT8_EXPORTS, "axelera", INT8_EXPORTS["axelera"] | pairs)
+
+
+def _dense_model(family="fcn"):
+    import torch
+
+    from libreyolo import LibreFCN
+
+    torch.manual_seed(0)
+    return LibreFCN(None, size="r50", nb_classes=21, device="cpu"), 72
+
+
+def test_dense_backend_matches_the_onnx_backend(sdk, dense_allowed, tmp_path, family="fcn"):
+    """graph_outputs_v1 hands the ONNX graph's tensors to the shared parsers."""
+    import yaml
+
+    from libreyolo import LibreYOLO
+
+    model, imgsz = _dense_model(family)
+    artifact = Path(model.export(
+        format="axelera", data=str(_dataset(tmp_path)), imgsz=imgsz,
+        output_path=str(tmp_path / f"{family}_axelera_model"),
+    ))
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "graph_outputs_v1"
+    assert meta["graph_outputs"] == meta["output_names"] and len(meta["graph_outputs"]) == 1
+    backend = LibreYOLO(str(artifact))
+    assert type(backend).__name__ == "AxeleraBackend" and backend.task == model.task
+    reference = LibreYOLO(model.export(
+        format="onnx", imgsz=imgsz, dynamic=False, output_path=str(tmp_path / f"{family}.onnx"),
+    ))
+    image = _image(4)
+    actual, expected = backend(image)[0], reference(image)[0]
+    assert np.mean(np.asarray(actual.semantic_mask.data) == np.asarray(expected.semantic_mask.data)) > 0.999
+
+
+def test_graph_outputs_metadata_must_list_the_outputs(sdk, dense_allowed, tmp_path):
+    import yaml
+
+    from libreyolo import LibreYOLO
+
+    model, imgsz = _dense_model()
+    artifact = Path(model.export(
+        format="axelera", data=str(_dataset(tmp_path)), imgsz=imgsz,
+        output_path=str(tmp_path / "fcn2_axelera_model"),
+    ))
+    meta_path = artifact / "metadata.yaml"
+    meta = yaml.safe_load(meta_path.read_text())
+    meta.pop("graph_outputs")
+    meta_path.write_text(yaml.safe_dump(meta))
+    with pytest.raises(ValueError, match="graph_outputs"):
+        LibreYOLO(str(artifact))

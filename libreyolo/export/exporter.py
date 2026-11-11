@@ -1350,7 +1350,7 @@ class BaseExporter(ABC):
             return imgsz
         if (
             model_name in _RECTANGULAR_EXPORT_FAMILIES
-            and self.format_name in _RECTANGULAR_EXPORT_FORMATS
+            and self._rectangular_imgsz_supported()
         ):
             return imgsz
         family_default = self.model._get_task_input_sizes().get(self.model.size)
@@ -1491,7 +1491,7 @@ class BaseExporter(ABC):
             )
         if (
             _is_rectangular_imgsz(imgsz)
-            and self.format_name not in _RECTANGULAR_EXPORT_FORMATS
+            and not self._rectangular_imgsz_supported()
         ):
             raise NotImplementedError(
                 f"Rectangular imgsz export is not validated for format "
@@ -1546,6 +1546,10 @@ class BaseExporter(ABC):
                 f"Unsupported task for auto output naming: {task!r}"
             ) from exc
         return f"-{suffix}" if suffix else ""
+
+    def _rectangular_imgsz_supported(self) -> bool:
+        """Whether this format keeps a natively rectangular family's canvas."""
+        return self.format_name in _RECTANGULAR_EXPORT_FORMATS
 
     @contextmanager
     def _model_context(self, device, half, int8, batch, imgsz):
@@ -3076,6 +3080,36 @@ class _ClassifyLogitsWrapper(torch.nn.Module):
         return (logits,)
 
 
+#: Dense tasks whose whole graph runs on Metis (layout ``graph_outputs_v1``), with
+#: the output names of their ONNX export so both artifacts decode the same way.
+_AXELERA_GRAPH_OUTPUTS = {
+    ("fcn", "semantic"): ("semantic_logits",),
+}
+
+
+class _GraphOutputsWrapper(torch.nn.Module):
+    """A dense model's full graph ending at its ONNX outputs (``graph_outputs_v1``).
+
+    The device returns the same tensors as the family's ONNX export (super-
+    resolved image, inverse depth, class logits, keypoint heatmaps), and the
+    shared backend parsers turn them into results on the host.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+
+    def forward(self, x):
+        output = self.model(x)
+        if not isinstance(output, (list, tuple)):
+            output = (output,)
+        return tuple(output)[: len(self.output_names)]
+
+
 class AxeleraExporter(BaseExporter):
     """INT8 export for Axelera Metis AIPUs: a ``<stem>_axelera_model/`` directory.
 
@@ -3217,12 +3251,55 @@ class AxeleraExporter(BaseExporter):
             output_path, imgsz, device, half, int8
         )
         stride = 32  # largest YOLO-NAS feature stride; the host decode needs whole cells
-        if self._task() != "classify" and (imgsz[0] % stride or imgsz[1] % stride):
+        raw_heads = self._task() != "classify" and not self._graph_outputs()
+        if raw_heads and (imgsz[0] % stride or imgsz[1] % stride):
             raise ValueError(
                 f"Axelera export needs imgsz to be a multiple of {stride}, got "
                 f"{imgsz[0] if imgsz[0] == imgsz[1] else imgsz}."
             )
         return imgsz, device, output_path
+
+    def _rectangular_imgsz_supported(self) -> bool:
+        # Whole-graph dense exports (HRNet's 256x192 person crop) keep their
+        # canvas; the YOLO-NAS raw-head path stays square.
+        return bool(self._graph_outputs())
+
+    def _graph_outputs(self) -> tuple[str, ...]:
+        """ONNX output names when the whole dense graph runs on Metis, else ``()``."""
+        return _AXELERA_GRAPH_OUTPUTS.get((self.model._get_model_name(), self._task()), ())
+
+    def _calibration_preprocess(self):
+        """``(rgb_hwc, imgsz) -> (chw, ratio)`` matching what the exported model sees.
+
+        Calibration and ``verify`` images must go through the preprocessing the
+        Axelera backend applies at predict time, which for fixed-canvas dense
+        exports differs from the native model's: depth stretches to the canvas,
+        super-resolution pads a crop to it.
+        """
+        import numpy as np
+
+        from ..backends.base import _DEPTH_CUBIC_RESIZE_FAMILIES, BaseBackend
+
+        task = self._task()
+        if task == "depth":
+            cubic = self.model._get_model_name() in _DEPTH_CUBIC_RESIZE_FAMILIES
+
+            def depth(rgb, imgsz):
+                tensor = BaseBackend._preprocess_depth(rgb, imgsz, "rgb", cubic=cubic)[0]
+                return tensor[0].numpy(), 1.0
+
+            return depth
+        if task == "restore":
+
+            def restore(rgb, imgsz):
+                h, w = (imgsz, imgsz) if isinstance(imgsz, int) else imgsz
+                top = max(0, (rgb.shape[0] - h) // 2)
+                left = max(0, (rgb.shape[1] - w) // 2)
+                crop = np.ascontiguousarray(rgb[top : top + h, left : left + w])
+                return BaseBackend._preprocess_restore(crop, (h, w), "rgb")[0][0].numpy(), 1.0
+
+            return restore
+        return self.model._get_preprocess_numpy()
 
     def _prepare_mobilenetv4(self, net, dummy) -> None:
         """Equalize and bound MobileNetV4's residual streams for per-tensor INT8."""
@@ -3263,7 +3340,7 @@ class AxeleraExporter(BaseExporter):
             imgsz=imgsz,
             batch=getattr(self, "_calibration_batch", 1),
             fraction=fraction,
-            preprocess_fn=self.model._get_preprocess_numpy(),
+            preprocess_fn=self._calibration_preprocess(),
             allow_download_scripts=allow_download_scripts,
         )
         self._calibration_loader = loader
@@ -3302,6 +3379,22 @@ class AxeleraExporter(BaseExporter):
         imgsz = (int(dummy.shape[-2]), int(dummy.shape[-1]))
         out = Path(output_path)
         onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        graph_outputs = self._graph_outputs()
+        if graph_outputs:
+            self._raw_wrapper = _GraphOutputsWrapper(nn_model, graph_outputs).eval()
+            logger.info("Step 1/2: Exporting %s ONNX (%s)", self._task(), onnx_output)
+            return _export_onnx_graph(
+                self._raw_wrapper,
+                dummy,
+                output_path=onnx_output,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=["images"],
+                output_names=list(graph_outputs),
+                dynamic_axes=None,
+            )
         if self._task() == "classify":
             net = copy.deepcopy(self.model.model).eval()
             if self.model._get_model_name() == "mobilenetv4":
@@ -3360,6 +3453,20 @@ class AxeleraExporter(BaseExporter):
     def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
         meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
         wrapper = self._raw_wrapper
+        if isinstance(wrapper, _GraphOutputsWrapper):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": list(wrapper.output_names),
+                    # Graph order; ``output_names`` becomes the device order.
+                    "graph_outputs": list(wrapper.output_names),
+                }
+            )
+            return meta
         if isinstance(wrapper, _ClassifyLogitsWrapper):
             meta.update(
                 {
@@ -3476,7 +3583,7 @@ class AxeleraExporter(BaseExporter):
             assets = Path(__file__).resolve().parents[1] / "assets"
             files = sorted(p for p in assets.glob("*.jpg") if not p.stem.endswith("_result"))
             source = "bundled sample images (no held-out dataset images)"
-        preprocess = self.model._get_preprocess_numpy()
+        preprocess = self._calibration_preprocess()
         size = tuple(int(v) for v in imgsz)
         samples = []
         for path in files:

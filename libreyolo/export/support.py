@@ -4049,6 +4049,24 @@ _add(
 )
 _add(
     "validated",
+    ("fcn",),
+    ("semantic",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole FCN graph runs "
+        "on the Metis AIPU and the host upsamples the class logits and takes the "
+        "argmax. On a Metis M.2 Max, FCN-ResNet50/101 are within 1.0 mIoU "
+        "point of FP32 on a paired 300-image COCO val2017 set with VOC-21 masks "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: r50, r101. axelera-devkit / axelera-rt 1.9.0, Linux "
+        "x86_64 compile, INT8, batch 1, fixed 520x520 input"
+    ),
+)
+_add(
+    "validated",
     ("yolo9",),
     ("detect",),
     ("axelera",),
@@ -4220,6 +4238,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("yolo9", "detect"),
             ("resnet", "classify"),
             ("mobilenetv4", "classify"),
+            ("fcn", "semantic"),
         }
     ),
 }
