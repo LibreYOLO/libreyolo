@@ -156,9 +156,12 @@ half a megapixel and 1024 above. The default seed is 0, so depth repeats;
 `ensemble=k` takes the per-pixel median over seeds `seed .. seed+k-1`, each
 affinely aligned to the first. Knobs: `steps` (4) and `ensemble` (1).
 
-Depth loads no text encoder: about 20 GB of GPU memory for `9b` and 66 GB
-for `32b`. Generation also loads the text encoder (about 33 GB and 112 GB
-in all); `offload=True` keeps it on the CPU between prompts. One H200 takes
+Depth loads no text encoder, so it needs less GPU memory than generation,
+which Speridlabs puts at about 33 GB (`9b`) and 112 GB (`32b`) with the text
+encoder; `offload=True` keeps the text encoder on the CPU between prompts.
+On CUDA without the FP8 kernel transformers asks for (the `kernels` package),
+and on MPS or CPU, the `9b` text encoder runs dequantized in bfloat16, close
+to but not identical with upstream's embeddings. One H200 takes
 0.5 s (9b, 512) to 5.3 s (32b, 1024) per depth map and 10 s to 123 s per
 generated image (Speridlabs' numbers).
 
