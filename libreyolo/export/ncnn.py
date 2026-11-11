@@ -24,7 +24,7 @@ def check_ncnn_export_available() -> None:
             "Installation:\n"
             "  pip install pnnx\n\n"
             "Or install with the libreyolo extras:\n"
-            "  pip install libreyolo[ncnn]"
+            '  pip install "libreyolo[ncnn]"'
         )
 
 

@@ -23,7 +23,7 @@ def check_openvino_available() -> None:
             "Installation:\n"
             "  pip install openvino\n\n"
             "Or install with the libreyolo extras:\n"
-            "  pip install libreyolo[openvino]"
+            '  pip install "libreyolo[openvino]"'
         )
 
 

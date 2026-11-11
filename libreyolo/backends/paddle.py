@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -49,9 +50,16 @@ class PaddleBackend(BaseBackend):
         try:
             import paddle.inference as paddle_infer
         except ImportError as exc:
+            if sys.version_info >= (3, 13):
+                raise ImportError(
+                    "Paddle inference needs Python 3.12 or earlier: "
+                    "paddlepaddle 2.6.2 has no wheels for Python "
+                    f"{sys.version_info[0]}.{sys.version_info[1]}, so "
+                    '`pip install "libreyolo[paddle]"` skips it here.'
+                ) from exc
             raise ImportError(
                 "Paddle inference requires paddlepaddle. Install with: "
-                "pip install libreyolo[paddle]"
+                'pip install "libreyolo[paddle]"'
             ) from exc
 
         metadata_path = path / "metadata.yaml"

@@ -24,7 +24,7 @@ try:
 except ImportError:
     raise ImportError(
         "scipy is required for RT-DETR training. "
-        "Install with: pip install libreyolo[rtdetr]"
+        'Install with: pip install "libreyolo[rtdetr]"'
     )
 
 from .box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou

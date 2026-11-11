@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -36,9 +37,16 @@ class ExecuTorchBackend(BaseBackend):
         try:
             from executorch.runtime import Runtime
         except (ImportError, OSError) as exc:
+            if sys.version_info >= (3, 14):
+                raise ImportError(
+                    "ExecuTorch inference needs Python 3.13 or earlier: "
+                    "executorch 1.2 has no wheels for Python "
+                    f"{sys.version_info[0]}.{sys.version_info[1]} yet, so "
+                    '`pip install "libreyolo[executorch]"` skips it here.'
+                ) from exc
             raise ImportError(
                 "ExecuTorch inference requires the optional runtime. "
-                "Install it with: pip install libreyolo[executorch]"
+                'Install it with: pip install "libreyolo[executorch]"'
             ) from exc
 
         if str(device).lower() not in {"auto", "cpu"}:

@@ -44,7 +44,9 @@ def test_paddle_extra_pins_the_measured_converter_stack():
     pyproject = tomllib.loads(Path("pyproject.toml").read_text())
     deps = pyproject["project"]["optional-dependencies"]["paddle"]
     assert "libreyolo[onnx]" in deps
-    assert "onnx>=1.14.0,<1.18" in deps
+    # Paddle 2.6.2 has no Python 3.13+ wheels; the markers keep pip from
+    # backtracking to an old LibreYOLO there.
+    assert "onnx>=1.14.0,<1.18; python_version < '3.13'" in deps
     assert any(dep.startswith("paddlepaddle==2.6.2") for dep in deps)
     assert any(dep.startswith("x2paddle==1.6.0") for dep in deps)
     assert any(dep.startswith("six>=1.16.0") for dep in deps)
@@ -54,7 +56,7 @@ def test_openvocab_extra_covers_clip_tokenizer_runtime():
     """OV-DEIM always embeds prompts with the vendored CLIP BPE tokenizer.
 
     That tokenizer imports ftfy and regex at predict time, so a clean
-    ``pip install libreyolo[openvocab]`` must ship them or the first
+    ``pip install "libreyolo[openvocab]"`` must ship them or the first
     LibreOVDEIM prediction raises ImportError (v1.4.0 release blocker).
     """
     pyproject = tomllib.loads(Path("pyproject.toml").read_text())
@@ -80,5 +82,7 @@ def test_extras_avoid_packages_that_compile_on_install():
 def test_executorch_extra_pins_the_torch_its_runtime_was_built_for():
     # ExecuTorch 1.2's runtime fails to load next to a newer torch (#989).
     deps = _extra("executorch")
-    assert "executorch>=1.2,<1.3" in deps
-    assert "torch>=2.11,<2.12" in deps
+    # ExecuTorch 1.2 has no Python 3.14 wheels; the markers keep pip from
+    # backtracking to an old LibreYOLO there.
+    assert "executorch>=1.2,<1.3; python_version < '3.14'" in deps
+    assert "torch>=2.11,<2.12; python_version < '3.14'" in deps

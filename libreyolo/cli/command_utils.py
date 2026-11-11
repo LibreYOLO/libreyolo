@@ -229,7 +229,7 @@ def resolve_model_or_exit(out: OutputHandler, model: str) -> str:
             out,
             "model_load_failed",
             f"'{model}' needs RF-DETR support, which requires extra dependencies.",
-            suggestion="pip install libreyolo[rfdetr]",
+            suggestion='pip install "libreyolo[rfdetr]"',
         )
 
     from libreyolo.utils.ultralytics_hints import MODELS_URL, ultralytics_weight_hint

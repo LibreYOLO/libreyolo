@@ -464,7 +464,7 @@ def _without_rfdetr_extra(monkeypatch):
     def missing_extra():
         raise ModuleNotFoundError(
             "RF-DETR support requires extra dependencies.\n"
-            "Install with: pip install libreyolo[rfdetr]"
+            'Install with: pip install "libreyolo[rfdetr]"'
         )
 
     monkeypatch.setattr(models, "_ensure_rfdetr", missing_extra)
@@ -487,7 +487,7 @@ def test_factory_names_the_missing_rfdetr_extra(filename, monkeypatch, tmp_path)
     models = _without_rfdetr_extra(monkeypatch)
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(ModuleNotFoundError, match=r"pip install libreyolo\[rfdetr\]"):
+    with pytest.raises(ModuleNotFoundError, match=r'pip install "libreyolo\[rfdetr\]"'):
         models.LibreYOLO(filename)
 
 
@@ -495,7 +495,7 @@ def test_explicit_size_download_names_the_missing_rfdetr_extra(monkeypatch, tmp_
     models = _without_rfdetr_extra(monkeypatch)
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(FileNotFoundError, match=r"pip install libreyolo\[rfdetr\]"):
+    with pytest.raises(FileNotFoundError, match=r'pip install "libreyolo\[rfdetr\]"'):
         models.LibreYOLO("LibreRFDETRn.pt", size="n")
 
 

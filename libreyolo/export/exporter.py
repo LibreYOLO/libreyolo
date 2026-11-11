@@ -940,7 +940,7 @@ class BaseExporter(ABC):
         if self.requires_onnx and importlib.util.find_spec("onnx") is None:
             raise ImportError(
                 "ONNX export requires the 'onnx' package. "
-                "Install with: uv sync --extra onnx  or  pip install onnx"
+                'Install with: pip install "libreyolo[onnx]"'
             )
 
     def _square_fallback_for_restored_rect(
@@ -2784,6 +2784,8 @@ class TFLiteExporter(BaseExporter):
         calibration_data,
         verbose,
         onnx2tf_args=None,
+        int8_backend: str = "converter",
+        int8_output_dtype: str = "int8",
         **kwargs,
     ):
         from .tflite import ensure_tflite_family_supported, export_tflite
@@ -2803,6 +2805,8 @@ class TFLiteExporter(BaseExporter):
             verbose=verbose,
             onnx2tf_args=onnx2tf_args,
             metadata=metadata,
+            int8_backend=int8_backend,
+            int8_output_dtype=int8_output_dtype,
         )
 
 

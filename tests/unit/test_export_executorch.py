@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -169,3 +170,13 @@ def test_user_flatc_executable_is_left_alone(monkeypatch):
     with executorch_export._environment_flatc():
         assert os.environ["FLATC_EXECUTABLE"] == "/opt/flatc"
     assert os.environ["FLATC_EXECUTABLE"] == "/opt/flatc"
+
+
+def test_missing_executorch_on_python_314_names_the_python(monkeypatch):
+    # The executorch extra skips ExecuTorch 1.2 on 3.14, which has no wheels.
+    import libreyolo.export.executorch as executorch_export
+
+    monkeypatch.setitem(sys.modules, "executorch", None)
+    monkeypatch.setattr(executorch_export.sys, "version_info", (3, 14, 0))
+    with pytest.raises(ImportError, match="Python 3.13 or earlier"):
+        executorch_export.check_executorch_available()

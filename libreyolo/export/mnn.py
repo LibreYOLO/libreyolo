@@ -37,7 +37,7 @@ def _find_mnnconvert() -> Path:
         return found.resolve()
     raise ImportError(
         "MNN export requires the mnnconvert tool shipped by the MNN package. "
-        "Install with: pip install libreyolo[mnn]"
+        'Install with: pip install "libreyolo[mnn]"'
     )
 
 
@@ -51,7 +51,7 @@ def check_mnn_available() -> Path:
     except importlib.metadata.PackageNotFoundError as exc:
         raise ImportError(
             "MNN export requires the optional MNN package. "
-            "Install with: pip install libreyolo[mnn]"
+            'Install with: pip install "libreyolo[mnn]"'
         ) from exc
     return _find_mnnconvert()
 

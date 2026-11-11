@@ -41,7 +41,7 @@ __all__ = [
 
 _INSTALL_HINT = (
     "fiftyone is required by libreyolo.integrations.fiftyone. Install it "
-    "with: pip install libreyolo[fiftyone]"
+    'with: pip install "libreyolo[fiftyone]"'
 )
 
 # Tasks whose Results this module knows how to express as FiftyOne labels.

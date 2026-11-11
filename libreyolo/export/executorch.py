@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import os
+import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -44,9 +45,16 @@ def check_executorch_available() -> None:
         )
         from executorch.exir import to_edge_transform_and_lower  # noqa: F401
     except (ImportError, OSError) as exc:
+        if sys.version_info >= (3, 14):
+            raise ImportError(
+                "ExecuTorch export needs Python 3.13 or earlier: executorch "
+                "1.2, the release LibreYOLO is validated with, has no wheels "
+                f"for Python {sys.version_info[0]}.{sys.version_info[1]} yet, "
+                'so `pip install "libreyolo[executorch]"` skips it here.'
+            ) from exc
         raise ImportError(
             "ExecuTorch export requires the optional ExecuTorch toolchain. "
-            "Install it with: pip install libreyolo[executorch]"
+            'Install it with: pip install "libreyolo[executorch]"'
         ) from exc
 
 

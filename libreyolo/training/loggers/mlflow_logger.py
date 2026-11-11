@@ -26,7 +26,7 @@ def _import_mlflow():
     except ImportError as exc:
         raise ImportError(
             "MLflowLogger requires the 'mlflow' package. "
-            "Install it with: pip install libreyolo[mlflow]"
+            'Install it with: pip install "libreyolo[mlflow]"'
         ) from exc
     return mlflow
 

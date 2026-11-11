@@ -213,7 +213,7 @@ def _ensure_rfdetr():
     if importlib.util.find_spec("transformers") is None:
         raise ModuleNotFoundError(
             "RF-DETR support requires extra dependencies.\n"
-            "Install with: pip install libreyolo[rfdetr]"
+            'Install with: pip install "libreyolo[rfdetr]"'
         )
     from .rfdetr.model import LibreRFDETR  # noqa: F401  (import triggers registration)
 
