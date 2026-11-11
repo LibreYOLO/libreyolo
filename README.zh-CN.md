@@ -249,7 +249,11 @@ libreyolo export --model yolo9-t --format onnx
 
 [![Sponsor](https://img.shields.io/badge/sponsor-Open%20Collective-7fadf2?logo=opencollective)](https://opencollective.com/libreyolo)
 
-暂无赞助商。
+**支持者。** 感谢所有捐助过的朋友：
+
+<a href="https://github.com/picjul" title="Mattia Di Giusto"><img src="docs/readme/supporters/picjul.png" width="48" height="48" alt="Mattia Di Giusto"></a> <a href="https://github.com/Magellol" title="Thomas Lefebvre (ma.ge)"><img src="docs/readme/supporters/Magellol.png" width="48" height="48" alt="Thomas Lefebvre"></a>
+
+暂无企业赞助商。
 
 ## 许可证
 

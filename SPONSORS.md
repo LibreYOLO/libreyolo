@@ -100,4 +100,5 @@ None yet.
 
 People who contribute any amount, listed by name.
 
-- Mattia Di Giusto
+- Mattia Di Giusto ([@picjul](https://github.com/picjul))
+- Thomas Lefebvre ([@Magellol](https://github.com/Magellol))

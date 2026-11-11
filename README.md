@@ -261,7 +261,11 @@ sponsor. Hardware manufacturers can sponsor by sending a device.
 
 [![Sponsor](https://img.shields.io/badge/sponsor-Open%20Collective-7fadf2?logo=opencollective)](https://opencollective.com/libreyolo)
 
-No sponsors yet.
+**Supporters.** Thank you to everyone who has donated:
+
+<a href="https://github.com/picjul" title="Mattia Di Giusto"><img src="docs/readme/supporters/picjul.png" width="48" height="48" alt="Mattia Di Giusto"></a> <a href="https://github.com/Magellol" title="Thomas Lefebvre (ma.ge)"><img src="docs/readme/supporters/Magellol.png" width="48" height="48" alt="Thomas Lefebvre"></a>
+
+No company sponsors yet.
 
 ## License
 
