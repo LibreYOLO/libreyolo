@@ -40,7 +40,7 @@ def import_mnn(purpose: str):
             ) from exc
         raise ImportError(
             f"{purpose} requires the optional MNN package. "
-            "Install with: pip install libreyolo[mnn]"
+            'Install with: pip install "libreyolo[mnn]"'
         ) from exc
     return MNN
 

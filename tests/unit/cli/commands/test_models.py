@@ -65,7 +65,7 @@ def test_lazy_multimodal_families_are_listed(rows, family, class_name, extra, ta
     assert row["tasks"] == tasks
     assert row["cli_names"] == []
     assert row["optional_extra"] == extra
-    assert row["install_hint"] == f"pip install libreyolo[{extra}]"
+    assert row["install_hint"] == f'pip install "libreyolo[{extra}]"'
 
 
 def test_command_families_keep_their_command(rows):

@@ -944,7 +944,7 @@ class BaseExporter(ABC):
         if self.requires_onnx and importlib.util.find_spec("onnx") is None:
             raise ImportError(
                 "ONNX export requires the 'onnx' package. "
-                "Install with: uv sync --extra onnx  or  pip install onnx"
+                'Install with: pip install "libreyolo[onnx]"'
             )
 
     def _square_fallback_for_restored_rect(
@@ -2737,6 +2737,29 @@ class TFLiteExporter(BaseExporter):
             check_tflite_int8_available,
         )
 
+        # Validate the INT8 options before anything can touch the live model
+        # (e.g. merging LoRA adapters), so a rejected request leaves it as is.
+        int8_backend = kwargs.get("int8_backend", "converter")
+        int8_output_dtype = kwargs.get("int8_output_dtype", "int8")
+        if int8_backend not in {"converter", "onnx2tf"}:
+            raise ValueError(
+                f"int8_backend must be 'converter' or 'onnx2tf', got {int8_backend!r}"
+            )
+        if int8_output_dtype not in {"int8", "float32"}:
+            raise ValueError(
+                "int8_output_dtype must be 'int8' or 'float32', "
+                f"got {int8_output_dtype!r}"
+            )
+        if (
+            kwargs.get("int8")
+            and int8_backend == "onnx2tf"
+            and int8_output_dtype != "int8"
+        ):
+            raise ValueError(
+                "int8_backend='onnx2tf' always writes int8 input and output tensors; "
+                "int8_output_dtype='float32' requires the default in-process backend."
+            )
+
         family = self.model._get_model_name()
         task = getattr(self.model, "task", "detect")
         self._split_outputs = False
@@ -2788,6 +2811,8 @@ class TFLiteExporter(BaseExporter):
         calibration_data,
         verbose,
         onnx2tf_args=None,
+        int8_backend: str = "converter",
+        int8_output_dtype: str = "int8",
         **kwargs,
     ):
         from .tflite import ensure_tflite_family_supported, export_tflite
@@ -2807,6 +2832,8 @@ class TFLiteExporter(BaseExporter):
             verbose=verbose,
             onnx2tf_args=onnx2tf_args,
             metadata=metadata,
+            int8_backend=int8_backend,
+            int8_output_dtype=int8_output_dtype,
         )
 
 

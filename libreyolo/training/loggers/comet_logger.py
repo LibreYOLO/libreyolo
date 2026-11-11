@@ -19,7 +19,7 @@ def _import_comet():
     except ImportError as exc:
         raise ImportError(
             "CometLogger requires the 'comet-ml' package. "
-            "Install it with: pip install libreyolo[comet]"
+            'Install it with: pip install "libreyolo[comet]"'
         ) from exc
     return comet_ml
 

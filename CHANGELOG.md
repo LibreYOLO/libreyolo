@@ -90,6 +90,46 @@ before 1.4.0 are documented in the
 - **`DepthMap` can carry camera geometry.** New optional keyword-only fields `metric`, `point_map`, `intrinsics`, and `valid_mask` (ADR 0006 amendment). Existing depth families are unchanged.
 - **MoGe-2 no longer claims MoGe-3 checkpoints**, which share its encoder, neck, and head names.
 
+## [1.7.4] - 2026-11-07
+
+### Fixed
+
+- **Extras no longer install an old LibreYOLO on Python 3.13 and 3.14.**
+  On Python 3.14, `pip install "libreyolo[all]"` installed LibreYOLO 1.2.0, `[tflite]` 1.2.0, `[litert]` 1.3.1 and `[executorch]` 1.7.0; `[paddle]` installed 1.4.0 on Python 3.13 and 3.14. A pinned dependency had no wheels for that Python, so pip went back through older releases until one resolved. Environment markers now skip those dependencies there, and the current release installs without that backend: the onnx2tf TFLite converter on 3.14 (it pins ai-edge-litert 2.1.2 and numpy 2.2.6; TFLite inference still installs), ExecuTorch 1.2 on 3.14, paddlepaddle 2.6.2 and X2Paddle on 3.13+, `tensorrt-cu12` 10.16 on 3.14, and coremltools on 3.14. Using a skipped backend says which Python it needs. The dependency-resolution CI check now covers Python 3.14.
+
+- **Missing-extra messages quote the install command.**
+  Messages such as `pip install libreyolo[rfdetr]` failed in zsh, the macOS default shell, which reads the brackets as a glob. All of them now read `pip install "libreyolo[rfdetr]"`, including the hints in `libreyolo models`.
+
+- **ONNX export without the `onnx` extra points at `pip install "libreyolo[onnx]"`.**
+  It suggested `uv sync --extra onnx`, which only works in a repo clone, or `pip install onnx`, which leaves out onnxruntime and onnxsim.
+
+### Changed
+
+- **README: CPU-only install on Linux, a Hub example, and links that work on PyPI.**
+  The README, also the PyPI page, shows how to install the CPU build of PyTorch on Linux to skip the CUDA wheels, shows `LibreYOLO("LibreYOLO/LibreYOLO9t")`, and uses absolute links and image paths. Same in the Chinese README.
+
+## [1.7.3] - 2026-11-07
+
+### Fixed
+
+- **`LibreYOLO("owner/repo")` works on a plain `pip install libreyolo`.**
+  `huggingface_hub` is now a core dependency, so loading a model by its Hugging Face repo id no longer needs the `hf` extra. The extra still exists for pushing to the Hub and gated downloads.
+
+- **Loading `LibreYOLO/LibreYOLO9t`, `LibreYOLO/LibreYOLOXs` and the other YOLO9 and YOLOX repos by repo id.**
+  These repos also hold a legacy lowercase checkpoint, so the loader stopped with "multiple checkpoints". When a repo holds several checkpoints, the one named after the repo is now chosen.
+
+- **A `libreyolo/` folder in the working directory no longer hides Hub repo ids on macOS and Windows.**
+  The check for a local `LibreYOLO/` folder ignored case on those filesystems, so running from a folder containing a LibreYOLO clone made `LibreYOLO("LibreYOLO/<repo>")` look for a local file.
+
+### Changed
+
+- **TFLite INT8 export quantizes once instead of twice.**
+  `onnx2tf -oiqt` builds the integer model twice — float32 I/O, then int8 I/O — and only the second is shipped, although the I/O dtype does not change the calibrated scales. `export(format="tflite", int8=True, ...)` now builds the SavedModel with onnx2tf and runs a single in-process `TFLiteConverter` pass; `int8_backend="onnx2tf"` keeps the previous route, and `int8_output_dtype="float32"` writes float outputs for host-dequantizing runtimes (in-process backend only).
+
+## [1.7.2] - 2026-11-03
+
+### Changed
+
 - **`libreyolo[all]` no longer includes `paddle`. (#989)**
   X2Paddle needs ONNX 1.17 or earlier while the TFLite exporter in `all` needs ONNX 1.20, so the two cannot share an environment. Install `libreyolo[paddle]` on its own; Paddle export needs Python 3.10 or 3.11.
 

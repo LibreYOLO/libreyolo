@@ -92,9 +92,16 @@ class CoreMLBackend(BaseBackend):
         try:
             import coremltools as ct
         except ImportError as e:
+            if sys.version_info >= (3, 14):
+                raise ImportError(
+                    "CoreML inference needs Python 3.13 or earlier: "
+                    "coremltools has no wheels for Python "
+                    f"{sys.version_info[0]}.{sys.version_info[1]} yet, so "
+                    '`pip install "libreyolo[coreml]"` skips it here.'
+                ) from e
             raise ImportError(
                 "CoreML inference requires coremltools. "
-                "Install with: pip install libreyolo[coreml]"
+                'Install with: pip install "libreyolo[coreml]"'
             ) from e
 
         path = Path(model_path)

@@ -44,7 +44,7 @@ except ModuleNotFoundError:  # Python 3.10
 
 ROOT = Path(__file__).resolve().parents[2]
 
-PYTHONS = ("3.10", "3.11", "3.12", "3.13")
+PYTHONS = ("3.10", "3.11", "3.12", "3.13", "3.14")
 
 # name -> (uv --python-platform, extra environment)
 PLATFORMS = {
@@ -65,12 +65,9 @@ MACOS_TARGET_OVERRIDES = {
 
 # (extra, platform, python) -> reason. Only for combinations an upstream
 # package has no build for and we cannot work around. "*" is a wildcard.
-KNOWN_UNRESOLVABLE: dict[tuple[str, str, str], str] = {
-    ("paddle", "*", "3.13"): (
-        "paddlepaddle 2.6.2, the release X2Paddle 1.6.0 works with, "
-        "ships no Python 3.13 wheels"
-    ),
-}
+# Prefer an environment marker in pyproject.toml that skips the dependency
+# there, so the extra still installs the current release.
+KNOWN_UNRESOLVABLE: dict[tuple[str, str, str], str] = {}
 
 # (package, platform, python) -> reason. Source builds we accept: either no
 # compiler is involved, or an upstream package pins a version without wheels
@@ -104,6 +101,11 @@ KNOWN_SOURCE_BUILDS: dict[tuple[str, str, str], str] = {
     ("gevent", "linux-aarch64", "3.10"): _GEVENT,
     ("onnxoptimizer", "linux-aarch64", "*"): _ONNX2TF_PIN,
     ("psutil", "linux-aarch64", "*"): _ONNX2TF_PIN,
+    ("pymongo", "*", "3.14"): (
+        "fiftyone pins pymongo<4.10, which has no Python 3.14 wheels; its C "
+        "extensions are optional and it installs as pure Python without a "
+        "compiler"
+    ),
     ("coremltools", "linux-aarch64", "*"): (
         "ExecuTorch 1.2 itself requires coremltools on Linux, which has no "
         "aarch64 wheels"
@@ -113,6 +115,15 @@ KNOWN_SOURCE_BUILDS: dict[tuple[str, str, str], str] = {
 _NO_WHEEL = re.compile(
     r"Because ([A-Za-z0-9_.\-]+)(?:\{[^}]*\})?(?:[<>=!~][^ ]*)? has no usable wheels"
 )
+
+
+# Source builds accepted only for one extra: (extra, package, platform, python).
+KNOWN_EXTRA_SOURCE_BUILDS: dict[tuple[str, str, str, str], str] = {
+    ("vla", "numpy", "*", "3.14"): (
+        "lerobot (vla) pins numpy<2.3, which has no Python 3.14 wheels; "
+        "builds with a C compiler"
+    ),
+}
 
 
 def _known(table: dict, *key: str) -> str | None:
@@ -198,7 +209,8 @@ def _source_builds(extra: str, platform: str, python: str, pins: str) -> list[st
             )
             if proc.returncode == 0:
                 return found
-            match = _NO_WHEEL.search(proc.stderr)
+            # uv wraps long lines, which can split a marker or the message.
+            match = _NO_WHEEL.search(" ".join(proc.stderr.split()))
             if match is None:
                 return found + [f"<unparsed: {_reason(proc.stderr)}>"]
             found.append(match.group(1).lower())
@@ -261,6 +273,7 @@ def main() -> int:
             pkg
             for pkg in builds
             if _known(KNOWN_SOURCE_BUILDS, pkg, platform, python) is None
+            and _known(KNOWN_EXTRA_SOURCE_BUILDS, extra, pkg, platform, python) is None
         ]
         from_source += bool(unexpected)
         if unexpected:

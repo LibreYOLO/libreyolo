@@ -232,10 +232,17 @@ def _require_coremltools():
         import coremltools
     except ImportError as exc:
         machine = platform.machine().lower()
-        if sys.platform == "darwin" or (
+        if sys.version_info >= (3, 14):
+            hint = (
+                "coremltools has no wheels for Python "
+                f"{sys.version_info[0]}.{sys.version_info[1]} yet, so "
+                "`libreyolo[coreml]` does not install it here. Use Python "
+                "3.13 or earlier."
+            )
+        elif sys.platform == "darwin" or (
             sys.platform.startswith("linux") and machine == "x86_64"
         ):
-            hint = "Install it with `pip install libreyolo[coreml]`."
+            hint = 'Install it with `pip install "libreyolo[coreml]"`.'
         else:
             # The coreml extra's marker skips coremltools here (#989).
             hint = (

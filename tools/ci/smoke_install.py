@@ -85,25 +85,30 @@ def _iou(a, b):
     return inter / union if union > 0 else 0.0
 
 
-def _match(source, target):
-    """Pair each source box with its best same-class target box at IoU >= 0.9.
+def _match(reference, export):
+    """Pair reference and export detections one to one.
 
-    Returns the number of source boxes without a match and the largest
-    confidence difference over the matched pairs.
+    A pair needs the same class and IoU >= 0.9; each export box is used at
+    most once, so duplicated detections show up as extras. Returns the
+    reference boxes left unpaired, the export boxes left unpaired and the
+    largest score difference over the pairs.
     """
-    unmatched, worst_conf = 0, 0.0
-    for box, c, conf in zip(*source):
-        candidates = [
-            (_iou(box, other), other_conf)
-            for other, oc, other_conf in zip(*target)
-            if oc == c
-        ]
-        best = max(candidates, default=(0.0, 0.0))
-        if best[0] >= 0.9:
-            worst_conf = max(worst_conf, abs(best[1] - conf))
+    used: set[int] = set()
+    missing, worst_conf = 0, 0.0
+    for i in np.argsort(-reference[2]):
+        box, cls, conf = reference[0][i], reference[1][i], reference[2][i]
+        best, best_iou = None, 0.9
+        for j, (other, other_cls) in enumerate(zip(export[0], export[1])):
+            if j not in used and other_cls == cls:
+                iou = _iou(box, other)
+                if iou >= best_iou:
+                    best, best_iou = j, iou
+        if best is None:
+            missing += 1
         else:
-            unmatched += 1
-    return unmatched, worst_conf
+            used.add(best)
+            worst_conf = max(worst_conf, abs(float(export[2][best]) - float(conf)))
+    return missing, len(export[1]) - len(used), worst_conf
 
 
 def predict_torch():
@@ -128,8 +133,7 @@ def export_and_predict(fmt):
     got = _detections(LibreYOLO(path)(SAMPLE_IMAGE))
     # Same classes, boxes and scores as PyTorch; one borderline detection
     # near the confidence threshold may appear on only one side.
-    missing, conf_diff = _match(state["ref"], got)
-    extra, _ = _match(got, state["ref"])
+    missing, extra, conf_diff = _match(state["ref"], got)
     assert missing <= 1 and extra <= 1, (
         f"{missing} PyTorch detections missing and {extra} unexpected "
         f"(same class, IoU >= 0.9) out of {len(state['ref'][1])}"

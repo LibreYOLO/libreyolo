@@ -233,7 +233,7 @@ def test_rfdetr_names_without_the_extra_name_the_install(model, monkeypatch):
     assert result.exit_code == 4
     data = json.loads(result.stdout)
     assert data["error"] == "model_load_failed"
-    assert "pip install libreyolo[rfdetr]" in result.stdout
+    assert data["suggestion"] == 'pip install "libreyolo[rfdetr]"'
 
 
 def test_unknown_rfdetr_names_with_the_extra_stay_unknown(monkeypatch):

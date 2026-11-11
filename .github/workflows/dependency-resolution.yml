@@ -82,15 +82,24 @@ jobs:
         if: runner.os == 'Linux'
         run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
 
+      # [all] with CUDA torch is several GB on Linux; the runner image's
+      # unused SDKs leave too little room on some runs.
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      # Plain pip on purpose: this is the path users take.
+      # Plain pip on purpose: this is the path users take. No cache: it would
+      # keep a second copy of every wheel on the runner's disk.
       - name: pip install ".[all]"
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --progress-bar off ".[all]"
+          python -m pip install --no-cache-dir --progress-bar off ".[all]"
 
       # decord 0.6.0's Linux wheel is named py3-none but its WHEEL file
       # declares cp36-cp36m, so pip check flags it on every other Python

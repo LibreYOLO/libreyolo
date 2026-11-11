@@ -62,7 +62,7 @@ def check_paddle_export_available() -> None:
         raise ImportError(
             "Paddle export requires the optional Paddle toolchain "
             f"(missing: {', '.join(missing)}). Install with: "
-            "pip install libreyolo[paddle]"
+            'pip install "libreyolo[paddle]"'
         )
 
     paddle_version = _package_version("paddlepaddle")
@@ -72,19 +72,19 @@ def check_paddle_export_available() -> None:
         raise ImportError(
             "Paddle export is validated with paddlepaddle==2.6.2; got "
             f"{paddle_version or 'an unknown installation'}. Install the "
-            "tested stack with: pip install libreyolo[paddle]"
+            'tested stack with: pip install "libreyolo[paddle]"'
         )
     if x2paddle_version != _SUPPORTED_X2PADDLE_VERSION:
         raise ImportError(
             "Paddle export is validated with x2paddle==1.6.0; got "
             f"{x2paddle_version or 'an unknown installation'}. Install the "
-            "tested stack with: pip install libreyolo[paddle]"
+            'tested stack with: pip install "libreyolo[paddle]"'
         )
     if onnx_version is None or _major_minor(onnx_version) > _MAX_ONNX_VERSION:
         raise ImportError(
             "X2Paddle 1.6.0 requires ONNX <=1.17 for this export path; got "
             f"{onnx_version or 'an unknown installation'}. Install the tested "
-            "stack with: pip install libreyolo[paddle]"
+            'stack with: pip install "libreyolo[paddle]"'
         )
 
 
