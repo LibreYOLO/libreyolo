@@ -4124,6 +4124,26 @@ _add(
 )
 _add(
     "validated",
+    ("yolo7",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; RepConv branches and "
+        "the implicit-knowledge terms fold into the convolutions, each head "
+        "convolution is split into box, objectness and class convolutions, and "
+        "LibreYOLO decodes the anchors on the host. On a Metis M.2 Max, YOLOv7 "
+        "is within 0.2 mAP50-95 of FP32 on a paired 1000-image COCO val2017 "
+        "subset (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: b (on-device results in docs/axelera.md). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed input size"
+    ),
+)
+_add(
+    "validated",
     ("yolo9",),
     ("detect",),
     ("axelera",),
@@ -4314,6 +4334,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("yolox", "detect"),
             ("yolo4", "detect"),
             ("yolo3", "detect"),
+            ("yolo7", "detect"),
         }
     ),
 }

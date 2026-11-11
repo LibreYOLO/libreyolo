@@ -920,7 +920,7 @@ class _PassThrough(torch.nn.Module):
 
 
 class _AnchorYOLORawHeadsWrapper(torch.nn.Module):
-    """Anchor-based YOLO graph (Darknet YOLOv3/v4) cut before the box decode.
+    """Anchor-based YOLO graph (Darknet YOLOv3/v4, YOLOv7) cut before the box decode.
 
     ``model`` returns the inputs of each level's final 1x1 head convolution.
     That convolution is split into ``reg`` (four box terms per anchor),
@@ -1037,6 +1037,74 @@ def _darknet_raw_heads_wrapper(holder: torch.nn.Module, task: str = "detect"):
         anchors=[spec.anchors for spec in specs],
         num_classes=specs[0].num_classes,
         scale_x_y=[spec.scale_x_y for spec in specs],
+    )
+
+
+class _InputsOf(torch.nn.Module):
+    def forward(self, xs):
+        return xs
+
+
+class _FusedRepConv(torch.nn.Module):
+    def __init__(self, conv: torch.nn.Conv2d, act: torch.nn.Module):
+        super().__init__()
+        self.conv = conv
+        self.act = act
+
+    def forward(self, x):
+        return self.act(self.conv(x))
+
+
+def _fuse_yolo7_repconvs(net: torch.nn.Module) -> int:
+    """Replace each YOLOv7 ``RepConv`` (3x3 and 1x1 Conv-BN branches, summed)
+    by one 3x3 convolution with bias, in place; exact in FP32. Returns the count."""
+    from torch.nn.utils.fusion import fuse_conv_bn_eval
+
+    from ..models.yolo7.blocks import RepConv
+
+    targets = [(name, m) for name, m in net.named_modules() if isinstance(m, RepConv)]
+    for name, rep in targets:
+        k3 = fuse_conv_bn_eval(rep.conv1.conv, rep.conv1.bn)
+        k1 = fuse_conv_bn_eval(rep.conv2.conv, rep.conv2.bn)
+        if k3.stride != k1.stride or k3.groups != 1 or k1.groups != 1:
+            raise ValueError(f"Cannot fuse RepConv {name!r}: branch strides or groups differ.")
+        pad = (k3.kernel_size[0] - 1) // 2
+        fused = torch.nn.Conv2d(
+            k3.in_channels, k3.out_channels, k3.kernel_size, k3.stride, k3.padding, bias=True
+        )
+        with torch.no_grad():
+            fused.weight.copy_(k3.weight + torch.nn.functional.pad(k1.weight, [pad] * 4))
+            fused.bias.copy_(k3.bias + k1.bias)
+        parent_name, _, child = name.rpartition(".")
+        parent = net.get_submodule(parent_name) if parent_name else net
+        setattr(parent, child, _FusedRepConv(fused, rep.act))
+    return len(targets)
+
+
+def _yolo7_raw_heads_wrapper(net: torch.nn.Module, task: str = "detect"):
+    """Raw-head wrapper for LibreYOLO7: RepConv branches fused, and the
+    implicit add / multiply of each ``IDetection`` head folded exactly into its
+    split 1x1 convolutions."""
+    if task != "detect":
+        raise ValueError(f"YOLOv7 raw-head export supports detect only, got {task!r}.")
+    net = copy.deepcopy(net).eval()
+    _fuse_yolo7_repconvs(net)
+    detection = net.layers[net._head_index]
+    heads = []
+    for idet in detection.heads:
+        weight = idet.head_conv.weight.detach()
+        add = idet.implicit_a.implicit.detach().reshape(-1)
+        mul = idet.implicit_m.implicit.detach().reshape(-1)
+        bias = (idet.head_conv.bias.detach() + weight[:, :, 0, 0] @ add) * mul
+        heads.append((weight * mul.view(-1, 1, 1, 1), bias))
+    net.layers[net._head_index] = _InputsOf()
+    return _AnchorYOLORawHeadsWrapper(
+        net,
+        heads,
+        layout="yolo7_raw_heads_v1",
+        strides=net.strides,
+        anchors=[list(zip(flat[0::2], flat[1::2])) for flat in net.anchors],
+        num_classes=net.num_classes,
     )
 
 
@@ -3629,7 +3697,10 @@ class AxeleraExporter(BaseExporter):
                 dynamic_axes=None,
             )
         live = self.model.model
-        if self.model._get_model_name() in ("yolo3", "yolo4"):
+        if self.model._get_model_name() == "yolo7":
+            self._pose_bounds = {}
+            self._raw_wrapper = _yolo7_raw_heads_wrapper(live, self._task()).eval()
+        elif self.model._get_model_name() in ("yolo3", "yolo4"):
             self._pose_bounds = {}
             self._raw_wrapper = _darknet_raw_heads_wrapper(live, self._task()).eval()
         elif self.model._get_model_name() == "yolo9":

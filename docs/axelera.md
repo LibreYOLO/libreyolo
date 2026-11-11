@@ -1,6 +1,6 @@
 # Axelera Metis export
 
-Status: YOLO-NAS detection, oriented boxes and pose (pose sizes m and l); YOLOX detection (sizes t, s, m, l and x); YOLOv3 detection (sizes t and b); YOLOv4 detection (size t). Validation record below.
+Status: YOLO-NAS detection, oriented boxes and pose (pose sizes m and l); YOLOX detection (sizes t, s, m, l and x); YOLOv3 detection (sizes t and b); YOLOv4 detection (size t); YOLOv7 detection (size b). Validation record below.
 
 `format="axelera"` compiles a LibreYOLO model to an INT8 `.axm` for Axelera's
 Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
@@ -20,6 +20,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLOX | detect | t, s, m, l, x (n refused, section 7) | see `docs/export_support.md` |
 | YOLOv3 | detect | t, b (spp not measured) | see `docs/export_support.md` |
 | YOLOv4 | detect | t (b refused, section 7) | see `docs/export_support.md` |
+| YOLOv7 | detect | b | see `docs/export_support.md` |
 | YOLO9-E2E, YOLO9-P2, RF-DETR, other families | all | all | blocked (section 11) |
 
 The tiers in `docs/export_support.md` are generated from
@@ -204,6 +205,7 @@ not comparable to published full-set results; the deltas are the point.
 | YOLOv3-b | detect | COCO val2017, 1000 images | 64 coco128 | 0.3656 | 0.3580 | -0.76 |
 | YOLOv4-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.2021 | 0.1968 | -0.53 |
 | YOLOv4-b | detect | COCO val2017, 1000 images | 64 coco128 | 0.4806 | 0.4654 | -1.52 (refused) |
+| YOLOv7 | detect | COCO val2017, 1000 images | 64 coco128 | 0.2843 | 0.2859 | +0.16 |
 
 Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
 class, a set with ImageNet's licence terms used locally only), calibrated on
@@ -364,7 +366,7 @@ rejects larger ones. Calibration images go through that same preprocessing.
 | --- | --- |
 | `format` | `axelera` |
 | `axm` | the `.axm` file name |
-| `output_layout` | output contract, for example `yolonas_raw_heads_v1`, `yolox_raw_heads_v1`, `darknet_raw_heads_v1`, `classify_logits_v1` or `graph_outputs_v1` |
+| `output_layout` | output contract, for example `yolonas_raw_heads_v1`, `yolox_raw_heads_v1`, `darknet_raw_heads_v1`, `yolo7_raw_heads_v1`, `classify_logits_v1` or `graph_outputs_v1` |
 | `output_names` | output names in the order the compiled model returns them |
 | `graph_outputs` | output names in graph order (`graph_outputs_v1`) |
 | `output_windows` | parts emitted through a ReLU6 window, as `[low, high]` logit bounds (YOLO-NAS pose and YOLO9 exports); the backend maps them back before decoding |

@@ -603,6 +603,29 @@ def test_yolo3_tiny_export_folds_norms_and_maxpool_padding(exporter_sdk, tmp_pat
     assert meta["output_names"] == exporter_sdk.seen["device_order"]
 
 
+def test_yolo7_export_uses_the_anchor_raw_head_layout(exporter_sdk, tmp_path):
+    import torch
+    import yaml
+
+    from libreyolo import LibreYOLO7
+    from libreyolo.postprocess.yolonas_raw import raw_head_output_names
+
+    torch.manual_seed(0)
+    model = LibreYOLO7(None, size="b", nb_classes=3, device="cpu")
+    destination = tmp_path / "y7_axelera_model"
+    model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+
+    layout = "yolo7_raw_heads_v1"
+    assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout)
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["model_family"] == "yolo7" and meta["output_layout"] == layout
+    assert meta["output_names"] == exporter_sdk.seen["device_order"]
+    assert meta["strides"] == [8, 16, 32] and "scale_x_y" not in meta
+    net = model.model
+    assert meta["anchors"] == [[list(pair) for pair in zip(a[0::2], a[1::2])] for a in net.anchors]
+    assert len(exporter_sdk.seen["samples"]) == 4
+
+
 def test_depthwise_detection():
     import torch
 
@@ -869,7 +892,9 @@ def test_support_matrix_rows_for_axelera():
     assert yolo4.tier == "validated" and "validated sizes: t" in yolo4.constraint
     assert sorted(REFUSED_SIZES[("yolo4", "detect", "axelera")]) == ["b"]
     assert precision_support("yolo4", "detect", "axelera") == (True, True)
-    other = get_support("yolo7", "detect", "axelera")
+    yolo7 = get_support("yolo7", "detect", "axelera")
+    assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
+    other = get_support("rtmdet", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
     assert mnv4.tier == "validated" and "validated sizes: m " in mnv4.constraint

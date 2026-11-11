@@ -24,7 +24,9 @@ decoded export emits, so the shared backend parsers are reused unchanged.
   `yolonas_obb_raw_heads_v1`, `yolo9_raw_heads_v1`; `yolox_raw_heads_v1` for
   YOLOX: box offsets and log sizes, objectness and class logits per level;
   `darknet_raw_heads_v1` for Darknet YOLOv3/v4: the head convolution split
-  into box, objectness and class convolutions per anchor) and carries the
+  into box, objectness and class convolutions per anchor; `yolo7_raw_heads_v1`
+  the same split for YOLOv7, with RepConv and implicit terms folded) and
+  carries the
   decode constants (`strides`, `reg_max` for distribution heads,
   `grid_cell_offset`, pose offsets, `anchors` and `scale_x_y` for anchor
   heads). YOLO9's `reg_max` counts the distance bins (0..reg_max-1);
@@ -44,7 +46,7 @@ decoded export emits, so the shared backend parsers are reused unchanged.
   new layout name (`..._v2`); backends reject layouts they do not know.
 - The host decode is tested against the in-graph decode at more than one input
   size (`tests/unit/test_yolonas_raw_heads.py`, `tests/unit/test_yolox_raw_heads.py`,
-  `tests/unit/test_darknet_raw_heads.py`).
+  `tests/unit/test_darknet_raw_heads.py`, `tests/unit/test_yolo7_raw_heads.py`).
 
 ## Consequences
 

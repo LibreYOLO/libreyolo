@@ -25,6 +25,8 @@ before 1.4.0 are documented in the
 
 - **Axelera Metis export for YOLOv3 detection.**
   `LibreYOLO("LibreYOLO3t.pt").export(format="axelera")` uses the same Darknet raw-head path. Two graph changes make YOLOv3 compile: Darknet batch norms are folded into the convolutions (exported unfused, they stopped the compiler on every YOLOv3 size), and the -inf padding of YOLOv3-tiny's stride-1 max pool becomes the MaxPool's own padding (the AIPU accepts only zero-valued Pad). YOLOv3-tiny and YOLOv3 are validated on a Metis M.2 Max: 0.1006 vs FP32 0.1023 and 0.3580 vs 0.3656 mAP50-95 on 1000 COCO val2017 images.
+- **Axelera Metis export for YOLOv7 detection; exported YOLOv7 models validate correctly.**
+  `LibreYOLO("LibreYOLO7b.pt").export(format="axelera")` fuses the RepConv branches, folds the implicit-knowledge terms into the head convolutions and decodes the anchors on the host (layout `yolo7_raw_heads_v1`). Validated on a Metis M.2 Max: 0.2859 vs FP32 0.2843 mAP50-95 on 1000 COCO val2017 images. Exported YOLOv7 models of every format were validated with 0-255 pixels instead of 0-1; they now use the YOLO9 letterbox preprocessing, as the PyTorch model does.
 
 - **LGM, image to 3D Gaussians through four generated views: `LibreGen("lgm")`.**
   LGM (MIT) behind the same call as the other image-to-3D families: ImageDream samples four views of the object, LGM turns them into Gaussian splats, `libreyolo generate source=chair.jpg model=lgm`. Upstream needs xformers on CUDA; LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `elevation`. Weights download from LibreYOLO's mirrors `LibreYOLO/LibreLGM0.4b` (MIT) and `LibreYOLO/LibreImageDream` (OpenRAIL use restrictions apply).

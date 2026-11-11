@@ -27,8 +27,8 @@ the order the layout lists:
                                ``cls`` [B, nc, H, W]
 ``yolox_raw_heads_v1``         ``reg`` [B, 4, H, W] (x/y cell offsets, log
                                w/h), ``obj`` [B, 1, H, W], ``cls`` [B, nc, H, W]
-``darknet_raw_heads_v1``       per level and anchor (anchor-major):
-                               ``reg`` [B, 4A, H, W] (tx, ty, tw, th),
+``darknet_raw_heads_v1``,      per level and anchor (anchor-major):
+``yolo7_raw_heads_v1``         ``reg`` [B, 4A, H, W] (tx, ty, tw, th),
                                ``obj`` [B, A, H, W], ``cls`` [B, A*nc, H, W]
 =============================  ===========================================
 
@@ -57,6 +57,7 @@ YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "yolo9_raw_heads_v1": ("reg", "cls"),
     "yolox_raw_heads_v1": ("reg", "obj", "cls"),
     "darknet_raw_heads_v1": ("reg", "obj", "cls"),
+    "yolo7_raw_heads_v1": ("reg", "obj", "cls"),
 }
 
 YOLONAS_RAW_LAYOUT_BY_TASK: dict[str, str] = {
@@ -452,7 +453,8 @@ def decode_anchor_yolo_raw(
     ``anchors`` holds each level's ``(w, h)`` pairs in input pixels.
     ``darknet_raw_heads_v1`` (Darknet YOLOv3/v4): centre ``(sigmoid(t) * s -
     (s - 1) / 2 + cell) * stride`` with ``s = scale_x_y`` of the level, size ``exp(t) *
-    anchor``.
+    anchor``. ``yolo7_raw_heads_v1``: centre ``(2 * sigmoid(t) - 0.5 + cell) *
+    stride``, size ``(2 * sigmoid(t)) ** 2 * anchor``.
     """
     levels = _split_levels(outputs, layout, strides)
     _check_strides(levels, strides)
@@ -472,14 +474,23 @@ def decode_anchor_yolo_raw(
         cls = _sigmoid_(level["cls"].reshape(batch, count, nc, h, w).astype(np.float32, copy=True))
         col = np.arange(w, dtype=np.float32).reshape(1, 1, 1, w)
         row = np.arange(h, dtype=np.float32).reshape(1, 1, h, 1)
-        txy = _sigmoid_(reg[:, :, 0:2].astype(np.float32, copy=True))
-        if scale != 1.0:
-            txy = txy * np.float32(scale) - np.float32((scale - 1.0) / 2.0)
-        cx = (txy[:, :, 0] + col) * np.float32(stride)
-        cy = (txy[:, :, 1] + row) * np.float32(stride)
-        with np.errstate(over="ignore"):
-            half_w = np.exp(reg[:, :, 2]) * pairs[:, 0].reshape(1, count, 1, 1) / 2
-            half_h = np.exp(reg[:, :, 3]) * pairs[:, 1].reshape(1, count, 1, 1) / 2
+        anchor_w = pairs[:, 0].reshape(1, count, 1, 1)
+        anchor_h = pairs[:, 1].reshape(1, count, 1, 1)
+        if layout == "yolo7_raw_heads_v1":
+            t = _sigmoid_(reg.astype(np.float32, copy=True)) * np.float32(2.0)
+            cx = (t[:, :, 0] - np.float32(0.5) + col) * np.float32(stride)
+            cy = (t[:, :, 1] - np.float32(0.5) + row) * np.float32(stride)
+            half_w = t[:, :, 2] ** 2 * anchor_w / 2
+            half_h = t[:, :, 3] ** 2 * anchor_h / 2
+        else:
+            txy = _sigmoid_(reg[:, :, 0:2].astype(np.float32, copy=True))
+            if scale != 1.0:
+                txy = txy * np.float32(scale) - np.float32((scale - 1.0) / 2.0)
+            cx = (txy[:, :, 0] + col) * np.float32(stride)
+            cy = (txy[:, :, 1] + row) * np.float32(stride)
+            with np.errstate(over="ignore"):
+                half_w = np.exp(reg[:, :, 2]) * anchor_w / 2
+                half_h = np.exp(reg[:, :, 3]) * anchor_h / 2
         out = np.empty((batch, 4 + nc, count, h, w), dtype=np.float32)
         out[:, 0] = cx - half_w
         out[:, 1] = cy - half_h
@@ -504,6 +515,7 @@ _DECODERS = {
     "yolo9_raw_heads_v1": decode_yolo9_raw,
     "yolox_raw_heads_v1": decode_yolox_raw,
     "darknet_raw_heads_v1": _anchor_decoder("darknet_raw_heads_v1"),
+    "yolo7_raw_heads_v1": _anchor_decoder("yolo7_raw_heads_v1"),
 }
 
 
