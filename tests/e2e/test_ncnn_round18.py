@@ -308,7 +308,7 @@ def _match_detection_rows(expected_data, actual_data):
 
 def _assert_predict_parity(case, model, backend) -> None:
     if case.weights is not None:
-        source = str(Path("libreyolo/assets/parkour.jpg"))
+        source = str(Path("tests/data/parkour.jpg"))
         confidence = 0.05
     else:
         source = np.random.default_rng(118).integers(

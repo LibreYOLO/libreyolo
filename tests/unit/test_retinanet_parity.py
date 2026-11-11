@@ -99,7 +99,7 @@ def _load_state(size: str) -> dict:
 
 
 def _image_tensor() -> torch.Tensor:
-    path = Path(__file__).parents[2] / "libreyolo" / "assets" / "parkour.jpg"
+    path = Path(__file__).parents[2] / "tests" / "data" / "parkour.jpg"
     with Image.open(path) as image:
         return pil_to_tensor(image.convert("RGB")).float() / 255.0
 

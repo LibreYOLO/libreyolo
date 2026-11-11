@@ -747,7 +747,7 @@ def predict_cmd(
             }
         result_list.append(result_data)
         # Human summary line:
-        # image 1/3 parkour.jpg: 640x480 3 persons, 2 skateboards, 45.2ms
+        # image 1/1 guggenheim-bilbao.jpg: 1536x1194 1 person, 59.5ms avg
         counts_str = ", ".join(
             f"{v} {k}{'s' if v > 1 else ''}" for k, v in class_counts.items()
         )

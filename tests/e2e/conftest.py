@@ -409,6 +409,14 @@ def sample_image():
     return SAMPLE_IMAGE
 
 
+@pytest.fixture(scope="session")
+def parkour_fixture_image():
+    """Test-only parity image whose exact pixels some numeric checks rely on."""
+    from tests.fixture_images import PARKOUR_FIXTURE
+
+    return PARKOUR_FIXTURE
+
+
 @pytest.fixture(scope="function")
 def temp_export_dir(tmp_path):
     """Create a temporary directory for export artifacts."""

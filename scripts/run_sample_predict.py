@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 SAMPLE_IMAGES = {
-    "parkour": Path(__file__).resolve().parents[1] / "libreyolo" / "assets" / "parkour.jpg",
+    "guggenheim-bilbao": Path(__file__).resolve().parents[1] / "libreyolo" / "assets" / "guggenheim-bilbao.jpg",
 }
 
 

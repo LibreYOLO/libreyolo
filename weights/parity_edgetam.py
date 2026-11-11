@@ -629,7 +629,7 @@ def run_parity(
     mirror = Path(mirror_dir).resolve()
     upstream_root = Path(upstream_dir).resolve()
     default_image = (
-        Path(__file__).resolve().parents[1] / "libreyolo" / "assets" / "parkour.jpg"
+        Path(__file__).resolve().parents[1] / "tests" / "data" / "parkour.jpg"
     )
     image_path = Path(image).resolve() if image is not None else default_image
 
@@ -737,7 +737,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--image",
         type=Path,
-        help="Optional local parity image (default: bundled parkour.jpg).",
+        help="Optional local parity image (default: test fixture tests/data/parkour.jpg).",
     )
     return parser.parse_args()
 

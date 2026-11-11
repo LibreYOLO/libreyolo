@@ -84,6 +84,11 @@
 - `/docs/testing.md` documents test tiers, CI expectations, smoke tests, nightly
   tests, and manual validation policy.
 - `/docs/adr/` documents architecture decisions and design contracts.
+- The only showcase/sample image is `libreyolo/assets/guggenheim-bilbao.jpg`
+  (`libreyolo.SAMPLE_IMAGE`). Never use or reintroduce `parkour.jpg` in
+  user-facing material. A test-only copy lives in `tests/data/parkour.jpg`
+  for parity and golden tests; `tests/unit/test_no_parkour_sample.py`
+  enforces this.
 
 ## README policy
 

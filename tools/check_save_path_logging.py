@@ -13,7 +13,7 @@ def main() -> None:
     setup_logging()
 
     model_path = sys.argv[1] if len(sys.argv) > 1 else "LibreYOLOXs.pt"
-    output_path = "runs/manual_save_path_test/parkour.jpg"
+    output_path = "runs/manual_save_path_test/guggenheim-bilbao.jpg"
 
     model = LibreYOLO(model_path, device="cpu")
     result = model.predict(

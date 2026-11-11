@@ -117,7 +117,7 @@ def _assert_public_parity(model, backend, image, box_atol, score_atol):
 
 
 @pytest.mark.torchscript
-def test_torchscript_is_bit_exact(tmp_path, sample_image):
+def test_torchscript_is_bit_exact(tmp_path, parkour_fixture_image):
     from libreyolo import LibreYOLO
 
     weights = require_test_weights(WEIGHTS, expected_family="ppyoloe")
@@ -129,12 +129,12 @@ def test_torchscript_is_bit_exact(tmp_path, sample_image):
     assert backend.task == "detect"
     assert backend.imgsz == IMGSZ
 
-    _assert_raw_parity(model, backend, sample_image, box_atol=0.0, score_atol=0.0)
-    _assert_public_parity(model, backend, sample_image, box_atol=0.0, score_atol=0.0)
+    _assert_raw_parity(model, backend, parkour_fixture_image, box_atol=0.0, score_atol=0.0)
+    _assert_public_parity(model, backend, parkour_fixture_image, box_atol=0.0, score_atol=0.0)
 
 
 @pytest.mark.onnx
-def test_onnx_raw_contract_and_parity(tmp_path, sample_image):
+def test_onnx_raw_contract_and_parity(tmp_path, parkour_fixture_image):
     import onnx
 
     from libreyolo import LibreYOLO
@@ -153,8 +153,8 @@ def test_onnx_raw_contract_and_parity(tmp_path, sample_image):
     assert backend.imgsz == IMGSZ
     assert backend.names[0] == "person"
 
-    _assert_raw_parity(model, backend, sample_image, box_atol=1e-2, score_atol=1e-5)
-    _assert_public_parity(model, backend, sample_image, box_atol=1e-2, score_atol=1e-5)
+    _assert_raw_parity(model, backend, parkour_fixture_image, box_atol=1e-2, score_atol=1e-5)
+    _assert_public_parity(model, backend, parkour_fixture_image, box_atol=1e-2, score_atol=1e-5)
 
 
 @pytest.mark.onnx
@@ -171,7 +171,7 @@ def test_onnx_rejects_a_shape_it_was_not_exported_for(tmp_path):
 
 
 @pytest.mark.openvino
-def test_openvino_parity(tmp_path, sample_image):
+def test_openvino_parity(tmp_path, parkour_fixture_image):
     pytest.importorskip("openvino")
     from libreyolo import LibreYOLO
 
@@ -181,12 +181,12 @@ def test_openvino_parity(tmp_path, sample_image):
     backend = LibreYOLO(str(artifact), device="cpu")
 
     assert backend.model_family == "ppyoloe"
-    _assert_raw_parity(model, backend, sample_image, box_atol=5.0, score_atol=1e-2)
-    _assert_public_parity(model, backend, sample_image, box_atol=0.5, score_atol=1e-3)
+    _assert_raw_parity(model, backend, parkour_fixture_image, box_atol=5.0, score_atol=1e-2)
+    _assert_public_parity(model, backend, parkour_fixture_image, box_atol=0.5, score_atol=1e-3)
 
 
 @pytest.mark.tensorrt
-def test_tensorrt_fp32_engine_parity(tmp_path, sample_image):
+def test_tensorrt_fp32_engine_parity(tmp_path, parkour_fixture_image):
     """Build and run a real engine; an ONNX parse alone is not TensorRT support.
 
     Fixed batch 1 on purpose. An engine built with a dynamic batch profile
@@ -207,7 +207,7 @@ def test_tensorrt_fp32_engine_parity(tmp_path, sample_image):
 
     assert backend.model_family == "ppyoloe"
     _assert_raw_parity(
-        model, backend, sample_image, box_atol=2.0, score_atol=1e-2, batches=(1,)
+        model, backend, parkour_fixture_image, box_atol=2.0, score_atol=1e-2, batches=(1,)
     )
-    _assert_public_parity(model, backend, sample_image, box_atol=0.5, score_atol=1e-2)
+    _assert_public_parity(model, backend, parkour_fixture_image, box_atol=0.5, score_atol=1e-2)
 

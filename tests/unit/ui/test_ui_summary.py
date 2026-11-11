@@ -213,9 +213,9 @@ class _Identities(list):
         (
             result(
                 embeddings=[object()],
-                identities=_Identities(["parkour"], [0.9]),
+                identities=_Identities(["guggenheim"], [0.9]),
             ),
-            ("embed", "parkour"),
+            ("embed", "guggenheim"),
         ),
     ],
 )

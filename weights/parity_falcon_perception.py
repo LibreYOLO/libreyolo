@@ -249,7 +249,7 @@ def main():
         "--cases",
         default=json.dumps(
             [
-                ["libreyolo/assets/parkour.jpg", "person"],
+                ["tests/data/parkour.jpg", "person"],
                 ["libreyolo/assets/guggenheim-bilbao.jpg", "building"],
             ]
         ),
