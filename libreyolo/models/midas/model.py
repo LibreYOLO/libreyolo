@@ -32,6 +32,7 @@ from ..base.model import BaseModel
 from .convert import UPSTREAM_URLS, verify_and_wrap_download
 from .nn import build_midas_model
 from .utils import IMGSZ_DIVISOR, preprocess_numpy
+from ...utils.hf_hub import canonical_hf_url
 
 
 class LibreMiDaS(BaseModel):
@@ -119,6 +120,7 @@ class LibreMiDaS(BaseModel):
         # Mirror and upstream serve different bytes (converted vs original), so
         # each has its own recorded digest. Both are checked: an unverified
         # mirror would be a weaker guarantee than the upstream path it replaced.
+        source_url = canonical_hf_url(source_url)
         if source_url.startswith("https://huggingface.co/LibreYOLO/"):
             size = next(
                 (s for s in cls._MIRROR_SHA256 if f"LibreMiDaS{s}-depth" in source_url),

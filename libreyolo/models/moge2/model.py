@@ -23,6 +23,7 @@ from ...utils.image_loader import ImageInput, ImageLoader
 from ..base.model import BaseModel
 from .nn import MoGe2NormalNet
 from .utils import PATCH_SIZE, preprocess_numpy
+from ...utils.hf_hub import canonical_hf_url
 
 _NORMAL_STATE_PREFIXES = ("encoder.", "neck.", "normal_head.")
 
@@ -158,6 +159,7 @@ class LibreMoGe2(BaseModel):
         # each has its own recorded digest. Both are checked: `resolve/main` is
         # mutable, and an unverified mirror would be a weaker guarantee than the
         # upstream path it replaced.
+        source_url = canonical_hf_url(source_url)
         if source_url.startswith("https://huggingface.co/LibreYOLO/"):
             size = next(
                 (s for s in cls._MIRROR_SHA256 if f"LibreMoGe2{s}-normal" in source_url),

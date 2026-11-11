@@ -30,6 +30,7 @@ from ...utils.image_loader import ImageInput, ImageLoader
 from ..base.model import BaseModel
 from .nn import FAMILY_TAG_KEY, PATCH_SIZE, TASK_MODULES, MoGe3Net
 from .utils import num_tokens_for, pixel_intrinsics, preprocess_numpy, recover_geometry
+from ...utils.hf_hub import canonical_hf_url
 
 _WRAPPER_PREFIXES = ("module.", "_orig_mod.", "model.")
 
@@ -173,6 +174,7 @@ class LibreMoGe3(BaseModel):
 
     @classmethod
     def verify_downloaded_file(cls, local_path: str, source_url: str) -> None:
+        source_url = canonical_hf_url(source_url)
         if source_url.startswith("https://huggingface.co/LibreYOLO/"):
             key = next(
                 (

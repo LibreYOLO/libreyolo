@@ -44,6 +44,7 @@ from ...utils.serialization import load_trusted_torch_file
 from ..base.model import BaseModel, _drop_disabled_eval_interval
 from .config import DINOv2Config
 from libreyolo.training.ddp_spawn import ddp_aware
+from ...utils.hf_hub import hf_url
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +317,7 @@ class LibreDINOv2(BaseModel):
     def get_download_url(cls, filename: str) -> Optional[str]:
         if Path(filename).name.lower() in cls.LEGACY_SEMANTIC_WEIGHTS:
             name = "LibreRFDETRn-sem"
-            return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}.pt"
+            return hf_url(f"LibreYOLO/{name}/resolve/main/{name}.pt")
         return super().get_download_url(filename)
 
     @classmethod

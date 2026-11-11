@@ -14,6 +14,7 @@ from ...utils.results import Results
 from ...utils.serialization import load_untrusted_torch_file
 from .nn import FCOS3DNetwork
 from .utils import NAMES, calibration, decode, payloads, preprocess
+from ...utils.hf_hub import hf_url
 
 logger = logging.getLogger(__name__)
 HF_REPO = "LibreYOLO/LibreFCOS3D"
@@ -87,7 +88,7 @@ class LibreFCOS3D:
         """Return the immutable byte-identical checkpoint mirror URL."""
         if filename not in (None, WEIGHT_FILE):
             return None
-        return f"https://huggingface.co/{HF_REPO}/resolve/{HF_REVISION}/{WEIGHT_FILE}"
+        return hf_url(f"{HF_REPO}/resolve/{HF_REVISION}/{WEIGHT_FILE}")
 
     @classmethod
     def get_download_notice(cls, filename, url):

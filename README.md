@@ -76,6 +76,26 @@ package. For unreleased work, `git checkout dev`.
 
 </details>
 
+<details>
+<summary><b>If huggingface.co is blocked (mainland China)</b></summary>
+
+<br>
+
+Weights download from Hugging Face. LibreYOLO honours the standard
+`HF_ENDPOINT` variable, so you can point it at a mirror such as
+[hf-mirror.com](https://hf-mirror.com), a community mirror not run by
+Hugging Face or LibreYOLO:
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
+Or download the file manually, for example
+`https://hf-mirror.com/LibreYOLO/LibreYOLO9t/resolve/main/LibreYOLO9t.pt`,
+and pass its local path: `LibreYOLO("path/to/LibreYOLO9t.pt")`.
+
+</details>
+
 ## One API, twenty-three tasks
 
 The same three lines run every task. Only the checkpoint changes.

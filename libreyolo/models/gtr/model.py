@@ -18,6 +18,7 @@ from .nn import LibreGTRModel
 from .obb import OBB_INPUT_SIZES, is_gtr_obb_state_dict
 from .pose import LibreGTRPoseModel
 from .seg import SEG_MASK_DOWNSAMPLE_RATIO, is_seg_state_dict
+from ...utils.hf_hub import hf_url
 
 _POSE_HEAD_KEY = "decoder.keypoint_embedding.weight"
 
@@ -255,7 +256,7 @@ class LibreGTR(LibreDFINE):
             return None
         if Path(filename).stem != name:
             return None
-        return f"https://huggingface.co/LibreYOLO/{name}/resolve/{revision}/{name}.pt"
+        return hf_url(f"LibreYOLO/{name}/resolve/{revision}/{name}.pt")
 
     def __init__(
         self, model_path, size, nb_classes=80, device="auto", task=None, **kwargs

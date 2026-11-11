@@ -39,6 +39,7 @@ from typing import (
 import numpy as np
 
 from ...utils.results import GeneratedImage, Results
+from ...utils.hf_hub import hf_url
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +311,7 @@ class LibreGenModel:
         if repo is None:
             return None
         revision = cls.HF_REVISIONS.get(size) or "main"
-        return f"https://huggingface.co/{repo}/tree/{revision}"
+        return hf_url(f"{repo}/tree/{revision}")
 
     @classmethod
     def _notify_license_once(cls) -> None:
