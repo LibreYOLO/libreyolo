@@ -1,38 +1,34 @@
-# LibreYOLO
+<div align="center">
+
+<img src="docs/readme/banner.png" alt="LibreYOLO，采用 MIT 许可证的计算机视觉库。pip install libreyolo" width="100%">
+
+<br>
+
+检测、分割、姿态、深度、OCR 等任务共用一套精简 API，<br>
+训练和导出均已内置。
+
+[![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
+[![PyPI Downloads](https://static.pepy.tech/badge/libreyolo)](https://pepy.tech/projects/libreyolo)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-LibreYOLO-yellow)](https://huggingface.co/LibreYOLO)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LibreYOLO/libreyolo/blob/release/notebooks/quickstart.ipynb)
+[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
 [English](README.md) | [简体中文](README.zh-CN.md)
+
+</div>
 
 > **注意：** 本中文 README 由 AI 翻译，可能包含不准确或不自然的表述。请以英文 README 为准。
 
 > ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](CONTRIBUTING.md)）。 如果你愿意在经济上支持项目，非常欢迎：请查看[赞助计划](SPONSORS.md)。
 
-[![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
-[![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
-[![PyPI Downloads](https://static.pepy.tech/badge/libreyolo)](https://pepy.tech/projects/libreyolo)
-[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-LibreYOLO-yellow)](https://huggingface.co/LibreYOLO)
-[![Benchmarks](https://img.shields.io/badge/benchmarks-visionanalysis.org-purple)](https://www.visionanalysis.org/)
-[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-LibreYOLO-blue?logo=linkedin)](https://www.linkedin.com/company/libreyolo/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LibreYOLO/libreyolo/blob/release/notebooks/quickstart.ipynb)
-
-**一个采用 MIT 许可证的计算机视觉库。** 检测、分割、姿态、深度、OCR
-等十几种任务共用一套精简 API，训练和导出内置提供，而非单独收费。
-支持读取常见的 YOLO 格式数据集，因此现有工作流只需少量改动即可迁移。
-
-![LibreYOLO 检测示例](libreyolo/assets/guggenheim-bilbao_result.jpg)
+<p align="center"><img src="libreyolo/assets/guggenheim-bilbao_result.jpg" width="520" alt="LibreYOLO 在毕尔巴鄂古根海姆图片上的检测结果"></p>
 
 ## 安装
 
 ```bash
 pip install libreyolo
-```
-
-```python
-from libreyolo import LibreYOLO, SAMPLE_IMAGE
-
-model = LibreYOLO("LibreYOLO9t.pt")
-result = model(SAMPLE_IMAGE, save=True)
 ```
 
 <details>
@@ -95,63 +91,6 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 </details>
 
-## 一套 API，二十二种任务
-
-每种任务都是同样的三行代码，只有权重文件不同。
-
-```python
-from libreyolo import LibreYOLO
-
-LibreYOLO("LibreYOLO9t.pt")("street.jpg", save=True)             # 检测
-LibreYOLO("LibreDeepLabv3mv3-sem.pt")("street.jpg", save=True)   # 语义分割
-LibreYOLO("LibreHRNetw32-pose.pt")("street.jpg", save=True)      # 姿态
-LibreYOLO("LibreMiDaSs-depth.pt")("street.jpg", save=True)       # 深度
-LibreYOLO("LibreFeyNobgl-matte.pt")("portrait.jpg", save=True)   # 背景移除
-LibreYOLO("LibreRTDETRv2n-obb.pt")("aerial.jpg", save=True)      # 旋转框
-```
-
-输入源不只是文件。它还可以是摄像头、RTSP 流、视频、目录、YouTube 链接或你的屏幕：
-
-```bash
-libreyolo predict --model yolo9-t --source 0 --show          # 摄像头
-libreyolo predict --model yolo9-t --source rtsp://camera/1   # 网络摄像头
-libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
-```
-
-## 内置内容
-
-| 任务 | 模型 |
-| --- | --- |
-| **检测** | YOLOv9、RF-DETR、YOLOX、YOLO-NAS、D-FINE、DEIM、RT-DETR v1/v2/v4、RTMDet、PicoDet、PP-YOLOE、YOLOv7、EfficientDet，以及经典模型：DETR、Deformable DETR、DINO-DETR、LW-DETR、Faster R-CNN、RetinaNet、SSD、FCOS、CenterNet |
-| **微小目标** | TinyFormer、Dome-DETR（航拍、无人机、遥感） |
-| **实例分割** | RF-DETR、RTMDet、D-FINE、Mask R-CNN |
-| **可提示分割** | SAM、SAM 2、SAM 3、MobileSAM、EdgeTAM、PicoSAM3 |
-| **语义分割** | SegFormer、PIDNet、PP-LiteSeg、U-Net、DeepLabv3、FCN、LingBot-Vision、DINOv2、EoMT |
-| **全景分割** | EoMT |
-| **姿态** | RF-DETR、YOLO-NAS、HRNet、DEKR、EC |
-| **旋转框（OBB）** | RF-DETR、RT-DETRv2、YOLO-NAS-R |
-| **三维检测** | WildDet3D、3D-MOOD、FCOS3D、DetAny3D（独立运行环境） |
-| **分类** | MobileNetV4、ConvNeXt、EfficientNetV2、ResNet、ViT、Swin、DeiT、VGG、AlexNet、CLIP、SigLIP2、DINOv2 |
-| **深度估计** | Depth Anything 3、Depth Anything V2、ZipDepth、MiDaS、MoGe-3 |
-| **表面法线** | MoGe-3、MoGe-2 |
-| **深度、法线与反照率** | Marigold V2 |
-| **边缘检测** | DexiNed、TEED |
-| **嵌入** | LibreFaceEmbedder、CLIP、SigLIP2、Perception Encoder（图像、文本、整段视频；亦支持零样本分类）、DINOv2 |
-| **视频嵌入** | V-JEPA 2（片段嵌入及可训练分类探针）、LeVJEPA（片段及分块嵌入；权重采用 CC BY-NC 4.0） |
-| **人体网格** | SAM 3D Body, InstantHMR |
-| **图像复原** | DDColor、HVI-CIDNet、LaMa、NAFNet、QuickSRNet、Real-ESRGAN、SwinIR |
-| **背景移除** | BiRefNet、FeyNobg、ViTMatte |
-| **OCR** | PP-OCR、DeepSeek-OCR、DeepSeek-OCR-2、PaddleOCR-VL、GLM-OCR、Falcon OCR |
-| **文档版面分析** | PP-DocLayoutV3（版面区域及阅读顺序） |
-| **点检测** | FOMO、LocateAnything |
-| **视线估计** | L2CS |
-| **开放词汇与 VLM** | Grounding DINO、OWLv2、OmDet-Turbo、OV-DEIM、Florence-2、Kosmos-2、Qwen3-VL、InternVL3、LFM2-VL、North Micro Vision、SmolVLM2、Molmo2、WeVisOne-VL、MODUS |
-| **机器人动作 (VLA)** | SmolVLA, ACT, Diffusion Policy |
-| **图像生成** | FLUX.2 klein, SANA-Sprint, PRX, PRXPixel |
-| **3D 生成** | Speridlabs Idol, TripoSplat, TRELLIS, TRELLIS.2, LGM, TripoSR, CRM, Direct3D-S2 |
-
-各模型系列的尺寸、权重与一致性验证证据见[模型参考](https://www.libreyolo.com/docs/models)。
-
 ## 训练
 
 ```python
@@ -169,7 +108,26 @@ libreyolo train --model yolo9-t --data dataset.yaml --epochs 100
 Weights & Biases、Comet、ClearML、Neptune 和 DVCLive 日志记录均受支持。
 详见[训练指南](https://www.libreyolo.com/docs/train)。
 
-## 导出与部署
+## 推理
+
+```python
+from libreyolo import LibreYOLO, SAMPLE_IMAGE
+
+model = LibreYOLO("LibreYOLO9t.pt")
+result = model(SAMPLE_IMAGE, save=True)
+```
+
+直接用名称从 Hugging Face 加载任意模型：`LibreYOLO("LibreYOLO/LibreYOLO9t")`。
+
+输入源不只是文件。它还可以是摄像头、RTSP 流、视频、目录、YouTube 链接或你的屏幕：
+
+```bash
+libreyolo predict --model yolo9-t --source 0 --show          # 摄像头
+libreyolo predict --model yolo9-t --source rtsp://camera/1   # 网络摄像头
+libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
+```
+
+## 导出
 
 十二种格式：ONNX、TorchScript、TensorRT、OpenVINO、CoreML、Core AI、
 TFLite（LiteRT）、NCNN、MNN、RKNN、Paddle 和 ExecuTorch。另支持 NVIDIA
@@ -181,11 +139,105 @@ libreyolo export --model yolo9-t --format onnx
 
 支持范围因模型系列和任务而异，见[导出矩阵](https://www.libreyolo.com/docs/reference/export-matrix)。
 
+## 不止检测
+
+每种任务都是同样的三行代码，只有权重文件不同。
+
+```python
+from libreyolo import LibreYOLO
+
+LibreYOLO("LibreYOLO9t.pt")("street.jpg", save=True)             # 检测
+LibreYOLO("LibreDeepLabv3mv3-sem.pt")("street.jpg", save=True)   # 语义分割
+LibreYOLO("LibreHRNetw32-pose.pt")("street.jpg", save=True)      # 姿态
+LibreYOLO("LibreMiDaSs-depth.pt")("street.jpg", save=True)       # 深度
+LibreYOLO("LibreFeyNobgl-matte.pt")("portrait.jpg", save=True)   # 背景移除
+LibreYOLO("LibreRTDETRv2n-obb.pt")("aerial.jpg", save=True)      # 旋转框
+LibreYOLO("LibreSEARAFTm-flow.pt")("clip.mp4", save=True)        # 光流，每对相邻帧输出一个结果
+```
+
+## 为什么选择 LibreYOLO
+
+<table>
+  <tr><td><b>MIT 代码</b></td><td>可用于闭源产品，无需公开你自己的代码。</td></tr>
+  <tr><td><b>内置训练</b></td><td><code>model.train()</code> 支持多 GPU、LoRA、层冻结和蒸馏。</td></tr>
+  <tr><td><b>内置导出</b></td><td>十二种格式，从 ONNX、TensorRT 到 CoreML、RKNN 和 ExecuTorch。</td></tr>
+  <tr><td><b>沿用你的数据集</b></td><td>支持读取 YOLO 格式数据集，现有工作流只需少量改动即可迁移。</td></tr>
+  <tr><td><b>一套 API</b></td><td>二十三种任务使用同样的调用方式。换权重，不换代码。</td></tr>
+  <tr><td><b>权重许可证清晰</b></td><td><a href="https://huggingface.co/LibreYOLO">Hugging Face</a> 上的每个模型都标明了许可证。</td></tr>
+</table>
+
+一些常用的 YOLO 库采用 AGPL-3.0 许可证，基于它们构建的软件（包括网络服务）
+可能需要公开源代码。LibreYOLO 的代码采用 MIT 许可证。
+
+## 精度与速度
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/chart-coco-latency-dark.svg">
+  <img src="docs/readme/chart-coco-latency-light.svg" alt="YOLOv9、RF-DETR、D-FINE、DEIM 和 RT-DETRv2 在 Jetson Orin Nano Super 上的 COCO mAP 与延迟" width="100%">
+</picture>
+
+<sub>纵轴为 COCO val2017 mAP 50-95（500 张图像子集），横轴为单张图像端到端延迟
+（p50，batch 1），平台为 NVIDIA Jetson Orin Nano Super 8GB，TensorRT FP16。
+图中每个点都是一个 LibreYOLO 权重。数据来自
+[Vision Analysis](https://www.visionanalysis.org/)，该站点还提供其他设备和运行时的结果。
+图表由 [`scripts/readme/make_chart.py`](scripts/readme/make_chart.py) 生成。</sub>
+
+## 内置内容
+
+从经典检测器到深度估计、OCR、视频嵌入、机器人动作和 3D 生成。
+
+<details>
+<summary><b>全部任务与模型系列</b></summary>
+
+<br>
+
+| 任务 | 模型 |
+| --- | --- |
+| **检测** | YOLOv9、RF-DETR、YOLOX、YOLO-NAS、D-FINE、DEIM、RT-DETR v1/v2/v4、RTMDet、PicoDet、PP-YOLOE、YOLOv7、EfficientDet，以及经典模型：DETR、Deformable DETR、DINO-DETR、LW-DETR、Faster R-CNN、RetinaNet、SSD、FCOS、CenterNet |
+| **微小目标** | TinyFormer、Dome-DETR（航拍、无人机、遥感） |
+| **实例分割** | RF-DETR、RTMDet、D-FINE、Mask R-CNN |
+| **可提示分割** | SAM、SAM 2、SAM 3、MobileSAM、EdgeTAM、PicoSAM3 |
+| **语义分割** | SegFormer、PIDNet、PP-LiteSeg、U-Net、DeepLabv3、FCN、LingBot-Vision、DINOv2、EoMT |
+| **全景分割** | EoMT |
+| **姿态** | RF-DETR、YOLO-NAS、HRNet、DEKR、EC |
+| **旋转框（OBB）** | RF-DETR、RT-DETRv2、RiO-DETRv2、YOLO-NAS-R |
+| **三维检测** | WildDet3D、3D-MOOD、FCOS3D、DetAny3D（独立运行环境） |
+| **分类** | MobileNetV4、ConvNeXt、EfficientNetV2、ResNet、ViT、Swin、DeiT、VGG、AlexNet、CLIP、SigLIP2、DINOv2 |
+| **深度估计** | Depth Anything 3、Depth Anything V2、Video Depth Anything、ZipDepth、MiDaS、MoGe-3 |
+| **表面法线** | MoGe-3、MoGe-2 |
+| **深度、法线与反照率** | Marigold V2 |
+| **边缘检测** | DexiNed、TEED |
+| **光流** | SEA-RAFT、NeuFlow v2、RAFT、WAFT、FlowSeek、DPFlow、UniMatch、MEMFOF |
+| **嵌入** | LibreFaceEmbedder、CLIP、SigLIP2、Perception Encoder（图像、文本、整段视频；亦支持零样本分类）、DINOv2 |
+| **视频嵌入** | V-JEPA 2（片段嵌入及可训练分类探针）、LeVJEPA（片段及分块嵌入；权重采用 CC BY-NC 4.0） |
+| **人体网格** | SAM 3D Body、InstantHMR |
+| **图像复原** | DDColor、HVI-CIDNet、LaMa、NAFNet、QuickSRNet、Real-ESRGAN、SwinIR |
+| **背景移除** | BiRefNet、FeyNobg、BEN2、ViTMatte |
+| **OCR** | PP-OCR、DeepSeek-OCR、DeepSeek-OCR-2、PaddleOCR-VL、GLM-OCR、Falcon OCR |
+| **文档版面分析** | PP-DocLayoutV3（版面区域及阅读顺序） |
+| **点检测** | FOMO、LocateAnything |
+| **视线估计** | L2CS |
+| **开放词汇与 VLM** | Grounding DINO、OWLv2、OmDet-Turbo、OV-DEIM、Florence-2、Kosmos-2、Qwen3-VL、InternVL3、LFM2-VL、North Micro Vision、SmolVLM2、Gemma 4、Moondream、Molmo2、WeVisOne-VL、MODUS |
+| **机器人动作（VLA）** | SmolVLA、ACT、Diffusion Policy |
+| **图像生成** | FLUX.2 klein、SANA-Sprint、PRX、PRXPixel |
+| **3D 生成** | Speridlabs Idol、TripoSplat、TRELLIS、TRELLIS.2、LGM、TripoSR、CRM、Direct3D-S2 |
+
+</details>
+
+各模型系列的尺寸、权重与一致性验证证据见[模型参考](https://www.libreyolo.com/docs/models)。
+
 ## 文档
 
 - [文档](https://www.libreyolo.com/docs)涵盖安装、任务、模型、训练、推理、导出和 CLI
 - [基准测试](https://www.visionanalysis.org/)提供独立的第三方数据
 - [CHANGELOG.md](CHANGELOG.md) 记录版本变更
+- [LinkedIn](https://www.linkedin.com/company/libreyolo/) 发布版本动态
+
+## 贡献者
+
+<a href="https://github.com/LibreYOLO/libreyolo/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=LibreYOLO/libreyolo" alt="LibreYOLO 贡献者">
+</a>
 
 ## 赞助
 
@@ -193,11 +245,11 @@ libreyolo export --model yolo9-t --format onnx
 
 [![Sponsor](https://img.shields.io/badge/sponsor-Open%20Collective-7fadf2?logo=opencollective)](https://opencollective.com/libreyolo)
 
-暂无赞助商。
+**支持者。** 感谢所有捐助过的朋友：
+
+<a href="https://github.com/picjul" title="Mattia Di Giusto"><img src="docs/readme/supporters/picjul.png" width="48" height="48" alt="Mattia Di Giusto"></a> <a href="https://github.com/Magellol" title="Thomas Lefebvre (ma.ge)"><img src="docs/readme/supporters/Magellol.png" width="48" height="48" alt="Thomas Lefebvre"></a>
 
 ## 许可证
 
 - **代码：** MIT License。
-- **权重：** 预训练权重可能继承原始来源的许可证，且并非全部为宽松许可。
-  商用前请先查看具体 Hugging Face 仓库上的许可证。每个 LibreYOLO
-  Hugging Face 模型都会标明其许可证。
+- **权重：** 商用前请先查看具体 Hugging Face 仓库的许可证。每个 LibreYOLO Hugging Face 模型都会标明其许可证。
