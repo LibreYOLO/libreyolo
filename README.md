@@ -1,25 +1,41 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/logo-dark.png">
+  <img src="docs/readme/logo-light.png" alt="LibreYOLO logo" width="88">
+</picture>
+
 # LibreYOLO
+
+**Computer vision under the MIT license.**<br>
+Detection, segmentation, pose, depth, OCR and more behind one small API,<br>
+with training and export included.
+
+[![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
+[![PyPI Downloads](https://static.pepy.tech/badge/libreyolo)](https://pepy.tech/projects/libreyolo)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-LibreYOLO-yellow)](https://huggingface.co/LibreYOLO)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LibreYOLO/libreyolo/blob/release/notebooks/quickstart.ipynb)
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+</div>
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/readme/task-detect.jpg" width="276" alt="Object detection"><br><b>Detection</b><br><sub><code>LibreYOLO9s.pt</code></sub></td>
+    <td align="center"><img src="docs/readme/task-segment.jpg" width="276" alt="Instance segmentation"><br><b>Instance segmentation</b><br><sub><code>LibreRFDETRn-seg.pt</code></sub></td>
+    <td align="center"><img src="docs/readme/task-pose.jpg" width="276" alt="Pose estimation"><br><b>Pose</b><br><sub><code>LibreGTRs-pose.pt</code></sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/readme/task-depth.jpg" width="276" alt="Monocular depth"><br><b>Depth</b><br><sub><code>LibreDepthAnythingV2s-depth.pt</code></sub></td>
+    <td align="center"><img src="docs/readme/task-matte.jpg" width="276" alt="Background removal"><br><b>Background removal</b><br><sub><code>LibreBEN2b-matte.pt</code></sub></td>
+    <td align="center"><img src="docs/readme/task-ocr.jpg" width="276" alt="Text recognition"><br><b>OCR</b><br><sub><code>LibrePPOCRt-ocr.pt</code></sub></td>
+  </tr>
+</table>
+
 > ⭐ **Support LibreYOLO.** The best way to help is to **star the repo**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)). If you want to contribute economically, that is very welcome: see the [sponsorship program](SPONSORS.md).
-
-[![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
-[![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
-[![PyPI Downloads](https://static.pepy.tech/badge/libreyolo)](https://pepy.tech/projects/libreyolo)
-[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-LibreYOLO-yellow)](https://huggingface.co/LibreYOLO)
-[![Benchmarks](https://img.shields.io/badge/benchmarks-visionanalysis.org-purple)](https://www.visionanalysis.org/)
-[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-LibreYOLO-blue?logo=linkedin)](https://www.linkedin.com/company/libreyolo/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LibreYOLO/libreyolo/blob/release/notebooks/quickstart.ipynb)
-
-**An MIT-licensed computer vision library.** Detection, segmentation, pose,
-depth, OCR and a dozen more tasks behind one small API, with training and
-export included rather than sold separately. Reads common YOLO-format
-datasets, so existing workflows port over with minimal changes.
-
-![LibreYOLO Detection Example](libreyolo/assets/guggenheim-bilbao_result.jpg)
 
 ## Install
 
@@ -121,7 +137,44 @@ libreyolo predict --model yolo9-t --source rtsp://camera/1   # network camera
 libreyolo predict --model yolo9-t --source screen            # screen capture
 ```
 
+## Why LibreYOLO
+
+<table>
+  <tr><td><b>MIT code</b></td><td>Use it in closed-source products without opening your own code.</td></tr>
+  <tr><td><b>Training included</b></td><td><code>model.train()</code> with multi-GPU, LoRA, layer freezing and distillation.</td></tr>
+  <tr><td><b>Export included</b></td><td>Twelve formats, from ONNX and TensorRT to CoreML, RKNN and ExecuTorch.</td></tr>
+  <tr><td><b>Your datasets</b></td><td>Reads YOLO-format datasets, so existing workflows port over with minimal changes.</td></tr>
+  <tr><td><b>One API</b></td><td>Twenty-three tasks share the same call. Swap the checkpoint, keep the code.</td></tr>
+  <tr><td><b>Clear weight licenses</b></td><td>Every model on <a href="https://huggingface.co/LibreYOLO">Hugging Face</a> states its license.</td></tr>
+</table>
+
+Several popular YOLO libraries are AGPL-3.0, which can require you to publish
+the source of software built on them, network services included. LibreYOLO
+code is MIT.
+
+## Accuracy and speed
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/chart-coco-latency-dark.svg">
+  <img src="docs/readme/chart-coco-latency-light.svg" alt="COCO mAP against latency for YOLOv9, RF-DETR, D-FINE, DEIM and RT-DETRv2 on a Jetson Orin Nano Super" width="100%">
+</picture>
+
+<sub>COCO val2017 mAP 50-95 (500-image subset) against end-to-end latency per
+image, p50, batch 1, TensorRT FP16 on an NVIDIA Jetson Orin Nano Super 8GB.
+Every point is a LibreYOLO checkpoint. Data from
+[Vision Analysis](https://www.visionanalysis.org/), which also covers other
+devices and runtimes. Chart drawn by
+[`scripts/readme/make_chart.py`](scripts/readme/make_chart.py).</sub>
+
 ## What ships
+
+From classic detectors to depth, OCR, video embeddings, robot actions and 3D
+generation.
+
+<details>
+<summary><b>All tasks and model families</b></summary>
+
+<br>
 
 | Task | Models |
 | --- | --- |
@@ -153,6 +206,8 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Robot actions (VLA)** | SmolVLA, ACT, Diffusion Policy |
 | **Image generation** | FLUX.2 klein, SANA-Sprint, PRX, PRXPixel |
 | **3D generation** | Speridlabs Idol, TripoSplat, TRELLIS, TRELLIS.2, LGM, TripoSR, CRM, Direct3D-S2 |
+
+</details>
 
 Per-family sizes, checkpoints and parity evidence live in the
 [model reference](https://www.libreyolo.com/docs/models).
@@ -193,6 +248,7 @@ Support varies by family and task, see the
 - [Docs](https://www.libreyolo.com/docs) covers install, tasks, models, training, prediction, export and the CLI
 - [Benchmarks](https://www.visionanalysis.org/) for independent numbers
 - [CHANGELOG.md](CHANGELOG.md) for what changed
+- [LinkedIn](https://www.linkedin.com/company/libreyolo/) for release news
 
 ## Sponsors
 
@@ -214,3 +270,7 @@ No sponsors yet.
   source, and not all of them are permissive. Check the license on the
   specific Hugging Face repo before you use one commercially. Every LibreYOLO
   Hugging Face model states its license.
+
+<br>
+
+[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
