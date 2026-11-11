@@ -1,4 +1,4 @@
-"""Host-side decode for YOLO-NAS, YOLO9, YOLOX and anchor-based YOLO raw head outputs.
+"""Host-side decode for YOLO-NAS, YOLO9, PP-YOLOE, YOLOX and anchor-based YOLO raw head outputs.
 
 Some accelerators run a YOLO-NAS or YOLO9 graph cut right after the head's
 last convolutions and leave the decode to the host: the DFL distance decode,
@@ -13,8 +13,8 @@ Outputs are ordered level by level (stride 8, 16, 32), and within a level in
 the order the layout lists:
 
 =============================  ===========================================
-``yolonas_raw_heads_v1``       ``reg`` [B, 4*(reg_max+1), H, W],
-                               ``cls`` [B, nc, H, W]
+``yolonas_raw_heads_v1``,      ``reg`` [B, 4*(reg_max+1), H, W],
+``ppyoloe_raw_heads_v1``       ``cls`` [B, nc, H, W]
 ``yolonas_pose_raw_heads_v1``  ``reg`` [B, 4*(reg_max+1), H, W],
                                ``cls`` [B, nc + K, H, W] (class logits, then
                                one visibility logit per keypoint),
@@ -52,6 +52,7 @@ import numpy as np
 
 YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "yolonas_raw_heads_v1": ("reg", "cls"),
+    "ppyoloe_raw_heads_v1": ("reg", "cls"),
     "yolonas_pose_raw_heads_v1": ("reg", "cls", "pose"),
     "yolonas_obb_raw_heads_v1": ("reg", "cls", "offset", "rot"),
     "yolo9_raw_heads_v1": ("reg", "cls"),
@@ -97,6 +98,9 @@ YOLO9_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {
 # where a box scores above 0.05 they stay within [-2.9, +7.0]), so the
 # export keeps them unwindowed. Windowing them changed nothing on YOLOX-n.
 YOLOX_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {}
+
+# PP-YOLOE windows (see docs/axelera.md); empty until measured.
+PPYOLOE_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {}
 
 # A windowed part is mapped from [low, high] onto [0, OUTPUT_WINDOW_SPAN].
 OUTPUT_WINDOW_SPAN = 6.0
@@ -252,7 +256,11 @@ def decode_yolonas_raw(
     reg_max: int = YOLONAS_REG_MAX,
     grid_cell_offset: float = YOLONAS_GRID_CELL_OFFSET,
 ) -> list[np.ndarray]:
-    """Decode detection heads to ``[boxes (B, N, 4) xyxy px, scores (B, N, nc)]``."""
+    """Decode detection heads to ``[boxes (B, N, 4) xyxy px, scores (B, N, nc)]``.
+
+    PP-YOLOE heads (``ppyoloe_raw_heads_v1``) have the same distribution box
+    head and anchor grid, and decode here too.
+    """
     layout = "yolonas_raw_heads_v1"
     levels = _split_levels(outputs, layout, strides)
     _check_strides(levels, strides)
@@ -510,6 +518,7 @@ def _anchor_decoder(layout: str):
 
 _DECODERS = {
     "yolonas_raw_heads_v1": decode_yolonas_raw,
+    "ppyoloe_raw_heads_v1": decode_yolonas_raw,
     "yolonas_pose_raw_heads_v1": decode_yolonas_pose_raw,
     "yolonas_obb_raw_heads_v1": decode_yolonas_obb_raw,
     "yolo9_raw_heads_v1": decode_yolo9_raw,
@@ -597,6 +606,7 @@ __all__ = [
     "YOLONAS_REG_MAX",
     "YOLONAS_STRIDES",
     "YOLOX_RAW_OUTPUT_WINDOWS",
+    "PPYOLOE_RAW_OUTPUT_WINDOWS",
     "check_output_windows",
     "decode_anchor_yolo_raw",
     "decode_raw_heads",

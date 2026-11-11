@@ -626,6 +626,33 @@ def test_yolo7_export_uses_the_anchor_raw_head_layout(exporter_sdk, tmp_path):
     assert len(exporter_sdk.seen["samples"]) == 4
 
 
+def test_ppyoloe_export_uses_the_ppyoloe_raw_head_layout(exporter_sdk, tmp_path):
+    from unittest import mock
+
+    import torch
+    import yaml
+
+    from libreyolo import LibrePPYOLOE
+    from libreyolo.export.support import REFUSED_SIZES
+    from libreyolo.postprocess.yolonas_raw import raw_head_output_names
+
+    torch.manual_seed(0)
+    model = LibrePPYOLOE(None, size="s", nb_classes=3, device="cpu")
+    destination = tmp_path / "pp_axelera_model"
+    # s is refused on Metis by measurement; lift that to check its graph.
+    with mock.patch.dict(REFUSED_SIZES, {("ppyoloe", "detect", "axelera"): {}}):
+        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+
+    layout = "ppyoloe_raw_heads_v1"
+    assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout, (32, 16, 8))
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["model_family"] == "ppyoloe" and meta["output_layout"] == layout
+    assert meta["output_names"] == exporter_sdk.seen["device_order"]
+    assert meta["strides"] == [32, 16, 8] and meta["reg_max"] == 16
+    assert meta["grid_cell_offset"] == 0.5 and "output_windows" not in meta
+    assert meta["axelera"]["quantization_scheme"] == "per_tensor_min_max"
+
+
 def test_depthwise_detection():
     import torch
 
@@ -892,6 +919,9 @@ def test_support_matrix_rows_for_axelera():
     assert yolo4.tier == "validated" and "validated sizes: t" in yolo4.constraint
     assert sorted(REFUSED_SIZES[("yolo4", "detect", "axelera")]) == ["b"]
     assert precision_support("yolo4", "detect", "axelera") == (True, True)
+    ppyoloe = get_support("ppyoloe", "detect", "axelera")
+    assert ppyoloe.tier == "validated" and "validated sizes: l" in ppyoloe.constraint
+    assert sorted(REFUSED_SIZES[("ppyoloe", "detect", "axelera")]) == ["m", "s"]
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
     other = get_support("rtmdet", "detect", "axelera")

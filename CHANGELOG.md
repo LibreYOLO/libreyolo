@@ -28,6 +28,9 @@ before 1.4.0 are documented in the
 - **Axelera Metis export for YOLOv7 detection; exported YOLOv7 models validate correctly.**
   `LibreYOLO("LibreYOLO7b.pt").export(format="axelera")` fuses the RepConv branches, folds the implicit-knowledge terms into the head convolutions and decodes the anchors on the host (layout `yolo7_raw_heads_v1`). Validated on a Metis M.2 Max: 0.2859 vs FP32 0.2843 mAP50-95 on 1000 COCO val2017 images. Exported YOLOv7 models of every format were validated with 0-255 pixels instead of 0-1; they now use the YOLO9 letterbox preprocessing, as the PyTorch model does.
 
+- **Axelera Metis export for PP-YOLOE detection.**
+  `LibreYOLO("LibrePPYOLOEl.pt").export(format="axelera")` fuses the RepVGG blocks, stops after the distribution and class convolutions and decodes on the host with the YOLO-NAS decoder (layout `ppyoloe_raw_heads_v1`). PP-YOLOE-l is validated on a Metis M.2 Max: 0.4740 vs FP32 0.4771 mAP50-95 on 1000 COCO val2017 images. PP-YOLOE-s and -m stay about 1.2 points below FP32 and are refused.
+
 - **LGM, image to 3D Gaussians through four generated views: `LibreGen("lgm")`.**
   LGM (MIT) behind the same call as the other image-to-3D families: ImageDream samples four views of the object, LGM turns them into Gaussian splats, `libreyolo generate source=chair.jpg model=lgm`. Upstream needs xformers on CUDA; LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `elevation`. Weights download from LibreYOLO's mirrors `LibreYOLO/LibreLGM0.4b` (MIT) and `LibreYOLO/LibreImageDream` (OpenRAIL use restrictions apply).
 

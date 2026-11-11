@@ -1108,6 +1108,70 @@ def _yolo7_raw_heads_wrapper(net: torch.nn.Module, task: str = "detect"):
     )
 
 
+class _PPYOLOERawHeadsWrapper(torch.nn.Module):
+    """PP-YOLOE graph cut right after each level's class and distribution convs.
+
+    Returns ``reg`` (``4 * (reg_max + 1)`` distribution logits) and ``cls``
+    (class logits) per level in the head's stride order (32, 16, 8), as layout
+    ``ppyoloe_raw_heads_v1``; the host decodes them like YOLO-NAS heads
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_yolonas_raw`). RepVGG
+    blocks are fused into single 3x3 convolutions (exact) on a copy.
+    ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`; the
+    default is ``PPYOLOE_RAW_OUTPUT_WINDOWS``.
+    """
+
+    output_layout = "ppyoloe_raw_heads_v1"
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str = "detect",
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..models.ppyoloe.nn import RepVGGBlock
+        from ..postprocess.yolonas_raw import (
+            PPYOLOE_RAW_OUTPUT_WINDOWS,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        if task != "detect":
+            raise ValueError(f"PP-YOLOE raw-head export supports detect only, got {task!r}.")
+        model = copy.deepcopy(model).eval()
+        for module in model.modules():
+            if isinstance(module, RepVGGBlock):
+                module.fuse_block_residual_branches()
+        self.model = model
+        self.task = task
+        head = model.head
+        self.strides = tuple(int(stride) for stride in head.fpn_strides)
+        self.reg_max = int(head.reg_max)
+        self.grid_cell_offset = float(head.grid_cell_offset)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        if output_windows is None:
+            output_windows = PPYOLOE_RAW_OUTPUT_WINDOWS
+        self.output_windows = check_output_windows(self.output_layout, output_windows)
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+    def forward(self, x):
+        model = self.model
+        head = model.head
+        outputs = []
+        for i, feat in enumerate(model.neck(model.backbone(x))):
+            avg_feat = torch.nn.functional.adaptive_avg_pool2d(feat, (1, 1))
+            outputs.append(self._final_conv("reg", head.pred_reg[i], head.stem_reg[i](feat, avg_feat)))
+            outputs.append(
+                self._final_conv("cls", head.pred_cls[i], head.stem_cls[i](feat, avg_feat) + feat)
+            )
+        return tuple(outputs)
+
+
 class _YOLO9SplitOutputWrapper(torch.nn.Module):
     """YOLO9 detection graph with boxes and scores as separate outputs.
 
@@ -3697,7 +3761,10 @@ class AxeleraExporter(BaseExporter):
                 dynamic_axes=None,
             )
         live = self.model.model
-        if self.model._get_model_name() == "yolo7":
+        if self.model._get_model_name() == "ppyoloe":
+            self._pose_bounds = {}
+            self._raw_wrapper = _PPYOLOERawHeadsWrapper(live, self._task()).eval()
+        elif self.model._get_model_name() == "yolo7":
             self._pose_bounds = {}
             self._raw_wrapper = _yolo7_raw_heads_wrapper(live, self._task()).eval()
         elif self.model._get_model_name() in ("yolo3", "yolo4"):

@@ -4144,6 +4144,25 @@ _add(
 )
 _add(
     "validated",
+    ("ppyoloe",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; RepVGG blocks are fused, "
+        "the graph is cut after the distribution and class convolutions and "
+        "LibreYOLO decodes on the host like YOLO-NAS. On a Metis M.2 Max, "
+        "PP-YOLOE-l is within 0.4 mAP50-95 of FP32 on a paired 1000-image COCO "
+        "val2017 subset (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: l (s and m are refused, see docs/axelera.md). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed input size"
+    ),
+)
+_add(
+    "validated",
     ("yolo9",),
     ("detect",),
     ("axelera",),
@@ -4286,6 +4305,18 @@ REFUSED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "outside the 1.0-point bar; use m."
         ),
     },
+    ("ppyoloe", "detect", "axelera"): {
+        "s": (
+            "on a Metis device PP-YOLOE-s keeps mAP50-95 1.23 points below FP32 "
+            "(0.396 vs 0.409 on 1000 COCO val2017 images; output windows and "
+            "histogram ranges did not help), outside the 1.0-point bar; use l."
+        ),
+        "m": (
+            "on a Metis device PP-YOLOE-m keeps mAP50-95 1.22 points below FP32 "
+            "(0.442 vs 0.454 on 1000 COCO val2017 images), outside the 1.0-point "
+            "bar; use l."
+        ),
+    },
     ("yolo4", "detect", "axelera"): {
         "b": (
             "on a Metis device YOLOv4 (size b) keeps mAP50-95 1.5 points below "
@@ -4335,6 +4366,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("yolo4", "detect"),
             ("yolo3", "detect"),
             ("yolo7", "detect"),
+            ("ppyoloe", "detect"),
         }
     ),
 }

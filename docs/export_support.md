@@ -122,7 +122,7 @@ in preflight.
 | ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  | available |  |  |  |
+| ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | prx | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | prxpixel | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  |  | available |  |  |  |
@@ -405,6 +405,7 @@ A check mark applies only under any constraint listed here.
 - `ppyoloe` / `detect` / `torchscript`: Fixed 640 canvas, FP32, batch 1 and 2
 - `ppyoloe` / `detect` / `tensorrt`: TensorRT 10.16, FP32 engine (half=False), fixed 640 canvas, fixed batch 1
 - `ppyoloe` / `detect` / `openvino`: OpenVINO CPU FP32, fixed 640 canvas, batch 1 and 2
+- `ppyoloe` / `detect` / `axelera`: validated sizes: l (s and m are refused, see docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `quicksrnet` / `restore` / `onnx`: FP32, dynamic spatial input
 - `quicksrnet` / `restore` / `torchscript`: FP32, fixed-resolution export canvas
 - `realesrgan` / `restore` / `onnx`: dynamic spatial input
@@ -1899,7 +1900,6 @@ These converter paths are callable with the recorded validation context.
 - `ppyoloe` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppyoloe` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ppyoloe` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ppyoloe` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `ppyoloe` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ppyoloe` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ppyoloe` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
