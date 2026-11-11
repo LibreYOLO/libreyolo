@@ -4070,6 +4070,25 @@ _add(
     ),
 )
 _add(
+    "available",
+    ("quicksrnet",),
+    ("restore",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole super-resolution "
+        "graph runs on the Metis AIPU after its hidden channels are equalized "
+        "through their Hardtanh bounds and its biases corrected for INT8 weight "
+        "rounding. Supported, not validated: QuickSRNet-m2 keeps PSNR 0.46 dB "
+        "below FP32 on 296 COCO crops, 2x from 128 px (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: m2 (measured drop, SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed input canvas (smaller images are padded)"
+    ),
+)
+_add(
     "validated",
     ("fcn",),
     ("semantic",),
@@ -4340,6 +4359,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "1000-image ImageNetV2 set; 1.0 on a second compile)"
         ),
     },
+    ("quicksrnet", "restore", "axelera"): {
+        "m2": (
+            "measured PSNR drop 0.46 dB vs FP32 (28.66 vs 29.12 dB, SSIM 0.866 vs "
+            "0.877, on 296 COCO crops upscaled 2x from 128 px; the validated bar "
+            "for restoration is 0.3 dB)"
+        ),
+    },
     ("ppyoloe", "detect", "axelera"): {
         "s": (
             "measured mAP50-95 drop 1.23 points vs FP32 (0.396 vs 0.409 on 1000 "
@@ -4414,6 +4440,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("resnet", "classify"),
             ("mobilenetv4", "classify"),
             ("efficientnetv2", "classify"),
+            ("quicksrnet", "restore"),
             ("fcn", "semantic"),
             ("yolox", "detect"),
             ("yolo4", "detect"),

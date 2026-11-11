@@ -125,7 +125,7 @@ in preflight.
 | ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | prx | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | prxpixel | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  |  | available |  |  |  |
+| quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  | available | available |  |  |  |
 | qwen3vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | qwen3vl_embedding | embed |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | raft | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -663,6 +663,7 @@ These converter paths are callable with the recorded validation context.
 - `quicksrnet` / `restore` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `quicksrnet` / `restore` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `quicksrnet` / `restore` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
+- `quicksrnet` / `restore` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole super-resolution graph runs on the Metis AIPU after its hidden channels are equalized through their Hardtanh bounds and its biases corrected for INT8 weight rounding. Supported, not validated: QuickSRNet-m2 keeps PSNR 0.46 dB below FP32 on 296 COCO crops, 2x from 128 px (docs/axelera.md). Constraint: supported sizes: m2 (measured drop, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (smaller images are padded)
 - `quicksrnet` / `restore` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `rfdetr` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
 - `rfdetr` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes.
@@ -1932,7 +1933,6 @@ These converter paths are callable with the recorded validation context.
 - `quicksrnet` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `quicksrnet` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `quicksrnet` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `quicksrnet` / `restore` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `quicksrnet` / `restore` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `quicksrnet` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `quicksrnet` / `restore` / `coreai`: This family and task have not been validated for Core AI export.

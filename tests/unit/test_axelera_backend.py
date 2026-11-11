@@ -604,3 +604,37 @@ def test_graph_outputs_metadata_must_list_the_outputs(sdk, dense_allowed, tmp_pa
     meta_path.write_text(yaml.safe_dump(meta))
     with pytest.raises(ValueError, match="graph_outputs"):
         LibreYOLO(str(artifact))
+
+
+def test_quicksrnet_backend_matches_the_onnx_backend(sdk, tmp_path):
+    """Whole-graph restore: the device returns the restored image. The export
+    equalizes QuickSRNet's channels and corrects its biases for INT8 weights,
+    so outputs move by a few grey levels; smaller images pad into the canvas."""
+    import torch
+    import yaml
+
+    from libreyolo import LibreQuickSRNet, LibreYOLO
+
+    torch.manual_seed(0)
+    model, imgsz = LibreQuickSRNet(None, size="m2", device="cpu"), 32
+    artifact = Path(model.export(
+        format="axelera", data=str(_dataset(tmp_path)), imgsz=imgsz,
+        output_path=str(tmp_path / "sr_axelera_model"),
+    ))
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "graph_outputs_v1" and meta["graph_outputs"] == ["restored"]
+    backend = LibreYOLO(str(artifact))
+    reference = LibreYOLO(model.export(
+        format="onnx", imgsz=imgsz, dynamic=False, output_path=str(tmp_path / "sr.onnx"),
+    ))
+    image = _image(4, shape=(imgsz, imgsz, 3))
+    actual, expected = backend(image)[0], reference(image)[0]
+    diff = np.abs(
+        np.asarray(actual.restored.data, dtype=np.int16) - np.asarray(expected.restored.data, dtype=np.int16)
+    )
+    assert diff.max() <= 8
+    smaller = backend(_image(5, shape=(imgsz - 8, imgsz - 4, 3)))[0]
+    assert np.asarray(smaller.restored.data).shape[:2] == (2 * (imgsz - 8), 2 * (imgsz - 4))
+    with pytest.raises(ValueError, match="fixed-resolution"):
+        backend(_image(5, shape=(imgsz + 8, imgsz, 3)))
+

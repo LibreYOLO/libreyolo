@@ -3447,6 +3447,7 @@ class _ClassifyLogitsWrapper(torch.nn.Module):
 #: the output names of their ONNX export so both artifacts decode the same way.
 _AXELERA_GRAPH_OUTPUTS = {
     ("fcn", "semantic"): ("semantic_logits",),
+    ("quicksrnet", "restore"): ("restored",),
 }
 
 
@@ -3678,6 +3679,22 @@ class AxeleraExporter(BaseExporter):
             return restore
         return self.model._get_preprocess_numpy()
 
+    def _prepare_quicksrnet(self, net) -> None:
+        """Equalize QuickSRNet's hidden channels for per-channel INT8 weights."""
+        from ..models.quicksrnet.quantize import prepare_for_int8
+
+        samples = [torch.as_tensor(x) for x in self._equalization_samples()]
+        if not samples:
+            return
+        summary = prepare_for_int8(net, samples)
+        logger.info(
+            "Axelera: QuickSRNet hidden channels equalized through their Hardtanh "
+            "bounds (smallest calibration peak per layer %s); %d biases corrected "
+            "for INT8 weight rounding.",
+            ", ".join(f"{v:.3f}" for v in summary["layer_min_peaks"]),
+            summary["bias_corrected"],
+        )
+
     def _prepare_mobilenetv4(self, net, dummy) -> None:
         """Equalize and bound MobileNetV4's residual streams for per-tensor INT8."""
         from ..models.mobilenetv4.quantize import prepare_for_int8
@@ -3758,6 +3775,9 @@ class AxeleraExporter(BaseExporter):
         onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
         graph_outputs = self._graph_outputs()
         if graph_outputs:
+            if self.model._get_model_name() == "quicksrnet":
+                nn_model = copy.deepcopy(nn_model).eval()
+                self._prepare_quicksrnet(nn_model)
             self._raw_wrapper = _GraphOutputsWrapper(nn_model, graph_outputs).eval()
             logger.info("Step 1/2: Exporting %s ONNX (%s)", self._task(), onnx_output)
             return _export_onnx_graph(
