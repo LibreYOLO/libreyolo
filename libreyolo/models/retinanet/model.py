@@ -169,10 +169,12 @@ class LibreRetinaNet(BaseModel):
         self,
         format: str = "onnx",
         *,
-        opset: int = 13,
+        opset: int | None = None,
         **kwargs,
     ) -> str:
         if format.lower() == "onnx":
+            # The ONNX parity evidence is at opset 13; other formats choose their own.
+            opset = 13 if opset is None else opset
             if int(kwargs.get("batch", 1)) != 1:
                 raise NotImplementedError(
                     "RetinaNet ONNX export supports batch=1 only."
