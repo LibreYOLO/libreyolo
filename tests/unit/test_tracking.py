@@ -719,9 +719,7 @@ class TestTrackImageSequences:
 
         with pytest.raises(ValueError, match="frame size changed"):
             list(
-                BaseModel.track(
-                    model, frames, save=True, output_path=str(output_path)
-                )
+                BaseModel.track(model, frames, save=True, output_path=str(output_path))
             )
 
     @pytest.mark.parametrize("fps", [0, -1, np.nan, np.inf])
@@ -797,12 +795,14 @@ class TestTrackImageSequences:
 
         assert captured["frame_rate"] == 5
 
-    def test_fps_does_not_seed_frame_rate_for_video_sources(self, tmp_path, monkeypatch):
-        cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
-        path = str(tmp_path / "clip.mp4")
-        writer = cv2.VideoWriter(
-            path, cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16)
+    def test_fps_does_not_seed_frame_rate_for_video_sources(
+        self, tmp_path, monkeypatch
+    ):
+        cv2 = pytest.importorskip(
+            "cv2", reason="opencv-python required for video tests"
         )
+        path = str(tmp_path / "clip.mp4")
+        writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16))
         for _ in range(2):
             writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
         writer.release()
@@ -870,7 +870,16 @@ class TestTrackImageSequences:
 
 @pytest.mark.parametrize(
     "name",
-    ["cam.mts", "cam.m2ts", "cam.flv", "cam.3gp", "cam.h264", "cam.dav", "cam.bin", "cam"],
+    [
+        "cam.mts",
+        "cam.m2ts",
+        "cam.flv",
+        "cam.3gp",
+        "cam.h264",
+        "cam.dav",
+        "cam.bin",
+        "cam",
+    ],
 )
 def test_tracks_video_files_with_uncommon_or_missing_extensions(tmp_path, name):
     cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
@@ -907,15 +916,23 @@ def test_builtin_tracker_accepts_the_yaml_spelling(tracker, tmp_path, monkeypatc
     """The ecosystem names its trackers bytetrack.yaml / botsort.yaml; those
     raised 'Unknown tracker'."""
     monkeypatch.chdir(tmp_path)
-    (result,) = list(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=tracker))
+    (result,) = list(
+        BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=tracker)
+    )
     assert result.track_id.tolist() == [1]
 
 
-def test_tracker_yaml_that_is_a_local_file_is_not_silently_ignored(tmp_path, monkeypatch):
+def test_tracker_yaml_that_is_a_local_file_is_not_silently_ignored(
+    tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "bytetrack.yaml").write_text("track_buffer: 60\n")
     with pytest.raises(ValueError, match="does not read tracker yaml files"):
-        next(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker="bytetrack.yaml"))
+        next(
+            BaseModel.track(
+                _StubTrackModel(), _make_frames(1), tracker="bytetrack.yaml"
+            )
+        )
 
 
 class TestTrackPersist:
@@ -950,9 +967,7 @@ class TestTrackPersist:
         model = _StubTrackModel()
         _ids_per_call(model, [_NEAR_BOX], persist=True)
 
-        assert _ids_per_call(model, [_FAR_BOX], persist=True, track_buffer=10) == [
-            [1]
-        ]
+        assert _ids_per_call(model, [_FAR_BOX], persist=True, track_buffer=10) == [[1]]
 
     def test_persist_resets_on_a_new_directory_source(self, tmp_path):
         first, second = tmp_path / "a", tmp_path / "b"
@@ -1305,7 +1320,9 @@ class TestExportedBackendTrack:
         clip = _moving_clip()
 
         native_ids = _track_ids(native.track(clip, imgsz=_TINY_IMGSZ, tracker=tracker))
-        onnx_ids = _track_ids(onnx_model.track(clip, imgsz=_TINY_IMGSZ, tracker=tracker))
+        onnx_ids = _track_ids(
+            onnx_model.track(clip, imgsz=_TINY_IMGSZ, tracker=tracker)
+        )
 
         assert len(onnx_ids) == len(clip)
         assert any(onnx_ids), "the fixture model should produce tracks"
@@ -1336,6 +1353,39 @@ class TestExportedBackendTrack:
         assert result.boxes.id is not None
         assert result.boxes.id.tolist() == result.track_id.tolist()
 
+    def test_onnx_track_accepts_single_int_class(self, tiny_native_and_onnx):
+        native, onnx_model = tiny_native_and_onnx
+        clip = _moving_clip(3)
+        cls = int(next(native.track(clip, imgsz=_TINY_IMGSZ)).boxes.cls[0])
+
+        as_int = list(onnx_model.track(clip, imgsz=_TINY_IMGSZ, classes=cls))
+        as_list = list(onnx_model.track(clip, imgsz=_TINY_IMGSZ, classes=[cls]))
+
+        assert _track_ids(as_int) == _track_ids(as_list)
+        assert all(set(r.boxes.cls.tolist()) <= {cls} for r in as_int)
+
+    @pytest.mark.parametrize("device", ["cuda", "cuda:0", "mps"])
+    def test_backend_reid_device_falls_back_when_torch_cannot_use_it(
+        self, tiny_native_and_onnx, monkeypatch, device
+    ):
+        import torch
+        import libreyolo.tracking.run as run_mod
+
+        _, onnx_model = tiny_native_and_onnx
+        seen = {}
+
+        def fake_run_track(*args, reid_device, **kwargs):
+            seen["device"] = reid_device()
+            return iter(())
+
+        monkeypatch.setattr(run_mod, "run_track", fake_run_track)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+        monkeypatch.setattr(onnx_model, "device", device)
+
+        list(onnx_model.track(_moving_clip(1)))
+        assert seen["device"] is None
+
     def test_onnx_track_custom_tracker(self, tiny_native_and_onnx):
         _, onnx_model = tiny_native_and_onnx
         tracker = _CustomTracker()
@@ -1344,7 +1394,9 @@ class TestExportedBackendTrack:
         assert len(tracker.images) == 2
         assert all(set(r.track_id.tolist()) <= {42} for r in results)
 
-    def test_onnx_track_saves_to_runs_track(self, tiny_native_and_onnx, tmp_path, monkeypatch):
+    def test_onnx_track_saves_to_runs_track(
+        self, tiny_native_and_onnx, tmp_path, monkeypatch
+    ):
         from unittest.mock import Mock
 
         monkeypatch.chdir(tmp_path)

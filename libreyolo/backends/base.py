@@ -5592,13 +5592,22 @@ class BaseBackend(ABC):
             )
         from ..tracking.run import run_track
 
+        classes = normalize_classes(classes)
+
         def predict_frame(pil_img, **predict_kwargs):
             return self._predict_single(pil_img, color_format="rgb", **predict_kwargs)
 
         def reid_device():
+            # torch.device() only parses the name; it does not check that this
+            # PyTorch build can use the device (e.g. ONNX Runtime on CUDA with
+            # CPU-only torch). Return None so the ReID model falls back to CPU.
             try:
-                torch.device(str(self.device))
+                dev = torch.device(str(self.device))
             except (RuntimeError, TypeError, ValueError):
+                return None
+            if dev.type == "cuda" and not torch.cuda.is_available():
+                return None
+            if dev.type == "mps" and not torch.backends.mps.is_available():
                 return None
             return str(self.device)
 
