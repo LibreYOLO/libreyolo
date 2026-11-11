@@ -473,6 +473,19 @@ def LibreYOLO(
             model_path, nb_classes=nb_classes, device=device, task=task
         )
 
+    # Axelera Metis: a ``*.axm`` file, or a directory holding one next to
+    # LibreYOLO's metadata.yaml (what ``export(format="axelera")`` writes).
+    if model_path.endswith(".axm") or (
+        Path(model_path).is_dir()
+        and (Path(model_path) / "metadata.yaml").is_file()
+        and any(Path(model_path).glob("*.axm"))
+    ):
+        from ..backends.axelera import AxeleraBackend
+
+        return AxeleraBackend(
+            model_path, nb_classes=nb_classes, device=device, task=task
+        )
+
     if Path(model_path).is_dir() and (Path(model_path) / "model.xml").exists():
         from ..backends.openvino import OpenVINOBackend
 

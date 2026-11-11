@@ -18,6 +18,7 @@ EXPORT_FORMATS = (
     "paddle",
     "mnn",
     "rknn",
+    "axelera",
     "ncnn",
     "tflite",
     "coreml",
@@ -3952,6 +3953,84 @@ _NCNN_BLOCKS = {
 }
 
 
+_add(
+    "validated",
+    ("yolonas",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the graph is cut after "
+        "the head convolutions and LibreYOLO decodes on the host. On a Metis "
+        "M.2 Max, YOLO-NAS-s/m/l are within 0.5 mAP50-95 of FP32 on a paired "
+        "1000-image COCO val2017 subset (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: s, m, l. axelera-devkit / axelera-rt 1.9.0, Linux "
+        "x86_64 compile, INT8, batch 1, fixed square input"
+    ),
+)
+_add(
+    "validated",
+    ("yolonas",),
+    ("pose",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; LibreYOLO windows the "
+        "raw outputs, equalizes the keypoint branch and caps the class "
+        "branch, and decodes boxes and keypoints on the host. On a Metis M.2 "
+        "Max, YOLO-NAS-pose-m/l are within 1.0 keypoint mAP50-95 of FP32 on "
+        "300 COCO val2017 person images (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: m, l (n and s are refused, see docs/axelera.md). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed square input"
+    ),
+)
+_add(
+    "validated",
+    ("yolonas",),
+    ("obb",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; LibreYOLO decodes the "
+        "rotated boxes on the host. On a Metis M.2 Max, YOLO-NAS-R-s/m/l are "
+        "within 1.0 mAP50-95 of FP32 on a paired 300-tile DOTA-v2.0 val "
+        "subset (docs/axelera.md); calibration data must be passed."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: s, m, l (300 DOTA-v2.0 tiles). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square "
+        "input"
+    ),
+)
+_add(
+    "blocked",
+    ("yolo9",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "Axelera support starts with YOLO-NAS. YOLO9 follows the same raw-head "
+        "path but stays blocked until it has been compiled and measured on a "
+        "Metis device."
+    ),
+)
+_add(
+    "blocked",
+    ("rfdetr",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "RF-DETR needs attention, data-dependent TopK/Gather and grid_sample, "
+        "which Axelera's compiler does not place on the AIPU, and the host can "
+        "only run operators before or after the accelerated graph."
+    ),
+)
+
+
 def get_support(family: str, task: str, fmt: str) -> SupportEntry:
     """Return the canonical support entry for an export combination."""
     family = str(family or "").lower()
@@ -3987,6 +4066,12 @@ def get_support(family: str, task: str, fmt: str) -> SupportEntry:
             "blocked",
             "RKNN v1 is limited to the exact simulator-tested detection variants: "
             "YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.",
+        )
+    if fmt == "axelera":
+        return SupportEntry(
+            "blocked",
+            "Axelera export is implemented for YOLO-NAS detect, pose and obb only; "
+            "this family has not been compiled or measured on Axelera Metis.",
         )
     if fmt in {"tensorrt", "openvino"}:
         runtime = "TensorRT" if fmt == "tensorrt" else "OpenVINO"
@@ -4042,11 +4127,31 @@ def iter_blocked() -> Iterator[tuple[tuple[str, str, str], SupportEntry]]:
     return iter_entries("blocked")
 
 
+#: Sizes refused although their (family, task, format) tier allows the export,
+#: each with its measured reason (the tier's constraint lists the sizes that pass).
+REFUSED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("yolonas", "pose", "axelera"): {
+        "n": (
+            "on a Metis device YOLO-NAS-pose-n keeps keypoint mAP50-95 1.30 "
+            "points below FP32 (0.696 vs 0.709 on 300 COCO val2017 person "
+            "images; 1.11 with person-image calibration), outside the "
+            "1.0-point bar; use m or l."
+        ),
+        "s": (
+            "on a Metis device YOLO-NAS-pose-s keeps keypoint mAP50-95 2.21 "
+            "points below FP32 at best (0.734 vs 0.757 on 300 COCO val2017 "
+            "person images), outside the 1.0-point bar; use m or l."
+        ),
+    },
+}
+
 #: Formats whose INT8 export is limited to these (family, task) pairs.
 INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
     "onnx": frozenset({("yolo9", "detect")}),
     # Full-integer TFLite export has been checked on real weights for these.
     "tflite": frozenset({("yolox", "detect"), ("yolo9", "detect")}),
+    # Axelera Metis is INT8-only; see the axelera rows above.
+    "axelera": frozenset({("yolonas", "detect"), ("yolonas", "pose"), ("yolonas", "obb")}),
 }
 
 #: Families whose export accepts FP32 only.
@@ -4081,6 +4186,7 @@ __all__ = [
     "EXPORT_FORMATS",
     "FP32_ONLY_FAMILIES",
     "INT8_EXPORTS",
+    "REFUSED_SIZES",
     "SUPPORT",
     "SupportEntry",
     "Tier",

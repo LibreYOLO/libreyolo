@@ -14,7 +14,7 @@ import warnings
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import ClassVar, Optional, Tuple, Union
 
 import torch
 
@@ -28,7 +28,7 @@ from .onnx import (
     export_onnx,
     quantize_onnx_int8,
 )
-from .support import INT8_EXPORTS, get_support, validated_alternatives
+from .support import INT8_EXPORTS, REFUSED_SIZES, get_support, validated_alternatives
 from .torchscript import export_torchscript
 
 logger = logging.getLogger(__name__)
@@ -359,8 +359,301 @@ class _YOLONASExportWrapper(torch.nn.Module):
         return output
 
 
+class _YOLONASRawHeadsWrapper(torch.nn.Module):
+    """YOLO-NAS graph cut right after the head's last convolutions.
+
+    Returns the raw outputs of each level's final convolutions, level by level
+    (stride 8, 16, 32), in the order of ``output_layout``. The DFL decode,
+    anchors, sigmoids and keypoint / rotated-box geometry are left to the host
+    (``libreyolo.postprocess.yolonas_raw``), which rebuilds exactly the tensors
+    the decoded export emits. Integer accelerators handle the convolutions
+    well but quantize pixel-range boxes and post-sigmoid scores poorly.
+
+    ``output_windows`` (``{part: (low, high)}``, default per task from
+    ``YOLONAS_RAW_OUTPUT_WINDOWS_BY_TASK``) emits those parts through
+    :func:`_relu6_window`, so each gets an int8 range of ``[low, high]``
+    instead of its full calibrated range; the host maps them back.
+    """
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str,
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import (
+            YOLONAS_RAW_LAYOUT_BY_TASK,
+            YOLONAS_RAW_OUTPUT_WINDOWS_BY_TASK,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        if task not in YOLONAS_RAW_LAYOUT_BY_TASK:
+            raise ValueError(
+                f"YOLO-NAS raw-head export supports tasks "
+                f"{sorted(YOLONAS_RAW_LAYOUT_BY_TASK)}, got {task!r}."
+            )
+        self.model = model
+        self.task = task
+        heads = model.heads
+        self.output_layout = YOLONAS_RAW_LAYOUT_BY_TASK[task]
+        self.strides = tuple(int(stride) for stride in heads.fpn_strides)
+        self.reg_max = int(heads.reg_max)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        if output_windows is None:
+            output_windows = YOLONAS_RAW_OUTPUT_WINDOWS_BY_TASK.get(task, {})
+        self.output_windows = check_output_windows(self.output_layout, output_windows)
+        if self.output_windows and task != "pose":
+            raise ValueError(
+                f"YOLO-NAS output windows are implemented for pose heads only, "
+                f"not {task!r}."
+            )
+
+    def _pose_head_raw(self, head, x):
+        # YoloNASPoseDFLHead.forward up to its last convolutions, without the
+        # class/visibility split and keypoint reshape done after them.
+        x = head.stem(x)
+        pose_features = head.pose_stem(x)
+        bbox_features = head.bbox_stem(x)
+        return (
+            self._final_conv("reg", head.reg_pred, head.reg_dropout_rate(head.reg_convs(bbox_features))),
+            self._final_conv("cls", head.cls_pred, head.cls_dropout_rate(head.cls_convs(bbox_features))),
+            self._final_conv("pose", head.pose_pred, head.reg_dropout_rate(head.pose_convs(pose_features))),
+        )
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+    def forward(self, x):
+        feats = self.model.neck(self.model.backbone(x))
+        heads = self.model.heads
+        outputs = []
+        for index, feat in enumerate(feats[: heads.num_heads]):
+            head = getattr(heads, f"head{index + 1}")
+            if self.task == "pose":
+                outputs.extend(self._pose_head_raw(head, feat))
+            else:
+                # Detect heads return (reg, cls); rotated heads return
+                # (reg, cls, offset, rot): both already stop at the convs.
+                outputs.extend(head(feat))
+        return tuple(outputs)
+
+
+def _fused_yolonas_copy(model: torch.nn.Module, *, full_fusion: bool = True):
+    """Deep-copied YOLO-NAS network with its QARepVGG branches fused.
+
+    ``full_fusion`` also folds each block's post-BatchNorm into the fused
+    convolution. The caller's model is left untouched.
+    """
+    fused = copy.deepcopy(model).eval()
+    fused.fuse_reparam(full_fusion=full_fusion)
+    return fused
+
+
+#: Exponent of the pose-head activation equalization (0: none, 1: full).
+_POSE_EQUALIZATION_ALPHA = 0.4
+
+
+#: (last ConvBNReLU block, following 1x1 conv) pairs equalized in pose heads.
+#: The class tower is left alone: equalizing it too measured 0.6973 against
+#: 0.7061 keypoint mAP50-95 on the device (YOLO-NAS-pose-s, COCO persons 300).
+_POSE_EQUALIZED_PAIRS = (("pose_convs", "pose_pred"),)
+
+
+def _pose_head_input_ranges(model: torch.nn.Module, samples) -> dict:
+    """Per-channel maximum feeding each equalized conv, ``{(head, pair): tensor}``."""
+    heads = model.heads
+    ranges: dict = {}
+    handles = []
+    for index in range(int(heads.num_heads)):
+        head = getattr(heads, f"head{index + 1}")
+        for pair, (tower, _) in enumerate(_POSE_EQUALIZED_PAIRS):
+
+            def record(_module, _inputs, output, key=(index, pair)):
+                peak = output.detach().amax(dim=(0, 2, 3))
+                ranges[key] = peak if key not in ranges else torch.maximum(ranges[key], peak)
+
+            handles.append(getattr(head, tower)[-1].register_forward_hook(record))
+    wrapper = _YOLONASRawHeadsWrapper(model, "pose", output_windows={}).eval()
+    device = next(model.parameters()).device
+    try:
+        with torch.no_grad():
+            for sample in samples:
+                wrapper(torch.as_tensor(sample, dtype=torch.float32, device=device))
+    finally:
+        for handle in handles:
+            handle.remove()
+    return ranges
+
+
+def _equalize_yolonas_pose_heads(
+    model: torch.nn.Module, samples=None, alpha: float = _POSE_EQUALIZATION_ALPHA
+) -> torch.nn.Module:
+    """Even out the channel ranges feeding each pose head's final convs.
+
+    Per-tensor INT8 gives the input of ``pose_pred`` (keypoint offsets) one
+    scale, set by the widest channels (about 14x the median on
+    YOLO-NAS-pose-s), so the narrow channels keep only a few levels; on a
+    Metis device that cost most of the keypoint-mAP loss. Channel ``c`` of
+    the last ``pose_convs`` block is scaled by ``1 / s_c`` (its BatchNorm
+    scale and shift) and ``pose_pred``'s matching input weights by ``s_c``;
+    ReLU is positively homogeneous, so the FP32 outputs are unchanged. ``s_c = (r_c / max r) ** alpha``, with ``r_c`` the
+    channel's largest value over ``samples`` (calibration images) or, without
+    samples, the estimate ``relu(beta_c + 3 |gamma_c|)`` from that
+    BatchNorm. Works in place on ``model`` (an export copy); a model without
+    pose heads is returned unchanged.
+    """
+    heads = model.heads
+    if not hasattr(heads, "head1") or not hasattr(heads.head1, "pose_pred"):
+        return model
+    measured = _pose_head_input_ranges(model, samples) if samples else {}
+    with torch.no_grad():
+        for index in range(int(heads.num_heads)):
+            head = getattr(heads, f"head{index + 1}")
+            for pair, (tower, conv_name) in enumerate(_POSE_EQUALIZED_PAIRS):
+                bn = getattr(head, tower)[-1].seq.bn
+                ranges = measured.get((index, pair))
+                if ranges is None:
+                    ranges = torch.relu(bn.bias + 3.0 * bn.weight.abs())
+                ranges = ranges.to(bn.weight.dtype).clamp_min(1e-3 * float(ranges.max()))
+                scale = (ranges / ranges.max()) ** float(alpha)
+                bn.weight.div_(scale)
+                bn.bias.div_(scale)
+                getattr(head, conv_name).weight.mul_(scale[None, :, None, None])
+    return model
+
+
+#: Calibration percentile at which the pose head's final-conv inputs are bounded.
+_POSE_BOUND_PERCENTILE = 99.5
+#: ConvBNReLU towers whose output gets the bound, with the conv each one feeds.
+#: Only the class tower: capping the keypoint tower too cost keypoint mAP50-95
+#: on n, m and l (-4.61 vs -1.30, -1.68 vs -0.64, -3.81 vs -0.38 against FP32;
+#: its large activations carry keypoint detail) and helped only s.
+_POSE_BOUNDED_TOWERS = (("cls_convs", "cls_pred"),)
+
+
+def _bound_yolonas_pose_inputs(
+    model: torch.nn.Module,
+    samples,
+    percentile: float = _POSE_BOUND_PERCENTILE,
+    towers=_POSE_BOUNDED_TOWERS,
+) -> dict:
+    """Cap the inputs of each pose head's final convs at a calibration percentile.
+
+    The last block of each tower ends in a ReLU whose rare large values set
+    the INT8 scale of the next conv's input. Its BatchNorm is scaled by
+    ``6 / cap`` and the ReLU becomes a ReLU6, so the block emits
+    ``min(x, cap) * 6 / cap``; the next conv's input weights are scaled by
+    ``cap / 6``. Values below ``cap`` are unchanged; the integer converter
+    fuses the ReLU6 into the conv. Unlike the equalization this changes FP32
+    outputs where an activation exceeds ``cap``, so it runs after the
+    fusion parity check and its effect is measured with val, not parity.
+    Returns ``{"head<i>.<tower>": cap}``.
+    """
+    heads = model.heads
+    values: dict = {}
+    handles = []
+    for index in range(int(heads.num_heads)):
+        head = getattr(heads, f"head{index + 1}")
+        for tower, _ in towers:
+
+            def record(_module, _inputs, output, key=(index, tower)):
+                values.setdefault(key, []).append(output.detach().flatten())
+
+            handles.append(getattr(head, tower)[-1].register_forward_hook(record))
+    wrapper = _YOLONASRawHeadsWrapper(model, "pose", output_windows={}).eval()
+    device = next(model.parameters()).device
+    try:
+        with torch.no_grad():
+            for sample in samples:
+                wrapper(torch.as_tensor(sample, dtype=torch.float32, device=device))
+    finally:
+        for handle in handles:
+            handle.remove()
+    caps = {}
+    generator = torch.Generator().manual_seed(0)
+    with torch.no_grad():
+        for (index, tower), chunks in values.items():
+            flat = torch.cat(chunks)
+            if flat.numel() > 2_000_000:  # torch.quantile's input limit; a fixed subsample
+                flat = flat[torch.randperm(flat.numel(), generator=generator)[:2_000_000]]
+            cap = float(torch.quantile(flat.float(), percentile / 100.0))
+            if cap <= 0:
+                continue
+            head = getattr(heads, f"head{index + 1}")
+            block = getattr(head, tower)[-1]
+            scale = 6.0 / cap
+            block.seq.bn.weight.mul_(scale)
+            block.seq.bn.bias.mul_(scale)
+            block.seq.act = torch.nn.ReLU6()
+            getattr(head, dict(towers)[tower]).weight.div_(scale)
+            caps[f"head{index + 1}.{tower}"] = cap
+    return caps
+
+
+def _check_yolonas_fusion_parity(
+    reference: torch.nn.Module,
+    fused: torch.nn.Module,
+    task: str,
+    imgsz: tuple[int, int],
+    *,
+    rtol: float = 1e-4,
+    atol: float = 1e-4,
+    seed: int = 0,
+) -> float:
+    """Assert fused and unfused raw head outputs agree on one random input.
+
+    The tolerance is relative to each output's magnitude:
+    ``max|a - b| <= atol + rtol * max|a|``. Returns the worst ratio of error
+    to tolerance (below 1 passes).
+    """
+    generator = torch.Generator(device="cpu").manual_seed(seed)
+    device = next(reference.parameters()).device
+    sample = torch.rand((1, 3, *imgsz), generator=generator).to(device)
+    with torch.no_grad():
+        expected = _YOLONASRawHeadsWrapper(reference, task).eval()(sample)
+        actual = _YOLONASRawHeadsWrapper(fused, task).eval()(sample)
+    worst = 0.0
+    for index, (a, b) in enumerate(zip(expected, actual)):
+        error = float((a - b).abs().max())
+        tolerance = atol + rtol * float(a.abs().max())
+        worst = max(worst, error / tolerance)
+        if error > tolerance:
+            raise AssertionError(
+                f"YOLO-NAS fusion changed raw output {index}: max abs error "
+                f"{error:.3g} exceeds {tolerance:.3g}."
+            )
+    return worst
+
+
 # Logits beyond this bound are scores below 0.0004 or above 0.9996.
 _INT8_LOGIT_BOUND = 8.0
+
+
+def _relu6_window(
+    conv: torch.nn.Conv2d, x: torch.Tensor, low: float, high: float
+) -> torch.Tensor:
+    """``conv(x)`` mapped from ``[low, high]`` onto ``[0, 6]`` and clamped.
+
+    The map is folded into the conv's weights and bias, so integer converters
+    lower the clamp to a RELU6 fused into the conv and give the output an int8
+    range of ``[low, high]`` only.
+    """
+    k = 6.0 / (high - low)
+    z = torch.nn.functional.conv2d(
+        x,
+        conv.weight * k,
+        (conv.bias - low) * k,
+        conv.stride,
+        conv.padding,
+        conv.dilation,
+        conv.groups,
+    )
+    return z.clamp(0.0, 6.0)
 
 
 def _bounded_sigmoid(conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
@@ -375,16 +668,7 @@ def _bounded_sigmoid(conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
     """
     bound = _INT8_LOGIT_BOUND
     k = 6.0 / (2.0 * bound)
-    z = torch.nn.functional.conv2d(
-        x,
-        conv.weight * k,
-        (conv.bias + bound) * k,
-        conv.stride,
-        conv.padding,
-        conv.dilation,
-        conv.groups,
-    )
-    return (z.clamp(0.0, 6.0) / k - bound).sigmoid()
+    return (_relu6_window(conv, x, -bound, bound) / k - bound).sigmoid()
 
 
 class _YOLOXSplitOutputWrapper(torch.nn.Module):
@@ -932,6 +1216,13 @@ class BaseExporter(ABC):
             raise NotImplementedError(
                 f"{family} {task} export to {self.format_name} is blocked: "
                 f"{support.reason}{alternatives_text}"
+            )
+        size = str(getattr(self.model, "size", "") or "")
+        refused = REFUSED_SIZES.get((family, task, self.format_name), {}).get(size)
+        if refused:
+            raise NotImplementedError(
+                f"{family}-{size} {task} export to {self.format_name} is blocked: "
+                f"{refused}"
             )
         if kwargs.get("nms") and not self.supports_embedded_nms:
             raise NotImplementedError(
@@ -2660,6 +2951,363 @@ class RknnExporter(BaseExporter):
             Path(f"{staging_path}.parity.json.tmp").unlink(missing_ok=True)
         logger.info("RKNN simulator parity passed: %s", report_path)
         return str(destination)
+
+
+class AxeleraExporter(BaseExporter):
+    """INT8 export for Axelera Metis AIPUs: a ``<stem>_axelera_model/`` directory.
+
+    The directory holds ``<stem>.axm`` (the compiled model),
+    ``compiler_config_final.toml`` and ``metadata.yaml``. The graph is cut
+    after the head convolutions and LibreYOLO decodes on the host
+    (``libreyolo.postprocess.yolonas_raw``). Compiling needs Axelera's
+    ``axelera-devkit`` on Linux, installed by the user.
+    """
+
+    format_name = "axelera"
+    suffix = "_axelera_model"
+    requires_onnx = True
+    supports_int8 = True
+    supports_fp16 = False
+    apply_model_half = False
+    supports_embedded_nms = False
+    default_int8_calibration_data = True
+
+    #: Calibration images used when ``data`` is omitted. OBB has no default:
+    #: it needs aerial imagery, which LibreYOLO does not bundle.
+    _CALIBRATION_DEFAULTS: ClassVar[dict[str, str]] = {
+        "detect": "coco128.yaml",
+        "pose": "coco128.yaml",
+    }
+    _RECOMMENDED_CALIBRATION = (100, 400)
+    _OPSET_RANGE = (14, 17)
+
+    def __call__(
+        self,
+        *,
+        dynamic: bool | None = None,
+        half: bool = False,
+        int8: bool = False,
+        quantize: int | str | None = None,
+        opset: int | None = None,
+        batch: int = 1,
+        **kwargs,
+    ) -> str:
+        if half:
+            raise ValueError(
+                "Axelera export is INT8 only; half=True is not supported. Omit "
+                "half (INT8 calibration is applied automatically)."
+            )
+        if quantize is not None and str(quantize).strip() != "8":
+            raise ValueError(
+                f"Axelera export is INT8 only; quantize={quantize!r} is not "
+                "supported. Omit quantize or pass quantize=8."
+            )
+        if dynamic:
+            raise ValueError(
+                "Axelera export compiles fixed input shapes; dynamic=True is not "
+                "supported. Choose the input size with imgsz=."
+            )
+        if opset is None:
+            opset = self._OPSET_RANGE[1]
+        low, high = self._OPSET_RANGE
+        if not low <= int(opset) <= high:
+            raise ValueError(
+                f"Axelera export supports ONNX opset {low}-{high}, got opset={opset}."
+            )
+        if int(batch) < 1:
+            raise ValueError(f"batch must be >= 1, got {batch}.")
+        if not int8:
+            logger.info(
+                "Axelera export is INT8: calibrating post-training quantization "
+                "(int8=True)."
+            )
+        # The compiled graph takes one image; ``batch`` only sizes the
+        # calibration loader.
+        self._calibration_batch = int(batch)
+        return super().__call__(
+            dynamic=False,
+            half=False,
+            int8=True,
+            opset=int(opset),
+            batch=1,
+            **kwargs,
+        )
+
+    def _task(self) -> str:
+        task = getattr(self.model, "task", "detect")
+        return task if isinstance(task, str) else "detect"
+
+    def _preflight(self, **kwargs):
+        # Support tier first, so a blocked family fails before any SDK check.
+        super()._preflight(**kwargs)
+        from .axelera import (
+            check_compile_platform,
+            normalize_compiler_overrides,
+            require_axelera_devkit,
+        )
+
+        check_compile_platform()
+        self._devkit_version = require_axelera_devkit()
+        self._compiler_overrides = normalize_compiler_overrides(
+            kwargs.get("compiler_config")
+        )
+
+    def _resolve_calibration_data(self, int8: bool, data: str | None):
+        if data is not None:
+            return data
+        task = self._task()
+        if task not in self._CALIBRATION_DEFAULTS:
+            raise ValueError(
+                f"Axelera {task} export needs calibration images from your own "
+                "domain: pass data= pointing at your dataset YAML (for YOLO-NAS-R, "
+                "an aerial OBB dataset such as a DOTA-format one). LibreYOLO bundles "
+                f"no default calibration set for {task}."
+            )
+        default = self._CALIBRATION_DEFAULTS[task]
+        logger.info(
+            "Axelera calibration: data= not given, using %s. For a fine-tuned "
+            "model, calibrate with %d-%d images from its own domain.",
+            default,
+            *self._RECOMMENDED_CALIBRATION,
+        )
+        return default
+
+    def _auto_output_path(self, half: bool, int8: bool) -> str:
+        return str(Path("weights") / f"{self._auto_output_stem()}{self.suffix}")
+
+    def _resolve_params(self, output_path, imgsz, device, half, int8):
+        imgsz, device, output_path = super()._resolve_params(
+            output_path, imgsz, device, half, int8
+        )
+        stride = 32  # largest YOLO-NAS feature stride; the host decode needs whole cells
+        if imgsz[0] % stride or imgsz[1] % stride:
+            raise ValueError(
+                f"Axelera export needs imgsz to be a multiple of {stride}, got "
+                f"{imgsz[0] if imgsz[0] == imgsz[1] else imgsz}."
+            )
+        return imgsz, device, output_path
+
+    def _equalization_samples(self, limit: int = 32) -> list:
+        """Up to ``limit`` calibration images (``[1, C, H, W]``), or ``[]``."""
+        loader = getattr(self, "_calibration_loader", None)
+        samples = []
+        for batch in loader or ():
+            for image in batch:
+                samples.append(image[None])
+                if len(samples) >= limit:
+                    return samples
+        return samples
+
+    def _load_calibration(self, data, imgsz, batch, fraction, allow_download_scripts=False):
+        from .calibration import CalibrationDataLoader
+
+        loader = CalibrationDataLoader(
+            data,
+            imgsz=imgsz,
+            batch=getattr(self, "_calibration_batch", 1),
+            fraction=fraction,
+            preprocess_fn=self.model._get_preprocess_numpy(),
+            allow_download_scripts=allow_download_scripts,
+        )
+        self._calibration_loader = loader
+        count = int(loader.num_samples)
+        low, high = self._RECOMMENDED_CALIBRATION
+        if count < 2:
+            raise ValueError(
+                f"Axelera calibration needs at least 2 images; {data!r} with "
+                f"fraction={fraction} gives {count}."
+            )
+        if count < low:
+            logger.warning(
+                "Axelera calibration uses %d images from %s; %d-%d representative "
+                "images are recommended.",
+                count,
+                data,
+                low,
+                high,
+            )
+        self._calibration_files = {str(Path(f)) for f in loader.img_files[:count]}
+        self._calibration_info = {
+            "data": str(data),
+            "num_images": count,
+            "fraction": float(fraction),
+            "batch": int(loader.batch),
+            "preprocess": self._task(),
+        }
+        logger.info("Axelera calibration: %d images from %s", count, data)
+        return _single_image_samples(loader, count)
+
+    def _export_intermediate_onnx(
+        self, nn_model, dummy, output_path, opset, simplify, dynamic
+    ):
+        from .onnx import _export_onnx_graph
+
+        imgsz = (int(dummy.shape[-2]), int(dummy.shape[-1]))
+        live = self.model.model
+        fused = _fused_yolonas_copy(live, full_fusion=True)
+        samples = self._equalization_samples() if self._task() == "pose" else []
+        if self._task() == "pose":
+            _equalize_yolonas_pose_heads(fused, samples)
+        # Fusion and equalization must leave the FP32 raw outputs unchanged.
+        self._fusion_parity = _check_yolonas_fusion_parity(
+            live, fused, self._task(), imgsz
+        )
+        self._pose_bounds = (
+            _bound_yolonas_pose_inputs(fused, samples) if samples else {}
+        )
+        self._raw_wrapper = _YOLONASRawHeadsWrapper(fused, self._task()).eval()
+        out = Path(output_path)
+        onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        logger.info("Step 1/2: Exporting raw-head ONNX (%s)", onnx_output)
+        return _export_onnx_graph(
+            self._raw_wrapper,
+            dummy,
+            output_path=onnx_output,
+            opset=opset,
+            simplify=simplify,
+            half=False,
+            metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+            input_names=["images"],
+            output_names=list(self._raw_wrapper.output_names),
+            dynamic_axes=None,
+        )
+
+    def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
+        meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
+        wrapper = self._raw_wrapper
+        heads = wrapper.model.heads
+        meta.update(
+            {
+                "format": "axelera",
+                "precision": "int8",
+                "dynamic": False,
+                "batch": 1,
+                "output_layout": wrapper.output_layout,
+                "output_names": list(wrapper.output_names),
+                "strides": list(wrapper.strides),
+                "reg_max": wrapper.reg_max,
+                "grid_cell_offset": float(heads.grid_cell_offset),
+            }
+        )
+        if getattr(self, "_pose_bounds", None):
+            meta["pose_head_bounds"] = {
+                name: round(float(cap), 4) for name, cap in self._pose_bounds.items()
+            }
+        if wrapper.output_windows:
+            meta["output_windows"] = {
+                part: [float(low), float(high)]
+                for part, (low, high) in wrapper.output_windows.items()
+            }
+        if self._task() == "pose":
+            meta["pose_offset_multiplier"] = float(heads.pose_offset_multiplier)
+            meta["compensate_grid_cell_offset"] = bool(
+                heads.compensate_grid_cell_offset
+            )
+        if self.model._get_model_name() == "yolonas":
+            meta["weights_license"] = (
+                "YOLO-NAS pretrained weights are Deci's, under "
+                "LICENSE.YOLONAS.md (non-commercial, no redistribution). "
+                "Artifacts compiled from them carry the same terms."
+            )
+        return meta
+
+    def _export(
+        self,
+        nn_model,
+        dummy,
+        *,
+        output_path,
+        metadata,
+        calibration_data,
+        onnx_path,
+        verbose,
+        compiler_config=None,
+        verify=False,
+        **kwargs,
+    ):
+        from .axelera import (
+            DEFAULT_QUANTIZATION_SCHEME,
+            DEFAULT_QUANTIZATION_SCHEME_BY_TASK,
+            export_axelera,
+        )
+
+        logger.info("Step 2/2: Quantizing and compiling for Axelera Metis")
+        return export_axelera(
+            onnx_path=onnx_path,
+            output_path=output_path,
+            stem=Path(output_path).name.removesuffix(self.suffix) or "model",
+            metadata=metadata,
+            calibration=calibration_data,
+            quantization_scheme=DEFAULT_QUANTIZATION_SCHEME_BY_TASK.get(
+                self._task(), DEFAULT_QUANTIZATION_SCHEME
+            ),
+            calibration_info=getattr(self, "_calibration_info", {}),
+            compiler_overrides=getattr(self, "_compiler_overrides", {}),
+            devkit_version=getattr(self, "_devkit_version", None),
+            verify=bool(verify),
+            reference_model=self._raw_wrapper,
+            verify_samples=self._verify_samples(dummy.shape[-2:]) if verify else None,
+            verify_source=getattr(self, "_verify_source", "images"),
+        )
+
+    def _verify_samples(self, imgsz, limit: int = 32):
+        """Held-out images for ``verify=True``: never the calibration images.
+
+        Taken from the calibration dataset's val/test split; when that split
+        has nothing left (coco128's val is its train split), the bundled
+        sample images are used and the report says so.
+        """
+        import cv2
+        import numpy as np
+
+        from ..data.utils import get_img_files, load_data_config
+
+        used = getattr(self, "_calibration_files", set())
+        files: list[Path] = []
+        try:
+            config = load_data_config(self._calibration_info["data"], autodownload=False)
+            root = str(config.get("path", "."))
+            for split in ("val", "test"):
+                listed = config.get(f"{split}_img_files")
+                if listed is None and config.get(split):
+                    listed = get_img_files(config[split], prefix=root)
+                files.extend(Path(f) for f in (listed or []) if str(Path(f)) not in used)
+        except Exception as exc:  # noqa: BLE001 - verification must not fail the export
+            logger.warning("Axelera verify: could not list held-out images: %s", exc)
+        files = sorted(dict.fromkeys(files))[:limit]
+        source = "held-out dataset images"
+        if not files:
+            assets = Path(__file__).resolve().parents[1] / "assets"
+            files = sorted(p for p in assets.glob("*.jpg") if not p.stem.endswith("_result"))
+            source = "bundled sample images (no held-out dataset images)"
+        preprocess = self.model._get_preprocess_numpy()
+        size = tuple(int(v) for v in imgsz)
+        samples = []
+        for path in files:
+            image = cv2.imread(str(path))
+            if image is None:
+                continue
+            chw, _ = preprocess(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), size)
+            samples.append(np.ascontiguousarray(chw[None], dtype=np.float32))
+        self._verify_source = source
+        return samples
+
+
+def _single_image_samples(loader, count: int):
+    """Yield ``count`` calibration images one at a time as ``[1, 3, H, W]``.
+
+    The loader pads its last batch by repeating images; those repeats are
+    dropped so each image weighs once in the quantization statistics.
+    """
+    import numpy as np
+
+    remaining = count
+    for batch in loader:
+        for image in batch:
+            if remaining <= 0:
+                return
+            remaining -= 1
+            yield np.ascontiguousarray(image[None], dtype=np.float32)
 
 
 class NcnnExporter(BaseExporter):

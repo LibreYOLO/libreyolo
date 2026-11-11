@@ -622,6 +622,7 @@ markers = [
     "openvino: tests requiring OpenVINO",
     "mnn: tests requiring MNN",
     "ncnn: tests requiring ncnn",
+    "axelera: tests requiring Axelera's SDK (axelera-devkit, axelera-rt) and a Metis device",
     "tflite: tests requiring TensorFlow Lite export",
     "paddle: tests requiring PaddlePaddle export/runtime",
     "coreml: tests requiring CoreML (macOS only)",

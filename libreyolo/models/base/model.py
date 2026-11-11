@@ -2391,9 +2391,10 @@ class BaseModel(ABC):
 
         Args:
             format: Target format ("onnx", "torchscript", "executorch",
-                "tensorrt", "openvino", "mnn", "ncnn", "tflite"). "litert" is
-                accepted as an alias for "tflite" (LiteRT is TensorFlow
-                Lite's new name).
+                "tensorrt", "openvino", "mnn", "ncnn", "tflite", "axelera").
+                "litert" is accepted as an alias for "tflite" (LiteRT is
+                TensorFlow Lite's new name). "axelera" compiles an INT8
+                ``.axm`` for Axelera Metis (see docs/axelera.md).
             **kwargs: Format-specific parameters forwarded to the exporter.
 
         Returns:
