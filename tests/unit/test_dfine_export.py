@@ -116,7 +116,8 @@ def test_ncnn_export_is_blocked_for_dfine(tmp_path):
 def test_onnx_backend_matches_torch_inference(tmp_path):
     """LibreYOLO(onnx_path)(image) should produce the same top-K detections as
     LibreDFINE(pt_path)(image) within rounding."""
-    from libreyolo import LibreDFINE, LibreYOLO, SAMPLE_IMAGE
+    from libreyolo import LibreDFINE, LibreYOLO
+    from tests.fixture_images import PARKOUR_FIXTURE
 
     ckpt = Path("weights/dfine_n_coco.pth")
     if not ckpt.exists():
@@ -129,9 +130,9 @@ def test_onnx_backend_matches_torch_inference(tmp_path):
     )
 
     # Run torch + onnx on the same image; compare top-5 by class + ~conf.
-    torch_res = torch_m(SAMPLE_IMAGE, conf=0.5)
+    torch_res = torch_m(PARKOUR_FIXTURE, conf=0.5)
     onnx_m = LibreYOLO(str(out_path))
-    onnx_res = onnx_m(SAMPLE_IMAGE, conf=0.5)
+    onnx_res = onnx_m(PARKOUR_FIXTURE, conf=0.5)
 
     n = min(5, len(torch_res.boxes), len(onnx_res.boxes))
     assert n >= 3, "expected at least 3 confident detections in both"

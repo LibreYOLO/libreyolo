@@ -31,7 +31,7 @@ pytestmark = [
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GOLDEN = _REPO_ROOT / "tests" / "data" / "rfdetr_keypoint_parkour_golden.json"
-_PARKOUR = _REPO_ROOT / "libreyolo" / "assets" / "parkour.jpg"
+_PARKOUR = _REPO_ROOT / "tests" / "data" / "parkour.jpg"
 _DEFAULT_CKPT = _REPO_ROOT / "downloads" / "LibreRFDETRx-pose.pt"
 
 # Tolerances. The oracle and LibreYOLO run the same weights, so agreement is

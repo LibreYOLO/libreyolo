@@ -31,9 +31,12 @@ def test_bitwise_parity_with_upstream(tmp_path):
     from PIL import Image
 
     cases = []
-    for name, query in (("parkour", "person"), ("guggenheim-bilbao", "building")):
-        img = tmp_path / f"{name}.jpg"
-        Image.open(REPO / "libreyolo" / "assets" / f"{name}.jpg").convert("RGB").resize(
+    for src, query in (
+        (REPO / "tests" / "data" / "parkour.jpg", "person"),
+        (REPO / "libreyolo" / "assets" / "guggenheim-bilbao.jpg", "building"),
+    ):
+        img = tmp_path / src.name
+        Image.open(src).convert("RGB").resize(
             (256, 256)
         ).save(img)
         cases.append([str(img), query])

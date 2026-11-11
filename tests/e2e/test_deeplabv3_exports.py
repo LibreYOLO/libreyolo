@@ -75,7 +75,7 @@ def test_official_checkpoint_export_runtime_parity(tmp_path, size, format_name):
 
     device = "cuda" if format_name == "tensorrt" else "cpu"
     native = LibreYOLO(str(checkpoint), device=device)
-    image = Path("libreyolo/assets/parkour.jpg")
+    image = Path("tests/data/parkour.jpg")
     input_tensor, _, _, _ = native._preprocess(image, input_size=520)
     with torch.inference_mode():
         expected_raw = native.model(input_tensor.to(device)).detach().cpu().numpy()

@@ -958,7 +958,7 @@ def test_predict_unknown_model_uses_model_not_found_error():
         app,
         [
             "predict",
-            "source=libreyolo/assets/parkour.jpg",
+            "source=tests/data/parkour.jpg",
             "model=definitely-not-a-model",
             "--json",
         ],
@@ -1174,7 +1174,7 @@ def test_predict_json_supports_exported_backend_metadata(monkeypatch):
         app,
         [
             "predict",
-            "source=libreyolo/assets/parkour.jpg",
+            "source=tests/data/parkour.jpg",
             "model=model.onnx",
             "imgsz=320",
             "--json",
@@ -1221,7 +1221,7 @@ def test_predict_json_reports_rectangular_backend_imgsz(monkeypatch):
         app,
         [
             "predict",
-            "source=libreyolo/assets/parkour.jpg",
+            "source=tests/data/parkour.jpg",
             "model=model.onnx",
             "--json",
         ],
@@ -1289,7 +1289,7 @@ def test_predict_exported_backend_does_not_receive_native_only_kwargs(monkeypatc
         app,
         [
             "predict",
-            "source=libreyolo/assets/parkour.jpg",
+            "source=tests/data/parkour.jpg",
             "model=model.onnx",
             "--json",
         ],
@@ -1337,7 +1337,7 @@ def test_predict_json_reports_segmentation_masks(monkeypatch):
         app,
         [
             "predict",
-            "source=libreyolo/assets/parkour.jpg",
+            "source=tests/data/parkour.jpg",
             "model=rfdetr-seg.onnx",
             "--json",
         ],
@@ -1391,7 +1391,7 @@ def test_predict_json_reports_obb_payload(monkeypatch):
         app,
         [
             "predict",
-            "source=libreyolo/assets/parkour.jpg",
+            "source=tests/data/parkour.jpg",
             "model=LibreYOLO9t-obb.onnx",
             "--json",
         ],
@@ -1459,7 +1459,7 @@ def test_predict_exported_backend_rejects_requested_native_only_kwargs(
         app,
         [
             "predict",
-            "source=libreyolo/assets/parkour.jpg",
+            "source=tests/data/parkour.jpg",
             "model=model.onnx",
             option,
             "--json",

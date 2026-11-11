@@ -127,7 +127,7 @@ def test_official_checkpoint_onnx_predict_parity(
     model.model.eval()
     del state_dict
 
-    image = Path("libreyolo/assets/parkour.jpg")
+    image = Path("tests/data/parkour.jpg")
     input_tensor, _, _, _ = model._preprocess(image, input_size=800)
     trace_device = "cpu" if size == "r50twostage" else device
     trace_tensor = input_tensor.to(trace_device)

@@ -140,7 +140,7 @@ _RESULTS_EXPORTS = (
     "Identities",
 )
 
-SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
+SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "guggenheim-bilbao.jpg")
 
 try:
     __version__ = version("libreyolo")

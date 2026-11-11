@@ -21,10 +21,11 @@ pytestmark = [pytest.mark.unit, pytest.mark.alexnet]
 )
 def test_unified_predict_real_image_golden():
     """The converted official checkpoint returns the frozen parkour golden."""
-    from libreyolo import LibreYOLO, SAMPLE_IMAGE
+    from libreyolo import LibreYOLO
+    from tests.fixture_images import PARKOUR_FIXTURE
 
     model = LibreYOLO(os.environ["LIBREYOLO_ALEXNET_CKPT"], device="cpu")
-    result = model.predict(SAMPLE_IMAGE)
+    result = model.predict(PARKOUR_FIXTURE)
 
     assert result.boxes is None
     assert result.probs is not None

@@ -1,6 +1,6 @@
 {
- "description": "RF-DETR GroupPose keypoint oracle golden for libreyolo/assets/parkour.jpg (852x1280 HxW). Generated from official_kp_parity.pt blob[final]. conf=0.3, 4 person detections. boxes xyxy and kp_xy in source-image pixels; kp_confidence is findable.sigmoid().",
- "source_image": "libreyolo/assets/parkour.jpg",
+ "description": "RF-DETR GroupPose keypoint oracle golden for tests/data/parkour.jpg (852x1280 HxW). Generated from official_kp_parity.pt blob[final]. conf=0.3, 4 person detections. boxes xyxy and kp_xy in source-image pixels; kp_confidence is findable.sigmoid().",
+ "source_image": "tests/data/parkour.jpg",
  "source_shape_hw": [
   852,
   1280

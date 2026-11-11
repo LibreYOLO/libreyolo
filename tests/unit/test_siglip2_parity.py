@@ -101,7 +101,7 @@ def test_multilingual_spanish_smoke():
     model = LibreSigLIP2(str(ckpt), size="b16", device="cpu")
     labels = ["una persona haciendo parkour", "un perro", "un coche", "una calle vacia"]
     model.set_classes(labels, templates=["una foto de {}."])
-    fixture = _REPO_ROOT / "libreyolo" / "assets" / "parkour.jpg"
+    fixture = _REPO_ROOT / "tests" / "data" / "parkour.jpg"
     r = model.predict(str(fixture), verbose=False)[0]
     assert model.names[r.probs.top1] == "una persona haciendo parkour"
 

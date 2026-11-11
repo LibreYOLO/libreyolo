@@ -23,7 +23,7 @@ from .conftest import DEKR_POSE_MODELS  # noqa: E402
 pytestmark = [pytest.mark.e2e, pytest.mark.dekr]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-IMAGE = REPO_ROOT / "libreyolo" / "assets" / "parkour.jpg"
+IMAGE = REPO_ROOT / "tests" / "data" / "parkour.jpg"
 FAMILY, SIZE, WEIGHTS = DEKR_POSE_MODELS[0]
 
 
