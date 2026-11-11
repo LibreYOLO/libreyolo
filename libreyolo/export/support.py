@@ -4028,16 +4028,23 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "validated",
     ("mobilenetv4",),
     ("classify",),
     ("axelera",),
     reason=(
-        "MobileNetV4 loses too much accuracy in INT8 on Axelera Metis: on a "
-        "paired 1000-image ImageNetV2 set, top-1 drops 6.2 points (size s); "
-        "equalizing and bounding its residual streams still leaves -1.7 to "
-        "-2.6 (s, m, l). Per-tensor activation ranges of the inverted-residual "
-        "streams are the cause (docs/axelera.md)."
+        "INT8 export compiled with Axelera's toolchain; LibreYOLO equalizes and "
+        "bounds MobileNetV4's residual streams before export, calibrates with "
+        "histogram activation ranges, and the whole classifier runs on the "
+        "Metis AIPU. On a Metis M.2 Max, MobileNetV4-m is within 1.0 top-1 "
+        "point of FP32 on a paired 1000-image ImageNetV2 set when calibrated on "
+        "images from its own domain (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: m (s and l are refused, see docs/axelera.md), "
+        "calibrated with in-domain images (data=). axelera-devkit / axelera-rt "
+        "1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input"
     ),
 )
 _add(
@@ -4112,9 +4119,8 @@ def get_support(family: str, task: str, fmt: str) -> SupportEntry:
     if fmt == "axelera":
         return SupportEntry(
             "blocked",
-            "Axelera export is implemented for YOLO-NAS (detect, pose, obb), "
-            "YOLO9 detect and ResNet (classify) only; "
-            "this family has not been compiled or measured on Axelera Metis.",
+            "This family and task have not been compiled or measured on "
+            "Axelera Metis; docs/axelera.md lists the supported ones.",
         )
     if fmt in {"tensorrt", "openvino"}:
         runtime = "TensorRT" if fmt == "tensorrt" else "OpenVINO"
@@ -4173,6 +4179,18 @@ def iter_blocked() -> Iterator[tuple[tuple[str, str, str], SupportEntry]]:
 #: Sizes refused although their (family, task, format) tier allows the export,
 #: each with its measured reason (the tier's constraint lists the sizes that pass).
 REFUSED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("mobilenetv4", "classify", "axelera"): {
+        "s": (
+            "on a Metis device MobileNetV4-s keeps top-1 1.7 points below FP32 "
+            "at best (0.607 vs 0.624 on a paired 1000-image ImageNetV2 set), "
+            "outside the 1.0-point bar; use m."
+        ),
+        "l": (
+            "on a Metis device MobileNetV4-l keeps top-1 1.7 points below FP32 "
+            "at best (0.710 vs 0.727 on a paired 1000-image ImageNetV2 set), "
+            "outside the 1.0-point bar; use m."
+        ),
+    },
     ("yolonas", "pose", "axelera"): {
         "n": (
             "on a Metis device YOLO-NAS-pose-n keeps keypoint mAP50-95 1.30 "
@@ -4201,6 +4219,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("yolonas", "obb"),
             ("yolo9", "detect"),
             ("resnet", "classify"),
+            ("mobilenetv4", "classify"),
         }
     ),
 }

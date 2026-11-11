@@ -53,6 +53,21 @@ DEFAULT_QUANTIZATION_SCHEME = "per_tensor_min_max"
 #: Per-task exceptions. Pose keeps more keypoint accuracy with histogram
 #: activation ranges (0.7061 vs 0.6855 keypoint mAP50-95 on YOLO-NAS-pose-s).
 DEFAULT_QUANTIZATION_SCHEME_BY_TASK = {"pose": "hybrid_per_tensor_per_channel"}
+#: Per-model exceptions, keyed by (family, task); they win over the task
+#: default. MobileNetV4 needs histogram ranges on top of its residual-stream
+#: equalization: top-1 -1.7 -> +0.2 points on MobileNetV4-m (paired
+#: 1000-image ImageNetV2 set, docs/axelera.md).
+DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
+    ("mobilenetv4", "classify"): "hybrid_per_tensor_per_channel",
+}
+
+
+def default_quantization_scheme(family: str, task: str) -> str:
+    """The activation-range scheme LibreYOLO compiles ``family``/``task`` with."""
+    by_model = DEFAULT_QUANTIZATION_SCHEME_BY_MODEL.get((family, task))
+    if by_model is not None:
+        return by_model
+    return DEFAULT_QUANTIZATION_SCHEME_BY_TASK.get(task, DEFAULT_QUANTIZATION_SCHEME)
 DEFAULT_RESOURCES_USED = 0.25
 
 
@@ -567,6 +582,7 @@ __all__ = [
     "AXELERA_INDEX_URL",
     "AXELERA_SDK_VERSION",
     "DEFAULT_QUANTIZATION_SCHEME",
+    "DEFAULT_QUANTIZATION_SCHEME_BY_MODEL",
     "DEFAULT_QUANTIZATION_SCHEME_BY_TASK",
     "DEFAULT_RESOURCES_USED",
     "axelera_install_command",
@@ -574,6 +590,7 @@ __all__ = [
     "check_compile_platform",
     "collect_quantized_outputs",
     "compile_to_axm",
+    "default_quantization_scheme",
     "device_output_order",
     "export_axelera",
     "normalize_compiler_overrides",

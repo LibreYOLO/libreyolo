@@ -366,6 +366,36 @@ def test_classify_export_writes_the_logits_layout(exporter_sdk, tmp_path):
     assert meta["axelera"]["calibration"]["preprocess"] == "classify"
 
 
+def test_mobilenetv4_export_equalizes_streams_and_uses_histogram_ranges(exporter_sdk, tmp_path, caplog):
+    import logging
+
+    import torch
+    import yaml
+
+    from libreyolo import LibreMobileNetV4
+
+    torch.manual_seed(0)
+    model = LibreMobileNetV4(size="m", nb_classes=5, device="cpu")  # s and l are refused
+    live = {k: v.clone() for k, v in model.model.state_dict().items()}
+    destination = tmp_path / "mnv4_axelera_model"
+    with caplog.at_level(logging.INFO, logger="libreyolo.export.exporter"):
+        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+    assert "residual streams equalized" in caplog.text
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "classify_logits_v1"
+    assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+    # The transform runs on a copy: the caller's model keeps its weights.
+    after = model.model.state_dict()
+    assert all(torch.equal(live[k], after[k]) for k in live)
+
+
+def test_default_quantization_scheme_per_model():
+    assert ax.default_quantization_scheme("mobilenetv4", "classify") == "hybrid_per_tensor_per_channel"
+    assert ax.default_quantization_scheme("resnet", "classify") == "per_tensor_min_max"
+    assert ax.default_quantization_scheme("yolonas", "pose") == "hybrid_per_tensor_per_channel"
+    assert ax.default_quantization_scheme("yolonas", "detect") == "per_tensor_min_max"
+
+
 def test_classify_calibration_defaults_to_coco128(exporter_sdk):
     from libreyolo.export.exporter import AxeleraExporter
 
@@ -726,6 +756,17 @@ def test_support_matrix_rows_for_axelera():
     assert rfdetr.tier == "blocked" and "attention" in rfdetr.reason
     other = get_support("yolox", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
+    mnv4 = get_support("mobilenetv4", "classify", "axelera")
+    assert mnv4.tier == "validated" and "validated sizes: m " in mnv4.constraint
+    assert sorted(REFUSED_SIZES[("mobilenetv4", "classify", "axelera")]) == ["l", "s"]
+
+
+def test_mobilenetv4_sizes_below_the_bar_are_refused(tmp_path):
+    from libreyolo import LibreMobileNetV4
+
+    model = LibreMobileNetV4(size="s", nb_classes=5, device="cpu")
+    with pytest.raises(NotImplementedError, match=r"blocked: .*1\.7 points"):
+        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 
 def test_pose_sizes_below_the_bar_are_refused(tmp_path):

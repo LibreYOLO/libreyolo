@@ -3,7 +3,9 @@
 - **LibreYOLO modules:** `libreyolo/export/axelera.py`, `AxeleraExporter`,
   `_YOLONASRawHeadsWrapper` and `_YOLO9RawHeadsWrapper` in
   `libreyolo/export/exporter.py`,
-  `libreyolo/backends/axelera.py`, `libreyolo/postprocess/yolonas_raw.py`
+  `libreyolo/backends/axelera.py`, `libreyolo/postprocess/yolonas_raw.py`,
+  `libreyolo/models/mobilenetv4/quantize.py` (MobileNetV4 residual-stream
+  equalization and bounds for INT8)
 - **Origin:** original code written for this integration
 - **Runtime/compiler:** `axelera-devkit` and `axelera-rt` (Voyager SDK 1.9.0),
   proprietary software under Axelera's EULA, called as user-installed optional
@@ -19,5 +21,5 @@
   activation bound and output windows are original code
 - **Evidence:** fake-SDK unit tests; real compilation and on-device validation
   on a Metis M.2 Max, recorded in `docs/axelera.md`
-- **Evaluation data:** COCO val2017 and DOTA-v2.0 subsets used locally for
-  measurement only; not in the repository
+- **Evaluation data:** COCO val2017, DOTA-v2.0 and ImageNetV2 subsets used
+  locally for measurement only; not in the repository

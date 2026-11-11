@@ -3224,6 +3224,26 @@ class AxeleraExporter(BaseExporter):
             )
         return imgsz, device, output_path
 
+    def _prepare_mobilenetv4(self, net, dummy) -> None:
+        """Equalize and bound MobileNetV4's residual streams for per-tensor INT8."""
+        from ..models.mobilenetv4.quantize import prepare_for_int8
+
+        samples = [torch.as_tensor(x) for x in self._equalization_samples()]
+        if not samples:
+            return
+        with torch.no_grad():
+            before = [net(x) for x in samples[:4]]
+        summary = prepare_for_int8(net, samples)
+        with torch.no_grad():
+            drift = max(float((net(x) - b).abs().max()) for x, b in zip(samples[:4], before))
+        logger.info(
+            "Axelera: MobileNetV4 residual streams equalized (stages %s) and bounded "
+            "(%s); largest FP32 logit change on calibration images %.3g.",
+            summary["equalized_stages"],
+            ", ".join(f"stage {k} at {v:.1f}" for k, v in summary["stage_bounds"].items()) or "none",
+            drift,
+        )
+
     def _equalization_samples(self, limit: int = 32) -> list:
         """Up to ``limit`` calibration images (``[1, C, H, W]``), or ``[]``."""
         loader = getattr(self, "_calibration_loader", None)
@@ -3283,9 +3303,10 @@ class AxeleraExporter(BaseExporter):
         out = Path(output_path)
         onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
         if self._task() == "classify":
-            self._raw_wrapper = _ClassifyLogitsWrapper(
-                copy.deepcopy(self.model.model).eval()
-            ).eval()
+            net = copy.deepcopy(self.model.model).eval()
+            if self.model._get_model_name() == "mobilenetv4":
+                self._prepare_mobilenetv4(net, dummy)
+            self._raw_wrapper = _ClassifyLogitsWrapper(net).eval()
             logger.info("Step 1/2: Exporting classifier ONNX (%s)", onnx_output)
             return _export_onnx_graph(
                 self._raw_wrapper,
@@ -3404,11 +3425,7 @@ class AxeleraExporter(BaseExporter):
         verify=False,
         **kwargs,
     ):
-        from .axelera import (
-            DEFAULT_QUANTIZATION_SCHEME,
-            DEFAULT_QUANTIZATION_SCHEME_BY_TASK,
-            export_axelera,
-        )
+        from .axelera import default_quantization_scheme, export_axelera
 
         logger.info("Step 2/2: Quantizing and compiling for Axelera Metis")
         return export_axelera(
@@ -3417,8 +3434,8 @@ class AxeleraExporter(BaseExporter):
             stem=Path(output_path).name.removesuffix(self.suffix) or "model",
             metadata=metadata,
             calibration=calibration_data,
-            quantization_scheme=DEFAULT_QUANTIZATION_SCHEME_BY_TASK.get(
-                self._task(), DEFAULT_QUANTIZATION_SCHEME
+            quantization_scheme=default_quantization_scheme(
+                self.model._get_model_name(), self._task()
             ),
             calibration_info=getattr(self, "_calibration_info", {}),
             compiler_overrides=getattr(self, "_compiler_overrides", {}),

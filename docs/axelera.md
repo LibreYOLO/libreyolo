@@ -15,7 +15,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) |
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` |
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` |
-| MobileNetV4 | classify | s, m, l | blocked: -1.7 to -2.6 top-1 in INT8 (section 11) |
+| MobileNetV4 | classify | m (s and l refused, section 7) | see `docs/export_support.md` |
 | YOLO9-E2E, YOLO9-P2, RF-DETR, other families | all | all | blocked (section 11) |
 
 The tiers in `docs/export_support.md` are generated from
@@ -206,12 +206,23 @@ them):
 Calibrating a classifier on coco128 (the fallback when `data=` is omitted)
 cost ResNet-18 1.1 top-1 points instead of 0.6, and the histogram scheme 2.0.
 
-MobileNetV4 (FP32 top-1 0.624 / 0.682 / 0.727 for s / m / l) is blocked: the
-same recipe gave 0.562 on s (-6.2). Equalizing its residual streams per
-channel and bounding the stage-2 stream (both done before export, nearly
-FP32-neutral) brought s, m and l to -1.9 to -2.6, -1.7 and -1.7, still
-outside the one-point bar. Axelera's `quantize_dw_channel_wise` and
-`smoothquant_coefficient` options changed nothing measurable.
+MobileNetV4 needs more than the ResNet recipe: with plain min-max ranges
+size s lost 6.2 top-1 points. LibreYOLO equalizes its residual streams per
+channel and bounds the stage-2 stream before export (both nearly
+FP32-neutral; largest logit change on the calibration images 0.1 on m),
+then calibrates with histogram activation ranges
+(`hybrid_per_tensor_per_channel`):
+
+| Model | Input | FP32 top-1 | Metis INT8 top-1 | Delta | Compile (28 W host) |
+| --- | --- | --- | --- | --- | --- |
+| MobileNetV4-m | 224 | 0.682 | 0.684 | +0.2 | 3.1 min |
+
+MobileNetV4-s and -l are refused: their best results stay 1.7 points below
+FP32 (s 0.607 vs 0.624 with histogram ranges and no stream transform; l
+0.710 vs 0.727 with min-max ranges and the stream transform). The recipe
+that passes on m costs s 2.6 and l 3.0 points. Axelera's
+`quantize_dw_channel_wise` and `smoothquant_coefficient` options changed
+nothing measurable.
 
 Values are mAP50-95 (box, rotated box for obb, keypoint OKS for pose). On
 mAP50 the obb deltas are -1.36 (s), -0.11 (m) and -0.43 (l).
@@ -237,8 +248,11 @@ Calibration scheme, YOLO-NAS-s detect, device, COCO val2017 1000 images:
 
 The histogram scheme clips rare large values, here the positive class logits
 and the peaks of the box distributions, which costs about one point.
-LibreYOLO therefore compiles with min-max ranges by default; pass
-`compiler_config={"quantization_scheme": ...}` to choose another.
+LibreYOLO therefore compiles with min-max ranges by default, except YOLO-NAS
+pose and MobileNetV4, which keep more accuracy with histogram ranges
+(`libreyolo.export.axelera.default_quantization_scheme(family, task)` names
+the scheme); pass `compiler_config={"quantization_scheme": ...}` to choose
+another.
 
 Throughput, YOLO-NAS-s detect, 640x640, raw model calls on the device
 (host quantize, AIPU, dequantize; measured while other jobs loaded the host):
@@ -333,10 +347,10 @@ compiles their own.
 - RF-DETR and other transformer families: attention, data-dependent TopK and
   grid sampling are outside what the compiler places on the AIPU, and the host
   can only run operators before or after the accelerated graph.
-- MobileNetV4 (classify): blocked. Per-tensor INT8 of its inverted-residual
-  streams (the stage-2 stream spans about +-400 while its median channel
-  stays within +-14) costs 6.2 top-1 points on size s; stream equalization
-  recovers most but not enough (section 7).
+- MobileNetV4 (classify) s and l: refused; top-1 stays 1.7 points below FP32
+  at best (section 7). Per-tensor INT8 of the inverted-residual streams (the
+  stage-2 stream of s spans about +-400 while its median channel stays
+  within +-14) is the cause. Use m.
 - Other families: not compiled or measured.
 - Europa and multi-device scheduling: not covered.
 - Large models on M.2 cards can hit the card's power limit.
