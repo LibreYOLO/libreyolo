@@ -59,7 +59,76 @@ def _empty_curve() -> np.ndarray:
     return np.zeros((0, 0), dtype=np.float64)
 
 
-class BoxImageMetrics:
+class _MapMetrics:
+    """``map``, ``map50``, ``map75``, ``mp``, ``mr`` and ``maps`` for one kind.
+
+    Read from the flat ``val()`` metrics: the ``(B)`` (box) or ``(M)`` (mask)
+    keys, falling back to the unsuffixed key for detection, where it is the
+    box value. ``maps`` is AP50-95 per class index, ``nc`` long; classes
+    without ground truth in the validation set get the overall ``map``.
+    """
+
+    _suffix = "(B)"
+
+    def _init_map_metrics(
+        self,
+        metrics: Optional[Dict[str, Any]],
+        per_class_ap: Optional[Dict[int, float]] = None,
+        nc: Optional[int] = None,
+    ) -> None:
+        self._metrics = metrics if metrics is not None else {}
+        self._per_class_ap = dict(per_class_ap or {})
+        self._nc = nc
+
+    def _value(self, name: str) -> float:
+        metrics = self._metrics
+        key = f"metrics/{name}"
+        value = metrics.get(key + self._suffix)
+        if value is None and not any(k.endswith("(M)") for k in metrics):
+            # Detection: unsuffixed keys are the box metrics. Segmentation's
+            # unsuffixed keys are mask metrics, so box never falls back there.
+            value = metrics.get(key)
+        return float("nan") if value is None else float(value)
+
+    @property
+    def map(self) -> float:
+        """mAP at IoU 0.50:0.95 (``metrics/mAP50-95``)."""
+        return self._value("mAP50-95")
+
+    @property
+    def map50(self) -> float:
+        """mAP at IoU 0.50 (``metrics/mAP50``)."""
+        return self._value("mAP50")
+
+    @property
+    def map75(self) -> float:
+        """mAP at IoU 0.75 (``metrics/mAP75``)."""
+        return self._value("mAP75")
+
+    @property
+    def mp(self) -> float:
+        """Mean precision (``metrics/precision``)."""
+        return self._value("precision")
+
+    @property
+    def mr(self) -> float:
+        """Mean recall (``metrics/recall``)."""
+        return self._value("recall")
+
+    @property
+    def maps(self) -> np.ndarray:
+        """AP50-95 per class index; the overall ``map`` where a class has no AP."""
+        nc = self._nc
+        if nc is None:
+            nc = max(self._per_class_ap, default=-1) + 1
+        out = np.full(int(nc), self.map, dtype=np.float64)
+        for label, ap in self._per_class_ap.items():
+            if 0 <= label < len(out):
+                out[label] = ap
+        return out
+
+
+class BoxImageMetrics(_MapMetrics):
     """``results.box``: per-image and per-class results for detect and segment.
 
     ``image_metrics`` (#887) maps each image filename to its box metrics.
@@ -82,7 +151,12 @@ class BoxImageMetrics:
         image_metrics: Dict[str, Dict[str, float]],
         best_conf_per_class: Optional[Dict[str, float]] = None,
         curves: Optional[Dict[str, np.ndarray]] = None,
+        *,
+        metrics: Optional[Dict[str, Any]] = None,
+        per_class_ap: Optional[Dict[int, float]] = None,
+        nc: Optional[int] = None,
     ) -> None:
+        self._init_map_metrics(metrics, per_class_ap, nc)
         self.image_metrics = image_metrics
         self.best_conf_per_class = dict(best_conf_per_class or {})
         curves = curves or {}
@@ -105,6 +179,23 @@ class BoxImageMetrics:
 
     def __repr__(self) -> str:
         return f"BoxImageMetrics({len(self.image_metrics)} images)"
+
+
+class MaskMetrics(_MapMetrics):
+    """``results.seg`` for segmentation: the mask ``(M)`` metrics by name."""
+
+    _suffix = "(M)"
+
+    def __init__(
+        self,
+        metrics: Dict[str, Any],
+        per_class_ap: Optional[Dict[int, float]] = None,
+        nc: Optional[int] = None,
+    ) -> None:
+        self._init_map_metrics(metrics, per_class_ap, nc)
+
+    def __repr__(self) -> str:
+        return f"MaskMetrics(map={self.map:.4f})"
 
 
 class ValidationMetrics(dict):
@@ -134,10 +225,22 @@ class ValidationMetrics(dict):
         *,
         curves: Optional[Dict[str, np.ndarray]] = None,
         confusion_matrix: Optional["ConfusionMatrix"] = None,
+        per_class_ap: Optional[Dict[int, float]] = None,
+        mask_per_class_ap: Optional[Dict[int, float]] = None,
+        nc: Optional[int] = None,
     ) -> None:
         super().__init__(metrics)
         if image_metrics is not None:
-            self.box = BoxImageMetrics(image_metrics, best_conf_per_class, curves)
+            self.box = BoxImageMetrics(
+                image_metrics,
+                best_conf_per_class,
+                curves,
+                metrics=self,
+                per_class_ap=per_class_ap,
+                nc=nc,
+            )
+        if any(key.endswith("(M)") for key in self):
+            self.seg = MaskMetrics(self, mask_per_class_ap, nc)
         self.confusion_matrix = confusion_matrix
 
 
@@ -158,6 +261,14 @@ class ClassifyMetrics(ValidationMetrics):
         return float(self.get("metrics/accuracy_top5", 0.0))
 
 
+def _class_count(validator: Any) -> Optional[int]:
+    nc = getattr(validator, "nc", None)
+    try:
+        return int(nc) if nc is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def with_image_metrics(metrics: Any, validator: Any) -> Any:
     """Attach a validator's per-image, per-class and confusion results.
 
@@ -176,6 +287,9 @@ def with_image_metrics(metrics: Any, validator: Any) -> Any:
             getattr(validator, "best_conf_per_class", None),
             curves=getattr(validator, "confidence_curves", None),
             confusion_matrix=confusion_matrix,
+            per_class_ap=getattr(validator, "per_class_ap", None),
+            mask_per_class_ap=getattr(validator, "mask_per_class_ap", None),
+            nc=_class_count(validator),
         )
     if getattr(validator, "task", None) == "classify":
         return ClassifyMetrics(metrics, confusion_matrix=confusion_matrix)

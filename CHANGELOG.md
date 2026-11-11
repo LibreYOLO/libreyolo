@@ -72,6 +72,21 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **`results[0]` on a single-image `Results` is the whole result.**
+  `predict()` of one image returns one `Results`, and code written for a per-image list does `results = model(img); r = results[0]; r.boxes.xyxy`. That used to return only the first detection. Now an integer `0` or `-1` returns the `Results` itself with all its detections, and `for r in results` yields it once (it used to step through detections, and never stopped for classification and dense results). Slices, boolean masks and index arrays still select detections (`results[:1]`, `results[results.boxes.conf > 0.5]`). Other integers (`results[2]`) still select one detection with a `DeprecationWarning` naming `results[2:3]` or `results.boxes[2]`. The first `results[0]` or iteration of a result with more than one detection emits a one-time `DeprecationWarning` describing the change. `len(results)` still counts detections.
+
+- **`Results.save()` saves the annotated image for every task, and `Results.show()` displays it.**
+  `save()` used to raise outside generation and matting; it now does `plot(save=True)`, takes `filename=` as well as a path, defaults to `results_<image name>`, and returns the path. Generated images, 3D objects and mattes save as before.
+
+- **`val()` results name their metrics: `metrics.box.map`, `.map50`, `.map75`, `.mp`, `.mr` and `.maps`.**
+  Read from the existing `metrics/...(B)` keys (or the unsuffixed detection keys); `maps` is AP50-95 per class index, the overall mAP where a class has no ground truth. Segmentation adds `metrics.seg` with the mask values and the keys `metrics/mAP75(B)` and `metrics/mAP75(M)`. Detect and segment.
+
+- **More Ultralytics spellings fail with the LibreYOLO line to use.**
+  Class-name hints are case-insensitive (`from libreyolo import Yolo`, `yolo`, `Rtdetr`), `hasattr()` unchanged. Weight-name hints cover later versions (`yolo27n.pt`, `yolov27s-seg.pt`, `yolo30x.pt`) with the latest known mapping. `model.add_callback()` names `train(callbacks=...)`; it is an `AttributeError`, so `hasattr(model, "add_callback")` is False. `export(format=...)` with `saved_model`, `pb`, `tfjs` or `edgetpu` names the closest supported format.
+
+- **Pre-1.0 all-caps class names import again, with a `DeprecationWarning`.**
+  `LIBREYOLO`, `LIBREYOLOX`, `LIBREYOLO9`, `LIBREYOLORFDETR` and `LIBREYOLONCNN` resolve to `LibreYOLO`, `LibreYOLOX`, `LibreYOLO9`, `LibreRFDETR` and `NcnnBackend`, for dataset cards and tutorials written before 1.0. `import libreyolo` still does not import torch.
+
 - **`DepthMap` can carry camera geometry.** New optional keyword-only fields `metric`, `point_map`, `intrinsics`, and `valid_mask` (ADR 0006 amendment). Existing depth families are unchanged.
 - **MoGe-2 no longer claims MoGe-3 checkpoints**, which share its encoder, neck, and head names.
 

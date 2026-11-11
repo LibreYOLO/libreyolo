@@ -155,6 +155,18 @@ _DEPRECATED_ALIASES = {
     "LibreYOLORFDETR": "LibreRFDETR",
 }
 
+# Pre-1.0 all-caps names, renamed to PascalCase on 2026-03-01 and still used
+# by dataset cards and old tutorials. Deprecated like the names above, with
+# the import line to use in the warning.
+_DEPRECATED_CAPS_ALIASES = {
+    "LIBREYOLO": "LibreYOLO",
+    "LIBREYOLOX": "LibreYOLOX",
+    "LIBREYOLO9": "LibreYOLO9",
+    "LIBREYOLORFDETR": "LibreRFDETR",
+    "LIBREYOLONCNN": "NcnnBackend",
+}
+_DEPRECATED_ALIASES.update(_DEPRECATED_CAPS_ALIASES)
+
 
 # Lazy imports for optional/heavy modules
 def __getattr__(name):
@@ -163,12 +175,18 @@ def __getattr__(name):
         import sys
         import warnings
 
-        warnings.warn(
-            f"{name} has been renamed to {new_name}. Update your imports — "
-            "the old name will be removed in a future release.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        if name in _DEPRECATED_CAPS_ALIASES:
+            message = (
+                f"{name} is deprecated and will be removed in a future "
+                f"release. Use {new_name} instead: "
+                f"from libreyolo import {new_name}"
+            )
+        else:
+            message = (
+                f"{name} has been renamed to {new_name}. Update your imports — "
+                "the old name will be removed in a future release."
+            )
+        warnings.warn(message, DeprecationWarning, stacklevel=2)
         # ``getattr`` on the module object resolves both eager imports
         # (``LibreRTDETR`` in globals) and the lazy ``__getattr__`` path
         # (``LibreRFDETR``); recursing into ``__getattr__`` directly would

@@ -180,7 +180,7 @@ decoder. They load from `LibreYOLO/LibreGTR{s,m,l,x}-pose`; local upstream
 
 ```python
 model = LibreYOLO("LibreGTRs-pose.pt")
-results = model.predict("image.jpg")  # results[0].keypoints: (N, 17, 3)
+result = model.predict("image.jpg")  # result.keypoints: (N, 17, 3)
 model.train(data="coco8-pose.yaml", epochs=10, allow_download_scripts=True)
 ```
 

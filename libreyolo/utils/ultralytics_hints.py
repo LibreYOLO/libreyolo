@@ -57,9 +57,14 @@ _CLASS_HINTS = {
 }
 
 
+# Case-insensitive lookup, so ``Yolo``, ``yolo`` and ``Rtdetr`` get the hint
+# too. No LibreYOLO export or submodule has any of these spellings.
+_CLASS_HINTS_FOLDED = {key.lower(): code for key, code in _CLASS_HINTS.items()}
+
+
 def class_name_hint(name: str) -> str | None:
     """Message for an Ultralytics class name looked up on ``libreyolo``."""
-    code = _CLASS_HINTS.get(name)
+    code = _CLASS_HINTS_FOLDED.get(name.lower())
     if code is None:
         return None
     return f"libreyolo has no '{name}'. Use:\n    {code}"
@@ -98,6 +103,55 @@ def raise_class_name_hint(name: str, module: str, module_file: str, message: str
 
 
 # ---------------------------------------------------------------------------
+# Model methods LibreYOLO spells differently: ``model.add_callback(...)``
+# ---------------------------------------------------------------------------
+
+_METHOD_HINTS = {
+    "add_callback": (
+        "LibreYOLO models have no add_callback(). Pass training callbacks to "
+        "train() instead:\n"
+        '    model.train(data="your_data.yaml", callbacks=[fn])\n'
+        "A plain function receives a TrainEpochEvent (epoch, train_loss, "
+        "val_metrics, save_dir, ...) after every epoch, not a trainer object. "
+        "Objects may define on_train_start, on_train_epoch_end, on_train_end "
+        "and on_train_exception."
+    ),
+}
+
+
+class UltralyticsMethodHint:
+    """Class attribute that raises a hint for an Ultralytics-only method.
+
+    Accessing it raises :class:`UltralyticsNameError`, an ``AttributeError``,
+    so ``hasattr(model, name)`` stays False. A descriptor rather than a
+    ``__getattr__`` on the model, which would also replace the message of any
+    ``AttributeError`` raised inside the model's properties.
+    """
+
+    def __init__(self, name: str):
+        self.message = _METHOD_HINTS[name]
+
+    def __get__(self, instance, owner=None):
+        if instance is None:
+            return self  # class-level introspection (inspect, dir) stays quiet
+        raise UltralyticsNameError(self.message)
+
+
+# Export formats LibreYOLO does not produce, with what to use instead.
+_EXPORT_FORMAT_HINTS = {
+    "saved_model": "For TensorFlow runtimes, export format='tflite' or 'onnx'.",
+    "pb": "For TensorFlow runtimes, export format='tflite' or 'onnx'.",
+    "tfjs": "For the browser, export format='onnx' and run it with onnxruntime-web.",
+    "edgetpu": "Edge TPU compilation is not built in; format='tflite' is the closest.",
+}
+
+
+def export_format_hint(format: str) -> str | None:
+    """One sentence for an Ultralytics export format LibreYOLO lacks."""
+    return _EXPORT_FORMAT_HINTS.get(str(format).lower())
+
+
+# ---------------------------------------------------------------------------
 # Weight names: ``LibreYOLO("yolov8n.pt")``
 # ---------------------------------------------------------------------------
 
@@ -113,9 +167,14 @@ class WeightHint(NamedTuple):
 
 # Ultralytics release names: yolov3u, yolov5nu, yolov5n6u, yolov8n-seg,
 # yolov9c, yolov10b, yolo11n-pose, yolo12x, yolo26n-obb, yolov8s-worldv2...
-# plus common misspellings such as yolov11n and yolo8n.
+# plus common misspellings such as yolov11n and yolo8n. Versions after the
+# latest known one (yolo27n, yolov30s-seg, ...) are treated as future
+# releases with the same naming; 1, 2, 4, 7 and 13 to 25 are other projects'
+# names and get no hint.
+_ULTRALYTICS_VERSIONS = frozenset({3, 5, 6, 8, 9, 10, 11, 12, 26})
+_LATEST_ULTRALYTICS_VERSION = max(_ULTRALYTICS_VERSIONS)
 _YOLO_NAME = re.compile(
-    r"^yolo-?v?(?P<version>3|5|6|8|9|10|11|12|26)"
+    r"^yolo-?v?(?P<version>[1-9][0-9]?)"
     r"(?P<size>[nsmblxtce])?6?u?"
     r"(?:-(?P<rest>[a-z0-9.-]+))?$"
 )
@@ -182,6 +241,9 @@ def ultralytics_weight_hint(model_path: str) -> WeightHint | None:
 
     match = _YOLO_NAME.match(stem)
     if match is None:
+        return None
+    version = int(match.group("version"))
+    if version not in _ULTRALYTICS_VERSIONS and version <= _LATEST_ULTRALYTICS_VERSION:
         return None
     size = match.group("size")
     tokens = (match.group("rest") or "").split("-")

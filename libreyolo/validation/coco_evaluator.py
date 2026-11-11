@@ -430,6 +430,38 @@ class COCOEvaluator:
             logger.debug("Best-conf sweep unavailable: %s", exc)
             return None
 
+    def per_class_ap(self) -> Optional[Dict[int, float]]:
+        """AP50-95 per model class index, from the last evaluation.
+
+        Read from the accumulated ``precision`` array ("all" area range,
+        largest ``maxDets``), averaged over IoU thresholds and recall points
+        like the overall mAP. Classes without ground truth are left out.
+        None when no evaluation ran.
+        """
+        coco_eval = self._last_coco_eval
+        try:
+            precision = (getattr(coco_eval, "eval", None) or {}).get("precision")
+            if precision is None:
+                return None
+            precision = np.asarray(precision)
+            area_index = list(coco_eval.params.areaRngLbl).index("all")
+            category_to_label = (
+                {v: k for k, v in self.label_to_category_id.items()}
+                if self.label_to_category_id is not None
+                else {}
+            )
+            out: Dict[int, float] = {}
+            for k, cat_id in enumerate(coco_eval.params.catIds):
+                values = precision[:, :, k, area_index, -1]
+                valid = values[values > -1]
+                if valid.size:
+                    label = category_to_label.get(int(cat_id), int(cat_id))
+                    out[int(label)] = float(valid.mean())
+            return out
+        except Exception as exc:  # backend without the accumulated arrays
+            logger.debug("Per-class AP unavailable: %s", exc)
+            return None
+
     def confidence_curves(
         self, iou_thr: float = 0.5, points: int = 1000
     ) -> Optional[Dict[str, np.ndarray]]:

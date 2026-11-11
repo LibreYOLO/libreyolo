@@ -572,9 +572,13 @@ class BaseExporter(ABC):
         key = format.lower()
         key = cls._aliases.get(key, key)
         if key not in cls._registry:
+            from libreyolo.utils.ultralytics_hints import export_format_hint
+
             valid = ", ".join(sorted(cls._registry))
+            hint = export_format_hint(key)
             raise ValueError(
                 f"Unsupported export format: {format!r}. Must be one of: {valid}"
+                + (f". {hint}" if hint else "")
             )
         if model is not None and getattr(model, "FAMILY", None) == "domedetr":
             raise NotImplementedError(_DOMEDETR_EXPORT_MESSAGE)
