@@ -1501,6 +1501,52 @@ class _RTMDetInsRawHeadsWrapper(torch.nn.Module):
         return _relu6_window(conv, x, *window)
 
 
+class _RetinaNetRawHeadsWrapper(torch.nn.Module):
+    """RetinaNet graph cut right after each level's box-delta and class convs.
+
+    Returns ``reg`` (``4 * A`` box deltas) and ``cls`` (``A * nc`` logits)
+    per level P3-P7, as layout ``retinanet_raw_heads_v1``. The host rebuilds
+    the anchors and the decoded export's ``(B, N, 4 + nc)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_retinanet_raw`). Exports
+    take one fixed square canvas (the image fitted inside, padded
+    bottom/right), so the anchors are fixed too.
+    """
+
+    output_layout = "retinanet_raw_heads_v1"
+    grid_cell_offset = 0.0
+    reg_max = None
+    strides = (8, 16, 32, 64, 128)
+
+    def __init__(self, model: torch.nn.Module, task: str = "detect"):
+        super().__init__()
+        from ..models.retinanet.nn import _ASPECT_RATIOS, _ANCHOR_SIZES, _COCO91_SOURCE_INDICES
+        from ..postprocess.yolonas_raw import raw_head_output_names
+
+        if task != "detect":
+            raise ValueError(f"RetinaNet raw-head export supports detect only, got {task!r}.")
+        self.model = model
+        self.task = task
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        self.output_windows: dict[str, tuple[float, float]] = {}
+        self.anchor_sizes = [list(sizes) for sizes in _ANCHOR_SIZES]
+        self.aspect_ratios = [list(ratios) for ratios in _ASPECT_RATIOS]
+        self.class_index_map = (
+            list(_COCO91_SOURCE_INDICES) if model.num_classes == 91 else None
+        )
+
+    def forward(self, x):
+        model = self.model
+        head = model.head
+        outputs = []
+        for feature in model.backbone(x).values():
+            reg = head.regression_head
+            cls = head.classification_head
+            outputs.append(reg.bbox_reg(reg.conv(feature)))
+            outputs.append(cls.cls_logits(cls.conv(feature)))
+        return tuple(outputs)
+
+
+
 class _YOLO9SplitOutputWrapper(torch.nn.Module):
     """YOLO9 detection graph with boxes and scores as separate outputs.
 
@@ -4016,7 +4062,15 @@ class AxeleraExporter(BaseExporter):
                 return BaseBackend._preprocess_restore(crop, (h, w), "rgb")[0][0].numpy(), 1.0
 
             return restore
-        return self.model._get_preprocess_numpy()
+        preprocess = self.model._get_preprocess_numpy()
+        if self.model._get_model_name() == "retinanet":
+            # RetinaNet's own preprocessing gives every image its own shape;
+            # the compiled graph takes one square canvas, so images are fitted
+            # into it (the backend does the same for fixed-shape artifacts).
+            import functools
+
+            return functools.partial(preprocess, fixed_canvas=True)
+        return preprocess
 
     def _prepare_quicksrnet(self, net) -> None:
         """Equalize QuickSRNet's hidden channels for per-channel INT8 weights."""
@@ -4158,7 +4212,12 @@ class AxeleraExporter(BaseExporter):
                 dynamic_axes=None,
             )
         live = self.model.model
-        if self.model._get_model_name() == "ppyoloe":
+        if self.model._get_model_name() == "retinanet":
+            self._pose_bounds = {}
+            self._raw_wrapper = _RetinaNetRawHeadsWrapper(
+                copy.deepcopy(live).eval(), self._task()
+            ).eval()
+        elif self.model._get_model_name() == "ppyoloe":
             self._pose_bounds = {}
             self._raw_wrapper = _PPYOLOERawHeadsWrapper(live, self._task()).eval()
         elif self.model._get_model_name() == "yolo7":
@@ -4301,6 +4360,11 @@ class AxeleraExporter(BaseExporter):
                 "mode": str(CSPNEXT_POINTWISE_EQUALIZATION),
                 "method": self._pointwise_method(),
             }
+        if getattr(wrapper, "anchor_sizes", None) is not None:  # RetinaNet
+            meta["anchor_sizes"] = [list(sizes) for sizes in wrapper.anchor_sizes]
+            meta["aspect_ratios"] = [list(r) for r in wrapper.aspect_ratios]
+            if wrapper.class_index_map is not None:
+                meta["class_index_map"] = list(wrapper.class_index_map)
         if getattr(self, "_pose_bounds", None):
             meta["pose_head_bounds"] = {
                 name: round(float(cap), 4) for name, cap in self._pose_bounds.items()

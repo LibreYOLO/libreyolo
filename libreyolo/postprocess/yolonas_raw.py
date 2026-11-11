@@ -1,4 +1,4 @@
-"""Host-side decode for YOLO-NAS, YOLO9, PP-YOLOE, YOLOX, PicoDet, RTMDet, RTMDet-Ins and anchor-based YOLO raw head outputs.
+"""Host-side decode for YOLO-NAS, YOLO9, PP-YOLOE, YOLOX, PicoDet, RTMDet, RTMDet-Ins, RetinaNet and anchor-based YOLO raw head outputs.
 
 Some accelerators run a YOLO-NAS or YOLO9 graph cut right after the head's
 last convolutions and leave the decode to the host: the DFL distance decode,
@@ -30,6 +30,9 @@ follow the levels (``RAW_LAYOUT_EXTRA_OUTPUTS``):
                                ``cls`` [B, nc, H, W]
 ``yolox_raw_heads_v1``         ``reg`` [B, 4, H, W] (x/y cell offsets, log
                                w/h), ``obj`` [B, 1, H, W], ``cls`` [B, nc, H, W]
+``retinanet_raw_heads_v1``     per level P3-P7 and anchor (anchor-major):
+                               ``reg`` [B, 4A, H, W] (box deltas),
+                               ``cls`` [B, A*nc, H, W]
 ``darknet_raw_heads_v1``,      per level and anchor (anchor-major):
 ``yolo7_raw_heads_v1``         ``reg`` [B, 4A, H, W] (tx, ty, tw, th),
                                ``obj`` [B, A, H, W], ``cls`` [B, A*nc, H, W]
@@ -69,6 +72,7 @@ YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "yolonas_obb_raw_heads_v1": ("reg", "cls", "offset", "rot"),
     "yolo9_raw_heads_v1": ("reg", "cls"),
     "yolox_raw_heads_v1": ("reg", "obj", "cls"),
+    "retinanet_raw_heads_v1": ("reg", "cls"),
     "darknet_raw_heads_v1": ("reg", "obj", "cls"),
     "yolo7_raw_heads_v1": ("reg", "obj", "cls"),
     "rtmdet_raw_heads_v1": ("reg", "cls"),
@@ -524,6 +528,78 @@ def decode_yolox_raw(
     return [out]
 
 
+def _retinanet_cell_anchors(sizes, ratios) -> np.ndarray:
+    """torchvision AnchorGenerator cell anchors ``(A, 4)``, rounded like it."""
+    scales = np.asarray(sizes, dtype=np.float32)
+    height_ratios = np.sqrt(np.asarray(ratios, dtype=np.float32))
+    width_ratios = np.float32(1.0) / height_ratios
+    widths = (width_ratios[:, None] * scales[None, :]).reshape(-1)
+    heights = (height_ratios[:, None] * scales[None, :]).reshape(-1)
+    return np.round(np.stack((-widths, -heights, widths, heights), axis=1) / 2)
+
+
+def decode_retinanet_raw(
+    outputs: Sequence[np.ndarray],
+    *,
+    strides: Sequence[int],
+    anchor_sizes: Sequence[Sequence[float]],
+    aspect_ratios: Sequence[Sequence[float]],
+    class_index_map: Sequence[int] | None = None,
+    bbox_xform_clip: float = math.log(1000.0 / 16),
+    **_unused,
+) -> list[np.ndarray]:
+    """Decode RetinaNet heads to ``[(B, N, 4 + nc)]``: xyxy px, sigmoid scores.
+
+    Rebuilds the anchors of the decoded export for the fixed canvas (stride per
+    level = canvas // grid, as torchvision's AnchorGenerator) and its box
+    decode (deltas with weights 1, size deltas clipped at
+    ``bbox_xform_clip``). ``class_index_map`` selects and orders score
+    columns (COCO-91 checkpoints -> contiguous COCO-80). Rows are ordered
+    level, row, column, anchor.
+    """
+    layout = "retinanet_raw_heads_v1"
+    levels = _split_levels(outputs, layout, strides)
+    batch = levels[0]["cls"].shape[0]
+    canvas_h = levels[0]["cls"].shape[2] * int(strides[0])
+    canvas_w = levels[0]["cls"].shape[3] * int(strides[0])
+    rows = []
+    for level, sizes, ratios in zip(levels, anchor_sizes, aspect_ratios):
+        _, _, h, w = level["cls"].shape
+        base = _retinanet_cell_anchors(sizes, ratios)  # (A, 4)
+        count = base.shape[0]
+        nc = level["cls"].shape[1] // count
+        xs = np.arange(w, dtype=np.float32) * np.float32(canvas_w // w)
+        ys = np.arange(h, dtype=np.float32) * np.float32(canvas_h // h)
+        grid_y, grid_x = np.meshgrid(ys, xs, indexing="ij")
+        shifts = np.stack([grid_x, grid_y, grid_x, grid_y], axis=-1).reshape(-1, 1, 4)
+        anchors = (shifts + base[None]).reshape(-1, 4)  # (H*W*A, 4)
+        reg = level["reg"].reshape(batch, count, 4, h, w).transpose(0, 3, 4, 1, 2).reshape(batch, -1, 4)
+        cls = level["cls"].reshape(batch, count, nc, h, w).transpose(0, 3, 4, 1, 2).reshape(batch, -1, nc)
+        widths = anchors[:, 2] - anchors[:, 0]
+        heights = anchors[:, 3] - anchors[:, 1]
+        ctr_x = anchors[:, 0] + np.float32(0.5) * widths
+        ctr_y = anchors[:, 1] + np.float32(0.5) * heights
+        dw = np.minimum(reg[..., 2], np.float32(bbox_xform_clip))
+        dh = np.minimum(reg[..., 3], np.float32(bbox_xform_clip))
+        pred_x = reg[..., 0] * widths + ctr_x
+        pred_y = reg[..., 1] * heights + ctr_y
+        half_w = np.float32(0.5) * np.exp(dw) * widths
+        half_h = np.float32(0.5) * np.exp(dh) * heights
+        out = np.empty((batch, reg.shape[1], 4 + nc), dtype=np.float32)
+        out[..., 0] = pred_x - half_w
+        out[..., 1] = pred_y - half_h
+        out[..., 2] = pred_x + half_w
+        out[..., 3] = pred_y + half_h
+        out[..., 4:] = cls
+        rows.append(out)
+    out = np.concatenate(rows, axis=1)
+    _sigmoid_(out[..., 4:])
+    if class_index_map is not None:
+        index = np.asarray(class_index_map, dtype=np.int64)
+        out = np.concatenate([out[..., :4], out[..., 4:][..., index]], axis=-1)
+    return [out]
+
+
 def decode_anchor_yolo_raw(
     outputs: Sequence[np.ndarray],
     *,
@@ -672,6 +748,7 @@ _DECODERS = {
     "yolonas_obb_raw_heads_v1": decode_yolonas_obb_raw,
     "yolo9_raw_heads_v1": decode_yolo9_raw,
     "yolox_raw_heads_v1": decode_yolox_raw,
+    "retinanet_raw_heads_v1": decode_retinanet_raw,
     "darknet_raw_heads_v1": _anchor_decoder("darknet_raw_heads_v1"),
     "yolo7_raw_heads_v1": _anchor_decoder("yolo7_raw_heads_v1"),
     "rtmdet_raw_heads_v1": decode_rtmdet_raw,
@@ -771,6 +848,7 @@ __all__ = [
     "decode_yolo9_raw",
     "decode_rtmdet_ins_raw",
     "decode_rtmdet_raw",
+    "decode_retinanet_raw",
     "decode_yolonas_obb_raw",
     "decode_yolonas_pose_raw",
     "decode_picodet_raw",

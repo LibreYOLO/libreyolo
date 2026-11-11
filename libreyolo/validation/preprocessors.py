@@ -356,7 +356,17 @@ class FasterRCNNValPreprocessor(BaseValPreprocessor):
 
 
 class RetinaNetValPreprocessor(BaseValPreprocessor):
-    """Upstream min/max aspect resize, ImageNet normalization, and P3-P7 pad."""
+    """Upstream min/max aspect resize, ImageNet normalization, and P3-P7 pad.
+
+    ``fixed_canvas`` fits each image into one ``img_size`` square instead
+    (fixed-shape exports such as Axelera).
+    """
+
+    def __init__(
+        self, img_size: Tuple[int, int], max_labels: int = 120, fixed_canvas: bool = False
+    ):
+        super().__init__(img_size, max_labels)
+        self.fixed_canvas = bool(fixed_canvas)
 
     @property
     def normalize(self) -> bool:
@@ -379,7 +389,7 @@ class RetinaNetValPreprocessor(BaseValPreprocessor):
     ) -> Tuple[float, float, float]:
         from ..models.retinanet.utils import resize_scale
 
-        return resize_scale((orig_w, orig_h), int(imgsz)), 0.0, 0.0
+        return resize_scale((orig_w, orig_h), int(imgsz), self.fixed_canvas), 0.0, 0.0
 
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
@@ -390,7 +400,7 @@ class RetinaNetValPreprocessor(BaseValPreprocessor):
         if target_h != target_w:
             raise ValueError("RetinaNet validation requires a scalar min-side size")
         rgb = np.ascontiguousarray(img[:, :, ::-1])
-        processed, ratio = preprocess_numpy(rgb, int(target_h))
+        processed, ratio = preprocess_numpy(rgb, int(target_h), self.fixed_canvas)
 
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
         if len(targets):

@@ -302,6 +302,10 @@ class AxeleraBackend(BaseBackend):
             "grid_cell_offset": float(meta.get("grid_cell_offset", 0.5)),
             "output_windows": output_windows,
         }
+        if meta.get("anchor_sizes") is not None:  # RetinaNet
+            self._decode_params["anchor_sizes"] = meta["anchor_sizes"]
+            self._decode_params["aspect_ratios"] = meta["aspect_ratios"]
+            self._decode_params["class_index_map"] = meta.get("class_index_map")
         if meta.get("anchors") is not None:  # anchor-based YOLO layouts
             self._decode_params["anchors"] = [
                 [(float(w), float(h)) for w, h in level] for level in meta["anchors"]

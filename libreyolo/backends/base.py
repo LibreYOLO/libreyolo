@@ -879,6 +879,8 @@ class BaseBackend(ABC):
                 image,
                 input_size=input_h,
                 color_format=color_format,
+                # Fixed-shape artifacts (Axelera) take one square canvas.
+                fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,
             )
         elif self.model_family == "ssd":
             from ..models.ssd.utils import preprocess_image as ssd_preprocess_image
@@ -2312,10 +2314,15 @@ class BaseBackend(ABC):
             raise NotImplementedError(
                 "RetinaNet exported inference requires a scalar or square imgsz."
             )
+        fixed_canvas = getattr(self, "_fixed_input_hw", None) is not None
         resized_h, resized_w, scale_x, scale_y = resize_geometry(
-            (orig_w, orig_h), input_h
+            (orig_w, orig_h), input_h, fixed_canvas
         )
-        counts = level_anchor_counts(resized_h, resized_w)
+        counts = (
+            level_anchor_counts(input_h, input_w)
+            if fixed_canvas
+            else level_anchor_counts(resized_h, resized_w)
+        )
         if sum(counts) != predictions.shape[0]:
             raise ValueError(
                 "RetinaNet anchor count does not match preprocessing geometry: "
@@ -4601,6 +4608,11 @@ class BaseBackend(ABC):
             # from that geometry.
             "retinanet": RetinaNetValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
+        if preprocessor_cls is RetinaNetValPreprocessor:
+            return preprocessor_cls(
+                img_size=_imgsz_hw(img_size),
+                fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,
+            )
         if preprocessor_cls in (YOLO9ValPreprocessor, YOLO9E2EValPreprocessor):
             return preprocessor_cls(
                 img_size=_imgsz_hw(img_size),
