@@ -1426,6 +1426,74 @@ class _RTMDetRawHeadsWrapper(torch.nn.Module):
         return _relu6_window(conv, x, *window)
 
 
+class _RTMDetInsRawHeadsWrapper(torch.nn.Module):
+    """RTMDet-Ins graph cut after each level's ``rtm_reg``/``rtm_cls``/``rtm_kernel``.
+
+    Per level, stride 8, 16, 32: ``reg`` (ReLU'd l/t/r/b distances, before
+    the stride scale), ``cls`` (class logits) and ``kernel`` (169 dynamic
+    mask-conv parameters); then ``mask_feat`` (the stride-8 mask feature).
+    Layout ``rtmdet_ins_raw_heads_v1``; the host rebuilds the head's native
+    outputs (:func:`libreyolo.postprocess.yolonas_raw.decode_rtmdet_ins_raw`)
+    and runs LibreYOLO's RTMDet-Ins postprocess. ``output_windows`` works as in
+    :class:`_YOLONASRawHeadsWrapper` for the per-level parts; a ``reg`` window
+    must start at 0, where it also replaces the ReLU.
+    """
+
+    output_layout = "rtmdet_ins_raw_heads_v1"
+    grid_cell_offset = 0.0
+    reg_max = None
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str = "segment",
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import check_output_windows, raw_head_output_names
+
+        if task != "segment":
+            raise ValueError(f"RTMDet-Ins raw-head export supports segment only, got {task!r}.")
+        self.model = model
+        self.task = task
+        head = model.head
+        self.strides = tuple(int(stride) for stride in head.strides)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        self.output_windows = check_output_windows(self.output_layout, output_windows or {})
+        reg_window = self.output_windows.get("reg")
+        if reg_window is not None and reg_window[0] != 0.0:
+            raise ValueError(f"RTMDet-Ins reg window must start at 0 (ReLU), got {reg_window}.")
+
+    def forward(self, x):
+        model = self.model
+        head = model.head
+        feats = model.neck(model.backbone(x))
+        outputs = []
+        for idx, feat in enumerate(feats):
+            cls_feat = reg_feat = kernel_feat = feat
+            for layer in head.cls_convs[idx]:
+                cls_feat = layer(cls_feat)
+            for layer in head.reg_convs[idx]:
+                reg_feat = layer(reg_feat)
+            for layer in head.kernel_convs[idx]:
+                kernel_feat = layer(kernel_feat)
+            reg_window = self.output_windows.get("reg")
+            if reg_window is None:
+                outputs.append(torch.nn.functional.relu(head.rtm_reg[idx](reg_feat)))
+            else:
+                outputs.append(_relu6_window(head.rtm_reg[idx], reg_feat, *reg_window))
+            outputs.append(self._final_conv("cls", head.rtm_cls[idx], cls_feat))
+            outputs.append(self._final_conv("kernel", head.rtm_kernel[idx], kernel_feat))
+        outputs.append(head.mask_head(feats))
+        return tuple(outputs)
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+
 class _YOLO9SplitOutputWrapper(torch.nn.Module):
     """YOLO9 detection graph with boxes and scores as separate outputs.
 
@@ -4118,7 +4186,12 @@ class AxeleraExporter(BaseExporter):
                 CSPNEXT_POINTWISE_EQUALIZATION,
                 CSPNEXT_POINTWISE_EQUALIZATION_METHOD,
             )
-            self._raw_wrapper = _RTMDetRawHeadsWrapper(copy_, self._task()).eval()
+            wrapper_cls = (
+                _RTMDetInsRawHeadsWrapper
+                if self._task() == "segment"
+                else _RTMDetRawHeadsWrapper
+            )
+            self._raw_wrapper = wrapper_cls(copy_, self._task()).eval()
         else:
             fused = _fused_yolonas_copy(live, full_fusion=True)
             samples = self._equalization_samples() if self._task() == "pose" else []

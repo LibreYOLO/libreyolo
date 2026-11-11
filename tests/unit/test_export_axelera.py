@@ -299,11 +299,17 @@ class _ReorderingQuantizedModel:
         self.session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
         names = [o.name for o in self.session.get_outputs()]
         levels: dict[str, list[int]] = {}
-        # Raw-head names start with the pyramid level (p3_reg, p3_cls, ...).
+        extras: list[int] = []
+        # Raw-head names start with the pyramid level (p3_reg, p3_cls, ...);
+        # extra non-level outputs (e.g. RTMDet-Ins mask_feat) come last.
         for index, name in enumerate(names):
-            levels.setdefault(name.split("_", 1)[0], []).append(index)
-        if len(levels) > 1 and all(key[:1] == "p" for key in levels):
-            self.order = [i for indices in levels.values() for i in reversed(indices)]
+            key = name.split("_", 1)[0]
+            if key[:1] == "p" and key[1:].isdigit():
+                levels.setdefault(key, []).append(index)
+            else:
+                extras.append(index)
+        if len(levels) > 1:
+            self.order = [i for indices in levels.values() for i in reversed(indices)] + extras
         else:
             per_level = len(names) // 3
             self.order = [
@@ -564,6 +570,27 @@ def test_rtmdet_export_uses_the_rtmdet_raw_head_layout(exporter_sdk, tmp_path):
     # The user's model is untouched: equalization runs on the export copy.
     after = model.model.state_dict()
     assert all(torch.equal(before[k], after[k]) for k in before)
+
+
+def test_rtmdet_ins_export_uses_the_rtmdet_ins_layout(exporter_sdk, tmp_path):
+    import torch
+    import yaml
+
+    from libreyolo import LibreRTMDet
+    from libreyolo.postprocess.yolonas_raw import raw_head_output_names
+
+    torch.manual_seed(0)
+    model = LibreRTMDet(None, size="t", nb_classes=3, task="segment", device="cpu")
+    destination = tmp_path / "rtmins_axelera_model"
+    model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+
+    layout = "rtmdet_ins_raw_heads_v1"
+    assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout)
+    assert exporter_sdk.seen["onnx_outputs"][-1] == "mask_feat"
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["model_family"] == "rtmdet" and meta["task"] == "segment"
+    assert meta["output_layout"] == layout
+    assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
 
 
 def test_yolox_n_exports_with_its_measured_drop(exporter_sdk, tmp_path, caplog):

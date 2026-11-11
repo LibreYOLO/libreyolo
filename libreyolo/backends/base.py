@@ -1799,6 +1799,17 @@ class BaseBackend(ABC):
             )
             return boxes, scores, cls, None
         elif self.model_family == "rtmdet":
+            if self.task == "segment":
+                return self._parse_rtmdet_segment(
+                    all_outputs,
+                    effective_imgsz,
+                    orig_w,
+                    orig_h,
+                    conf,
+                    ratio,
+                    iou=iou,
+                    max_det=max_det,
+                )
             boxes, scores, cls = self._parse_rtmdet(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio
             )
@@ -1937,6 +1948,63 @@ class BaseBackend(ABC):
         class_ids = class_ids[valid_boxes]
 
         return boxes, max_scores, class_ids
+
+    def _parse_rtmdet_segment(
+        self,
+        all_outputs,
+        effective_imgsz,
+        orig_w,
+        orig_h,
+        conf,
+        ratio=1.0,
+        *,
+        iou: float = 0.45,
+        max_det: int = 300,
+    ):
+        """Parse RTMDet-Ins head outputs ``[cls x L, bbox x L, kernel x L, mask_feat]``.
+
+        Runs LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS and the
+        dynamic-kernel mask decode) on the rebuilt head outputs, so results
+        match native inference. Masks come back at the original image size.
+        """
+        import torch
+
+        from ..postprocess.rtmdet import postprocess as rtmdet_postprocess
+
+        levels = (len(all_outputs) - 1) // 3
+        if len(all_outputs) != 3 * levels + 1 or levels < 1:
+            raise ValueError(
+                "RTMDet-Ins outputs must be [cls x L, bbox x L, kernel x L, "
+                f"mask_feat]; got {len(all_outputs)} arrays."
+            )
+        tensors = [
+            torch.from_numpy(np.ascontiguousarray(array, dtype=np.float32))
+            for array in all_outputs
+        ]
+        outputs = (
+            tuple(tensors[:levels]),
+            tuple(tensors[levels : 2 * levels]),
+            tuple(tensors[2 * levels : 3 * levels]),
+            tensors[3 * levels],
+        )
+        input_h, input_w = _imgsz_hw(effective_imgsz)
+        if ratio is None or ratio == 1.0:  # as _parse_rtmdet: letterbox ratio from the sizes
+            ratio = min(input_h / orig_h, input_w / orig_w)
+        det = rtmdet_postprocess(
+            outputs,
+            conf_thres=conf,
+            iou_thres=iou,
+            input_size=(input_h, input_w),
+            original_size=(orig_w, orig_h),
+            ratio=ratio,
+            max_det=max_det,
+        )
+        return (
+            det["boxes"].numpy(),
+            det["scores"].numpy(),
+            det["classes"].numpy(),
+            det["masks"].numpy(),
+        )
 
     def _parse_rtmdet(
         self, all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio=1.0

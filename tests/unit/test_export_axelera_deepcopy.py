@@ -30,6 +30,7 @@ CASES = {
     "midas": ("LibreMiDaS", dict(size='s')),
     "deeplabv3": ("LibreDeepLabv3", dict(size='mv3', nb_classes=3)),
     "rtmdet": ("LibreRTMDet", dict(size='t', nb_classes=3)),
+    "rtmdet_seg": ("LibreRTMDet", dict(size='t', nb_classes=3, task='segment')),
 }
 
 SUPPORT_KEYS = {
@@ -51,6 +52,7 @@ SUPPORT_KEYS = {
     "midas": ('midas', 'depth'),
     "deeplabv3": ('deeplabv3', 'semantic'),
     "rtmdet": ('rtmdet', 'detect'),
+    "rtmdet_seg": ('rtmdet', 'segment'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).

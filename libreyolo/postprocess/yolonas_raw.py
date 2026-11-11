@@ -1,4 +1,4 @@
-"""Host-side decode for YOLO-NAS, YOLO9, PP-YOLOE, YOLOX, PicoDet, RTMDet and anchor-based YOLO raw head outputs.
+"""Host-side decode for YOLO-NAS, YOLO9, PP-YOLOE, YOLOX, PicoDet, RTMDet, RTMDet-Ins and anchor-based YOLO raw head outputs.
 
 Some accelerators run a YOLO-NAS or YOLO9 graph cut right after the head's
 last convolutions and leave the decode to the host: the DFL distance decode,
@@ -10,7 +10,8 @@ them unchanged.
 
 Each layout is named and versioned (``output_layout`` in export metadata).
 Outputs are ordered level by level (stride 8, 16, 32), and within a level in
-the order the layout lists:
+the order the layout lists; a layout's extra (non-level) outputs, if any,
+follow the levels (``RAW_LAYOUT_EXTRA_OUTPUTS``):
 
 =============================  ===========================================
 ``yolonas_raw_heads_v1``,      ``reg`` [B, 4*(reg_max+1), H, W],
@@ -35,6 +36,11 @@ the order the layout lists:
 ``rtmdet_raw_heads_v1``        ``reg`` [B, 4, H, W] (l, t, r, b distances in
                                strides, or their logs: ``exp_on_reg``),
                                ``cls`` [B, nc, H, W]
+``rtmdet_ins_raw_heads_v1``    ``reg`` [B, 4, H, W] (ReLU'd l, t, r, b
+                               distances in strides), ``cls`` [B, nc, H, W],
+                               ``kernel`` [B, 169, H, W] (dynamic mask-conv
+                               parameters); then one extra output
+                               ``mask_feat`` [B, 8, H/8, W/8]
 =============================  ===========================================
 
 An export may also store some parts *windowed* (``output_windows`` in export
@@ -66,6 +72,12 @@ YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "darknet_raw_heads_v1": ("reg", "obj", "cls"),
     "yolo7_raw_heads_v1": ("reg", "obj", "cls"),
     "rtmdet_raw_heads_v1": ("reg", "cls"),
+    "rtmdet_ins_raw_heads_v1": ("reg", "cls", "kernel"),
+}
+
+# Outputs that are not per level, emitted after all levels (never windowed).
+RAW_LAYOUT_EXTRA_OUTPUTS: dict[str, tuple[str, ...]] = {
+    "rtmdet_ins_raw_heads_v1": ("mask_feat",),
 }
 
 YOLONAS_RAW_LAYOUT_BY_TASK: dict[str, str] = {
@@ -134,6 +146,7 @@ def raw_head_output_names(
     for stride in strides:
         level = round(math.log2(int(stride)))
         names.extend(f"p{level}_{part}" for part in parts)
+    names.extend(_layout_extras(layout))
     return names
 
 
@@ -147,15 +160,21 @@ def _layout_parts(layout: str) -> tuple[str, ...]:
         ) from None
 
 
+def _layout_extras(layout: str) -> tuple[str, ...]:
+    return RAW_LAYOUT_EXTRA_OUTPUTS.get(layout, ())
+
+
 def _split_levels(
     outputs: Sequence[np.ndarray], layout: str, strides: Sequence[int]
 ) -> list[dict[str, np.ndarray]]:
     parts = _layout_parts(layout)
-    expected = len(parts) * len(strides)
+    extras = _layout_extras(layout)
+    expected = len(parts) * len(strides) + len(extras)
     if len(outputs) != expected:
+        extra_note = f" + {len(extras)} extra" if extras else ""
         raise ValueError(
             f"{layout} expects {expected} outputs ({len(strides)} levels x "
-            f"{len(parts)} tensors), got {len(outputs)}."
+            f"{len(parts)} tensors{extra_note}), got {len(outputs)}."
         )
     levels = []
     for index in range(len(strides)):
@@ -617,6 +636,34 @@ def decode_rtmdet_raw(
     return [out]
 
 
+def decode_rtmdet_ins_raw(
+    outputs: Sequence[np.ndarray],
+    *,
+    strides: Sequence[int] = YOLONAS_STRIDES,
+    **_unused,
+) -> list[np.ndarray]:
+    """Rebuild RTMDet-Ins head outputs in LibreYOLO's native order.
+
+    Returns ``[cls x L, bbox x L, kernel x L, mask_feat]``: class logits,
+    ReLU'd distances times the stride (as the PyTorch head returns them),
+    dynamic-kernel parameters and the stride-8 mask feature. Box decode,
+    NMS and mask assembly then run in LibreYOLO's RTMDet-Ins postprocess.
+    """
+    layout = "rtmdet_ins_raw_heads_v1"
+    levels = _split_levels(outputs, layout, strides)
+    _check_strides(levels, strides)
+    mask_feat = np.asarray(outputs[-1], dtype=np.float32)
+    if mask_feat.ndim != 4 or mask_feat.shape[2:] != levels[0]["cls"].shape[2:]:
+        raise ValueError(
+            f"{layout} mask_feat must be [B, C, H, W] at the first level's size "
+            f"{levels[0]['cls'].shape[2:]}, got {mask_feat.shape}."
+        )
+    cls = [level["cls"] for level in levels]
+    bbox = [level["reg"] * np.float32(stride) for level, stride in zip(levels, strides)]
+    kernel = [level["kernel"] for level in levels]
+    return [*cls, *bbox, *kernel, mask_feat]
+
+
 _DECODERS = {
     "yolonas_raw_heads_v1": decode_yolonas_raw,
     "ppyoloe_raw_heads_v1": decode_yolonas_raw,
@@ -628,6 +675,7 @@ _DECODERS = {
     "darknet_raw_heads_v1": _anchor_decoder("darknet_raw_heads_v1"),
     "yolo7_raw_heads_v1": _anchor_decoder("yolo7_raw_heads_v1"),
     "rtmdet_raw_heads_v1": decode_rtmdet_raw,
+    "rtmdet_ins_raw_heads_v1": decode_rtmdet_ins_raw,
 }
 
 
@@ -671,8 +719,12 @@ def unwindow_raw_heads(
     if not checked:
         return list(outputs)
     parts = _layout_parts(layout)
+    level_outputs = len(outputs) - len(_layout_extras(layout))
     restored = []
     for index, array in enumerate(outputs):
+        if index >= level_outputs:  # extra outputs are never windowed
+            restored.append(array)
+            continue
         window = checked.get(parts[index % len(parts)])
         if window is None:
             restored.append(array)
@@ -702,6 +754,7 @@ def decode_raw_heads(
 __all__ = [
     "OUTPUT_WINDOW_SPAN",
     "YOLO9_RAW_OUTPUT_WINDOWS",
+    "RAW_LAYOUT_EXTRA_OUTPUTS",
     "RTMDET_RAW_OUTPUT_WINDOWS",
     "YOLONAS_GRID_CELL_OFFSET",
     "YOLONAS_RAW_LAYOUTS",
@@ -716,6 +769,7 @@ __all__ = [
     "decode_anchor_yolo_raw",
     "decode_raw_heads",
     "decode_yolo9_raw",
+    "decode_rtmdet_ins_raw",
     "decode_rtmdet_raw",
     "decode_yolonas_obb_raw",
     "decode_yolonas_pose_raw",

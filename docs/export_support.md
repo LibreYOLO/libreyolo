@@ -142,7 +142,7 @@ in preflight.
 | rtdetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | rtdetrv4 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |
 | rtmdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  | ✓ |
-| rtmdet | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| rtmdet | segment |  |  |  |  |  |  |  |  | available |  |  |  |  |
 | sam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam2 | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | sam3 | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -688,6 +688,7 @@ These converter paths are callable with the recorded validation context.
 - `rtdetrv4` / `detect` / `tensorrt`: A deterministic synthetic fixture exports, reloads, and predicts, but repeated TensorRT 10.16 FP32 builds change public top-k class membership or box geometry; a measured reconstruction reached 0 IoU with 50.4-pixel coordinate drift.
 - `rtmdet` / `detect` / `executorch`: The export-only graph unshares RTMDet's cross-level head convolutions to avoid duplicate XNNPACK batch-norm fusion parameter names. Full conversion, runtime execution, input sensitivity, deterministic random-weight raw parity, and detection parsing are covered. Constraint: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `rtmdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the graph stops after each level's box and class convolutions, CSPNeXt pointwise-conv inputs are equalized on the export copy (FP32 outputs unchanged), and LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 Max RTMDet-t scores 2.84 mAP50-95 below FP32 on a paired 1000-image COCO val2017 subset (docs/axelera.md). Constraint: supported sizes: t (measured drop, SIZE_ACCURACY_NOTES); s collapses on a Metis (BLOCKED_SIZES); m, l and x are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `rtmdet` / `segment` / `axelera`: INT8 export compiled with Axelera's toolchain; the device returns each level's box, class and dynamic-kernel outputs plus the stride-8 mask feature, and LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS, dynamic-kernel mask decode) runs on the host. Supported, not validated: on a Metis M.2 Max RTMDet-Ins-t scores 1.40 mask mAP50-95 below FP32 on a paired 1000-image COCO val2017 subset (docs/axelera.md). Constraint: supported sizes: t (measured drop, SIZE_ACCURACY_NOTES); s, m, l and x are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `swin` / `classify` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `swin` / `classify` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `tinyformer` / `detect` / `onnx`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -2072,7 +2073,6 @@ These converter paths are callable with the recorded validation context.
 - `rtmdet` / `segment` / `paddle`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
 - `rtmdet` / `segment` / `mnn`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
 - `rtmdet` / `segment` / `rknn`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
-- `rtmdet` / `segment` / `axelera`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
 - `rtmdet` / `segment` / `ncnn`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
 - `rtmdet` / `segment` / `tflite`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.
 - `rtmdet` / `segment` / `coreml`: RTMDet-Ins export is not supported yet; the dynamic-kernel mask decode has no exported-runtime contract. Use native PyTorch inference for task='segment'.

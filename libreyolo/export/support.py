@@ -2385,7 +2385,7 @@ _add(
     "blocked",
     ("rtmdet",),
     ("segment",),
-    EXPORT_FORMATS,
+    tuple(fmt for fmt in EXPORT_FORMATS if fmt != "axelera"),
     reason=(
         "RTMDet-Ins export is not supported yet; the dynamic-kernel mask "
         "decode has no exported-runtime contract. Use native PyTorch "
@@ -4150,6 +4150,27 @@ _add(
     ),
 )
 _add(
+    "available",
+    ("rtmdet",),
+    ("segment",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the device returns each "
+        "level's box, class and dynamic-kernel outputs plus the stride-8 mask "
+        "feature, and LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS, "
+        "dynamic-kernel mask decode) runs on the host. Supported, not "
+        "validated: on a Metis M.2 Max RTMDet-Ins-t scores 1.40 mask mAP50-95 "
+        "below FP32 on a paired 1000-image COCO val2017 subset "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: t (measured drop, SIZE_ACCURACY_NOTES); s, m, l and x "
+        "are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
+    ),
+)
+_add(
     "validated",
     ("fcn",),
     ("semantic",),
@@ -4474,6 +4495,14 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "depthwise ranges and CSPNeXt pointwise equalization)"
         ),
     },
+    ("rtmdet", "segment", "axelera"): {
+        "t": (
+            "measured mask mAP50-95 drop 1.40 points vs FP32 (0.3254 vs 0.3394 "
+            "on 1000 COCO val2017 images; box 0.3561 vs 0.3825, -2.64; 64 "
+            "coco128 calibration images, per-channel depthwise ranges and "
+            "CSPNeXt pointwise equalization)"
+        ),
+    },
     ("ppyoloe", "detect", "axelera"): {
         "s": (
             "measured mAP50-95 drop 1.23 points vs FP32 (0.396 vs 0.409 on 1000 "
@@ -4562,6 +4591,9 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("rtmdet", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("m", "l", "x")
     },
+    ("rtmdet", "segment", "axelera"): {
+        size: "has not been measured on a Metis yet" for size in ("s", "m", "l", "x")
+    },
 }
 
 #: Formats whose INT8 export is limited to these (family, task) pairs.
@@ -4590,6 +4622,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("ppyoloe", "detect"),
             ("picodet", "detect"),
             ("rtmdet", "detect"),
+            ("rtmdet", "segment"),
         }
     ),
 }
