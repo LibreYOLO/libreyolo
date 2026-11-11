@@ -48,6 +48,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | PicoDet | l | detect | COCO val2017, 1000 | 0.3971 | 0.3801 | -1.70 | supported | `picodet/detect/l/2026-11-11/4` |
 | RTMDet | t | detect | COCO val2017, 1000 | 0.3906 | 0.3677 | -2.29 | supported | `rtmdet/detect/t/2026-11-11/8` |
 | RTMDet | s | detect | COCO val2017, 1000 | 0.4121 | 0.3446 | -6.75 | supported | `rtmdet/detect/s/2026-11-11/6` |
+| RetinaNet | r50 | detect (800x800 canvas) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas about -4.0 more) | supported | `retinanet/detect/r50/2026-11-11/5` |
 | RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3254 | -1.40 | supported | `rtmdet/segment/t/2026-11-11/4` |
 | ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 | validated | `resnet/classify/18/2026-11-10/2` |
 | ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated | `resnet/classify/34/2026-11-10` |
@@ -95,6 +96,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
 | RTMDet | detect | t, s (supported with a measured drop; m, l and x not measured yet) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6` |
 | RTMDet-Ins | segment | t (supported with a measured drop, box -2.64; s, m, l and x not measured yet) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-11/4` |
+| RetinaNet | detect | r50 (supported: fixed 800x800 canvas, about -4.2 end to end; r50v2 not measured yet) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-11/5` |
 | YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
 | RF-DETR and other transformer families | all | all | out of scope (section 11) | - |
 
@@ -293,6 +295,7 @@ table at the top of this page.
 | PicoDet-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.3971 | 0.3801 | -1.70 (supported) |
 | RTMDet-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.3906 | 0.3677 | -2.29 (supported) |
 | RTMDet-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4121 | 0.3446 | -6.75 (supported) |
+| RetinaNet-R50 (800x800 canvas) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas about -4.0) |
 | RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3254 | -1.40 (supported; box -2.64) |
 
 Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
@@ -390,6 +393,18 @@ postprocess (box decode, NMS and the dynamic-kernel mask decode), so an
 exported model returns the same masks as native inference would for the
 same head outputs. Mask rows use COCO val2017 instance polygons for the same
 images as the box rows.
+
+RetinaNet resizes each image so its shorter side is 800 pixels (longer
+side up to 1333), so its input shape changes from image to image. The Metis
+graph takes one fixed shape, so the export fits each image into an 800x800
+canvas and pads the rest; images then reach the network smaller than with
+RetinaNet's own resize. The RetinaNet-R50 row compares FP32 and INT8 on
+that same canvas (0.3318 vs 0.3296 on 1000 images, -0.22; -0.19 on 300).
+With RetinaNet's own resize (shorter side 800) the PyTorch model scores
+0.3785 on 100 images vs 0.3383 on the canvas; that gap, about 4.0, is the
+cost of the fixed canvas, separate from INT8, so RetinaNet-R50 is supported,
+not validated (the native reference on 300 and 1000 images is still to be
+measured).
 
 The pose rows include everything LibreYOLO applies to pose heads: ReLU6
 output windows, equalization of the keypoint branch from calibration
@@ -524,7 +539,7 @@ Blocked for structural reasons (accuracy never blocks an export):
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
-- EfficientNetV2-b3, RTMDet-m, -l and -x, RTMDet-Ins-s, -m, -l and -x, MiDaS-l.
+- EfficientNetV2-b3, RetinaNet-r50v2, RTMDet-m, -l and -x, RTMDet-Ins-s, -m, -l and -x, MiDaS-l.
 - YOLO9-E2E and YOLO9-P2.
 - Other families.
 

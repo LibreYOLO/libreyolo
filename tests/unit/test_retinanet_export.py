@@ -101,8 +101,12 @@ def test_export_support_is_explicit_for_every_format():
 
     entries = {fmt: get_support("retinanet", "detect", fmt) for fmt in EXPORT_FORMATS}
     assert entries["onnx"].tier == "validated"
+    # Axelera compiles a fixed square canvas (supported, measured drop).
+    assert entries["axelera"].tier == "available"
     assert all(
-        entry.tier == "blocked" for fmt, entry in entries.items() if fmt != "onnx"
+        entry.tier == "blocked"
+        for fmt, entry in entries.items()
+        if fmt not in {"onnx", "axelera"}
     )
 
 

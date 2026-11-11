@@ -31,6 +31,7 @@ CASES = {
     "deeplabv3": ("LibreDeepLabv3", dict(size='mv3', nb_classes=3)),
     "rtmdet": ("LibreRTMDet", dict(size='t', nb_classes=3)),
     "rtmdet_seg": ("LibreRTMDet", dict(size='t', nb_classes=3, task='segment')),
+    "retinanet": ("LibreRetinaNet", dict(size='r50', nb_classes=3)),
 }
 
 SUPPORT_KEYS = {
@@ -53,6 +54,7 @@ SUPPORT_KEYS = {
     "deeplabv3": ('deeplabv3', 'semantic'),
     "rtmdet": ('rtmdet', 'detect'),
     "rtmdet_seg": ('rtmdet', 'segment'),
+    "retinanet": ('retinanet', 'detect'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).

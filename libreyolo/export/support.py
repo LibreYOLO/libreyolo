@@ -4308,6 +4308,27 @@ _add(
     ),
 )
 _add(
+    "available",
+    ("retinanet",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain on one fixed square "
+        "canvas (the image fitted inside, padded bottom-right); the graph stops "
+        "after the box-delta and class convolutions and LibreYOLO rebuilds the "
+        "anchors on the host. Supported, not validated: on a Metis M.2 Max "
+        "RetinaNet-R50 scores about 4.2 mAP50-95 below the PyTorch model's own "
+        "val(): about 4.0 from the fixed 800x800 canvas (100 COCO val2017 "
+        "images) and 0.2 from INT8 (1000 images, same canvas; docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed 800x800 "
+        "canvas; r50v2 is not measured on a Metis yet (UNMEASURED_SIZES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1"
+    ),
+)
+_add(
     "validated",
     ("yolo9",),
     ("detect",),
@@ -4507,6 +4528,14 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "depthwise ranges and balanced CSPNeXt pointwise equalization)"
         ),
     },
+    ("retinanet", "detect", "axelera"): {
+        "r50": (
+            "measured mAP50-95 drop 0.22 points vs FP32 on the same 800x800 canvas "
+            "(0.3296 vs 0.3318 on 1000 COCO val2017 images); the fixed canvas "
+            "itself costs about 4.0 against RetinaNet's own resize (0.3383 vs "
+            "0.3785 on 100 images), about 4.2 end to end"
+        ),
+    },
     ("rtmdet", "segment", "axelera"): {
         "t": (
             "measured mask mAP50-95 drop 1.40 points vs FP32 (0.3254 vs 0.3394 "
@@ -4590,6 +4619,7 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         "b3": "has not been measured on a Metis yet",
     },
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
+    ("retinanet", "detect", "axelera"): {"r50v2": "has not been measured on a Metis yet"},
     ("rtmdet", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("m", "l", "x")
     },
@@ -4624,6 +4654,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("ppyoloe", "detect"),
             ("picodet", "detect"),
             ("rtmdet", "detect"),
+            ("retinanet", "detect"),
             ("rtmdet", "segment"),
         }
     ),

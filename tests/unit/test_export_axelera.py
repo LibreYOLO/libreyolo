@@ -1011,6 +1011,9 @@ def test_support_matrix_rows_for_axelera():
     ppyoloe = get_support("ppyoloe", "detect", "axelera")
     assert ppyoloe.tier == "validated" and "validated sizes: l" in ppyoloe.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("ppyoloe", "detect", "axelera")]) == ["m", "s", "x"]
+    retinanet = get_support("retinanet", "detect", "axelera")
+    assert retinanet.tier == "available" and "supported sizes: r50 " in retinanet.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("retinanet", "detect", "axelera")]) == ["r50"]
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
     rtmdet = get_support("rtmdet", "detect", "axelera")

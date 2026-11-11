@@ -48,6 +48,9 @@ before 1.4.0 are documented in the
 - **Axelera Metis export for PP-YOLOE detection.**
   `LibreYOLO("LibrePPYOLOEl.pt").export(format="axelera")` fuses the RepVGG blocks, stops after the distribution and class convolutions and decodes on the host with the YOLO-NAS decoder (layout `ppyoloe_raw_heads_v1`). PP-YOLOE-l is validated on a Metis M.2 Max: 0.4740 vs FP32 0.4771 mAP50-95 on 1000 COCO val2017 images. PP-YOLOE-s, -m and -x stay 1.2 to 1.7 points below FP32 and are refused.
 
+- **Axelera Metis export for RetinaNet detection on a fixed canvas, supported r50.**
+  `LibreYOLO("LibreRetinaNetr50.pt").export(format="axelera")` fits each image into one square canvas (800x800 by default, padded bottom-right), stops after the box-delta and class convolutions and rebuilds the anchors on the host (layout `retinanet_raw_heads_v1`). RetinaNet-R50 on a Metis M.2 Max: 0.3296 vs FP32 0.3318 mAP50-95 on 1000 COCO val2017 images on the same canvas; the fixed canvas itself costs about 4.0 against RetinaNet's shorter-side-800 resize (0.3383 vs 0.3785 on 100 images), so R50 is supported with about -4.2 end to end, not validated (docs/axelera.md). r50v2 has not been measured on a Metis yet and is not exportable until it is. `export()` no longer pins ONNX opset 13 for formats other than ONNX.
+
 - **LGM, image to 3D Gaussians through four generated views: `LibreGen("lgm")`.**
   LGM (MIT) behind the same call as the other image-to-3D families: ImageDream samples four views of the object, LGM turns them into Gaussian splats, `libreyolo generate source=chair.jpg model=lgm`. Upstream needs xformers on CUDA; LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `elevation`. Weights download from LibreYOLO's mirrors `LibreYOLO/LibreLGM0.4b` (MIT) and `LibreYOLO/LibreImageDream` (OpenRAIL use restrictions apply).
 

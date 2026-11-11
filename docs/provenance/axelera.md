@@ -27,6 +27,10 @@
   existing Darknet export decode (public-domain Darknet cfgs and weights,
   see `libreyolo/models/darknet/`), verified against it by
   `tests/unit/test_darknet_raw_heads.py`
+- **RetinaNet decode:** `decode_retinanet_raw` reimplements LibreYOLO's
+  existing RetinaNet anchor generator and box coder (torchvision-derived,
+  BSD-3-Clause, see `libreyolo/models/retinanet/NOTICE`), verified against it
+  by `tests/unit/test_retinanet_raw_heads.py`
 - **Evidence:** fake-SDK unit tests; real compilation and on-device validation
   on a Metis M.2 Max, recorded in `docs/axelera.md`
 - **Evaluation data:** COCO val2017, DOTA-v2.0 and ImageNetV2 subsets used
