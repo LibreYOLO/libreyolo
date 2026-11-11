@@ -31,6 +31,8 @@ libreyolo formats --family yolonas     # look at the axelera column
 - YOLO-NAS-pose: validated for m and l (within 1.0 keypoint mAP of FP32);
   n and s are refused with their measured loss (docs/axelera.md sec 7).
 - YOLO-NAS-R (obb): validated s/m/l (300 DOTA-v2.0 tiles, within 1.0 mAP50-95 of FP32). Pass `data=` (no default calibration set).
+- ResNet (classify, 18/34/50/101): validated. Calibrate with `data=` pointing at a dataset YAML of 100-400 in-domain images; the coco128 fallback costs top-1 accuracy.
+- MobileNetV4 (classify): blocked; INT8 costs 1.7-6.2 top-1 points on Metis (docs/axelera.md section 11).
 - YOLO9: blocked for now (planned next, same approach).
 - RF-DETR and every transformer family: blocked. They need attention,
   data-dependent TopK/Gather and grid sampling, which the compiler does not

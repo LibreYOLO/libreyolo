@@ -4009,6 +4009,39 @@ _add(
 )
 _add(
     "validated",
+    ("resnet",),
+    ("classify",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole classifier "
+        "graph runs on the Metis AIPU and the host applies the softmax. On a "
+        "Metis M.2 Max, ResNet-18/34/50/101 are within 1.0 top-1 point of "
+        "FP32 on a paired 1000-image ImageNetV2 set when calibrated on "
+        "images from their own domain (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: 18, 34, 50, 101, calibrated with in-domain images "
+        "(data=; the coco128 fallback costs about 0.5 more top-1). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed 224 input"
+    ),
+)
+_add(
+    "blocked",
+    ("mobilenetv4",),
+    ("classify",),
+    ("axelera",),
+    reason=(
+        "MobileNetV4 loses too much accuracy in INT8 on Axelera Metis: on a "
+        "paired 1000-image ImageNetV2 set, top-1 drops 6.2 points (size s); "
+        "equalizing and bounding its residual streams still leaves -1.7 to "
+        "-2.6 (s, m, l). Per-tensor activation ranges of the inverted-residual "
+        "streams are the cause (docs/axelera.md)."
+    ),
+)
+_add(
+    "validated",
     ("yolo9",),
     ("detect",),
     ("axelera",),
@@ -4079,8 +4112,8 @@ def get_support(family: str, task: str, fmt: str) -> SupportEntry:
     if fmt == "axelera":
         return SupportEntry(
             "blocked",
-            "Axelera export is implemented for YOLO-NAS detect, pose and obb and "
-            "YOLO9 detect only; "
+            "Axelera export is implemented for YOLO-NAS (detect, pose, obb), "
+            "YOLO9 detect and ResNet (classify) only; "
             "this family has not been compiled or measured on Axelera Metis.",
         )
     if fmt in {"tensorrt", "openvino"}:
@@ -4162,7 +4195,13 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
     "tflite": frozenset({("yolox", "detect"), ("yolo9", "detect")}),
     # Axelera Metis is INT8-only; see the axelera rows above.
     "axelera": frozenset(
-        {("yolonas", "detect"), ("yolonas", "pose"), ("yolonas", "obb"), ("yolo9", "detect")}
+        {
+            ("yolonas", "detect"),
+            ("yolonas", "pose"),
+            ("yolonas", "obb"),
+            ("yolo9", "detect"),
+            ("resnet", "classify"),
+        }
     ),
 }
 

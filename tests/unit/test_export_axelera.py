@@ -306,7 +306,7 @@ class _ReorderingQuantizedModel:
         self.order = [
             i for level in range(3)
             for i in reversed(range(level * per_level, (level + 1) * per_level))
-        ]
+        ] or list(range(len(names)))  # classifiers: one output
         seen["device_order"] = [names[i] for i in self.order]
 
     def __call__(self, tensor):
@@ -338,6 +338,38 @@ def _model(task="detect"):
     torch.manual_seed(0)
     size, nc = {"detect": ("s", 3), "pose": ("n", 1), "obb": ("s", 3)}[task]
     return LibreYOLONAS(None, size=size, nb_classes=nc, task=task, device="cpu")
+
+
+def _classifier(nb_classes=5):
+    import torch
+
+    from libreyolo import LibreResNet
+
+    torch.manual_seed(0)
+    return LibreResNet(size="18", nb_classes=nb_classes, device="cpu")
+
+
+def test_classify_export_writes_the_logits_layout(exporter_sdk, tmp_path):
+    import yaml
+
+    destination = tmp_path / "r18_axelera_model"
+    # 72 is not a multiple of 32: only the YOLO-NAS host decode needs that.
+    _classifier().export(format="axelera", data=str(_dataset(tmp_path)), imgsz=72, output_path=str(destination))
+    assert exporter_sdk.seen["onnx_outputs"] == ["logits"]
+    assert exporter_sdk.seen["onnx_input"] == [1, 3, 72, 72]
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["task"] == "classify" and meta["model_family"] == "resnet"
+    assert meta["output_layout"] == "classify_logits_v1" and meta["output_names"] == ["logits"]
+    assert "strides" not in meta and "output_windows" not in meta
+    # The eval transform travels with the artifact (crop, interpolation).
+    assert meta["crop_pct"] == 0.95 and meta["interpolation"] == "bicubic"
+    assert meta["axelera"]["calibration"]["preprocess"] == "classify"
+
+
+def test_classify_calibration_defaults_to_coco128(exporter_sdk):
+    from libreyolo.export.exporter import AxeleraExporter
+
+    assert AxeleraExporter(_classifier())._resolve_calibration_data(True, None) == "coco128.yaml"
 
 
 @pytest.mark.parametrize("task", ["detect", "pose"])

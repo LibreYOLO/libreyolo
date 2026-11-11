@@ -2,8 +2,10 @@
 
 Runs a ``<stem>_axelera_model`` directory written by ``format="axelera"``: the
 compiled ``.axm`` executes on the Metis AIPU through Axelera's runtime
-(``axelera-rt``), and LibreYOLO decodes the raw head outputs on the host
-(``libreyolo.postprocess.yolonas_raw``) before the shared postprocessing.
+(``axelera-rt``). For YOLO-NAS, LibreYOLO decodes the raw head outputs on the
+host (``libreyolo.postprocess.yolonas_raw``) before the shared
+postprocessing; classifiers return logits that go straight to the shared
+classification path.
 
 This module also holds the SDK install and version helpers the exporter
 uses, so the backend imports neither torch nor the export package.
@@ -32,7 +34,7 @@ from ..postprocess.yolonas_raw import (
     raw_head_output_names,
 )
 from ..utils.serialization import warn_on_metadata_schema_version
-from .base import BaseBackend
+from .base import BaseBackend, classify_eval_kwargs
 from .metadata import ExportMetadataError, parse_export_metadata
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,9 @@ AUTOINSTALL_ENV = "LIBREYOLO_AUTOINSTALL"
 DOCS_TROUBLESHOOTING = "docs/axelera.md#troubleshooting"
 
 _DEVICE_ALIASES = {"auto", "cpu", "axelera", "metis", "aipu"}
+
+#: Layout of classifier exports: one output, the ``[B, nc]`` logits.
+CLASSIFY_LOGITS_LAYOUT = "classify_logits_v1"
 
 
 def axelera_install_command(package: str) -> str:
@@ -222,7 +227,7 @@ class AxeleraBackend(BaseBackend):
         if not isinstance(meta, dict) or meta.get("format") != "axelera":
             raise _foreign_artifact(axm, "metadata.yaml has no format: axelera")
         layout = meta.get("output_layout")
-        if layout not in YOLONAS_RAW_LAYOUTS:
+        if layout not in YOLONAS_RAW_LAYOUTS and layout != CLASSIFY_LOGITS_LAYOUT:
             if isinstance(layout, str) and layout:
                 raise ValueError(
                     f"{metadata_path} uses output layout {layout!r}, which this "
@@ -258,7 +263,10 @@ class AxeleraBackend(BaseBackend):
 
         self._layout = layout
         strides = tuple(int(s) for s in meta.get("strides", (8, 16, 32)))
-        layout_names = raw_head_output_names(layout, strides)
+        if layout == CLASSIFY_LOGITS_LAYOUT:
+            layout_names = ["logits"]
+        else:
+            layout_names = raw_head_output_names(layout, strides)
         # ``output_names`` lists the outputs in the order the compiled model
         # returns them, which need not be the graph's order.
         self._output_names = list(meta.get("output_names") or layout_names)
@@ -269,7 +277,11 @@ class AxeleraBackend(BaseBackend):
             )
         self._layout_order = [self._output_names.index(name) for name in layout_names]
         try:
-            output_windows = check_output_windows(layout, meta.get("output_windows"))
+            output_windows = (
+                {}
+                if layout == CLASSIFY_LOGITS_LAYOUT
+                else check_output_windows(layout, meta.get("output_windows"))
+            )
         except ValueError as exc:
             raise ValueError(f"{metadata_path}: {exc} Re-export the model.") from exc
         self._decode_params: dict[str, Any] = {
@@ -312,6 +324,7 @@ class AxeleraBackend(BaseBackend):
             default_task=parsed.task,
             letterbox_pad=parsed.runtime.get("letterbox_pad"),
             channels=parsed.runtime.get("channels"),
+            **classify_eval_kwargs(parsed.runtime),
             **parsed.pose,
         )
 
@@ -357,7 +370,10 @@ class AxeleraBackend(BaseBackend):
                 "needs recompiling with this LibreYOLO version."
             )
         arrays = [np.asarray(out, dtype=np.float32) for out in outputs]
-        arrays = [a if a.ndim == 4 else a.reshape((1, *a.shape)) for a in arrays]
+        if self._layout == CLASSIFY_LOGITS_LAYOUT:
+            arrays = [a.reshape(1, -1) for a in arrays]
+        else:
+            arrays = [a if a.ndim == 4 else a.reshape((1, *a.shape)) for a in arrays]
         return [arrays[index] for index in self._layout_order]
 
     def _supports_batched_inference(self) -> bool:
@@ -373,7 +389,13 @@ class AxeleraBackend(BaseBackend):
             raw = self._invoke_batch(images)
         else:
             raw = [self._invoke(image) for image in images]
-        decoded = [decode_raw_heads(self._layout, arrays, **self._decode_params) for arrays in raw]
+        if self._layout == CLASSIFY_LOGITS_LAYOUT:
+            decoded = [[np.array(arrays[0], copy=True)] for arrays in raw]
+        else:
+            decoded = [
+                decode_raw_heads(self._layout, arrays, **self._decode_params)
+                for arrays in raw
+            ]
         if len(decoded) == 1:
             return decoded[0]
         return [np.concatenate(parts, axis=0) for parts in zip(*decoded)]
@@ -383,6 +405,7 @@ __all__ = [
     "AUTOINSTALL_ENV",
     "AXELERA_INDEX_URL",
     "AXELERA_SDK_VERSION",
+    "CLASSIFY_LOGITS_LAYOUT",
     "AxeleraBackend",
     "axelera_install_command",
     "is_axelera_artifact",

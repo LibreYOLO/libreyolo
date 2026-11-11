@@ -3053,13 +3053,37 @@ class RknnExporter(BaseExporter):
         return str(destination)
 
 
+class _ClassifyLogitsWrapper(torch.nn.Module):
+    """A classifier's full graph ending at its logits (layout ``classify_logits_v1``).
+
+    Integer NPU exports of classifiers need no graph cut or host decode: the
+    single output is the ``[B, nc]`` logits, and the backend applies the
+    softmax of the shared classification path.
+    """
+
+    output_layout = "classify_logits_v1"
+    output_names = ("logits",)
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        logits = self.model(x)
+        if isinstance(logits, (list, tuple)):
+            logits = logits[0]
+        return (logits,)
+
+
 class AxeleraExporter(BaseExporter):
     """INT8 export for Axelera Metis AIPUs: a ``<stem>_axelera_model/`` directory.
 
     The directory holds ``<stem>.axm`` (the compiled model),
-    ``compiler_config_final.toml`` and ``metadata.yaml``. The graph is cut
-    after the head convolutions and LibreYOLO decodes on the host
-    (``libreyolo.postprocess.yolonas_raw``). Compiling needs Axelera's
+    ``compiler_config_final.toml`` and ``metadata.yaml``. For YOLO-NAS the
+    graph is cut after the head convolutions and LibreYOLO decodes on the
+    host (``libreyolo.postprocess.yolonas_raw``); classifiers export their
+    whole graph up to the logits. Compiling needs Axelera's
     ``axelera-devkit`` on Linux, installed by the user.
     """
 
@@ -3077,6 +3101,7 @@ class AxeleraExporter(BaseExporter):
     _CALIBRATION_DEFAULTS: ClassVar[dict[str, str]] = {
         "detect": "coco128.yaml",
         "pose": "coco128.yaml",
+        "classify": "coco128.yaml",
     }
     _RECOMMENDED_CALIBRATION = (100, 400)
     _OPSET_RANGE = (14, 17)
@@ -3164,6 +3189,18 @@ class AxeleraExporter(BaseExporter):
                 f"no default calibration set for {task}."
             )
         default = self._CALIBRATION_DEFAULTS[task]
+        if task == "classify":
+            logger.warning(
+                "Axelera calibration: data= not given, using %s. Classifiers keep "
+                "more top-1 accuracy when calibrated on their own domain: pass a "
+                "dataset YAML whose train split holds %d-%d images spread over the "
+                "classes (on ImageNet, ResNet-18 loses about 1.1 top-1 points with "
+                "%s and 0.6 with ImageNet images).",
+                default,
+                *self._RECOMMENDED_CALIBRATION,
+                default,
+            )
+            return default
         logger.info(
             "Axelera calibration: data= not given, using %s. For a fine-tuned "
             "model, calibrate with %d-%d images from its own domain.",
@@ -3180,7 +3217,7 @@ class AxeleraExporter(BaseExporter):
             output_path, imgsz, device, half, int8
         )
         stride = 32  # largest YOLO-NAS feature stride; the host decode needs whole cells
-        if imgsz[0] % stride or imgsz[1] % stride:
+        if self._task() != "classify" and (imgsz[0] % stride or imgsz[1] % stride):
             raise ValueError(
                 f"Axelera export needs imgsz to be a multiple of {stride}, got "
                 f"{imgsz[0] if imgsz[0] == imgsz[1] else imgsz}."
@@ -3243,6 +3280,25 @@ class AxeleraExporter(BaseExporter):
         from .onnx import _export_onnx_graph
 
         imgsz = (int(dummy.shape[-2]), int(dummy.shape[-1]))
+        out = Path(output_path)
+        onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        if self._task() == "classify":
+            self._raw_wrapper = _ClassifyLogitsWrapper(
+                copy.deepcopy(self.model.model).eval()
+            ).eval()
+            logger.info("Step 1/2: Exporting classifier ONNX (%s)", onnx_output)
+            return _export_onnx_graph(
+                self._raw_wrapper,
+                dummy,
+                output_path=onnx_output,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=["images"],
+                output_names=list(self._raw_wrapper.output_names),
+                dynamic_axes=None,
+            )
         live = self.model.model
         if self.model._get_model_name() == "yolo9":
             # No reparameterization step; BatchNorm folds into the convs
@@ -3283,6 +3339,18 @@ class AxeleraExporter(BaseExporter):
     def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
         meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
         wrapper = self._raw_wrapper
+        if isinstance(wrapper, _ClassifyLogitsWrapper):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": list(wrapper.output_names),
+                }
+            )
+            return meta
         heads = getattr(wrapper.model, "heads", None)  # YOLO-NAS heads
         grid_cell_offset = (
             heads.grid_cell_offset if heads is not None else wrapper.grid_cell_offset

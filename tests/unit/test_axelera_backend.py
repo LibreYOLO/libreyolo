@@ -61,7 +61,7 @@ class _CompiledModel:
         self.order = [
             i for level in range(3)
             for i in reversed(range(level * per_level, (level + 1) * per_level))
-        ]
+        ] or list(range(len(names)))  # classifiers: one output
         self.calls = 0
 
     def run(self, array):
@@ -279,6 +279,26 @@ def test_yolo9_backend_matches_the_exported_graph(exports, tmp_path):
     np.testing.assert_allclose(actual.boxes.xyxy, expected.boxes.xyxy, atol=1e-3)
     np.testing.assert_allclose(actual.boxes.conf, expected.boxes.conf, atol=1e-5)
     np.testing.assert_array_equal(actual.boxes.cls, expected.boxes.cls)
+
+
+def test_classifier_backend_matches_the_onnx_backend(sdk, tmp_path):
+    import torch
+
+    from libreyolo import LibreResNet, LibreYOLO
+
+    torch.manual_seed(0)
+    model = LibreResNet(size="18", nb_classes=5, device="cpu")
+    artifact = model.export(
+        format="axelera", data=str(_dataset(tmp_path)), imgsz=64,
+        output_path=str(tmp_path / "cls_axelera_model"),
+    )
+    backend = LibreYOLO(artifact)
+    assert type(backend).__name__ == "AxeleraBackend" and backend.task == "classify"
+    reference = LibreYOLO(model.export(format="onnx", imgsz=64, dynamic=False, output_path=str(tmp_path / "cls.onnx")))
+    images = [_image(1), _image(2), _image(3)]
+    for single, expected in zip(backend.predict(images, batch=3), [reference(image) for image in images]):
+        np.testing.assert_allclose(single.probs.data, expected.probs.data, atol=1e-5)
+        assert int(single.probs.top1) == int(expected.probs.top1)
 
 
 def test_axm_path_and_batched_predict(exports):

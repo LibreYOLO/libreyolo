@@ -14,6 +14,8 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLO-NAS | pose | m, l (n and s refused, section 7) | see `docs/export_support.md` |
 | YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) |
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` |
+| ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` |
+| MobileNetV4 | classify | s, m, l | blocked: -1.7 to -2.6 top-1 in INT8 (section 11) |
 | YOLO9-E2E, YOLO9-P2, RF-DETR, other families | all | all | blocked (section 11) |
 
 The tiers in `docs/export_support.md` are generated from
@@ -189,6 +191,28 @@ not comparable to published full-set results; the deltas are the point.
 | YOLO9-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4913 | 0.4896 | -0.17 |
 | YOLO9-c | detect | COCO val2017, 1000 images | 64 coco128 | 0.5127 | 0.5093 | -0.34 |
 
+Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
+class, a set with ImageNet's licence terms used locally only), calibrated on
+250 other ImageNetV2 images (`data=` a dataset YAML whose train folder holds
+them):
+
+| Model | Input | FP32 top-1 | Metis INT8 top-1 | Delta | Compile (28 W host) |
+| --- | --- | --- | --- | --- | --- |
+| ResNet-18 | 224 | 0.595 | 0.589 | -0.6 | 1.5 min |
+| ResNet-34 | 224 | 0.657 | 0.647 | -1.0 | 3.3 min |
+| ResNet-50 | 224 | 0.688 | 0.681 | -0.7 | 4.6 min |
+| ResNet-101 | 224 | 0.713 | 0.708 | -0.5 | 9.1 min |
+
+Calibrating a classifier on coco128 (the fallback when `data=` is omitted)
+cost ResNet-18 1.1 top-1 points instead of 0.6, and the histogram scheme 2.0.
+
+MobileNetV4 (FP32 top-1 0.624 / 0.682 / 0.727 for s / m / l) is blocked: the
+same recipe gave 0.562 on s (-6.2). Equalizing its residual streams per
+channel and bounding the stage-2 stream (both done before export, nearly
+FP32-neutral) brought s, m and l to -1.9 to -2.6, -1.7 and -1.7, still
+outside the one-point bar. Axelera's `quantize_dw_channel_wise` and
+`smoothquant_coefficient` options changed nothing measurable.
+
 Values are mAP50-95 (box, rotated box for obb, keypoint OKS for pose). On
 mAP50 the obb deltas are -1.36 (s), -0.11 (m) and -0.43 (l).
 
@@ -261,6 +285,11 @@ image -> host preprocess -> [Metis: backbone, neck, head convs] -> raw heads
       -> host decode -> NMS -> Results
 ```
 
+Classifiers (ResNet, MobileNetV4) need no graph cut: the whole network runs
+on the AIPU and returns the logits (layout `classify_logits_v1`); the host
+applies the softmax, with the same resize, crop and normalization as the
+PyTorch model (recorded in `metadata.yaml`).
+
 `metadata.yaml` holds LibreYOLO's export metadata (`schema_version`,
 `model_family`, `task`, `names`, `imgsz`, ...) plus:
 
@@ -268,10 +297,11 @@ image -> host preprocess -> [Metis: backbone, neck, head convs] -> raw heads
 | --- | --- |
 | `format` | `axelera` |
 | `axm` | the `.axm` file name |
-| `output_layout` | raw output contract, for example `yolonas_raw_heads_v1` |
+| `output_layout` | output contract, for example `yolonas_raw_heads_v1` or `classify_logits_v1` |
 | `output_names` | output names in the order the compiled model returns them |
 | `output_windows` | parts emitted through a ReLU6 window, as `[low, high]` logit bounds (YOLO-NAS pose and YOLO9 exports); the backend maps them back before decoding |
 | `strides`, `reg_max`, `grid_cell_offset` | decode constants |
+| `crop_pct`, `interpolation` | classifier eval transform |
 | `axelera` | SDK version, quantization scheme, cores, resources, compiler overrides, calibration source and image count |
 | `weights_license` | reminder of the weight license |
 
@@ -303,6 +333,10 @@ compiles their own.
 - RF-DETR and other transformer families: attention, data-dependent TopK and
   grid sampling are outside what the compiler places on the AIPU, and the host
   can only run operators before or after the accelerated graph.
+- MobileNetV4 (classify): blocked. Per-tensor INT8 of its inverted-residual
+  streams (the stage-2 stream spans about +-400 while its median channel
+  stays within +-14) costs 6.2 top-1 points on size s; stream equalization
+  recovers most but not enough (section 7).
 - Other families: not compiled or measured.
 - Europa and multi-device scheduling: not covered.
 - Large models on M.2 cards can hit the card's power limit.
