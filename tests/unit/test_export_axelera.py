@@ -921,7 +921,7 @@ def test_support_matrix_rows_for_axelera():
     assert precision_support("yolo4", "detect", "axelera") == (True, True)
     ppyoloe = get_support("ppyoloe", "detect", "axelera")
     assert ppyoloe.tier == "validated" and "validated sizes: l" in ppyoloe.constraint
-    assert sorted(REFUSED_SIZES[("ppyoloe", "detect", "axelera")]) == ["m", "s"]
+    assert sorted(REFUSED_SIZES[("ppyoloe", "detect", "axelera")]) == ["m", "s", "x"]
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
     other = get_support("rtmdet", "detect", "axelera")

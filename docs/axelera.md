@@ -63,7 +63,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLOv3 | detect | t, b, spp | see `docs/export_support.md` |
 | YOLOv4 | detect | t (b refused, section 7) | see `docs/export_support.md` |
 | YOLOv7 | detect | b | see `docs/export_support.md` |
-| PP-YOLOE | detect | l (s and m refused, section 7; x not validated) | see `docs/export_support.md` |
+| PP-YOLOE | detect | l (s, m and x refused, section 7) | see `docs/export_support.md` |
 | YOLO9-E2E, YOLO9-P2, RF-DETR, other families | all | all | blocked (section 11) |
 
 The tiers in `docs/export_support.md` are generated from
@@ -253,6 +253,7 @@ not comparable to published full-set results; the deltas are the point.
 | PP-YOLOE-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4085 | 0.3962 | -1.23 (refused) |
 | PP-YOLOE-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4538 | 0.4416 | -1.22 (refused) |
 | PP-YOLOE-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4771 | 0.4740 | -0.31 |
+| PP-YOLOE-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.4918 | 0.4747 | -1.71 (refused) |
 
 Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
 class, a set with ImageNet's licence terms used locally only), calibrated on
@@ -447,7 +448,7 @@ compiles their own.
 
 - YOLO-NAS-R (obb): validated on 300 DOTA-v2.0 tiles (the paired set prepared for this work), not on a 1000-image set.
 - YOLOX-n: refused; mAP50-95 stays 1.66 points below FP32 at best (section 7).
-- PP-YOLOE-s and -m: refused; mAP50-95 stays about 1.2 points below FP32 (section 7). The loss is in the box-distribution outputs and does not come from their output range: windowing them, or histogram ranges, did not help. PP-YOLOE-x: not validated yet.
+- PP-YOLOE-s, -m and -x: refused; mAP50-95 stays 1.2 to 1.7 points below FP32 (section 7). The loss is in the box-distribution outputs and does not come from their output range: windowing them, or histogram ranges, did not help. Use PP-YOLOE-l.
 - YOLOv4-b: refused; mAP50-95 stays 1.5 points below FP32 at best (section 7): its box outputs lose resolution in the Mish backbone; histogram ranges recover most of it (-6.8 to -1.5), not enough. Use YOLOv4-t.
 - YOLO-NAS-pose n and s: refused; keypoint mAP50-95 stays 1.1 to 2.2 points below FP32 at best (section 7). Use m or l.
 - YOLO9-E2E and YOLO9-P2: not compiled or measured; blocked.

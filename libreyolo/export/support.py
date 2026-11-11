@@ -4157,7 +4157,7 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "validated sizes: l (s and m are refused, see docs/axelera.md). "
+        "validated sizes: l (s, m and x are refused, see docs/axelera.md). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
         "batch 1, fixed input size"
     ),
@@ -4315,6 +4315,11 @@ REFUSED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         "m": (
             "on a Metis device PP-YOLOE-m keeps mAP50-95 1.22 points below FP32 "
             "(0.442 vs 0.454 on 1000 COCO val2017 images), outside the 1.0-point "
+            "bar; use l."
+        ),
+        "x": (
+            "on a Metis device PP-YOLOE-x keeps mAP50-95 1.71 points below FP32 "
+            "(0.475 vs 0.492 on 1000 COCO val2017 images), outside the 1.0-point "
             "bar; use l."
         ),
     },
