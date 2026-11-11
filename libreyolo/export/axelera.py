@@ -59,6 +59,8 @@ DEFAULT_QUANTIZATION_SCHEME_BY_TASK = {"pose": "hybrid_per_tensor_per_channel"}
 #: 1000-image ImageNetV2 set, docs/axelera.md).
 DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
     ("mobilenetv4", "classify"): "hybrid_per_tensor_per_channel",
+    # EfficientNetV2-b0: top-1 -1.7 (min-max) -> -1.0 / -1.1 points (same set).
+    ("efficientnetv2", "classify"): "hybrid_per_tensor_per_channel",
 }
 
 

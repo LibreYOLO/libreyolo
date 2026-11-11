@@ -50,6 +50,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | MobileNetV4 | s | classify (top-1) | ImageNetV2, 1000 | 0.624 | 0.607 | -1.7 | supported |
 | MobileNetV4 | m | classify (top-1) | ImageNetV2, 1000 | 0.682 | 0.684 | +0.2 | validated |
 | MobileNetV4 | l | classify (top-1) | ImageNetV2, 1000 | 0.727 | 0.710 | -1.7 | supported |
+| EfficientNetV2 | b0 | classify (top-1) | ImageNetV2, 1000 | 0.667 | 0.656 | -1.1 | supported |
 | FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated |
 | FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated |
 
@@ -70,6 +71,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` |
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` |
 | MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` |
+| EfficientNetV2 | classify | b0 (supported with a measured drop; b1-b3 blocked: do not compile) | see `docs/export_support.md` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` |
 | YOLOv3 | detect | t, b, spp | see `docs/export_support.md` |
@@ -459,6 +461,12 @@ same terms, so LibreYOLO does not host YOLO-NAS `.axm` files and each user
 compiles their own.
 
 ## 11. Known limits and out of scope
+
+Blocked for structural reasons (accuracy never blocks an export):
+
+- EfficientNetV2-b1 and -b2: do not compile with SDK 1.9.0 (the compiled model has two output buffers for its one output at 224 and 240 px; at 256 px the squeeze-excitation pooling exceeds a reduction limit). b3 has not been compiled.
+- HRNet (pose): compiles, but the device output drifts from the quantized model stage by stage (keypoint mAP 0.000 on device vs a working CPU-quantized model).
+- ZipDepth: after an exact ReduceMean-to-pooling rewrite, quantization fails on the GCNet context MatMul.
 
 - YOLO-NAS-R (obb): validated on 300 DOTA-v2.0 tiles (the paired set prepared for this work), not on a 1000-image set.
 - YOLOX-n: supported, mAP50-95 1.81 points below FP32 (1.66 with 128 calibration images; section 7).

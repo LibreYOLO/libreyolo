@@ -4050,6 +4050,26 @@ _add(
     ),
 )
 _add(
+    "available",
+    ("efficientnetv2",),
+    ("classify",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole classifier runs "
+        "on the Metis AIPU with histogram activation ranges. Supported, not "
+        "validated: on a Metis M.2 Max EfficientNetV2-b0 keeps top-1 1.0-1.1 "
+        "points below FP32 on a paired 1000-image ImageNetV2 set "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1 and b2 do "
+        "not compile with SDK 1.9.0 and b3 is not compiled yet (BLOCKED_SIZES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 224 input"
+    ),
+)
+_add(
     "validated",
     ("fcn",),
     ("semantic",),
@@ -4314,6 +4334,12 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "transform)"
         ),
     },
+    ("efficientnetv2", "classify", "axelera"): {
+        "b0": (
+            "measured top-1 drop 1.1 points vs FP32 (0.656 vs 0.667 on a paired "
+            "1000-image ImageNetV2 set; 1.0 on a second compile)"
+        ),
+    },
     ("ppyoloe", "detect", "axelera"): {
         "s": (
             "measured mAP50-95 drop 1.23 points vs FP32 (0.396 vs 0.409 on 1000 "
@@ -4355,6 +4381,24 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
     },
 }
 
+#: Sizes that do not compile, do not run or give meaningless output on the
+#: format, each with its structural reason. Accuracy never lands a size here
+#: (that is SIZE_ACCURACY_NOTES); the export raises for these.
+BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("efficientnetv2", "classify", "axelera"): {
+        "b1": (
+            "does not compile with Axelera's SDK 1.9.0: at 224 and 240 px the "
+            "compiled model has two output buffers for its one output, and at "
+            "256 px the squeeze-excitation pooling exceeds a reduction limit"
+        ),
+        "b2": (
+            "does not compile with Axelera's SDK 1.9.0: the compiled model has "
+            "two output buffers for its one output"
+        ),
+        "b3": "has not been compiled or measured on Axelera Metis",
+    },
+}
+
 #: Formats whose INT8 export is limited to these (family, task) pairs.
 INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
     "onnx": frozenset({("yolo9", "detect")}),
@@ -4369,6 +4413,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("yolo9", "detect"),
             ("resnet", "classify"),
             ("mobilenetv4", "classify"),
+            ("efficientnetv2", "classify"),
             ("fcn", "semantic"),
             ("yolox", "detect"),
             ("yolo4", "detect"),
@@ -4411,6 +4456,7 @@ __all__ = [
     "EXPORT_FORMATS",
     "FP32_ONLY_FAMILIES",
     "INT8_EXPORTS",
+    "BLOCKED_SIZES",
     "SIZE_ACCURACY_NOTES",
     "SUPPORT",
     "SupportEntry",

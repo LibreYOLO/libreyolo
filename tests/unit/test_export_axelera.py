@@ -1025,3 +1025,31 @@ def test_merge_pad_into_maxpool_leaves_other_graphs_alone(tmp_path):
     assert ax.merge_pad_into_maxpool(str(source), tmp_path) == str(source)
     assert source.read_bytes() == before
     assert sorted(p.name for p in tmp_path.iterdir()) == ["model.onnx"]
+
+
+def test_efficientnetv2_b0_exports_with_histogram_ranges(exporter_sdk, tmp_path, caplog):
+    import yaml
+
+    from libreyolo import LibreEfficientNetV2
+
+    assert ax.default_quantization_scheme("efficientnetv2", "classify") == "hybrid_per_tensor_per_channel"
+    model = LibreEfficientNetV2(size="b0", nb_classes=5, device="cpu")
+    with caplog.at_level(logging.WARNING):
+        out = model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64,
+                           output_path=str(tmp_path / "effb0_axelera_model"))
+    meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "classify_logits_v1"
+    assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+    assert any("efficientnetv2-b0 classify export to axelera is supported but not validated" in r.getMessage()
+               for r in caplog.records)
+
+
+@pytest.mark.parametrize("size", ["b1", "b2", "b3"])
+def test_efficientnetv2_sizes_that_do_not_compile_are_blocked(tmp_path, size):
+    """Structural blocks only: these sizes do not compile (or were never compiled)."""
+    from libreyolo import LibreEfficientNetV2
+
+    model = LibreEfficientNetV2(size=size, nb_classes=5, device="cpu")
+    with pytest.raises(NotImplementedError, match=rf"efficientnetv2-{size} classify export to axelera is blocked"):
+        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+

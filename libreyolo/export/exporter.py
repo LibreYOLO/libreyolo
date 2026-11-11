@@ -28,7 +28,13 @@ from .onnx import (
     export_onnx,
     quantize_onnx_int8,
 )
-from .support import INT8_EXPORTS, SIZE_ACCURACY_NOTES, get_support, validated_alternatives
+from .support import (
+    BLOCKED_SIZES,
+    INT8_EXPORTS,
+    SIZE_ACCURACY_NOTES,
+    get_support,
+    validated_alternatives,
+)
 from .torchscript import export_torchscript
 
 logger = logging.getLogger(__name__)
@@ -1668,6 +1674,12 @@ class BaseExporter(ABC):
                 f"{support.reason}{alternatives_text}"
             )
         size = str(getattr(self.model, "size", "") or "")
+        structural = BLOCKED_SIZES.get((family, task, self.format_name), {}).get(size)
+        if structural:
+            raise NotImplementedError(
+                f"{family}-{size} {task} export to {self.format_name} is blocked: "
+                f"it {structural}."
+            )
         note = SIZE_ACCURACY_NOTES.get((family, task, self.format_name), {}).get(size)
         if note:
             # Supported, not validated: export anyway and say what was measured.

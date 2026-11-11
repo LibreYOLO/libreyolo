@@ -47,7 +47,7 @@ in preflight.
 | ec | segment | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  |  |  |  |
 | edgetam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | efficientdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  | available |  |  |  |
-| efficientnetv2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
+| efficientnetv2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
 | eomt | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | eomt | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | eomt | panoptic |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -621,6 +621,7 @@ These converter paths are callable with the recorded validation context.
 - `ec` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes.
 - `efficientdet` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `efficientdet` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `efficientnetv2` / `classify` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole classifier runs on the Metis AIPU with histogram activation ranges. Supported, not validated: on a Metis M.2 Max EfficientNetV2-b0 keeps top-1 1.0-1.1 points below FP32 on a paired 1000-image ImageNetV2 set (docs/axelera.md). Constraint: supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1 and b2 do not compile with SDK 1.9.0 and b3 is not compiled yet (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `fcos` / `detect` / `openvino`: FP32 dynamic-shape conversion and high-confidence public predictions pass, but small score/box drift can change low-confidence NMS ordering. Constraint: OpenVINO CPU, FP32, batch 1, dynamic padded H/W
 - `feynobg` / `matte` / `onnx`: The opset-19 DeformConv graph exports, but ONNX Runtime's CPU provider has no DeformConv implementation for runtime parity.
 - `gtr` / `detect` / `onnx`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
@@ -1061,7 +1062,6 @@ These converter paths are callable with the recorded validation context.
 - `efficientnetv2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `efficientnetv2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `efficientnetv2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `efficientnetv2` / `classify` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `efficientnetv2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `eomt` / `semantic` / `executorch`: Strict torch.export capture fails on a data-dependent symbolic expression in the mask path before XNNPACK lowering.
 - `eomt` / `semantic` / `paddle`: EoMT instance and panoptic export do not yet have runtime parsing.
