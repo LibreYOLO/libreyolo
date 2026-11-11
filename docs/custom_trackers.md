@@ -27,9 +27,13 @@ for result in model.track("video.mp4", tracker=MyTracker(), track_conf=0.1):
 ```
 
 The same entry point is inherited by RF-DETR and other models using the base
-tracking implementation. Existing restrictions on tasks and sources still
-apply. Video files, image directories, lists, and lazy image iterators use
-the same custom tracker interface.
+tracking implementation, and by exported models (ONNX, TensorRT, OpenVINO and
+the other runtimes loaded through `LibreYOLO("model.onnx")`), which accept the
+same arguments except `augment`. Existing restrictions on tasks and sources
+still apply. Video files, image directories, lists, and lazy image iterators
+use the same custom tracker interface. From the shell, `libreyolo track
+source=video.mp4 model=model.onnx tracker=botsort` runs the built-in trackers
+and prints one line (or one JSON object with `--json`) per frame.
 
 ## Interface and lifetime
 
