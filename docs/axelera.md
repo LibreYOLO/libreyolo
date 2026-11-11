@@ -44,6 +44,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | PP-YOLOE | l | detect | COCO val2017, 1000 | 0.4771 | 0.4740 | -0.31 | validated |
 | PP-YOLOE | x | detect | COCO val2017, 1000 | 0.4918 | 0.4747 | -1.71 | supported |
 | PicoDet | s | detect | COCO val2017, 1000 | 0.2687 | 0.2453 | -2.34 | supported |
+| RTMDet | t | detect | COCO val2017, 1000 | 0.3906 | 0.3622 | -2.84 | supported |
 | ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 | validated |
 | ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated |
 | ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 | validated |
@@ -86,6 +87,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLOv7 | detect | b | see `docs/export_support.md` |
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` |
 | PicoDet | detect | s (supported with a measured drop; m and l not measured yet) | see `docs/export_support.md` |
+| RTMDet | detect | t (supported with a measured drop; s blocked: collapses on a Metis; m, l and x not measured yet) | see `docs/export_support.md` |
 | YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) |
 | RF-DETR and other transformer families | all | all | out of scope (section 11) |
 
@@ -278,6 +280,7 @@ not comparable to published full-set results; the deltas are the point.
 | PP-YOLOE-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4771 | 0.4740 | -0.31 |
 | PP-YOLOE-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.4918 | 0.4747 | -1.71 (supported) |
 | PicoDet-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.2687 | 0.2453 | -2.34 (supported; -1.28 on 300) |
+| RTMDet-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.3906 | 0.3622 | -2.84 (supported) |
 
 Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
 class, a set with ImageNet's licence terms used locally only), calibrated on
@@ -347,6 +350,19 @@ min-max ranges, almost all of it in the box outputs (swapping them back to
 FP32 recovers 6.1 of 6.4 points on 300 images). Histogram activation ranges
 plus a [-6, 6] box-output window bring it to -1.52 on 1000 images; LibreYOLO
 applies that recipe to size b, which is supported with that drop.
+
+RTMDet (CSPNeXt backbone) has depthwise convolutions, so it compiles with
+per-channel depthwise ranges; with one per-tensor scale RTMDet-t collapses
+(0.009 vs 0.393 on 300 images). The remaining loss sat in one stage-2
+pointwise convolution whose input channels span very different ranges
+(peaks 14.2 against a median of 2.7 on RTMDet-t, 12.8 against 0.28 on
+RTMDet-s), which one per-tensor int8 scale does not survive. The export equalizes every
+CSPNeXt pointwise input on its own copy of the model (each channel scaled by
+1/s through a 1x1 depthwise convolution, the pointwise weights by s, from
+calibration peaks; FP32 outputs unchanged): RTMDet-t goes from -4.44 to
+-2.84 on 1000 images and is supported with that measured drop. RTMDet-s
+still collapses with it (0.079 vs 0.411 on 300 images; 0.136 without it), so
+its export is blocked.
 
 The pose rows include everything LibreYOLO applies to pose heads: ReLU6
 output windows, equalization of the keypoint branch from calibration
@@ -478,10 +494,11 @@ Blocked for structural reasons (accuracy never blocks an export):
 - HRNet (pose): compiles, but the device output drifts from the quantized model stage by stage (keypoint mAP 0.000 on device vs a working CPU-quantized model).
 - ZipDepth: after an exact ReduceMean-to-pooling rewrite, quantization fails on the GCNet context MatMul.
 - DeepLabV3-ResNet50/101: quantize, but at output stride 8 the ASPP convolutions need the whole 64x64 feature map and lowering finds no L1 tiling.
+- RTMDet-s: compiles and runs, but the INT8 output collapses on a Metis (mAP50-95 0.079 vs FP32 0.411 on 300 COCO val2017 images, 0.136 without the pointwise equalization).
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
-- EfficientNetV2-b3, PicoDet-m and -l, MiDaS-l.
+- EfficientNetV2-b3, PicoDet-m and -l, RTMDet-m, -l and -x, MiDaS-l.
 - YOLO9-E2E and YOLO9-P2.
 - Other families.
 

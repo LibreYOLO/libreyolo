@@ -539,6 +539,33 @@ def test_yolox_export_uses_the_yolox_raw_head_layout(exporter_sdk, tmp_path, siz
     assert meta["axelera"]["quantization_scheme"] == expected
 
 
+def test_rtmdet_export_uses_the_rtmdet_raw_head_layout(exporter_sdk, tmp_path):
+    import torch
+    import yaml
+
+    from libreyolo import LibreRTMDet
+    from libreyolo.postprocess.yolonas_raw import raw_head_output_names
+
+    torch.manual_seed(0)
+    model = LibreRTMDet(None, size="t", nb_classes=3, device="cpu")
+    before = {k: v.clone() for k, v in model.model.state_dict().items()}
+    destination = tmp_path / "rtm_axelera_model"
+    model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+
+    layout = "rtmdet_raw_heads_v1"
+    assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout)
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["model_family"] == "rtmdet" and meta["task"] == "detect"
+    assert meta["output_layout"] == layout
+    assert meta["strides"] == [8, 16, 32] and "reg_max" not in meta
+    assert meta["grid_cell_offset"] == 0.0 and meta["exp_on_reg"] is False
+    assert meta["pointwise_equalized"]["blocks"] > 0
+    assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+    # The user's model is untouched: equalization runs on the export copy.
+    after = model.model.state_dict()
+    assert all(torch.equal(before[k], after[k]) for k in before)
+
+
 def test_yolox_n_exports_with_its_measured_drop(exporter_sdk, tmp_path, caplog):
     """No accuracy gate: a size below the 1.0-point bar exports and says so once."""
     from libreyolo import LibreYOLOX
@@ -810,9 +837,9 @@ def test_missing_devkit_fails_before_tracing(fake_sdk, tmp_path, monkeypatch):
 
 
 def test_other_families_are_blocked(exporter_sdk):
-    from libreyolo import LibreRTMDet
+    from libreyolo import LibreYOLO2
 
-    model = LibreRTMDet(None, size="t", device="cpu")
+    model = LibreYOLO2(None, size="t", device="cpu")
     with pytest.raises(NotImplementedError, match="blocked"):
         model.export(format="axelera")
 
@@ -956,7 +983,10 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("ppyoloe", "detect", "axelera")]) == ["m", "s", "x"]
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
-    other = get_support("rtmdet", "detect", "axelera")
+    rtmdet = get_support("rtmdet", "detect", "axelera")
+    assert rtmdet.tier == "available" and "supported sizes: t " in rtmdet.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["t"]
+    other = get_support("yolo2", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
     assert mnv4.tier == "validated" and "validated sizes: m;" in mnv4.constraint
@@ -1091,6 +1121,21 @@ def test_efficientnetv2_sizes_that_do_not_compile_are_blocked(tmp_path, size):
 
     model = LibreEfficientNetV2(size=size, nb_classes=5, device="cpu")
     with pytest.raises(NotImplementedError, match=rf"efficientnetv2-{size} classify export to axelera is blocked"):
+        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+
+
+@pytest.mark.parametrize(
+    "size, message",
+    [
+        ("s", r"rtmdet-s detect export to axelera is blocked: it collapses on a Metis"),
+        ("m", r"rtmdet-m detect export to axelera is not available yet: it has not been measured"),
+    ],
+)
+def test_rtmdet_sizes_other_than_t_do_not_export(tmp_path, size, message):
+    from libreyolo import LibreRTMDet
+
+    model = LibreRTMDet(None, size=size, nb_classes=3, device="cpu")
+    with pytest.raises(NotImplementedError, match=message):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 

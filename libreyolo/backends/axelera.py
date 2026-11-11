@@ -308,6 +308,8 @@ class AxeleraBackend(BaseBackend):
             ]
             if meta.get("scale_x_y") is not None:
                 self._decode_params["scale_x_y"] = [float(s) for s in meta["scale_x_y"]]
+        if meta.get("exp_on_reg") is not None:  # RTMDet
+            self._decode_params["exp_on_reg"] = bool(meta["exp_on_reg"])
         if parsed.task == "pose":
             self._decode_params["pose_offset_multiplier"] = float(
                 meta.get("pose_offset_multiplier", 1.0)

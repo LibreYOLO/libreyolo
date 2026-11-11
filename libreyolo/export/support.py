@@ -4129,6 +4129,27 @@ _add(
     ),
 )
 _add(
+    "available",
+    ("rtmdet",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the graph stops after "
+        "each level's box and class convolutions, CSPNeXt pointwise-conv inputs "
+        "are equalized on the export copy (FP32 outputs unchanged), and "
+        "LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 "
+        "Max RTMDet-t scores 2.84 mAP50-95 below FP32 on a paired 1000-image "
+        "COCO val2017 subset (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: t (measured drop, SIZE_ACCURACY_NOTES); s collapses on "
+        "a Metis (BLOCKED_SIZES); m, l and x are not measured on a Metis yet "
+        "(UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "compile, INT8, batch 1, fixed input size"
+    ),
+)
+_add(
     "validated",
     ("fcn",),
     ("semantic",),
@@ -4446,6 +4467,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "through the same path)"
         ),
     },
+    ("rtmdet", "detect", "axelera"): {
+        "t": (
+            "measured mAP50-95 drop 2.84 points vs FP32 (0.3622 vs 0.3906 on 1000 "
+            "COCO val2017 images, 64 coco128 calibration images, per-channel "
+            "depthwise ranges and CSPNeXt pointwise equalization)"
+        ),
+    },
     ("ppyoloe", "detect", "axelera"): {
         "s": (
             "measured mAP50-95 drop 1.23 points vs FP32 (0.396 vs 0.409 on 1000 "
@@ -4511,6 +4539,13 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         )
         for size in ("r50", "r101")
     },
+    ("rtmdet", "detect", "axelera"): {
+        "s": (
+            "collapses on a Metis (INT8 0.079 vs FP32 0.411 mAP50-95 on 300 COCO "
+            "val2017 images, 0.136 without the pointwise equalization); a "
+            "balanced cross-layer equalization recipe is under test"
+        ),
+    },
 }
 
 #: Sizes not exportable yet because nobody has measured them on a Metis. This
@@ -4523,6 +4558,9 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("picodet", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("m", "l")
+    },
+    ("rtmdet", "detect", "axelera"): {
+        size: "has not been measured on a Metis yet" for size in ("m", "l", "x")
     },
 }
 
@@ -4551,6 +4589,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("yolo7", "detect"),
             ("ppyoloe", "detect"),
             ("picodet", "detect"),
+            ("rtmdet", "detect"),
         }
     ),
 }

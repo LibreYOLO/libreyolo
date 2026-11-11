@@ -1,4 +1,4 @@
-"""Host-side decode for YOLO-NAS, YOLO9, PP-YOLOE, YOLOX, PicoDet and anchor-based YOLO raw head outputs.
+"""Host-side decode for YOLO-NAS, YOLO9, PP-YOLOE, YOLOX, PicoDet, RTMDet and anchor-based YOLO raw head outputs.
 
 Some accelerators run a YOLO-NAS or YOLO9 graph cut right after the head's
 last convolutions and leave the decode to the host: the DFL distance decode,
@@ -32,6 +32,9 @@ the order the layout lists:
 ``darknet_raw_heads_v1``,      per level and anchor (anchor-major):
 ``yolo7_raw_heads_v1``         ``reg`` [B, 4A, H, W] (tx, ty, tw, th),
                                ``obj`` [B, A, H, W], ``cls`` [B, A*nc, H, W]
+``rtmdet_raw_heads_v1``        ``reg`` [B, 4, H, W] (l, t, r, b distances in
+                               strides, or their logs: ``exp_on_reg``),
+                               ``cls`` [B, nc, H, W]
 =============================  ===========================================
 
 An export may also store some parts *windowed* (``output_windows`` in export
@@ -62,6 +65,7 @@ YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "yolox_raw_heads_v1": ("reg", "obj", "cls"),
     "darknet_raw_heads_v1": ("reg", "obj", "cls"),
     "yolo7_raw_heads_v1": ("reg", "obj", "cls"),
+    "rtmdet_raw_heads_v1": ("reg", "cls"),
 }
 
 YOLONAS_RAW_LAYOUT_BY_TASK: dict[str, str] = {
@@ -107,6 +111,8 @@ PPYOLOE_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {}
 
 #: Output windows PicoDet raw-head exports apply, ``{part: (low, high)}``.
 PICODET_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {}
+# RTMDet raw outputs: no window by default (set per size once measured).
+RTMDET_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {}
 
 # A windowed part is mapped from [low, high] onto [0, OUTPUT_WINDOW_SPAN].
 OUTPUT_WINDOW_SPAN = 6.0
@@ -569,6 +575,48 @@ def _anchor_decoder(layout: str):
     return decode
 
 
+def decode_rtmdet_raw(
+    outputs: Sequence[np.ndarray],
+    *,
+    strides: Sequence[int] = YOLONAS_STRIDES,
+    exp_on_reg: bool = False,
+    grid_cell_offset: float = 0.0,
+    **_unused,
+) -> list[np.ndarray]:
+    """Decode RTMDet heads to ``[(B, N, 4 + nc)]``: xyxy px, sigmoid class scores.
+
+    The tensor matches the decoded RTMDet export: points on cell corners
+    (``grid_cell_offset`` 0), distances ``reg * stride``, or
+    ``exp(reg) * stride`` for sizes trained with ``exp_on_reg``.
+    """
+    layout = "rtmdet_raw_heads_v1"
+    levels = _split_levels(outputs, layout, strides)
+    _check_strides(levels, strides)
+    batch, num_classes = levels[0]["cls"].shape[:2]
+    total = sum(level["cls"].shape[2] * level["cls"].shape[3] for level in levels)
+    out = np.empty((batch, total, 4 + num_classes), dtype=np.float32)
+    start = 0
+    for level, stride in zip(levels, strides):
+        _, _, h, w = level["cls"].shape
+        hw = h * w
+        stride_f = np.float32(stride)
+        points = _anchor_grid(h, w, float(grid_cell_offset)) * stride_f  # (HW, 2) as (x, y)
+        reg = level["reg"].reshape(batch, 4, hw).astype(np.float32, copy=True)
+        if exp_on_reg:
+            with np.errstate(over="ignore"):
+                np.exp(reg, out=reg)
+        reg *= stride_f
+        block = out[:, start : start + hw]
+        block[..., 0] = points[:, 0] - reg[:, 0]
+        block[..., 1] = points[:, 1] - reg[:, 1]
+        block[..., 2] = points[:, 0] + reg[:, 2]
+        block[..., 3] = points[:, 1] + reg[:, 3]
+        block[..., 4:] = _flatten_hw(level["cls"])
+        start += hw
+    _sigmoid_(out[..., 4:])
+    return [out]
+
+
 _DECODERS = {
     "yolonas_raw_heads_v1": decode_yolonas_raw,
     "ppyoloe_raw_heads_v1": decode_yolonas_raw,
@@ -579,6 +627,7 @@ _DECODERS = {
     "yolox_raw_heads_v1": decode_yolox_raw,
     "darknet_raw_heads_v1": _anchor_decoder("darknet_raw_heads_v1"),
     "yolo7_raw_heads_v1": _anchor_decoder("yolo7_raw_heads_v1"),
+    "rtmdet_raw_heads_v1": decode_rtmdet_raw,
 }
 
 
@@ -653,6 +702,7 @@ def decode_raw_heads(
 __all__ = [
     "OUTPUT_WINDOW_SPAN",
     "YOLO9_RAW_OUTPUT_WINDOWS",
+    "RTMDET_RAW_OUTPUT_WINDOWS",
     "YOLONAS_GRID_CELL_OFFSET",
     "YOLONAS_RAW_LAYOUTS",
     "YOLONAS_RAW_LAYOUT_BY_TASK",
@@ -666,6 +716,7 @@ __all__ = [
     "decode_anchor_yolo_raw",
     "decode_raw_heads",
     "decode_yolo9_raw",
+    "decode_rtmdet_raw",
     "decode_yolonas_obb_raw",
     "decode_yolonas_pose_raw",
     "decode_picodet_raw",

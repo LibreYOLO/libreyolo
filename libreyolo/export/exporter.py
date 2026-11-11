@@ -840,6 +840,93 @@ def _has_depthwise_convs(module: torch.nn.Module) -> bool:
     )
 
 
+#: How the CSPNeXt pointwise-input equalization is exported: ``"conv"`` (a 1x1
+#: depthwise conv, whose input the depthwise rule quantizes per channel),
+#: ``"mul"`` (a constant Mul), or ``None`` to skip it.
+CSPNEXT_POINTWISE_EQUALIZATION: str | None = "conv"
+#: Per-channel factor: ``"act"`` (activation peak / mean peak) or ``"cle"``
+#: (sqrt(activation peak / weight peak), geometric-mean normalized, which
+#: balances the activation and the pointwise weight columns).
+CSPNEXT_POINTWISE_EQUALIZATION_METHOD: str = "act"
+
+
+class _ChannelScale(torch.nn.Module):
+    """Multiply each channel by a constant: a 1x1 depthwise conv, or a Mul."""
+
+    def __init__(self, scale: torch.Tensor, as_conv: bool = True):
+        super().__init__()
+        channels = int(scale.numel())
+        if as_conv:
+            self.op = torch.nn.Conv2d(channels, channels, 1, groups=channels, bias=False)
+            with torch.no_grad():
+                self.op.weight.copy_(scale.reshape(channels, 1, 1, 1))
+        else:
+            self.op = None
+            self.register_buffer("scale", scale.reshape(1, channels, 1, 1).clone())
+
+    def forward(self, x):
+        return self.op(x) if self.op is not None else x * self.scale
+
+
+def _equalize_cspnext_pointwise_inputs(
+    model: torch.nn.Module, samples: list, mode: str = "conv", method: str = "act"
+) -> int:
+    """Equalize the per-channel ranges of every CSPNeXt pointwise-conv input, in place.
+
+    The input of a depthwise-separable block's pointwise conv (the SiLU output
+    of its depthwise conv) mixes channels of very different size (RTMDet-t
+    stage 2: peaks up to 14.2 against a median of 2.7); with one int8 scale for
+    the whole tensor that single tensor cost RTMDet-t about 4.4 mAP50-95 on a
+    Metis. Channel ``c`` is scaled by ``1 / s_c`` just before the pointwise conv
+    and the conv's input weights by ``s_c`` (``s_c`` = the channel's peak over
+    ``samples`` divided by the mean peak), which leaves FP32 outputs unchanged
+    up to rounding. Returns the number of blocks equalized. ``model`` must be a
+    copy the caller owns.
+    """
+    from ..models.rtmdet.nn import DepthwiseSeparableConv
+
+    blocks = [m for m in model.modules() if isinstance(m, DepthwiseSeparableConv)]
+    if not blocks or not samples or mode is None:
+        return 0
+    peaks: dict[int, torch.Tensor] = {}
+
+    def record(key):
+        def hook(_module, inputs):
+            peak = inputs[0].detach().abs().amax(dim=(0, 2, 3))
+            peaks[key] = peak if key not in peaks else torch.maximum(peaks[key], peak)
+
+        return hook
+
+    handles = [
+        block.pointwise_conv.register_forward_pre_hook(record(id(block))) for block in blocks
+    ]
+    try:
+        with torch.no_grad():
+            for sample in samples:
+                model(torch.as_tensor(sample, dtype=torch.float32))
+    finally:
+        for handle in handles:
+            handle.remove()
+    if method not in ("act", "cle"):
+        raise ValueError(f"Unknown equalization method {method!r}; use 'act' or 'cle'.")
+    for block in blocks:
+        peak = peaks[id(block)].clamp_min(1e-6)
+        if method == "cle":
+            weight_peak = (
+                block.pointwise_conv.conv.weight.detach().abs().amax(dim=(0, 2, 3)).clamp_min(1e-9)
+            )
+            scale = torch.sqrt(peak / weight_peak)
+            scale = scale / torch.exp(torch.log(scale).mean())
+        else:
+            scale = peak / peak.mean()
+        with torch.no_grad():
+            block.pointwise_conv.conv.weight.mul_(scale.reshape(1, -1, 1, 1))
+        block.pointwise_conv = torch.nn.Sequential(
+            _ChannelScale(1.0 / scale, as_conv=(mode == "conv")), block.pointwise_conv
+        )
+    return len(blocks)
+
+
 class _YOLOXRawHeadsWrapper(torch.nn.Module):
     """YOLOX graph cut right after each level's last convolutions.
 
@@ -1273,6 +1360,70 @@ class _PPYOLOERawHeadsWrapper(torch.nn.Module):
                 self._final_conv("cls", head.pred_cls[i], head.stem_cls[i](feat, avg_feat) + feat)
             )
         return tuple(outputs)
+
+
+class _RTMDetRawHeadsWrapper(torch.nn.Module):
+    """RTMDet graph cut right after each level's ``rtm_reg`` and ``rtm_cls`` convs.
+
+    Returns ``reg`` (raw l/t/r/b distance terms, before the stride scale and
+    the optional exp) and ``cls`` (class logits) per level, stride 8, 16, 32,
+    as layout ``rtmdet_raw_heads_v1``. The host rebuilds the decoded export's
+    ``(B, N, 4 + nc)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_rtmdet_raw`).
+    ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`; the
+    default is ``RTMDET_RAW_OUTPUT_WINDOWS``.
+    """
+
+    output_layout = "rtmdet_raw_heads_v1"
+    #: mmdet's MlvlPointGenerator(offset=0): points on cell corners.
+    grid_cell_offset = 0.0
+    #: RTMDet regresses distances directly: no distribution bins.
+    reg_max = None
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str = "detect",
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import (
+            RTMDET_RAW_OUTPUT_WINDOWS,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        if task != "detect":
+            raise ValueError(f"RTMDet raw-head export supports detect only, got {task!r}.")
+        self.model = model
+        self.task = task
+        head = model.head
+        self.strides = tuple(int(stride) for stride in head.strides)
+        self.exp_on_reg = bool(head.exp_on_reg)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        if output_windows is None:
+            output_windows = RTMDET_RAW_OUTPUT_WINDOWS
+        self.output_windows = check_output_windows(self.output_layout, output_windows)
+
+    def forward(self, x):
+        model = self.model
+        head = model.head
+        outputs = []
+        for idx, feat in enumerate(model.neck(model.backbone(x))):
+            cls_feat = reg_feat = feat
+            for layer in head.cls_convs[idx]:
+                cls_feat = layer(cls_feat)
+            for layer in head.reg_convs[idx]:
+                reg_feat = layer(reg_feat)
+            outputs.append(self._final_conv("reg", head.rtm_reg[idx], reg_feat))
+            outputs.append(self._final_conv("cls", head.rtm_cls[idx], cls_feat))
+        return tuple(outputs)
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
 
 
 class _YOLO9SplitOutputWrapper(torch.nn.Module):
@@ -3956,6 +4107,18 @@ class AxeleraExporter(BaseExporter):
             self._raw_wrapper = _YOLOXRawHeadsWrapper(
                 copy.deepcopy(live).eval(), self._task()
             ).eval()
+        elif self.model._get_model_name() == "rtmdet":
+            # Like YOLOX: BatchNorm folds into the convs during the ONNX
+            # export; the copy keeps RTMDet's shared head convs shared.
+            self._pose_bounds = {}
+            copy_ = copy.deepcopy(live).eval()
+            self._pointwise_equalized = _equalize_cspnext_pointwise_inputs(
+                copy_,
+                self._equalization_samples(),
+                CSPNEXT_POINTWISE_EQUALIZATION,
+                CSPNEXT_POINTWISE_EQUALIZATION_METHOD,
+            )
+            self._raw_wrapper = _RTMDetRawHeadsWrapper(copy_, self._task()).eval()
         else:
             fused = _fused_yolonas_copy(live, full_fusion=True)
             samples = self._equalization_samples() if self._task() == "pose" else []
@@ -4044,6 +4207,14 @@ class AxeleraExporter(BaseExporter):
             meta["anchors"] = [[list(pair) for pair in level] for level in wrapper.anchors]
         if getattr(wrapper, "scale_x_y", None) is not None:
             meta["scale_x_y"] = list(wrapper.scale_x_y)
+        if getattr(wrapper, "exp_on_reg", None) is not None:
+            meta["exp_on_reg"] = bool(wrapper.exp_on_reg)
+        if getattr(self, "_pointwise_equalized", 0):
+            meta["pointwise_equalized"] = {
+                "blocks": int(self._pointwise_equalized),
+                "mode": str(CSPNEXT_POINTWISE_EQUALIZATION),
+                "method": str(CSPNEXT_POINTWISE_EQUALIZATION_METHOD),
+            }
         if getattr(self, "_pose_bounds", None):
             meta["pose_head_bounds"] = {
                 name: round(float(cap), 4) for name, cap in self._pose_bounds.items()
