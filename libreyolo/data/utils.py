@@ -395,6 +395,7 @@ def load_data_config(
                 )
                 config[split] = str(split_path)
 
+            img_files = []
             try:
                 img_files = get_img_files(split_path, formats={".npy"} if profile else None)
                 if img_files:
@@ -403,6 +404,14 @@ def load_data_config(
             except (FileNotFoundError, ValueError):
                 # Split path doesn't exist yet or contains no supported images.
                 pass
+            if not img_files:
+                logger.warning(
+                    "No images found for split '%s' at %s (dataset root %s, from %s).",
+                    split,
+                    split_path,
+                    dataset_path,
+                    yaml_path,
+                )
 
     _resolve_coco_annotation_paths(config, dataset_path)
 
@@ -490,24 +499,47 @@ def resolve_default_coco_image_dir(data_path: Path | str, split: str, json_file:
 
 
 def _resolve_dataset_path(config: Dict, yaml_path: Path) -> Path:
-    """Resolve the dataset root path from config."""
-    if "path" in config:
-        path = Path(config["path"])
-        if path.is_absolute():
-            return path
-        # Check relative to DATASETS_DIR first
-        datasets_path = DATASETS_DIR / path
-        if datasets_path.exists():
-            return datasets_path
-        # Check relative to YAML file location
-        yaml_relative = yaml_path.parent / path
-        if yaml_relative.exists():
-            return yaml_relative.resolve()
-        # Default to DATASETS_DIR for new downloads
-        return datasets_path
-    else:
+    """Resolve the dataset root path from config.
+
+    A relative ``path`` in a user's own YAML (including ``.`` and ``./sub``)
+    means "relative to the folder this YAML is in", as in the Ultralytics
+    format. Bundled YAMLs (``coco8.yaml`` and friends) live inside the package,
+    so their relative ``path`` names a folder under ``DATASETS_DIR`` instead,
+    which is also where they auto-download.
+    """
+    if not config.get("path"):
         # Use YAML file's parent directory
-        return yaml_path.parent
+        return yaml_path.parent.resolve()
+
+    path = Path(config["path"]).expanduser()
+    if path.is_absolute():
+        return path
+
+    datasets_path = DATASETS_DIR / path
+    yaml_relative = (yaml_path.parent / path).resolve()
+
+    if _is_builtin_yaml(yaml_path):
+        if datasets_path.exists() or not yaml_relative.exists():
+            return datasets_path
+        return yaml_relative
+
+    # User YAML: its own folder wins.
+    if yaml_relative.exists():
+        return yaml_relative
+    # Backward compatibility: a named folder already under DATASETS_DIR.
+    if datasets_path.exists():
+        return datasets_path
+    # Nothing on disk yet: a downloadable dataset lands in DATASETS_DIR,
+    # anything else is reported against the YAML's folder.
+    return datasets_path if config.get("download") else yaml_relative
+
+
+def _is_builtin_yaml(yaml_path: Path) -> bool:
+    try:
+        Path(yaml_path).resolve().relative_to(BUILTIN_DATASETS_DIR.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def check_dataset(

@@ -252,3 +252,87 @@ def test_get_img_files_names_a_missing_directory(tmp_path):
         (tmp_path / "notes.md").write_text("x")
         get_img_files(tmp_path / "notes.md")
 
+
+
+def _make_split_dataset(root: Path) -> None:
+    for split in ("train", "valid"):
+        img_dir = root / split / "images"
+        lbl_dir = root / split / "labels"
+        img_dir.mkdir(parents=True)
+        lbl_dir.mkdir(parents=True)
+        Image.new("RGB", (8, 8)).save(img_dir / "a.jpg")
+        (lbl_dir / "a.txt").write_text("0 0.5 0.5 0.2 0.2\n")
+
+
+@pytest.fixture
+def fake_datasets_dir(tmp_path, monkeypatch):
+    """A populated ~/datasets and a CWD elsewhere, like a real user machine."""
+    import libreyolo.data.utils as data_utils
+
+    home = tmp_path / "home"
+    datasets_dir = home / "datasets"
+    (datasets_dir / "other" / "train" / "images").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(data_utils, "DATASETS_DIR", datasets_dir)
+    cwd = tmp_path / "elsewhere"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    return datasets_dir
+
+
+@pytest.mark.parametrize("rel", [".", "./"])
+def test_path_dot_resolves_to_yaml_folder(tmp_path, fake_datasets_dir, rel):
+    ds = tmp_path / "hf_cache" / "cells-uyemf"
+    _make_split_dataset(ds)
+    yaml_path = ds / "data.yaml"
+    yaml_path.write_text(
+        f"path: {rel}\ntrain: train/images\nval: valid/images\nnc: 1\nnames: [cell]\n"
+    )
+
+    cfg = load_data_config(str(yaml_path), autodownload=False)
+
+    assert Path(cfg["path"]) == ds.resolve()
+    assert len(cfg["train_img_files"]) == 1
+    assert len(cfg["val_img_files"]) == 1
+
+
+def test_path_subfolder_resolves_to_yaml_folder(tmp_path, fake_datasets_dir):
+    ds = tmp_path / "proj"
+    _make_split_dataset(ds / "sub")
+    yaml_path = ds / "data.yaml"
+    yaml_path.write_text("path: ./sub\ntrain: train/images\nval: valid/images\nnames: [cell]\n")
+
+    cfg = load_data_config(str(yaml_path), autodownload=False)
+
+    assert Path(cfg["path"]) == (ds / "sub").resolve()
+    assert len(cfg["train_img_files"]) == 1
+
+
+def test_named_path_still_falls_back_to_datasets_dir(tmp_path, fake_datasets_dir):
+    _make_split_dataset(fake_datasets_dir / "mine")
+    yaml_path = tmp_path / "mine.yaml"
+    yaml_path.write_text("path: mine\ntrain: train/images\nval: valid/images\nnames: [x]\n")
+
+    cfg = load_data_config(str(yaml_path), autodownload=False)
+
+    assert Path(cfg["path"]) == fake_datasets_dir / "mine"
+    assert len(cfg["train_img_files"]) == 1
+
+
+def test_builtin_yaml_path_points_into_datasets_dir(fake_datasets_dir):
+    cfg = load_data_config("coco8.yaml", autodownload=False)
+    assert Path(cfg["path"]) == fake_datasets_dir / "coco8"
+
+
+def test_zero_images_warning_names_resolved_path(tmp_path, fake_datasets_dir, caplog):
+    ds = tmp_path / "empty"
+    (ds / "train" / "images").mkdir(parents=True)
+    yaml_path = ds / "data.yaml"
+    yaml_path.write_text("path: .\ntrain: train/images\nnames: [x]\n")
+
+    with caplog.at_level("WARNING"):
+        load_data_config(str(yaml_path), autodownload=False)
+
+    expected = str(ds.resolve() / "train" / "images")
+    assert any("No images found" in r.getMessage() and expected in r.getMessage()
+               for r in caplog.records)
