@@ -140,10 +140,41 @@ def test_open_vocabulary_names_point_at_libreopenvocab(name):
     assert hint.cli == ""
 
 
-def test_model_yaml_means_untrained():
-    hint = ultralytics_weight_hint("yolov8n.yaml")
-    assert 'LibreYOLO9(None, size="t")' in hint.python
-    assert hint.cli == "yolo9-t pretrained=False"
+@pytest.mark.parametrize(
+    "name, python, cli",
+    [
+        ("yolov8n.yaml", 'LibreYOLO9(None, size="t")', "yolo9-t"),
+        (
+            "yolov8n-seg.yaml",
+            'LibreDFINE(None, size="n", task="segment")',
+            "dfine-n-seg",
+        ),
+        ("yolo11s-pose.yaml", 'LibreGTR(None, size="s", task="pose")', "gtr-s-pose"),
+        ("yolo11s-obb.yml", 'LibreGTR(None, size="s", task="obb")', "gtr-s-obb"),
+        (
+            "yolov8m-cls.yaml",
+            'LibreMobileNetV4(None, size="m", task="classify")',
+            "mobilenetv4-m-cls",
+        ),
+    ],
+)
+def test_model_yaml_means_untrained(name, python, cli):
+    hint = ultralytics_weight_hint(name)
+    assert hint.untrained
+    assert python in hint.python
+    assert hint.python.startswith("from libreyolo import ")
+    assert "# untrained" in hint.python
+    assert ".pt" not in hint.python
+    assert hint.cli == cli
+
+
+def test_untrained_python_hints_build_the_model():
+    from libreyolo.models import BaseModel
+
+    for name in ("yolov8n-seg.yaml", "yolo11s-pose.yaml", "yolov8m-cls.yaml"):
+        hint = ultralytics_weight_hint(name)
+        cls_name = hint.python.split("import ")[1].split(";")[0]
+        assert cls_name in {c.__name__ for c in BaseModel._registry}, name
 
 
 @pytest.mark.parametrize("name", ["yolov9-c.pt", "yolo9-t"])
@@ -294,6 +325,76 @@ def test_checkpoint_detection_reads_the_pickle_without_unpickling(
     assert not is_ultralytics_checkpoint(str(tmp_path / "missing.pt"), OSError("x"))
 
 
+def test_checkpoint_detection_ignores_look_alike_and_oversized_members(
+    tmp_path, monkeypatch
+):
+    import zipfile
+
+    from libreyolo.utils import ultralytics_hints
+
+    monkeypatch.setattr(ultralytics_hints, "_MAX_PICKLE_BYTES", 1024)
+    marker = b"ultralytics.nn.tasks"
+
+    # A small valid-looking pickle plus a large padding member whose name
+    # also ends in data.pkl: only <archive>/data.pkl may be read.
+    padded = tmp_path / "padded.pt"
+    with zipfile.ZipFile(padded, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("archive/data.pkl", b"not an ultralytics pickle")
+        archive.writestr("archive/paddingdata.pkl", marker + b"\0" * 100_000)
+        archive.writestr("archive/x/data.pkl", marker)
+    assert not is_ultralytics_checkpoint(str(padded), RuntimeError("x"))
+
+    # A real-named pickle over the cap is not read at all.
+    oversized = tmp_path / "oversized.pt"
+    with zipfile.ZipFile(oversized, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("archive/data.pkl", marker + b"\0" * 100_000)
+    assert not is_ultralytics_checkpoint(str(oversized), RuntimeError("x"))
+
+    # Within the cap, the marker is still found.
+    small = tmp_path / "small.pt"
+    with zipfile.ZipFile(small, "w") as archive:
+        archive.writestr("archive/data.pkl", marker)
+    assert is_ultralytics_checkpoint(str(small), RuntimeError("x"))
+
+
+def test_checkpoint_detection_bounds_reads_when_the_header_lies(tmp_path, monkeypatch):
+    import zipfile
+
+    from libreyolo.utils import ultralytics_hints
+
+    monkeypatch.setattr(ultralytics_hints, "_MAX_PICKLE_BYTES", 1024)
+    path = tmp_path / "lying.pt"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as archive:
+        archive.writestr("archive/data.pkl", b"\0" * 100_000)
+
+    reads = []
+    real_open = zipfile.ZipFile.open
+
+    def recording_open(self, *args, **kwargs):
+        handle = real_open(self, *args, **kwargs)
+        real_read = handle.read
+
+        def read(n=-1):
+            reads.append(n)
+            return real_read(n)
+
+        handle.read = read
+        return handle
+
+    real_infolist = zipfile.ZipFile.infolist
+
+    def lying_infolist(self):
+        infos = real_infolist(self)
+        for info in infos:
+            info.file_size = 10  # header claims a tiny member
+        return infos
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", recording_open)
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", lying_infolist)
+    is_ultralytics_checkpoint(str(path), RuntimeError("x"))
+    assert reads and all(0 <= n <= 1024 for n in reads)
+
+
 # ---------------------------------------------------------------------------
 # predict() options
 # ---------------------------------------------------------------------------
@@ -326,7 +427,13 @@ def _cli_app():
     from libreyolo.cli.parsing import KeyValueCommand
 
     app = typer.Typer(add_completion=False, no_args_is_help=True)
-    for name, cmd in (("predict", predict.predict_cmd), ("info", special.info_cmd)):
+    from libreyolo.cli.commands import train
+
+    for name, cmd in (
+        ("predict", predict.predict_cmd),
+        ("info", special.info_cmd),
+        ("train", train.train_cmd),
+    ):
         app.command(name, cls=KeyValueCommand)(cmd)
     return app
 
@@ -336,7 +443,6 @@ def _cli_app():
     [
         ("yolov8n.pt", "model=yolo9-t"),
         ("yolo11s-seg.pt", "model=dfine-s-seg"),
-        ("yolov8n.yaml", "model=yolo9-t pretrained=False"),
         ("yolov8s-world.pt", "LibreOpenVocab"),
     ],
 )
@@ -348,3 +454,43 @@ def test_cli_names_the_libreyolo_model(model, suggestion):
     assert data["error"] == "model_not_found"
     assert "Ultralytics" in data["message"]
     assert suggestion in data["suggestion"]
+
+
+@pytest.mark.parametrize(
+    "model, cli",
+    [
+        ("yolov8n.yaml", "yolo9-t"),
+        ("yolov8n-seg.yaml", "dfine-n-seg"),
+        ("yolo11s-pose.yaml", "gtr-s-pose"),
+        ("yolo11s-obb.yaml", "gtr-s-obb"),
+        ("yolov8s-cls.yaml", "mobilenetv4-s-cls"),
+    ],
+)
+@pytest.mark.parametrize("command", ["info", "predict"])
+def test_cli_model_yaml_outside_train_shows_a_full_train_command(
+    model, cli, command, tmp_path
+):
+    args = [command, f"model={model}", "--json"]
+    if command == "predict":
+        image = tmp_path / "image.jpg"
+        image.write_bytes(b"")
+        args.insert(1, f"source={image}")
+    result = CliRunner().invoke(_cli_app(), args)
+
+    assert result.exit_code == 4
+    data = json.loads(result.stdout)
+    assert data["error"] == "model_not_found"
+    assert f"libreyolo train model={cli} pretrained=False" in data["suggestion"]
+    assert "Use model=" not in data["suggestion"]
+
+
+def test_cli_model_yaml_in_train_suggests_pretrained_false():
+    result = CliRunner().invoke(
+        _cli_app(), ["train", "model=yolov8n-seg.yaml", "data=coco8.yaml", "--json"]
+    )
+
+    assert result.exit_code == 4
+    data = json.loads(result.stdout)
+    assert data["error"] == "model_not_found"
+    assert data["suggestion"].startswith("Use model=dfine-n-seg pretrained=False")
+    assert "libreyolo train" not in data["suggestion"]

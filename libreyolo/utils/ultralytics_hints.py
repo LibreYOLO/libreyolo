@@ -108,6 +108,7 @@ class WeightHint(NamedTuple):
     python: str  # code line for the Python API
     cli: str  # model= value for the CLI, "" when the CLI has none
     ultralytics: bool = True  # False for look-alikes such as yolov9-c
+    untrained: bool = False  # True for model YAMLs: train from scratch
 
 
 # Ultralytics release names: yolov3u, yolov5nu, yolov5n6u, yolov8n-seg,
@@ -135,6 +136,20 @@ _SIZE_TABLE = {
     "pose": ("s", "s", "s", "m", "l", "l", "l", "x", "x"),  # LibreGTR
     "obb": ("s", "s", "s", "s", "x", "x", "x", "x", "x"),  # LibreGTR
     "classify": ("s", "s", "s", "m", "l", "l", "l", "l", "l"),  # LibreMobileNetV4
+}
+
+
+# Per task: LibreYOLO class, weight file and CLI model name.
+_TASK_MODELS = {
+    "detect": ("LibreYOLO9", "LibreYOLO9{s}.pt", "yolo9-{s}"),
+    "segment": ("LibreDFINE", "LibreDFINE{s}-seg.pt", "dfine-{s}-seg"),
+    "pose": ("LibreGTR", "LibreGTR{s}-pose.pt", "gtr-{s}-pose"),
+    "obb": ("LibreGTR", "LibreGTR{s}-obb.pt", "gtr-{s}-obb"),
+    "classify": (
+        "LibreMobileNetV4",
+        "LibreMobileNetV4{s}-cls.pt",
+        "mobilenetv4-{s}-cls",
+    ),
 }
 
 
@@ -184,34 +199,21 @@ def ultralytics_weight_hint(model_path: str) -> WeightHint | None:
         size = "s"
     task = next((_TASKS[t] for t in tokens if t in _TASKS), "detect")
     s = _libre_size(task, size)
+    cls_name, filename, cli = _TASK_MODELS[task]
+    filename = filename.format(s=s)
+    cli = cli.format(s=s)
 
-    if task == "segment":
-        return WeightHint(
-            f'LibreYOLO("LibreDFINE{s}-seg.pt")', f"dfine-{s}-seg", ultralytics
-        )
-    if task == "pose":
-        return WeightHint(
-            f'LibreYOLO("LibreGTR{s}-pose.pt")', f"gtr-{s}-pose", ultralytics
-        )
-    if task == "obb":
-        return WeightHint(
-            f'LibreYOLO("LibreGTR{s}-obb.pt")', f"gtr-{s}-obb", ultralytics
-        )
-    if task == "classify":
-        return WeightHint(
-            f'LibreYOLO("LibreMobileNetV4{s}-cls.pt")',
-            f"mobilenetv4-{s}-cls",
-            ultralytics,
-        )
     if suffix in (".yaml", ".yml"):
-        # A model YAML means "build it untrained".
+        # A model YAML means "build it untrained", whatever the task.
+        task_arg = "" if task == "detect" else f', task="{task}"'
         return WeightHint(
-            f'from libreyolo import LibreYOLO9; model = LibreYOLO9(None, size="{s}")'
-            "  # untrained",
-            f"yolo9-{s} pretrained=False",
+            f"from libreyolo import {cls_name}; "
+            f'model = {cls_name}(None, size="{s}"{task_arg})  # untrained',
+            cli,
             ultralytics,
+            untrained=True,
         )
-    return WeightHint(f'LibreYOLO("LibreYOLO9{s}.pt")', f"yolo9-{s}", ultralytics)
+    return WeightHint(f'LibreYOLO("{filename}")', cli, ultralytics)
 
 
 def weight_name_message(model_path: str, hint: WeightHint) -> str:
@@ -236,13 +238,24 @@ def weight_name_message(model_path: str, hint: WeightHint) -> str:
 # ---------------------------------------------------------------------------
 
 _ULTRALYTICS_GLOBAL = "ultralytics.nn"
+# The pickle of a torch zip checkpoint holds only the object graph (tensors
+# live in other members), so a few MB covers any real one. The cap bounds
+# what an invalid or hostile file can make this error path read.
+_MAX_PICKLE_BYTES = 4 * 1024 * 1024
+
+
+def _is_checkpoint_pickle(member: str) -> bool:
+    """True for ``<archive>/data.pkl``, the pickle of a torch zip checkpoint."""
+    parts = member.split("/")
+    return len(parts) == 2 and parts[0] != "" and parts[1] == "data.pkl"
 
 
 def is_ultralytics_checkpoint(model_path: str, error: BaseException) -> bool:
     """True when a failed safe load points at an Ultralytics checkpoint.
 
-    Reads the load error and, for zip checkpoints, the raw pickle bytes as
-    plain text. Nothing is unpickled.
+    Reads the load error and, for zip checkpoints, at most the first
+    ``_MAX_PICKLE_BYTES`` of ``<archive>/data.pkl`` as plain text. Nothing is
+    unpickled.
     """
     texts = [str(error)]
     if error.__cause__ is not None:
@@ -251,13 +264,18 @@ def is_ultralytics_checkpoint(model_path: str, error: BaseException) -> bool:
         return True
     try:
         with zipfile.ZipFile(model_path) as archive:
-            for member in archive.namelist():
-                if member.endswith("data.pkl"):
-                    data = archive.read(member)
-                    return _ULTRALYTICS_GLOBAL.encode() in data
-    except (OSError, zipfile.BadZipFile, KeyError):
+            info = next(
+                (i for i in archive.infolist() if _is_checkpoint_pickle(i.filename)),
+                None,
+            )
+            if info is None or info.file_size > _MAX_PICKLE_BYTES:
+                return False
+            # read(n) also bounds a member whose header understates its size.
+            with archive.open(info) as member:
+                data = member.read(_MAX_PICKLE_BYTES)
+            return _ULTRALYTICS_GLOBAL.encode() in data
+    except (OSError, zipfile.BadZipFile, KeyError, RuntimeError, ValueError):
         return False
-    return False
 
 
 def checkpoint_message(model_path: str) -> str:
