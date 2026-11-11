@@ -68,6 +68,15 @@ def default_quantization_scheme(family: str, task: str) -> str:
     if by_model is not None:
         return by_model
     return DEFAULT_QUANTIZATION_SCHEME_BY_TASK.get(task, DEFAULT_QUANTIZATION_SCHEME)
+
+
+#: Graphs with depthwise convolutions: per-channel ranges for the inputs of
+#: depthwise convolutions (histogram ranges elsewhere). A depthwise conv never
+#: mixes channels, so one per-tensor scale over an input whose channels span
+#: very different ranges erases the small ones for good: YOLOX-n's first
+#: depthwise input has channel maxima from 0.02 to 106 and scored 0.011 vs
+#: FP32 0.261 mAP50-95 with per-tensor ranges (docs/axelera.md, section 7).
+DEPTHWISE_QUANTIZATION_SCHEME = "hybrid_per_tensor_per_channel"
 DEFAULT_RESOURCES_USED = 0.25
 
 
@@ -584,6 +593,7 @@ __all__ = [
     "DEFAULT_QUANTIZATION_SCHEME",
     "DEFAULT_QUANTIZATION_SCHEME_BY_MODEL",
     "DEFAULT_QUANTIZATION_SCHEME_BY_TASK",
+    "DEPTHWISE_QUANTIZATION_SCHEME",
     "DEFAULT_RESOURCES_USED",
     "axelera_install_command",
     "build_compiler_config",

@@ -1,4 +1,4 @@
-"""Host-side decode for YOLO-NAS and YOLO9 raw head outputs.
+"""Host-side decode for YOLO-NAS, YOLO9 and YOLOX raw head outputs.
 
 Some accelerators run a YOLO-NAS or YOLO9 graph cut right after the head's
 last convolutions and leave the decode to the host: the DFL distance decode,
@@ -25,6 +25,8 @@ the order the layout lists:
 ``yolo9_raw_heads_v1``         ``reg`` [B, 4*reg_max, H, W] (YOLO9's
                                ``reg_max`` counts the bins, 0..reg_max-1),
                                ``cls`` [B, nc, H, W]
+``yolox_raw_heads_v1``         ``reg`` [B, 4, H, W] (x/y cell offsets, log
+                               w/h), ``obj`` [B, 1, H, W], ``cls`` [B, nc, H, W]
 =============================  ===========================================
 
 An export may also store some parts *windowed* (``output_windows`` in export
@@ -50,6 +52,7 @@ YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "yolonas_pose_raw_heads_v1": ("reg", "cls", "pose"),
     "yolonas_obb_raw_heads_v1": ("reg", "cls", "offset", "rot"),
     "yolo9_raw_heads_v1": ("reg", "cls"),
+    "yolox_raw_heads_v1": ("reg", "obj", "cls"),
 }
 
 YOLONAS_RAW_LAYOUT_BY_TASK: dict[str, str] = {
@@ -83,6 +86,12 @@ YOLO9_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {
     "cls": (-8.0, 8.0),
     "reg": (-12.0, 20.0),
 }
+
+# YOLOX raw outputs stay within a few INT8 steps of their useful range on
+# every size (objectness and class logits span about [-40, +7], step <= 0.17;
+# where a box scores above 0.05 they stay within [-2.9, +7.0]), so the
+# export keeps them unwindowed. Windowing them changed nothing on YOLOX-n.
+YOLOX_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {}
 
 # A windowed part is mapped from [low, high] onto [0, OUTPUT_WINDOW_SPAN].
 OUTPUT_WINDOW_SPAN = 6.0
@@ -385,11 +394,51 @@ def decode_yolo9_raw(
     return [out.transpose(0, 2, 1)]
 
 
+def decode_yolox_raw(
+    outputs: Sequence[np.ndarray],
+    *,
+    strides: Sequence[int] = YOLONAS_STRIDES,
+    grid_cell_offset: float = 0.0,
+    **_unused,
+) -> list[np.ndarray]:
+    """Decode YOLOX heads to ``[(B, N, 5 + nc)]``: cxcywh px, objectness, classes.
+
+    The tensor matches the decoded YOLOX export: anchors at the top-left of
+    each cell (``grid_cell_offset`` 0), centres ``(offset + cell) * stride``,
+    sizes ``exp(log_wh) * stride``, sigmoid objectness and class scores.
+    """
+    layout = "yolox_raw_heads_v1"
+    levels = _split_levels(outputs, layout, strides)
+    _check_strides(levels, strides)
+    batch, num_classes = levels[0]["cls"].shape[:2]
+    total = sum(level["cls"].shape[2] * level["cls"].shape[3] for level in levels)
+    out = np.empty((batch, total, 5 + num_classes), dtype=np.float32)
+    start = 0
+    for level, stride in zip(levels, strides):
+        _, _, h, w = level["cls"].shape
+        hw = h * w
+        anchors = _anchor_grid(h, w, float(grid_cell_offset))  # (HW, 2) as (x, y)
+        stride_f = np.float32(stride)
+        reg = level["reg"].reshape(batch, 4, hw)
+        block = out[:, start : start + hw]
+        block[..., 0] = (reg[:, 0] + anchors[:, 0]) * stride_f
+        block[..., 1] = (reg[:, 1] + anchors[:, 1]) * stride_f
+        with np.errstate(over="ignore"):
+            block[..., 2] = np.exp(reg[:, 2]) * stride_f
+            block[..., 3] = np.exp(reg[:, 3]) * stride_f
+        block[..., 4] = level["obj"].reshape(batch, hw)
+        block[..., 5:] = _flatten_hw(level["cls"])
+        start += hw
+    _sigmoid_(out[..., 4:])
+    return [out]
+
+
 _DECODERS = {
     "yolonas_raw_heads_v1": decode_yolonas_raw,
     "yolonas_pose_raw_heads_v1": decode_yolonas_pose_raw,
     "yolonas_obb_raw_heads_v1": decode_yolonas_obb_raw,
     "yolo9_raw_heads_v1": decode_yolo9_raw,
+    "yolox_raw_heads_v1": decode_yolox_raw,
 }
 
 
@@ -470,12 +519,14 @@ __all__ = [
     "YOLONAS_RAW_OUTPUT_WINDOWS_BY_TASK",
     "YOLONAS_REG_MAX",
     "YOLONAS_STRIDES",
+    "YOLOX_RAW_OUTPUT_WINDOWS",
     "check_output_windows",
     "decode_raw_heads",
     "decode_yolo9_raw",
     "decode_yolonas_obb_raw",
     "decode_yolonas_pose_raw",
     "decode_yolonas_raw",
+    "decode_yolox_raw",
     "raw_head_output_names",
     "unwindow_raw_heads",
 ]

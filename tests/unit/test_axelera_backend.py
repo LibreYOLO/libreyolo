@@ -153,10 +153,11 @@ def _dataset(tmp_path, n=3):
 
 
 def _export(tmp_path, task="detect"):
-    """``task`` is a YOLO-NAS task, or ``"yolo9"`` for a YOLO9-t detector."""
+    """``task`` is a YOLO-NAS task, ``"yolo9"`` for a YOLO9-t detector or
+    ``"yolox"`` for a YOLOX-n detector."""
     import torch
 
-    from libreyolo import LibreYOLO9, LibreYOLONAS
+    from libreyolo import LibreYOLO9, LibreYOLONAS, LibreYOLOX
 
     torch.manual_seed(0)
     if task == "yolo9":
@@ -164,6 +165,13 @@ def _export(tmp_path, task="detect"):
         with torch.no_grad():  # class bias starts at -10; lift it so boxes pass conf
             for tower in model.model.head.class_convs:
                 tower[-1].bias.fill_(0.0)
+    elif task == "yolox":
+        model = LibreYOLOX(None, size="n", nb_classes=3, device="cpu")
+        generator = torch.Generator().manual_seed(1)
+        with torch.no_grad():  # spread scores so boxes pass conf without ties
+            for conv in (*model.model.head.obj_preds, *model.model.head.cls_preds):
+                conv.weight.copy_(torch.randn(conv.weight.shape, generator=generator) * 0.05)
+                conv.bias.copy_(torch.linspace(1.0, -1.0, conv.bias.numel()))
     else:
         size, nc = {"detect": ("s", 3), "pose": ("n", 1)}[task]
         model = LibreYOLONAS(None, size=size, nb_classes=nc, task=task, device="cpu")
@@ -176,9 +184,12 @@ def _export(tmp_path, task="detect"):
 
     # The pose input bound changes FP32 keypoints by design (tested in
     # test_yolonas_raw_heads); without it these stay strict decode tests. The
-    # small test pose model is size n, refused on Metis by measurement.
+    # small test pose and YOLOX models are size n, refused on Metis by measurement.
     with mock.patch("libreyolo.export.exporter._bound_yolonas_pose_inputs", lambda *a, **k: {}), \
-            mock.patch.dict(REFUSED_SIZES, {("yolonas", "pose", "axelera"): {}}):
+            mock.patch.dict(
+                REFUSED_SIZES,
+                {("yolonas", "pose", "axelera"): {}, ("yolox", "detect", "axelera"): {}},
+            ):
         out = model.export(
             format="axelera", data=str(_dataset(tmp_path)), imgsz=96,
             output_path=str(tmp_path / f"{task}_axelera_model"),
@@ -299,6 +310,52 @@ def test_classifier_backend_matches_the_onnx_backend(sdk, tmp_path):
     for single, expected in zip(backend.predict(images, batch=3), [reference(image) for image in images]):
         np.testing.assert_allclose(single.probs.data, expected.probs.data, atol=1e-5)
         assert int(single.probs.top1) == int(expected.probs.top1)
+
+
+def test_yolox_backend_matches_the_exported_graph(exports, tmp_path):
+    """YOLOX raw heads decode on the host to the decoded graph's tensor, and
+    predictions equal the ONNX backend's."""
+    import torch
+
+    from libreyolo import LibreYOLO
+
+    model, artifact = exports("yolox")
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "yolox_raw_heads_v1" and "reg_max" not in meta
+    assert meta["grid_cell_offset"] == 0.0
+    backend = LibreYOLO(str(artifact))
+    assert type(backend).__name__ == "AxeleraBackend"
+    assert backend.model_family == "yolox" and backend.task == "detect"
+
+    image = _image()
+    blob = model._preprocess(image, input_size=96)[0]
+    blob = blob.numpy() if hasattr(blob, "numpy") else np.asarray(blob)
+    net = model.model.eval()
+    net.head.export = True
+    try:
+        with torch.no_grad():
+            reference = net(torch.from_numpy(blob)).numpy()
+    finally:
+        net.head.export = False
+    (decoded,) = backend._run_inference(blob)
+    assert decoded.shape == reference.shape  # (1, N, 5 + nc)
+    np.testing.assert_allclose(decoded[..., :4], reference[..., :4], rtol=1e-5, atol=1e-3)
+    np.testing.assert_allclose(decoded[..., 4:], reference[..., 4:], atol=1e-5)
+
+    onnx_backend = LibreYOLO(
+        model.export(format="onnx", imgsz=96, dynamic=False, output_path=str(tmp_path / "ref.onnx"))
+    )
+    expected = onnx_backend(image, conf=0.3)
+    actual = backend(image, conf=0.3)
+    assert len(expected) > 0 and len(actual) == len(expected)
+
+    def rows(result):  # a random head scores many boxes alike: compare as sets
+        table = np.column_stack(
+            [np.asarray(result.boxes.xyxy), np.asarray(result.boxes.conf), np.asarray(result.boxes.cls)]
+        )
+        return table[np.lexsort(np.round(table, 2).T[::-1])]
+
+    np.testing.assert_allclose(rows(actual), rows(expected), atol=1e-3)
 
 
 def test_axm_path_and_batched_predict(exports):

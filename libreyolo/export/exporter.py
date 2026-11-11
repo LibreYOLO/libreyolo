@@ -825,6 +825,73 @@ class _YOLOXSplitOutputWrapper(torch.nn.Module):
         return torch.cat(boxes, 2), torch.cat(scores, 1)
 
 
+def _has_depthwise_convs(module: torch.nn.Module) -> bool:
+    """True when ``module`` contains a depthwise convolution (groups == in_channels > 1)."""
+    return any(
+        isinstance(m, torch.nn.Conv2d) and m.groups > 1 and m.groups == m.in_channels
+        for m in module.modules()
+    )
+
+
+class _YOLOXRawHeadsWrapper(torch.nn.Module):
+    """YOLOX graph cut right after each level's last convolutions.
+
+    Returns ``reg`` (x/y cell offsets and log width/height), ``obj`` and
+    ``cls`` logits per level, stride 8, 16, 32, as layout
+    ``yolox_raw_heads_v1``. The host rebuilds the decoded export's
+    ``(B, N, 5 + nc)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_yolox_raw`).
+    ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`; the
+    default is ``YOLOX_RAW_OUTPUT_WINDOWS``.
+    """
+
+    output_layout = "yolox_raw_heads_v1"
+    #: Anchors sit at the top-left corner of each cell (``k * stride``).
+    grid_cell_offset = 0.0
+    #: YOLOX regresses boxes directly: no distribution bins.
+    reg_max = None
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str = "detect",
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import (
+            YOLOX_RAW_OUTPUT_WINDOWS,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        if task != "detect":
+            raise ValueError(f"YOLOX raw-head export supports detect only, got {task!r}.")
+        self.model = model
+        self.task = task
+        self.strides = tuple(int(stride) for stride in model.head.strides)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        if output_windows is None:
+            output_windows = YOLOX_RAW_OUTPUT_WINDOWS
+        self.output_windows = check_output_windows(self.output_layout, output_windows)
+
+    def forward(self, x):
+        head = self.model.head
+        outputs = []
+        for k, feat in enumerate(self.model.backbone(x)):
+            feat = head.stems[k](feat)
+            reg_feat = head.reg_convs[k](feat)
+            outputs.append(self._final_conv("reg", head.reg_preds[k], reg_feat))
+            outputs.append(self._final_conv("obj", head.obj_preds[k], reg_feat))
+            outputs.append(self._final_conv("cls", head.cls_preds[k], head.cls_convs[k](feat)))
+        return tuple(outputs)
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+
 class _YOLO9SplitOutputWrapper(torch.nn.Module):
     """YOLO9 detection graph with boxes and scores as separate outputs.
 
@@ -3421,6 +3488,11 @@ class AxeleraExporter(BaseExporter):
             self._raw_wrapper = _YOLO9RawHeadsWrapper(
                 copy.deepcopy(live).eval(), self._task()
             ).eval()
+        elif self.model._get_model_name() == "yolox":
+            self._pose_bounds = {}
+            self._raw_wrapper = _YOLOXRawHeadsWrapper(
+                copy.deepcopy(live).eval(), self._task()
+            ).eval()
         else:
             fused = _fused_yolonas_copy(live, full_fusion=True)
             samples = self._equalization_samples() if self._task() == "pose" else []
@@ -3492,10 +3564,11 @@ class AxeleraExporter(BaseExporter):
                 "output_layout": wrapper.output_layout,
                 "output_names": list(wrapper.output_names),
                 "strides": list(wrapper.strides),
-                "reg_max": wrapper.reg_max,
                 "grid_cell_offset": float(grid_cell_offset),
             }
         )
+        if wrapper.reg_max is not None:
+            meta["reg_max"] = int(wrapper.reg_max)
         if getattr(self, "_pose_bounds", None):
             meta["pose_head_bounds"] = {
                 name: round(float(cap), 4) for name, cap in self._pose_bounds.items()
@@ -3532,7 +3605,22 @@ class AxeleraExporter(BaseExporter):
         verify=False,
         **kwargs,
     ):
-        from .axelera import default_quantization_scheme, export_axelera
+        from .axelera import (
+            DEFAULT_QUANTIZATION_SCHEME_BY_MODEL,
+            DEPTHWISE_QUANTIZATION_SCHEME,
+            default_quantization_scheme,
+            export_axelera,
+        )
+
+        family, task = self.model._get_model_name(), self._task()
+        # A per-model exception wins; otherwise graphs with depthwise
+        # convolutions get per-channel ranges for the depthwise inputs.
+        if (family, task) not in DEFAULT_QUANTIZATION_SCHEME_BY_MODEL and (
+            _has_depthwise_convs(self._raw_wrapper)
+        ):
+            quantization_scheme = DEPTHWISE_QUANTIZATION_SCHEME
+        else:
+            quantization_scheme = default_quantization_scheme(family, task)
 
         logger.info("Step 2/2: Quantizing and compiling for Axelera Metis")
         return export_axelera(
@@ -3541,9 +3629,7 @@ class AxeleraExporter(BaseExporter):
             stem=Path(output_path).name.removesuffix(self.suffix) or "model",
             metadata=metadata,
             calibration=calibration_data,
-            quantization_scheme=default_quantization_scheme(
-                self.model._get_model_name(), self._task()
-            ),
+            quantization_scheme=quantization_scheme,
             calibration_info=getattr(self, "_calibration_info", {}),
             compiler_overrides=getattr(self, "_compiler_overrides", {}),
             devkit_version=getattr(self, "_devkit_version", None),

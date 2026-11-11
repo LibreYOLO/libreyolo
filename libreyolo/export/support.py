@@ -4067,6 +4067,25 @@ _add(
 )
 _add(
     "validated",
+    ("yolox",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the graph is cut after "
+        "the box, objectness and class convolutions and LibreYOLO decodes on "
+        "the host. On a Metis M.2 Max, YOLOX-t, -s, -m, -l and -x are within "
+        "0.8 mAP50-95 of FP32 on a paired 1000-image COCO val2017 subset "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: t, s, m, l, x (on-device results in docs/axelera.md). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed input size"
+    ),
+)
+_add(
+    "validated",
     ("yolo9",),
     ("detect",),
     ("axelera",),
@@ -4209,6 +4228,13 @@ REFUSED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "outside the 1.0-point bar; use m."
         ),
     },
+    ("yolox", "detect", "axelera"): {
+        "n": (
+            "on a Metis device YOLOX-n keeps mAP50-95 1.66 points below FP32 at "
+            "best (0.244 vs 0.261 on 300 COCO val2017 images, with per-channel "
+            "ranges for its depthwise inputs), outside the 1.0-point bar; use t."
+        ),
+    },
     ("yolonas", "pose", "axelera"): {
         "n": (
             "on a Metis device YOLO-NAS-pose-n keeps keypoint mAP50-95 1.30 "
@@ -4239,6 +4265,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("resnet", "classify"),
             ("mobilenetv4", "classify"),
             ("fcn", "semantic"),
+            ("yolox", "detect"),
         }
     ),
 }

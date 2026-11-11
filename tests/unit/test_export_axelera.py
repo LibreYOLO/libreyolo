@@ -507,6 +507,56 @@ def test_yolo9_export_uses_the_yolo9_raw_head_layout(exporter_sdk, tmp_path):
     assert "weights_license" not in meta
 
 
+@pytest.mark.parametrize("size", ["n", "t"])
+def test_yolox_export_uses_the_yolox_raw_head_layout(exporter_sdk, tmp_path, size):
+    from unittest import mock
+
+    import torch
+    import yaml
+
+    from libreyolo import LibreYOLOX
+    from libreyolo.export.support import REFUSED_SIZES
+    from libreyolo.postprocess.yolonas_raw import raw_head_output_names
+
+    torch.manual_seed(0)
+    model = LibreYOLOX(None, size=size, nb_classes=3, device="cpu")
+    destination = tmp_path / "yx_axelera_model"
+    # n is refused on Metis by measurement; lift that to check its graph.
+    with mock.patch.dict(REFUSED_SIZES, {("yolox", "detect", "axelera"): {}}):
+        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+
+    layout = "yolox_raw_heads_v1"
+    assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout)
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["model_family"] == "yolox" and meta["task"] == "detect"
+    assert meta["output_layout"] == layout
+    assert meta["output_names"] == exporter_sdk.seen["device_order"]
+    assert meta["strides"] == [8, 16, 32] and "reg_max" not in meta
+    assert meta["grid_cell_offset"] == 0.0
+    assert "weights_license" not in meta and "output_windows" not in meta
+    # Depthwise graph (n): per-channel ranges for depthwise inputs.
+    expected = "hybrid_per_tensor_per_channel" if size == "n" else "per_tensor_min_max"
+    assert meta["axelera"]["quantization_scheme"] == expected
+
+
+def test_yolox_n_is_refused_with_its_numbers(tmp_path):
+    from libreyolo import LibreYOLOX
+
+    model = LibreYOLOX(None, size="n", nb_classes=3, device="cpu")
+    with pytest.raises(NotImplementedError, match=r"yolox-n detect export to axelera is blocked: .*1\.66 points"):
+        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+
+
+def test_depthwise_detection():
+    import torch
+
+    from libreyolo.export.exporter import _has_depthwise_convs
+
+    assert _has_depthwise_convs(torch.nn.Conv2d(8, 8, 3, groups=8))
+    assert not _has_depthwise_convs(torch.nn.Conv2d(8, 16, 3, groups=2))
+    assert not _has_depthwise_convs(torch.nn.Conv2d(1, 4, 3, groups=1))
+
+
 def test_default_output_path_and_reexport_replaces(exporter_sdk, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     data = _dataset(tmp_path)
@@ -624,11 +674,10 @@ def test_missing_devkit_fails_before_tracing(fake_sdk, tmp_path, monkeypatch):
     assert fake_sdk.calls == []
 
 
-@pytest.mark.parametrize("family_model", ["yolox"])
-def test_other_families_are_blocked(exporter_sdk, family_model):
-    from libreyolo import LibreYOLOX
+def test_other_families_are_blocked(exporter_sdk):
+    from libreyolo import LibrePICODET
 
-    model = LibreYOLOX(None, size="n", device="cpu")
+    model = LibrePICODET(None, size="s", device="cpu")
     with pytest.raises(NotImplementedError, match="blocked"):
         model.export(format="axelera")
 
@@ -754,7 +803,10 @@ def test_support_matrix_rows_for_axelera():
         assert get_support(family, "detect", "axelera").tier == "blocked"
     rfdetr = get_support("rfdetr", "detect", "axelera")
     assert rfdetr.tier == "blocked" and "attention" in rfdetr.reason
-    other = get_support("yolox", "detect", "axelera")
+    yolox = get_support("yolox", "detect", "axelera")
+    assert yolox.tier == "validated" and "validated sizes: t, s, m, l" in yolox.constraint
+    assert precision_support("yolox", "detect", "axelera") == (True, True)
+    other = get_support("yolo7", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
     assert mnv4.tier == "validated" and "validated sizes: m " in mnv4.constraint

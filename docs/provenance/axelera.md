@@ -1,7 +1,7 @@
 # Axelera Metis export integration
 
 - **LibreYOLO modules:** `libreyolo/export/axelera.py`, `AxeleraExporter`,
-  `_YOLONASRawHeadsWrapper` and `_YOLO9RawHeadsWrapper` in
+  `_YOLONASRawHeadsWrapper`, `_YOLO9RawHeadsWrapper` and `_YOLOXRawHeadsWrapper` in
   `libreyolo/export/exporter.py`,
   `libreyolo/backends/axelera.py`, `libreyolo/postprocess/yolonas_raw.py`,
   `libreyolo/models/mobilenetv4/quantize.py` (MobileNetV4 residual-stream
@@ -19,6 +19,10 @@
   decode (`libreyolo/models/yolo9/nn.py`) with the same helpers, verified
   against it by `tests/unit/test_yolo9_raw_heads.py`; the class-tower
   activation bound and output windows are original code
+- **YOLOX decode:** `decode_yolox_raw` reimplements LibreYOLO's existing
+  YOLOX export decode (Megvii YOLOX-derived, Apache-2.0, listed in
+  `THIRD_PARTY_NOTICES.txt`), verified against it by
+  `tests/unit/test_yolox_raw_heads.py`
 - **Evidence:** fake-SDK unit tests; real compilation and on-device validation
   on a Metis M.2 Max, recorded in `docs/axelera.md`
 - **Evaluation data:** COCO val2017, DOTA-v2.0 and ImageNetV2 subsets used
