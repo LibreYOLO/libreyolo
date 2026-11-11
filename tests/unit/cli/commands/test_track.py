@@ -1,6 +1,7 @@
 """Behavior tests for the track command."""
 
 import json
+import re
 import sys
 
 import pytest
@@ -77,7 +78,8 @@ def test_track_is_registered_and_documents_its_options(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc:
         cli.entrypoint()
     assert exc.value.code == 0
-    help_text = capsys.readouterr().out
+    # Strip ANSI styling: newer Typer/Rich colour help even when captured.
+    help_text = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
     for option in ("--source", "--model", "--tracker", "--track-conf", "--json"):
         assert option in help_text
 
