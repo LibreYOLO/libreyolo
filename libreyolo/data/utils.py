@@ -708,19 +708,45 @@ def download_dataset(url: str, dest: Path) -> None:
     logger.info("Dataset extracted to %s", dest)
 
 
-def _merge_into(src: Path, dst: Path) -> None:
-    """Move ``src``'s contents into ``dst`` without deleting or overwriting anything in ``dst``."""
-    if not src.is_dir():
+def _merge_into(src: Path, dst: Path, root: Optional[Path] = None) -> None:
+    """Move ``src``'s contents into ``dst`` without deleting or overwriting anything.
+
+    Never follows symlinks in ``dst`` and never writes outside ``root``
+    (the top-level destination), so a download cannot escape the dataset
+    folder through an existing link.
+    """
+    root = (root or dst).resolve()
+    if not src.is_dir() or src.is_symlink():
         return
     dst.mkdir(parents=True, exist_ok=True)
     for item in src.iterdir():
         target = dst / item.name
+        if target.is_symlink():
+            logger.warning("Skipping %s: the destination is a symlink.", target)
+            continue
+        if not target.resolve().is_relative_to(root):
+            logger.warning("Skipping %s: it resolves outside %s.", target, root)
+            continue
+        if item.is_symlink():
+            logger.warning("Skipping %s: symlinks in downloaded archives are ignored.", item.name)
+            continue
         if not target.exists():
             shutil.move(str(item), str(target))
         elif item.is_dir() and target.is_dir():
-            _merge_into(item, target)
+            _merge_into(item, target, root)
         else:
             logger.warning("Keeping existing %s; not overwritten by the download.", target)
+
+
+def _safe_archive_root(name: str) -> bool:
+    """A ZIP root folder name that cannot point outside the extraction folder."""
+    return (
+        name not in ("", ".", "..")
+        and "\\" not in name
+        and ":" not in name
+        and not Path(name).is_absolute()
+        and len(Path(name).parts) == 1
+    )
 
 
 def _download_and_extract_zip(url: str, dest: Path) -> None:
@@ -752,7 +778,10 @@ def _download_and_extract_zip(url: str, dest: Path) -> None:
                     scratch = Path(tempfile.mkdtemp(prefix=".libreyolo-extract-", dir=dest.parent))
                     try:
                         zf.extractall(scratch)
-                        _merge_into(scratch / root_dir, dest)
+                        src = scratch / root_dir if _safe_archive_root(root_dir) else scratch
+                        if not src.resolve().is_relative_to(scratch.resolve()):
+                            src = scratch
+                        _merge_into(src, dest)
                     finally:
                         shutil.rmtree(scratch, ignore_errors=True)
                 else:

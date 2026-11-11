@@ -2,6 +2,7 @@
 
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+import os
 import pytest
 import yaml
 from PIL import Image
@@ -384,3 +385,52 @@ def test_zero_images_warning_includes_search_error(tmp_path, fake_datasets_dir, 
 
     msgs = [r.getMessage() for r in caplog.records if "No images found" in r.getMessage()]
     assert msgs and "missing" in msgs[0]
+
+
+def _fake_zip_download(monkeypatch, tmp_path, entries):
+    import zipfile
+
+    import libreyolo.data.utils as data_utils
+
+    src_zip = tmp_path / "evil.zip"
+    with zipfile.ZipFile(src_zip, "w") as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+
+    def fake_download(url, dest, chunk_size=8192):
+        dest.write_bytes(src_zip.read_bytes())
+
+    monkeypatch.setattr(data_utils, "_download_file", fake_download)
+    return data_utils
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_zip_download_does_not_follow_symlinks_out_of_dest(tmp_path, monkeypatch):
+    data_utils = _fake_zip_download(
+        monkeypatch, tmp_path, {"bundle/assets/payload.txt": b"x", "bundle/ok.txt": b"y"}
+    )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    project = tmp_path / "parent" / "project"
+    project.mkdir(parents=True)
+    (project / "assets").symlink_to(outside, target_is_directory=True)
+
+    data_utils._download_and_extract_zip("https://example.invalid/evil.zip", project)
+
+    assert not (outside / "payload.txt").exists()
+    assert (project / "ok.txt").exists()
+
+
+def test_zip_download_rejects_parent_dir_root(tmp_path, monkeypatch):
+    data_utils = _fake_zip_download(monkeypatch, tmp_path, {"../payload.txt": b"x"})
+    parent = tmp_path / "parent"
+    project = parent / "project"
+    project.mkdir(parents=True)
+    neighbour = parent / "neighbour.txt"
+    neighbour.write_text("stay here")
+
+    data_utils._download_and_extract_zip("https://example.invalid/evil.zip", project)
+
+    assert neighbour.read_text() == "stay here"
+    assert not (project / "neighbour.txt").exists()
+    assert not list(parent.glob(".libreyolo-extract-*"))
