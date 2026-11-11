@@ -116,7 +116,7 @@ def test_results_carries_embeddings_slot():
     assert "embeddings" in r._keys
     # survives device-move / slicing through _apply
     assert r.numpy().embeddings.data.shape == (2, 8)
-    assert r[0].embeddings.data.shape == (1, 8)
+    assert r[:1].embeddings.data.shape == (1, 8)
 
 
 def test_summary_omits_vector_by_default():
@@ -566,7 +566,7 @@ def test_identities_payload_slicing_and_results_plumbing():
         torch.zeros(3),
     )
     r = Results(boxes=boxes, orig_shape=(64, 64), identities=ids)
-    sliced = r[0]
+    sliced = r[:1]
     assert sliced.identities.name == ["alice"]
     r2 = r.update(identities=Identities(["carol"] * 3, np.ones(3)))
     assert r2.identities.name == ["carol", "carol", "carol"]

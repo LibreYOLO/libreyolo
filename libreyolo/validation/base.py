@@ -60,7 +60,7 @@ def _empty_curve() -> np.ndarray:
 
 
 class _MapMetrics:
-    """``map``, ``map50``, ``map75``, ``mp``, ``mr`` and ``maps`` for one kind.
+    """``map``, ``map50``, ``map75`` and ``maps`` for one kind.
 
     Read from the flat ``val()`` metrics: the ``(B)`` (box) or ``(M)`` (mask)
     keys, falling back to the unsuffixed key for detection, where it is the
@@ -104,16 +104,6 @@ class _MapMetrics:
     def map75(self) -> float:
         """mAP at IoU 0.75 (``metrics/mAP75``)."""
         return self._value("mAP75")
-
-    @property
-    def mp(self) -> float:
-        """Mean precision (``metrics/precision``)."""
-        return self._value("precision")
-
-    @property
-    def mr(self) -> float:
-        """Mean recall (``metrics/recall``)."""
-        return self._value("recall")
 
     @property
     def maps(self) -> np.ndarray:
@@ -176,6 +166,19 @@ class BoxImageMetrics(_MapMetrics):
             self.p = np.zeros(0, dtype=np.float64)
             self.r = np.zeros(0, dtype=np.float64)
             self.f1 = np.zeros(0, dtype=np.float64)
+
+    @property
+    def mp(self) -> float:
+        """Mean over classes of ``p``: precision at the best mean-F1 confidence.
+
+        Not ``metrics/precision``, which holds a COCO AP summary.
+        """
+        return float(self.p.mean()) if self.p.size else float("nan")
+
+    @property
+    def mr(self) -> float:
+        """Mean over classes of ``r``: recall at the best mean-F1 confidence."""
+        return float(self.r.mean()) if self.r.size else float("nan")
 
     def __repr__(self) -> str:
         return f"BoxImageMetrics({len(self.image_metrics)} images)"

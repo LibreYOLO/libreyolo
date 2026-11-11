@@ -79,7 +79,7 @@ before 1.4.0 are documented in the
   `save()` used to raise outside generation and matting; it now does `plot(save=True)`, takes `filename=` as well as a path, defaults to `results_<image name>`, and returns the path. Generated images, 3D objects and mattes save as before.
 
 - **`val()` results name their metrics: `metrics.box.map`, `.map50`, `.map75`, `.mp`, `.mr` and `.maps`.**
-  Read from the existing `metrics/...(B)` keys (or the unsuffixed detection keys); `maps` is AP50-95 per class index, the overall mAP where a class has no ground truth. Segmentation adds `metrics.seg` with the mask values and the keys `metrics/mAP75(B)` and `metrics/mAP75(M)`. Detect and segment.
+  `map`, `map50` and `map75` read the existing `metrics/...(B)` keys (or the unsuffixed detection keys); `maps` is AP50-95 per class index at the run's `max_det`, the overall mAP where a class has no ground truth. `mp` and `mr` are the class means of `box.p` and `box.r`, precision and recall at the best mean-F1 confidence (`metrics/precision` holds a COCO AP summary, so they do not read it). Segmentation adds `metrics.seg` (`map`, `map50`, `map75`, `maps`) with the mask values and the keys `metrics/mAP75(B)` and `metrics/mAP75(M)`. Detect and segment.
 
 - **More Ultralytics spellings fail with the LibreYOLO line to use.**
   Class-name hints are case-insensitive (`from libreyolo import Yolo`, `yolo`, `Rtdetr`), `hasattr()` unchanged. Weight-name hints cover later versions (`yolo27n.pt`, `yolov27s-seg.pt`, `yolo30x.pt`) with the latest known mapping. `model.add_callback()` names `train(callbacks=...)`; it is an `AttributeError`, so `hasattr(model, "add_callback")` is False. `export(format=...)` with `saved_model`, `pb`, `tfjs` or `edgetpu` names the closest supported format.

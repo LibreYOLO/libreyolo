@@ -185,7 +185,9 @@ def test_detection_metrics_have_ultralytics_names():
         nc=4,
     )
     box = metrics.box
-    assert (box.map, box.map50, box.map75, box.mp, box.mr) == (0.4, 0.7, 0.45, 0.6, 0.5)
+    assert (box.map, box.map50, box.map75) == (0.4, 0.7, 0.45)
+    # metrics/precision is an AP summary, so mp/mr never read it.
+    assert np.isnan(box.mp) and np.isnan(box.mr)
     np.testing.assert_allclose(box.maps, [0.3, 0.4, 0.5, 0.4])
     assert not hasattr(metrics, "seg")
 
@@ -212,8 +214,7 @@ def test_segmentation_metrics_split_box_and_mask():
     )
     assert (metrics.box.map, metrics.box.map50, metrics.box.map75) == (0.4, 0.6, 0.35)
     assert (metrics.seg.map, metrics.seg.map50, metrics.seg.map75) == (0.2, 0.5, 0.15)
-    assert metrics.box.mp == 0.7
-    assert np.isnan(metrics.seg.mp)  # no (M) precision: never the box value
+    assert not hasattr(metrics.seg, "mp")
     np.testing.assert_allclose(metrics.seg.maps, [0.2])
 
 
@@ -236,14 +237,18 @@ def test_per_class_ap_reads_the_accumulated_precision():
 
     evaluator = COCOEvaluator.__new__(COCOEvaluator)
     evaluator.label_to_category_id = {0: 1, 1: 3}
-    precision = -np.ones((2, 3, 2, 4, 3))  # (T, R, K, A, M)
-    precision[:, :, 0, 0, -1] = 0.5
-    precision[0, :, 0, 0, -1] = 0.7  # class 0 mean = (0.7 + 0.5) / 2
+    evaluator.max_det = 10
+    precision = -np.ones((2, 3, 2, 4, 3))  # (T, R, K, A, M), maxDets [1, 10, 100]
+    precision[:, :, 0, 0, 1] = 0.5
+    precision[0, :, 0, 0, 1] = 0.7  # class 0 mean = (0.7 + 0.5) / 2
+    precision[:, :, 0, 0, 2] = 0.9  # the 100-detection slot must not be read
     # class 1 has no ground truth: stays -1 and is left out
     evaluator._last_coco_eval = types.SimpleNamespace(
         eval={"precision": precision},
         params=types.SimpleNamespace(
-            catIds=[1, 3], areaRngLbl=["all", "small", "medium", "large"]
+            catIds=[1, 3],
+            areaRngLbl=["all", "small", "medium", "large"],
+            maxDets=[1, 10, 100],
         ),
     )
     assert evaluator.per_class_ap() == {0: pytest.approx(0.6)}
@@ -282,3 +287,19 @@ def test_engine_is_tensorrt():
     from libreyolo.export import BaseExporter
 
     assert BaseExporter._aliases["engine"] == "tensorrt"
+
+
+def test_mean_precision_and_recall_come_from_the_f1_curves():
+    from libreyolo.validation.base import ValidationMetrics
+
+    px = np.linspace(0, 1, 5)
+    curves = {
+        "px": px,
+        "labels": np.array([0, 1]),
+        "p": np.array([[0.2, 0.4, 0.6, 0.8, 1.0], [0.1, 0.3, 0.5, 0.7, 0.9]]),
+        "r": np.array([[1.0, 0.9, 0.8, 0.2, 0.0], [1.0, 0.8, 0.6, 0.1, 0.0]]),
+        "f1": np.array([[0.3, 0.5, 0.7, 0.3, 0.0], [0.2, 0.4, 0.55, 0.2, 0.0]]),
+    }
+    metrics = ValidationMetrics({"metrics/precision": 0.99}, {}, curves=curves)
+    assert metrics.box.mp == pytest.approx((0.6 + 0.5) / 2)
+    assert metrics.box.mr == pytest.approx((0.8 + 0.6) / 2)
