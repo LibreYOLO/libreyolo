@@ -1846,6 +1846,21 @@ def test_backend_accepts_fomo_point_task_with_shared_parser():
     assert backend.task == "point"
 
 
+def test_exported_yolo7_backend_validates_like_the_pytorch_model():
+    """StandardValPreprocessor feeds 0-255 pixels; YOLOv7 expects 0-1."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "yolo7"
+    backend.task = "detect"
+    backend.imgsz = 640
+    backend.letterbox_pad = None
+    assert type(backend._get_val_preprocessor(640)).__name__ == "YOLO9ValPreprocessor"
+
+
 @pytest.mark.parametrize("family", ["yolo2", "yolo3", "yolo4"])
 def test_exported_darknet_backend_validates_with_the_darknet_letterbox(family):
     """Exported Darknet models validated with the standard preprocessor scored

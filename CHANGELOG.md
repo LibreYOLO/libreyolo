@@ -80,6 +80,9 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Validating an exported YOLOv7 model uses the model's own preprocessing.**
+  `val()` on an ONNX, TensorRT or other exported YOLOv7 model used the standard preprocessor, which feeds 0-255 pixels to a model that expects 0-1 (mean input 151 instead of 0.54 on a test image). Exported backends now validate YOLOv7 with the letterbox, RGB, 0-1 recipe the PyTorch model uses. `predict()` was not affected.
+
 - **Validating an exported YOLOv2/v3/v4 (Darknet) model no longer reports mAP near 0.**
   `val()` on an ONNX, TensorRT or other exported Darknet model used the standard resize instead of Darknet's letterbox (top-left placement, 128 fill), which the postprocessing undoes, so every box was misplaced: a YOLOv4-tiny ONNX export scored 0.031 mAP50-95 on 100 COCO val2017 images instead of 0.2235 for the PyTorch model. Exported backends now validate Darknet models with the Darknet letterbox (0.2206). `predict()` was not affected.
 

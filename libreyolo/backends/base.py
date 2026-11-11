@@ -4525,6 +4525,8 @@ class BaseBackend(ABC):
             "yolo2": DarknetValPreprocessor,
             "yolo3": DarknetValPreprocessor,
             "yolo4": DarknetValPreprocessor,
+            # YOLOv7 validates like YOLO9 (letterbox, RGB, 0-1).
+            "yolo7": YOLO9ValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
         if preprocessor_cls in (YOLO9ValPreprocessor, YOLO9E2EValPreprocessor):
             return preprocessor_cls(
