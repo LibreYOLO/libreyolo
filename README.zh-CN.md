@@ -22,7 +22,9 @@ LibreYOLO 是一个采用 MIT 许可证的计算机视觉库，用于训练、�
 >
 > 你好！我身在西方国家，不太了解你们使用时会遇到哪些限制。我知道 Hugging Face 在中国无法访问，也许把模型权重镜像到 hf-mirror.com、modelscope.ai 或 modelscope.cn 会对你有帮助，又或者有更好的办法。
 >
-> 如果你知道怎样让 LibreYOLO 在中国更好用，请[开一个 issue](https://github.com/LibreYOLO/libreyolo/issues/new?title=%5B%E4%B8%AD%E5%9B%BD%E7%94%A8%E6%88%B7%5D%20%E5%A6%82%E4%BD%95%E8%AE%A9%20LibreYOLO%20%E5%9C%A8%E4%B8%AD%E5%9B%BD%E6%9B%B4%E5%A5%BD%E7%94%A8&body=%E4%BD%A0%E6%89%80%E5%9C%A8%E7%9A%84%E5%9C%B0%E5%8C%BA%20/%20%E7%BD%91%E7%BB%9C%E7%8E%AF%E5%A2%83%EF%BC%9A%0A%0A%E4%BD%BF%E7%94%A8%20LibreYOLO%20%E6%97%B6%E9%81%87%E5%88%B0%E7%9A%84%E9%97%AE%E9%A2%98%EF%BC%9A%0A%0A%E4%BD%A0%E5%B8%8C%E6%9C%9B%E7%9A%84%E6%96%B9%E6%A1%88%EF%BC%88%E4%BE%8B%E5%A6%82%20hf-mirror.com%E3%80%81ModelScope%20%E9%95%9C%E5%83%8F%EF%BC%8C%E6%88%96%E5%85%B6%E4%BB%96%E5%8A%9E%E6%B3%95%EF%BC%89%EF%BC%9A%0A)，告诉我们怎样改进。非常感谢！
+> PyPI 在国内可能也很慢或无法访问。我们是否应该在文档里推荐清华镜像，例如 `pip install libreyolo -i https://pypi.tuna.tsinghua.edu.cn/simple`？还是有更好的做法？
+>
+> 如果你知道怎样让 LibreYOLO 在中国更好用，请[开一个 issue](https://github.com/LibreYOLO/libreyolo/issues/new?title=%5B%E4%B8%AD%E5%9B%BD%E7%94%A8%E6%88%B7%5D%20%E5%A6%82%E4%BD%95%E8%AE%A9%20LibreYOLO%20%E5%9C%A8%E4%B8%AD%E5%9B%BD%E6%9B%B4%E5%A5%BD%E7%94%A8&body=%E4%BD%A0%E6%89%80%E5%9C%A8%E7%9A%84%E5%9C%B0%E5%8C%BA%20/%20%E7%BD%91%E7%BB%9C%E7%8E%AF%E5%A2%83%EF%BC%9A%0A%0A%E4%BD%BF%E7%94%A8%20LibreYOLO%20%E6%97%B6%E9%81%87%E5%88%B0%E7%9A%84%E9%97%AE%E9%A2%98%EF%BC%88%E4%BE%8B%E5%A6%82%20pip%20%E5%AE%89%E8%A3%85%E3%80%81%E6%A8%A1%E5%9E%8B%E6%9D%83%E9%87%8D%E4%B8%8B%E8%BD%BD%EF%BC%89%EF%BC%9A%0A%0A%E4%BD%A0%E5%B8%8C%E6%9C%9B%E7%9A%84%E6%96%B9%E6%A1%88%EF%BC%88%E4%BE%8B%E5%A6%82%E6%B8%85%E5%8D%8E%20PyPI%20%E9%95%9C%E5%83%8F%E3%80%81hf-mirror.com%E3%80%81ModelScope%20%E9%95%9C%E5%83%8F%EF%BC%8C%E6%88%96%E5%85%B6%E4%BB%96%E5%8A%9E%E6%B3%95%EF%BC%89%EF%BC%9A%0A)，告诉我们怎样改进。非常感谢！
 >
 > Xuban，LibreYOLO 维护者
 
@@ -35,20 +37,8 @@ LibreYOLO 是一个采用 MIT 许可证的计算机视觉库，用于训练、�
 ## 安装
 
 ```bash
-pip install libreyolo -i https://pypi.tuna.tsinghua.edu.cn/simple
-export HF_ENDPOINT=https://hf-mirror.com
+pip install libreyolo
 ```
-
-第一行通过清华大学 PyPI 镜像安装；第二行让权重从
-[hf-mirror.com](https://hf-mirror.com) 下载，这是社区维护的镜像，并非 Hugging Face
-或 LibreYOLO 官方运营。Windows 下改用 `set HF_ENDPOINT=https://hf-mirror.com`（cmd）
-或 `$env:HF_ENDPOINT="https://hf-mirror.com"`（PowerShell）。
-
-所有权重下载都遵循 `HF_ENDPOINT` 需要 libreyolo 1.8 或从源码安装（`dev` 分支）；
-在 1.7.4 中，`LibreYOLO("LibreYOLO9t.pt")` 这类按文件名自动下载的权重仍会直连
-huggingface.co。此时可以手动下载权重，例如
-`https://hf-mirror.com/LibreYOLO/LibreYOLO9t/resolve/main/LibreYOLO9t.pt`，
-然后传入本地路径：`LibreYOLO("path/to/LibreYOLO9t.pt")`。
 
 <details>
 <summary><b>可选扩展依赖</b></summary>
@@ -89,6 +79,25 @@ pip install -e .
 
 普通克隆会检出 `release` 分支，即与已发布包一致的稳定分支。如需获取尚未发布的
 内容，请使用 `git checkout dev`。
+
+</details>
+
+<details>
+<summary><b>国内用户：模型下载</b></summary>
+
+<br>
+
+模型权重从 Hugging Face 下载。如果无法访问 huggingface.co，可设置标准的
+`HF_ENDPOINT` 环境变量，改用镜像站下载。[hf-mirror.com](https://hf-mirror.com)
+是社区维护的镜像，并非 Hugging Face 或 LibreYOLO 官方运营：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
+也可以手动下载权重文件，例如
+`https://hf-mirror.com/LibreYOLO/LibreYOLO9t/resolve/main/LibreYOLO9t.pt`，
+然后传入本地路径：`LibreYOLO("path/to/LibreYOLO9t.pt")`。
 
 </details>
 
