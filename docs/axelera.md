@@ -11,57 +11,59 @@
 Measured on device, paired INT8 vs FP32 on the same images, each size with the
 recipe LibreYOLO applies to it (section 7 has calibration details):
 
-| Family | Size | Task | Dataset (paired) | FP32 | Metis INT8 | Delta | Label |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| YOLO-NAS | s | detect | COCO val2017, 1000 | 0.4549 | 0.4519 | -0.30 | validated |
-| YOLO-NAS | m | detect | COCO val2017, 1000 | 0.4942 | 0.4893 | -0.49 | validated |
-| YOLO-NAS | l | detect | COCO val2017, 1000 | 0.5036 | 0.5025 | -0.11 | validated |
-| YOLO-NAS-pose | n | pose | COCO val2017 persons, 300 | 0.7089 | 0.6959 | -1.30 | supported |
-| YOLO-NAS-pose | s | pose | COCO val2017 persons, 300 | 0.7565 | 0.7344 | -2.21 | supported |
-| YOLO-NAS-pose | m | pose | COCO val2017 persons, 300 | 0.7885 | 0.7821 | -0.64 | validated |
-| YOLO-NAS-pose | l | pose | COCO val2017 persons, 300 | 0.7922 | 0.7884 | -0.38 | validated |
-| YOLO-NAS-R | s | obb | DOTA-v2.0 val, 300 tiles | 0.3844 | 0.3747 | -0.97 | validated |
-| YOLO-NAS-R | m | obb | DOTA-v2.0 val, 300 tiles | 0.4141 | 0.4105 | -0.36 | validated |
-| YOLO-NAS-R | l | obb | DOTA-v2.0 val, 300 tiles | 0.4327 | 0.4348 | +0.21 | validated |
-| YOLO9 | t | detect | COCO val2017, 1000 | 0.3669 | 0.3624 | -0.45 | validated |
-| YOLO9 | s | detect | COCO val2017, 1000 | 0.4502 | 0.4450 | -0.52 | validated |
-| YOLO9 | m | detect | COCO val2017, 1000 | 0.4913 | 0.4896 | -0.17 | validated |
-| YOLO9 | c | detect | COCO val2017, 1000 | 0.5127 | 0.5093 | -0.34 | validated |
-| YOLOX | n | detect | COCO val2017, 300 | 0.2609 | 0.2428 | -1.81 | supported |
-| YOLOX | t | detect | COCO val2017, 1000 | 0.3238 | 0.3202 | -0.36 | validated |
-| YOLOX | s | detect | COCO val2017, 1000 | 0.3981 | 0.3933 | -0.48 | validated |
-| YOLOX | m | detect | COCO val2017, 1000 | 0.4582 | 0.4516 | -0.66 | validated |
-| YOLOX | l | detect | COCO val2017, 1000 | 0.4849 | 0.4781 | -0.68 | validated |
-| YOLOX | x | detect | COCO val2017, 1000 | 0.4943 | 0.4867 | -0.76 | validated |
-| YOLOv3 | t | detect | COCO val2017, 1000 | 0.1023 | 0.1006 | -0.17 | validated |
-| YOLOv3 | b | detect | COCO val2017, 1000 | 0.3656 | 0.3580 | -0.76 | validated |
-| YOLOv3 | spp | detect | COCO val2017, 1000 | 0.4304 | 0.4261 | -0.43 | validated |
-| YOLOv4 | t | detect | COCO val2017, 1000 | 0.2021 | 0.1968 | -0.53 | validated |
-| YOLOv4 | b | detect | COCO val2017, 1000 | 0.4806 | 0.4654 | -1.52 | supported |
-| YOLOv7 | b | detect | COCO val2017, 1000 | 0.2843 | 0.2859 | +0.16 | validated |
-| PP-YOLOE | s | detect | COCO val2017, 1000 | 0.4085 | 0.3962 | -1.23 | supported |
-| PP-YOLOE | m | detect | COCO val2017, 1000 | 0.4538 | 0.4416 | -1.22 | supported |
-| PP-YOLOE | l | detect | COCO val2017, 1000 | 0.4771 | 0.4740 | -0.31 | validated |
-| PP-YOLOE | x | detect | COCO val2017, 1000 | 0.4918 | 0.4747 | -1.71 | supported |
-| PicoDet | s | detect | COCO val2017, 1000 | 0.2687 | 0.2453 | -2.34 | supported |
-| RTMDet | t | detect | COCO val2017, 1000 | 0.3906 | 0.3622 | -2.84 | supported |
-| RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3254 | -1.40 | supported |
-| ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 | validated |
-| ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated |
-| ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 | validated |
-| ResNet | 101 | classify (top-1) | ImageNetV2, 1000 | 0.713 | 0.708 | -0.5 | validated |
-| MobileNetV4 | s | classify (top-1) | ImageNetV2, 1000 | 0.624 | 0.607 | -1.7 | supported |
-| MobileNetV4 | m | classify (top-1) | ImageNetV2, 1000 | 0.682 | 0.684 | +0.2 | validated |
-| MobileNetV4 | l | classify (top-1) | ImageNetV2, 1000 | 0.727 | 0.710 | -1.7 | supported |
-| EfficientNetV2 | b0 | classify (top-1) | ImageNetV2, 1000 | 0.667 | 0.656 | -1.1 | supported |
-| FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated |
-| FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated |
-| QuickSRNet | m2 | restore 2x (PSNR, dB) | COCO crops from 128 px, 296 | 29.12 | 28.66 | -0.46 | supported |
-| MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported |
-| DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported |
+| Family | Size | Task | Dataset (paired) | FP32 | Metis INT8 | Delta | Label | Evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| YOLO-NAS | s | detect | COCO val2017, 1000 | 0.4549 | 0.4519 | -0.30 | validated | `yolonas/detect/s/2026-11-08/3` |
+| YOLO-NAS | m | detect | COCO val2017, 1000 | 0.4942 | 0.4893 | -0.49 | validated | `yolonas/detect/m/2026-11-08` |
+| YOLO-NAS | l | detect | COCO val2017, 1000 | 0.5036 | 0.5025 | -0.11 | validated | `yolonas/detect/l/2026-11-10` |
+| YOLO-NAS-pose | n | pose | COCO val2017 persons, 300 | 0.7089 | 0.6959 | -1.30 | supported | `yolonas/pose/n/2026-11-11` |
+| YOLO-NAS-pose | s | pose | COCO val2017 persons, 300 | 0.7565 | 0.7344 | -2.21 | supported | `yolonas/pose/s/2026-11-10/16` |
+| YOLO-NAS-pose | m | pose | COCO val2017 persons, 300 | 0.7885 | 0.7821 | -0.64 | validated | `yolonas/pose/m/2026-11-11/2` |
+| YOLO-NAS-pose | l | pose | COCO val2017 persons, 300 | 0.7922 | 0.7884 | -0.38 | validated | `yolonas/pose/l/2026-11-10/2` |
+| YOLO-NAS-R | s | obb | DOTA-v2.0 val, 300 tiles | 0.3844 | 0.3747 | -0.97 | validated | `yolonas/obb/s/2026-11-10/2` |
+| YOLO-NAS-R | m | obb | DOTA-v2.0 val, 300 tiles | 0.4141 | 0.4105 | -0.36 | validated | `yolonas/obb/m/2026-11-10` |
+| YOLO-NAS-R | l | obb | DOTA-v2.0 val, 300 tiles | 0.4327 | 0.4348 | +0.21 | validated | `yolonas/obb/l/2026-11-10` |
+| YOLO9 | t | detect | COCO val2017, 1000 | 0.3669 | 0.3624 | -0.45 | validated | `yolo9/detect/t/2026-11-10/7` |
+| YOLO9 | s | detect | COCO val2017, 1000 | 0.4502 | 0.4450 | -0.52 | validated | `yolo9/detect/s/2026-11-10/2` |
+| YOLO9 | m | detect | COCO val2017, 1000 | 0.4913 | 0.4896 | -0.17 | validated | `yolo9/detect/m/2026-11-10/2` |
+| YOLO9 | c | detect | COCO val2017, 1000 | 0.5127 | 0.5093 | -0.34 | validated | `yolo9/detect/c/2026-11-10/2` |
+| YOLOX | n | detect | COCO val2017, 300 | 0.2609 | 0.2428 | -1.81 | supported | `yolox/detect/n/2026-11-11/7` |
+| YOLOX | t | detect | COCO val2017, 1000 | 0.3238 | 0.3202 | -0.36 | validated | `yolox/detect/t/2026-11-11/2` |
+| YOLOX | s | detect | COCO val2017, 1000 | 0.3981 | 0.3933 | -0.48 | validated | `yolox/detect/s/2026-11-11/2` |
+| YOLOX | m | detect | COCO val2017, 1000 | 0.4582 | 0.4516 | -0.66 | validated | `yolox/detect/m/2026-11-11/2` |
+| YOLOX | l | detect | COCO val2017, 1000 | 0.4849 | 0.4781 | -0.68 | validated | `yolox/detect/l/2026-11-11/2` |
+| YOLOX | x | detect | COCO val2017, 1000 | 0.4943 | 0.4867 | -0.76 | validated | `yolox/detect/x/2026-11-11/2` |
+| YOLOv3 | t | detect | COCO val2017, 1000 | 0.1023 | 0.1006 | -0.17 | validated | `yolo3/detect/t/2026-11-11/6` |
+| YOLOv3 | b | detect | COCO val2017, 1000 | 0.3656 | 0.3580 | -0.76 | validated | `yolo3/detect/b/2026-11-11/6` |
+| YOLOv3 | spp | detect | COCO val2017, 1000 | 0.4304 | 0.4261 | -0.43 | validated | `yolo3/detect/spp/2026-11-11/3` |
+| YOLOv4 | t | detect | COCO val2017, 1000 | 0.2021 | 0.1968 | -0.53 | validated | `yolo4/detect/t/2026-11-11/5` |
+| YOLOv4 | b | detect | COCO val2017, 1000 | 0.4806 | 0.4654 | -1.52 | supported | `yolo4/detect/b/2026-11-11/6` |
+| YOLOv7 | b | detect | COCO val2017, 1000 | 0.2843 | 0.2859 | +0.16 | validated | `yolo7/detect/b/2026-11-11/4` |
+| PP-YOLOE | s | detect | COCO val2017, 1000 | 0.4085 | 0.3962 | -1.23 | supported | `ppyoloe/detect/s/2026-11-11/3` |
+| PP-YOLOE | m | detect | COCO val2017, 1000 | 0.4538 | 0.4416 | -1.22 | supported | `ppyoloe/detect/m/2026-11-11/2` |
+| PP-YOLOE | l | detect | COCO val2017, 1000 | 0.4771 | 0.4740 | -0.31 | validated | `ppyoloe/detect/l/2026-11-11/2` |
+| PP-YOLOE | x | detect | COCO val2017, 1000 | 0.4918 | 0.4747 | -1.71 | supported | `ppyoloe/detect/x/2026-11-11/2` |
+| PicoDet | s | detect | COCO val2017, 1000 | 0.2687 | 0.2453 | -2.34 | supported | `picodet/detect/s/2026-11-11/7` |
+| RTMDet | t | detect | COCO val2017, 1000 | 0.3906 | 0.3622 | -2.84 | supported | `rtmdet/detect/t/2026-11-11/6` |
+| RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3254 | -1.40 | supported | `rtmdet/segment/t/2026-11-11/4` |
+| ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 | validated | `resnet/classify/18/2026-11-10/2` |
+| ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated | `resnet/classify/34/2026-11-10` |
+| ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 | validated | `resnet/classify/50/2026-11-10` |
+| ResNet | 101 | classify (top-1) | ImageNetV2, 1000 | 0.713 | 0.708 | -0.5 | validated | `resnet/classify/101/2026-11-10` |
+| MobileNetV4 | s | classify (top-1) | ImageNetV2, 1000 | 0.624 | 0.607 | -1.7 | supported | `mobilenetv4/classify/s/2026-11-11/3` |
+| MobileNetV4 | m | classify (top-1) | ImageNetV2, 1000 | 0.682 | 0.684 | +0.2 | validated | `mobilenetv4/classify/m/2026-11-11/2` |
+| MobileNetV4 | l | classify (top-1) | ImageNetV2, 1000 | 0.727 | 0.710 | -1.7 | supported | `mobilenetv4/classify/l/2026-11-10` |
+| EfficientNetV2 | b0 | classify (top-1) | ImageNetV2, 1000 | 0.667 | 0.656 | -1.1 | supported | `efficientnetv2/classify/b0/2026-11-11/5` |
+| FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated | `fcn/semantic/r50/2026-11-11/2` |
+| FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated | `fcn/semantic/r101/2026-11-11` |
+| QuickSRNet | m2 | restore 2x (PSNR, dB) | COCO crops from 128 px, 296 | 29.12 | 28.66 | -0.46 | supported | `quicksrnet/restore/m2/2026-11-11/7` |
+| MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported | `midas/depth/s/2026-11-11/4` |
+| DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
 
 Detection and pose report mAP50-95; ImageNetV2 is used locally under its
-licence terms and not redistributed.
+licence terms and not redistributed. Evidence is the id of the run's line in
+the project's results ledger (family/task/size/date), which holds its
+metrics, logs, recipe and code commit.
 
 `format="axelera"` compiles a LibreYOLO model to an INT8 `.axm` for Axelera's
 Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
@@ -69,29 +71,29 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 
 ## 1. Scope and status
 
-| Family | Task | Sizes | Tier |
-| --- | --- | --- | --- |
-| YOLO-NAS | detect | s, m, l | see `docs/export_support.md` |
-| YOLO-NAS | pose | n, s, m, l (n and s supported with a measured drop) | see `docs/export_support.md` |
-| YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) |
-| YOLO9 | detect | t, s, m, c | see `docs/export_support.md` |
-| ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` |
-| MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` |
-| EfficientNetV2 | classify | b0 (supported with a measured drop; b1 and b2 blocked: do not compile; b3 not measured yet) | see `docs/export_support.md` |
-| FCN | semantic | r50, r101 | see `docs/export_support.md` |
-| QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` |
-| MiDaS | depth | s (supported with a measured drop; l not measured yet) | see `docs/export_support.md` |
-| DeepLabV3 | semantic | mv3 (supported with a measured drop; r50 and r101 blocked: do not compile) | see `docs/export_support.md` |
-| YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` |
-| YOLOv3 | detect | t, b, spp | see `docs/export_support.md` |
-| YOLOv4 | detect | t, b (b supported with a measured drop) | see `docs/export_support.md` |
-| YOLOv7 | detect | b | see `docs/export_support.md` |
-| PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` |
-| PicoDet | detect | s (supported with a measured drop; m and l not measured yet) | see `docs/export_support.md` |
-| RTMDet | detect | t (supported with a measured drop; s blocked: collapses on a Metis; m, l and x not measured yet) | see `docs/export_support.md` |
-| RTMDet-Ins | segment | t (supported with a measured drop, box -2.64; s, m, l and x not measured yet) | see `docs/export_support.md` |
-| YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) |
-| RF-DETR and other transformer families | all | all | out of scope (section 11) |
+| Family | Task | Sizes | Tier | Evidence (ledger id per size) |
+| --- | --- | --- | --- | --- |
+| YOLO-NAS | detect | s, m, l | see `docs/export_support.md` | s `yolonas/detect/s/2026-11-08/3`; m `yolonas/detect/m/2026-11-08`; l `yolonas/detect/l/2026-11-10` |
+| YOLO-NAS | pose | n, s, m, l (n and s supported with a measured drop) | see `docs/export_support.md` | n `yolonas/pose/n/2026-11-11`; s `yolonas/pose/s/2026-11-10/16`; m `yolonas/pose/m/2026-11-11/2`; l `yolonas/pose/l/2026-11-10/2` |
+| YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) | s `yolonas/obb/s/2026-11-10/2`; m `yolonas/obb/m/2026-11-10`; l `yolonas/obb/l/2026-11-10` |
+| YOLO9 | detect | t, s, m, c | see `docs/export_support.md` | t `yolo9/detect/t/2026-11-10/7`; s `yolo9/detect/s/2026-11-10/2`; m `yolo9/detect/m/2026-11-10/2`; c `yolo9/detect/c/2026-11-10/2` |
+| ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` | 18 `resnet/classify/18/2026-11-10/2`; 34 `resnet/classify/34/2026-11-10`; 50 `resnet/classify/50/2026-11-10`; 101 `resnet/classify/101/2026-11-10` |
+| MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` | s `mobilenetv4/classify/s/2026-11-11/3`; m `mobilenetv4/classify/m/2026-11-11/2`; l `mobilenetv4/classify/l/2026-11-10` |
+| EfficientNetV2 | classify | b0 (supported with a measured drop; b1 and b2 blocked: do not compile; b3 not measured yet) | see `docs/export_support.md` | b0 `efficientnetv2/classify/b0/2026-11-11/5`; b1 blocked `efficientnetv2/classify/b1/2026-11-11/3`; b2 blocked `efficientnetv2/classify/b2/2026-11-11` |
+| FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
+| QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-11/7` |
+| MiDaS | depth | s (supported with a measured drop; l not measured yet) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
+| DeepLabV3 | semantic | mv3 (supported with a measured drop; r50 and r101 blocked: do not compile) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 blocked `deeplabv3/semantic/r50/2026-11-11/2`; r101 blocked `deeplabv3/semantic/r101/2026-11-11` |
+| YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
+| YOLOv3 | detect | t, b, spp | see `docs/export_support.md` | t `yolo3/detect/t/2026-11-11/6`; b `yolo3/detect/b/2026-11-11/6`; spp `yolo3/detect/spp/2026-11-11/3` |
+| YOLOv4 | detect | t, b (b supported with a measured drop) | see `docs/export_support.md` | t `yolo4/detect/t/2026-11-11/5`; b `yolo4/detect/b/2026-11-11/6` |
+| YOLOv7 | detect | b | see `docs/export_support.md` | b `yolo7/detect/b/2026-11-11/4` |
+| PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-11/2` |
+| PicoDet | detect | s (supported with a measured drop; m and l not measured yet) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7` |
+| RTMDet | detect | t (supported with a measured drop; s blocked: collapses on a Metis; m, l and x not measured yet) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/6`; s blocked `rtmdet/detect/s/2026-11-11/4` |
+| RTMDet-Ins | segment | t (supported with a measured drop, box -2.64; s, m, l and x not measured yet) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-11/4` |
+| YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
+| RF-DETR and other transformer families | all | all | out of scope (section 11) | - |
 
 The tiers in `docs/export_support.md` are generated from
 `libreyolo/export/support.py`; `libreyolo formats --family yolonas` prints
@@ -248,6 +250,8 @@ The image sets are subsets of COCO val2017 (detection: the 300 or 1000 images
 named in the row; pose: the last 300 val2017 images with person keypoints)
 and of DOTA-v2.0 val tiled to 1024 (300 tiles), so the absolute numbers are
 not comparable to published full-set results; the deltas are the point.
+The ledger id behind each row is in the Evidence column of the summary
+table at the top of this page.
 
 | Model | Task | Image set (paired) | Calibration | FP32 | Metis INT8 | Delta |
 | --- | --- | --- | --- | --- | --- | --- |
