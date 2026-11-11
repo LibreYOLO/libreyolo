@@ -1239,3 +1239,133 @@ class TestTrackDetectionConf:
     def test_conf_out_of_range_is_rejected(self):
         with pytest.raises(ValueError, match="conf must be"):
             self._run(conf=1.5)
+
+
+# --------------------------------------------------------------------------
+# track() on exported backends (issue #1029)
+# --------------------------------------------------------------------------
+
+_TINY_IMGSZ = 160
+
+
+def _tiny_native_detector():
+    """A weight-free YOLO9-t whose random head yields a few spread-out boxes.
+
+    The stock init makes activations vanish, so every anchor gets the same
+    score; re-initialising the convs (seeded, without touching the global RNG)
+    and giving class 0 a usable bias produces ordinary, tie-free detections.
+    """
+    from libreyolo import LibreYOLO9
+
+    model = LibreYOLO9(model_path=None, size="t", device="cpu")
+    model.model.eval()
+    with torch.random.fork_rng(), torch.no_grad():
+        torch.manual_seed(0)
+        for module in model.model.modules():
+            if isinstance(module, torch.nn.Conv2d) and module.weight.shape[1] > 1:
+                torch.nn.init.kaiming_normal_(module.weight, nonlinearity="relu")
+        for head_conv in model.model.head.class_convs:
+            head_conv[2].weight.mul_(30.0)
+            head_conv[2].bias.fill_(-30.0)
+            head_conv[2].bias[0] = -1.0
+    return model
+
+
+@pytest.fixture(scope="module")
+def tiny_native_and_onnx(tmp_path_factory):
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    from libreyolo import LibreYOLO
+
+    native = _tiny_native_detector()
+    path = tmp_path_factory.mktemp("tiny_onnx") / "tiny.onnx"
+    native.export(format="onnx", imgsz=_TINY_IMGSZ, output_path=str(path))
+    return native, LibreYOLO(str(path), device="cpu")
+
+
+def _moving_clip(n=6):
+    """A red square drifting across a grey frame, next to a static green one."""
+    frames = []
+    for i in range(n):
+        pixels = np.full((_TINY_IMGSZ, _TINY_IMGSZ, 3), 60, np.uint8)
+        pixels[30 + 2 * i : 90 + 2 * i, 20 + 3 * i : 70 + 3 * i] = (220, 40, 40)
+        pixels[100:150, 100:150] = (40, 200, 40)
+        frames.append(Image.fromarray(pixels))
+    return frames
+
+
+def _track_ids(results):
+    return [r.track_id.tolist() for r in results]
+
+
+class TestExportedBackendTrack:
+    @pytest.mark.parametrize("tracker", ["bytetrack", "botsort"])
+    def test_onnx_track_matches_native_ids(self, tiny_native_and_onnx, tracker):
+        native, onnx_model = tiny_native_and_onnx
+        clip = _moving_clip()
+
+        native_ids = _track_ids(native.track(clip, imgsz=_TINY_IMGSZ, tracker=tracker))
+        onnx_ids = _track_ids(onnx_model.track(clip, imgsz=_TINY_IMGSZ, tracker=tracker))
+
+        assert len(onnx_ids) == len(clip)
+        assert any(onnx_ids), "the fixture model should produce tracks"
+        assert onnx_ids == native_ids
+
+    def test_onnx_persist_continues_ids_across_calls(self, tiny_native_and_onnx):
+        _, onnx_model = tiny_native_and_onnx
+        clip = _moving_clip()
+
+        whole = _track_ids(onnx_model.track(clip, imgsz=_TINY_IMGSZ))
+        per_frame = [
+            _track_ids(onnx_model.track(frame, imgsz=_TINY_IMGSZ, persist=True))[0]
+            for frame in clip
+        ]
+        fresh = [
+            _track_ids(onnx_model.track(frame, imgsz=_TINY_IMGSZ))[0] for frame in clip
+        ]
+
+        assert per_frame == whole
+        # Without persist every call starts a new tracker; first-frame IDs
+        # only, so the later frames differ from a continuous run.
+        assert fresh != whole
+        assert onnx_model._track_state is None
+
+    def test_onnx_track_results_carry_box_ids(self, tiny_native_and_onnx):
+        _, onnx_model = tiny_native_and_onnx
+        result = next(onnx_model.track(_moving_clip(1), imgsz=_TINY_IMGSZ))
+        assert result.boxes.id is not None
+        assert result.boxes.id.tolist() == result.track_id.tolist()
+
+    def test_onnx_track_custom_tracker(self, tiny_native_and_onnx):
+        _, onnx_model = tiny_native_and_onnx
+        tracker = _CustomTracker()
+        results = list(onnx_model.track(_moving_clip(2), tracker=tracker))
+        assert tracker.resets == 1
+        assert len(tracker.images) == 2
+        assert all(set(r.track_id.tolist()) <= {42} for r in results)
+
+    def test_onnx_track_saves_to_runs_track(self, tiny_native_and_onnx, tmp_path, monkeypatch):
+        from unittest.mock import Mock
+
+        monkeypatch.chdir(tmp_path)
+        writer = Mock()
+        writer_factory = Mock(return_value=writer)
+        monkeypatch.setattr("libreyolo.utils.video.VideoWriter", writer_factory)
+        _, onnx_model = tiny_native_and_onnx
+        list(onnx_model.track(_moving_clip(2), imgsz=_TINY_IMGSZ, save=True))
+        assert Path(writer_factory.call_args.args[0]) == Path("runs/track/sequence.mp4")
+        assert writer.write_frame.call_count == 2
+
+    def test_backend_track_rejects_augment(self, tiny_native_and_onnx):
+        _, onnx_model = tiny_native_and_onnx
+        with pytest.raises(ValueError, match="augmentation"):
+            next(onnx_model.track(_moving_clip(1), augment=True))
+
+
+@pytest.mark.parametrize("task", ["classify", "obb", "embed", "matte"])
+def test_backend_track_rejects_untrackable_tasks(task):
+    from libreyolo.backends.base import BaseBackend
+
+    backend = type("Backend", (), {"task": task, "names": {0: "x"}, "device": "cpu"})()
+    with pytest.raises(NotImplementedError, match="Tracking does not support"):
+        next(BaseBackend.track(backend, _make_frames(1)))
