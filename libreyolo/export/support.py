@@ -4296,14 +4296,14 @@ _add(
         "INT8 export compiled with Axelera's toolchain; the graph stops after "
         "each level's box-distribution and class convolutions, ESNet's channel "
         "shuffles become fixed permutation convolutions, and LibreYOLO decodes "
-        "on the host. Measured on a Metis M.2 Max: PicoDet-s loses 2.3 "
-        "mAP50-95 against FP32 on a paired 1000-image COCO val2017 subset "
-        "(docs/axelera.md)."
+        "on the host. Supported, not validated: on a Metis M.2 Max against FP32 "
+        "on a paired 1000-image COCO val2017 subset PicoDet-s loses 2.3, "
+        "PicoDet-m 2.9 and PicoDet-l 1.7 mAP50-95 (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: s (measured drop, SIZE_ACCURACY_NOTES); m and l are not "
-        "measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
+        "supported sizes: s, m, l (measured drop, SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
@@ -4479,6 +4479,14 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "measured mAP50-95 drop 2.34 points vs FP32 (0.2453 vs 0.2687 on "
             "1000 COCO val2017 images; 1.28 on 300)"
         ),
+        "m": (
+            "measured mAP50-95 drop 2.86 points vs FP32 (0.3163 vs 0.3449 on "
+            "1000 COCO val2017 images)"
+        ),
+        "l": (
+            "measured mAP50-95 drop 1.70 points vs FP32 (0.3801 vs 0.3971 on "
+            "1000 COCO val2017 images)"
+        ),
     },
     ("deeplabv3", "semantic", "axelera"): {
         "mv3": (
@@ -4582,9 +4590,6 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         "b3": "has not been measured on a Metis yet",
     },
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
-    ("picodet", "detect", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("m", "l")
-    },
     ("rtmdet", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("m", "l", "x")
     },

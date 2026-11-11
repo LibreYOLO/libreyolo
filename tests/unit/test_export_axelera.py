@@ -1001,7 +1001,8 @@ def test_support_matrix_rows_for_axelera():
     assert yolo3.tier == "validated" and "validated sizes: t, b, spp" in yolo3.constraint
     assert precision_support("yolo3", "detect", "axelera") == (True, True)
     picodet = get_support("picodet", "detect", "axelera")
-    assert picodet.tier == "available" and "supported sizes: s" in picodet.constraint
+    assert picodet.tier == "available" and "supported sizes: s, m, l " in picodet.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("picodet", "detect", "axelera")]) == ["l", "m", "s"]
     assert precision_support("picodet", "detect", "axelera") == (True, True)
     yolo4 = get_support("yolo4", "detect", "axelera")
     assert yolo4.tier == "validated" and "validated sizes: t" in yolo4.constraint
