@@ -29,6 +29,7 @@ calibration details and the refused sizes):
 | YOLOX | x | detect | COCO val2017, 1000 | 0.4943 | 0.4867 | -0.76 |
 | YOLOv3 | t | detect | COCO val2017, 1000 | 0.1023 | 0.1006 | -0.17 |
 | YOLOv3 | b | detect | COCO val2017, 1000 | 0.3656 | 0.3580 | -0.76 |
+| YOLOv3 | spp | detect | COCO val2017, 1000 | 0.4304 | 0.4261 | -0.43 |
 | YOLOv4 | t | detect | COCO val2017, 1000 | 0.2021 | 0.1968 | -0.53 |
 | YOLOv7 | b | detect | COCO val2017, 1000 | 0.2843 | 0.2859 | +0.16 |
 | PP-YOLOE | l | detect | COCO val2017, 1000 | 0.4771 | 0.4740 | -0.31 |
@@ -59,7 +60,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | MobileNetV4 | classify | m (s and l refused, section 7) | see `docs/export_support.md` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` |
 | YOLOX | detect | t, s, m, l, x (n refused, section 7) | see `docs/export_support.md` |
-| YOLOv3 | detect | t, b (spp not measured) | see `docs/export_support.md` |
+| YOLOv3 | detect | t, b, spp | see `docs/export_support.md` |
 | YOLOv4 | detect | t (b refused, section 7) | see `docs/export_support.md` |
 | YOLOv7 | detect | b | see `docs/export_support.md` |
 | PP-YOLOE | detect | l (s and m refused, section 7; x not validated) | see `docs/export_support.md` |
@@ -245,6 +246,7 @@ not comparable to published full-set results; the deltas are the point.
 | YOLOX-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.4943 | 0.4867 | -0.76 |
 | YOLOv3-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.1023 | 0.1006 | -0.17 |
 | YOLOv3-b | detect | COCO val2017, 1000 images | 64 coco128 | 0.3656 | 0.3580 | -0.76 |
+| YOLOv3-spp | detect | COCO val2017, 1000 images | 64 coco128 | 0.4304 | 0.4261 | -0.43 |
 | YOLOv4-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.2021 | 0.1968 | -0.53 |
 | YOLOv4-b | detect | COCO val2017, 1000 images | 64 coco128 | 0.4806 | 0.4654 | -1.52 (refused) |
 | YOLOv7 | detect | COCO val2017, 1000 images | 64 coco128 | 0.2843 | 0.2859 | +0.16 |

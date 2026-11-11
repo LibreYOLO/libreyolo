@@ -509,7 +509,7 @@ A check mark applies only under any constraint listed here.
 - `yolo3` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolo3` / `detect` / `tensorrt`: FP32 with a fixed export canvas
 - `yolo3` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
-- `yolo3` / `detect` / `axelera`: validated sizes: t, b (on-device results in docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `yolo3` / `detect` / `axelera`: validated sizes: t, b, spp (on-device results in docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolo3` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with public-domain trained checkpoints; two-input raw parity, factory reload, metadata, and public predict parity
 - `yolo3` / `detect` / `coreai`: fixed family-native canvases (YOLO1 448, YOLO2 608, YOLO3 416, YOLO4 608); representative published trained checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; Core AI graph preparation exactly folds Darknet inference batch normalization into the preceding convolutions because Core AI 0.4.1 does not preserve Darknet's epsilon-after-square-root formula
 - `yolo4` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape

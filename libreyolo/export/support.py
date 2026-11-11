@@ -4112,12 +4112,13 @@ _add(
         "INT8 export compiled with Axelera's toolchain; as for YOLOv4, each head "
         "convolution is split into box, objectness and class convolutions and "
         "LibreYOLO decodes the anchors on the host. On a Metis M.2 Max, "
-        "YOLOv3-tiny and YOLOv3 are within 0.8 mAP50-95 of FP32 on a paired "
+        "YOLOv3-tiny, YOLOv3 and YOLOv3-SPP are within 0.8 mAP50-95 of FP32 "
+        "on a paired "
         "1000-image COCO val2017 subset (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "validated sizes: t, b (on-device results in docs/axelera.md). "
+        "validated sizes: t, b, spp (on-device results in docs/axelera.md). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
         "batch 1, fixed input size"
     ),

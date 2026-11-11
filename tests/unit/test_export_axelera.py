@@ -913,7 +913,7 @@ def test_support_matrix_rows_for_axelera():
     assert yolox.tier == "validated" and "validated sizes: t, s, m, l" in yolox.constraint
     assert precision_support("yolox", "detect", "axelera") == (True, True)
     yolo3 = get_support("yolo3", "detect", "axelera")
-    assert yolo3.tier == "validated" and "validated sizes: t, b" in yolo3.constraint
+    assert yolo3.tier == "validated" and "validated sizes: t, b, spp" in yolo3.constraint
     assert precision_support("yolo3", "detect", "axelera") == (True, True)
     yolo4 = get_support("yolo4", "detect", "axelera")
     assert yolo4.tier == "validated" and "validated sizes: t" in yolo4.constraint
