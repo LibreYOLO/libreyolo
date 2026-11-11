@@ -156,14 +156,15 @@ half a megapixel and 1024 above. The default seed is 0, so depth repeats;
 `ensemble=k` takes the per-pixel median over seeds `seed .. seed+k-1`, each
 affinely aligned to the first. Knobs: `steps` (4) and `ensemble` (1).
 
-Depth loads no text encoder, so it needs less GPU memory than generation,
-which Speridlabs puts at about 33 GB (`9b`) and 112 GB (`32b`) with the text
-encoder; `offload=True` keeps the text encoder on the CPU between prompts.
+Depth loads no text encoder. Measured peak GPU memory on an H200: depth 21
+GB (`9b`) and 64 GB (`32b`) at `imgsz=1024`; generation 34 GB and 107 GB
+with the text encoder. `offload=True` keeps the text encoder on the CPU
+between prompts.
 On CUDA without the FP8 kernel transformers asks for (the `kernels` package),
 and on MPS or CPU, the `9b` text encoder runs dequantized in bfloat16, close
-to but not identical with upstream's embeddings. One H200 takes
-0.5 s (9b, 512) to 5.3 s (32b, 1024) per depth map and 10 s to 123 s per
-generated image (Speridlabs' numbers).
+to but not identical with upstream's embeddings. On the same H200 a
+depth map takes 0.47 s (`9b`, 512) to 4.8 s (`32b`, 1024), and a 512x512
+image 9.4 s (`9b`) or 30 s (`32b`) at 50 steps.
 
 Weights are not redistributed by LibreYOLO: they download from Speridlabs'
 own repo `speridlabs/iris-z`, at a pinned revision, under the FLUX
