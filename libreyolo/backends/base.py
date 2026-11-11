@@ -4525,6 +4525,7 @@ class BaseBackend(ABC):
             DFINEValPreprocessor,
             ECValPreprocessor,
             EfficientDetValPreprocessor,
+            FCOSValPreprocessor,
             FasterRCNNValPreprocessor,
             LWDETRValPreprocessor,
             PICODETValPreprocessor,
@@ -4614,6 +4615,9 @@ class BaseBackend(ABC):
             # Faster R-CNN: source-resolution RGB; the graph resizes in-graph
             # and returns boxes in the coordinates of the image it was fed.
             "faster_rcnn": FasterRCNNValPreprocessor,
+            # FCOS: torchvision aspect resize (800/1333), ImageNet
+            # normalization, stride pad; the parser undoes that geometry.
+            "fcos": FCOSValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
         if preprocessor_cls is RetinaNetValPreprocessor:
             return preprocessor_cls(
@@ -4946,6 +4950,11 @@ class BaseBackend(ABC):
             from ..models.faster_rcnn.validator import FasterRCNNValidator
 
             validator_cls = FasterRCNNValidator
+        elif self.model_family == "fcos":
+            # Aspect-resized FCOS inputs vary in shape: one per batch.
+            from ..models.fcos.validator import FCOSValidator
+
+            validator_cls = FCOSValidator
         else:
             validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)

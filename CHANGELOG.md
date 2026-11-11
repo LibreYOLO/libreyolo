@@ -122,6 +122,9 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Validating an exported FCOS model uses FCOS's own preprocessing.**
+  `val()` on an ONNX or TorchScript FCOS export used the standard preprocessor, which stretches every image to a BGR 0-1 square, while the model expects torchvision's aspect resize (shorter side 800, longer side up to 1333) with ImageNet normalization and the parser undoes that geometry, so on 100 COCO val2017 images the `r50` ONNX export scored mAP50-95 0.0306 instead of 0.4376 for the PyTorch model. Exported backends now validate FCOS with its own preprocessing and validator, one image at a time because the input size varies per image, and the ONNX export scores 0.4376, identical to the PyTorch model. `predict()` was not affected.
+
 - **Validating an exported Faster R-CNN model no longer reports mAP 0.**
   `val()` on an ONNX Faster R-CNN export used the standard preprocessor, which resizes every image to a fixed square, while the graph does its own aspect resize and returns boxes in the coordinates of the image it was fed, so every box was misplaced: on 100 COCO val2017 images the `n` ONNX export scored mAP50-95 0.0 instead of 0.2347 for the PyTorch model. Exported backends now validate Faster R-CNN with its own source-resolution preprocessing and validator, one image at a time because the input size varies per image, and the ONNX export scores 0.2347, identical to the PyTorch model. `predict()` was not affected.
 

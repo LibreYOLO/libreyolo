@@ -1906,6 +1906,22 @@ def test_exported_faster_rcnn_backend_validates_with_the_faster_rcnn_geometry():
     assert validator._slice_batch_predictions(native, 1) is native[1]
 
 
+def test_exported_fcos_backend_validates_with_the_fcos_geometry():
+    """The standard preprocessor fed FCOS a fixed BGR 0-1 square while the
+    parser undoes the aspect resize: 0.031 vs 0.438 mAP50-95 (r50,
+    ONNX, 100 COCO images)."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "fcos"
+    backend.task = "detect"
+    backend.imgsz = 800
+    assert type(backend._get_val_preprocessor(800)).__name__ == "FCOSValPreprocessor"
+
+
 def test_exported_yolo7_backend_validates_like_the_pytorch_model():
     """StandardValPreprocessor feeds 0-255 pixels; YOLOv7 expects 0-1."""
 
