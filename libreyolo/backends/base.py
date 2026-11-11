@@ -4615,6 +4615,7 @@ class BaseBackend(ABC):
             # Faster R-CNN: source-resolution RGB; the graph resizes in-graph
             # and returns boxes in the coordinates of the image it was fed.
             "faster_rcnn": FasterRCNNValPreprocessor,
+            "mask_rcnn": FasterRCNNValPreprocessor,
             # FCOS: torchvision aspect resize (800/1333), ImageNet
             # normalization, stride pad; the parser undoes that geometry.
             "fcos": FCOSValPreprocessor,
@@ -4910,7 +4911,15 @@ class BaseBackend(ABC):
             verbose=verbose,
             **kwargs,
         )
-        if self.task == "classify":
+        if self.model_family == "mask_rcnn" and self.task in ("detect", "segment"):
+            # Source-resolution Mask R-CNN inputs vary in shape: one per batch.
+            from ..models.mask_rcnn.validator import MaskRCNNValidator
+            from ..models.faster_rcnn.validator import FasterRCNNValidator
+
+            validator_cls = (
+                MaskRCNNValidator if self.task == "segment" else FasterRCNNValidator
+            )
+        elif self.task == "classify":
             validator_cls = ClassifyValidator
         elif self.task == "embed":
             raise NotImplementedError(

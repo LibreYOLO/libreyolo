@@ -1922,6 +1922,32 @@ def test_exported_fcos_backend_validates_with_the_fcos_geometry():
     assert type(backend._get_val_preprocessor(800)).__name__ == "FCOSValPreprocessor"
 
 
+def test_exported_mask_rcnn_backend_validates_with_the_mask_rcnn_geometry():
+    """The standard preprocessor resized Mask R-CNN inputs to a fixed square
+    while the graph returns boxes and masks in input coordinates: mask
+    mAP50-95 0.0 vs 0.503 (r50 segment, ONNX, 10 COCO images)."""
+    import torch
+
+    from libreyolo.models.mask_rcnn.validator import MaskRCNNValidator
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "mask_rcnn"
+    backend.task = "segment"
+    backend.imgsz = 800
+    assert (
+        type(backend._get_val_preprocessor(800)).__name__
+        == "FasterRCNNValPreprocessor"
+    )
+
+    validator = object.__new__(MaskRCNNValidator)
+    outputs = [torch.zeros(2, 4), torch.zeros(2), torch.zeros(2), torch.zeros(2, 1, 8, 8)]
+    assert validator._slice_batch_predictions(outputs, 0) is outputs
+
+
 def test_exported_yolo7_backend_validates_like_the_pytorch_model():
     """StandardValPreprocessor feeds 0-255 pixels; YOLOv7 expects 0-1."""
 
