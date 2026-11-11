@@ -4525,6 +4525,7 @@ class BaseBackend(ABC):
             DFINEValPreprocessor,
             ECValPreprocessor,
             EfficientDetValPreprocessor,
+            FasterRCNNValPreprocessor,
             LWDETRValPreprocessor,
             PICODETValPreprocessor,
             PPDocLayoutV3ValPreprocessor,
@@ -4610,6 +4611,9 @@ class BaseBackend(ABC):
             "retinanet": RetinaNetValPreprocessor,
             # SSD300: RGB stretch with SSD's own 0-255 mean subtraction.
             "ssd": SSDValPreprocessor,
+            # Faster R-CNN: source-resolution RGB; the graph resizes in-graph
+            # and returns boxes in the coordinates of the image it was fed.
+            "faster_rcnn": FasterRCNNValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
         if preprocessor_cls is RetinaNetValPreprocessor:
             return preprocessor_cls(
@@ -4937,6 +4941,11 @@ class BaseBackend(ABC):
             from ..models.retinanet.validator import RetinaNetValidator
 
             validator_cls = RetinaNetValidator
+        elif self.model_family == "faster_rcnn":
+            # Source-resolution Faster R-CNN inputs vary in shape: one per batch.
+            from ..models.faster_rcnn.validator import FasterRCNNValidator
+
+            validator_cls = FasterRCNNValidator
         else:
             validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)

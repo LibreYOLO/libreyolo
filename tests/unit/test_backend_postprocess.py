@@ -1876,6 +1876,36 @@ def test_exported_ssd_backend_validates_with_the_ssd_preprocessing():
     assert type(backend._get_val_preprocessor(300)).__name__ == "SSDValPreprocessor"
 
 
+def test_exported_faster_rcnn_backend_validates_with_the_faster_rcnn_geometry():
+    """The standard preprocessor resized Faster R-CNN inputs to a fixed square
+    while the graph returns boxes in input coordinates, so every box was
+    misplaced: mAP50-95 0.0 vs 0.235 (n, ONNX, 100 COCO images)."""
+    import torch
+
+    from libreyolo.models.faster_rcnn.validator import FasterRCNNValidator
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "faster_rcnn"
+    backend.task = "detect"
+    backend.imgsz = 320
+    assert (
+        type(backend._get_val_preprocessor(320)).__name__
+        == "FasterRCNNValPreprocessor"
+    )
+
+    # Exported outputs are (boxes, scores, labels) for the one image of the
+    # batch; the validator must hand them through whole, not slice the boxes.
+    validator = object.__new__(FasterRCNNValidator)
+    outputs = [torch.zeros(3, 4), torch.zeros(3), torch.zeros(3)]
+    assert validator._slice_batch_predictions(outputs, 0) is outputs
+    native = [{"boxes": torch.zeros(1, 4)}, {"boxes": torch.zeros(2, 4)}]
+    assert validator._slice_batch_predictions(native, 1) is native[1]
+
+
 def test_exported_yolo7_backend_validates_like_the_pytorch_model():
     """StandardValPreprocessor feeds 0-255 pixels; YOLOv7 expects 0-1."""
 
