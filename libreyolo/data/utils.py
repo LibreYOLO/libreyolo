@@ -401,16 +401,19 @@ def load_data_config(
                 if img_files:
                     config[f"{split}_img_files"] = img_files
                     config[f"{split}_label_files"] = img2label_paths(img_files)
-            except (FileNotFoundError, ValueError):
+            except (FileNotFoundError, ValueError) as e:
                 # Split path doesn't exist yet or contains no supported images.
-                pass
+                search_error = e
+            else:
+                search_error = None
             if not img_files:
                 logger.warning(
-                    "No images found for split '%s' at %s (dataset root %s, from %s).",
+                    "No images found for split '%s' at %s (dataset root %s, from %s)%s",
                     split,
                     split_path,
                     dataset_path,
                     yaml_path,
+                    f": {search_error}" if search_error else ".",
                 )
 
     _resolve_coco_annotation_paths(config, dataset_path)
@@ -705,6 +708,21 @@ def download_dataset(url: str, dest: Path) -> None:
     logger.info("Dataset extracted to %s", dest)
 
 
+def _merge_into(src: Path, dst: Path) -> None:
+    """Move ``src``'s contents into ``dst`` without deleting or overwriting anything in ``dst``."""
+    if not src.is_dir():
+        return
+    dst.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        target = dst / item.name
+        if not target.exists():
+            shutil.move(str(item), str(target))
+        elif item.is_dir() and target.is_dir():
+            _merge_into(item, target)
+        else:
+            logger.warning("Keeping existing %s; not overwritten by the download.", target)
+
+
 def _download_and_extract_zip(url: str, dest: Path) -> None:
     """Download and extract a ZIP file."""
     # Create temp file for download
@@ -726,16 +744,17 @@ def _download_and_extract_zip(url: str, dest: Path) -> None:
                 # Get the common prefix (root directory in zip)
                 root_dirs = set(n.split("/")[0] for n in names if "/" in n)
                 if len(root_dirs) == 1:
-                    # Extract to parent and rename
+                    # Extract into a private scratch folder, then move the
+                    # root folder's contents into dest. Never delete dest or
+                    # anything beside it: dest can be a user's own folder
+                    # (a YAML with ``path: .``).
                     root_dir = root_dirs.pop()
-                    extract_to = dest.parent
-                    zf.extractall(extract_to)
-                    # If extracted dir is different from dest, rename
-                    extracted_path = extract_to / root_dir
-                    if extracted_path != dest and extracted_path.exists():
-                        if dest.exists():
-                            shutil.rmtree(dest)
-                        extracted_path.rename(dest)
+                    scratch = Path(tempfile.mkdtemp(prefix=".libreyolo-extract-", dir=dest.parent))
+                    try:
+                        zf.extractall(scratch)
+                        _merge_into(scratch / root_dir, dest)
+                    finally:
+                        shutil.rmtree(scratch, ignore_errors=True)
                 else:
                     # Extract directly to dest
                     zf.extractall(dest)

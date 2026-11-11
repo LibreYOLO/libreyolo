@@ -336,3 +336,51 @@ def test_zero_images_warning_names_resolved_path(tmp_path, fake_datasets_dir, ca
     expected = str(ds.resolve() / "train" / "images")
     assert any("No images found" in r.getMessage() and expected in r.getMessage()
                for r in caplog.records)
+
+
+def test_zip_download_never_deletes_existing_dest(tmp_path, monkeypatch):
+    """A ZIP whose single root folder has another name must not wipe dest."""
+    import zipfile
+
+    import libreyolo.data.utils as data_utils
+
+    src_zip = tmp_path / "ds.zip"
+    with zipfile.ZipFile(src_zip, "w") as zf:
+        zf.writestr("other-name/train/images/a.jpg", b"x")
+        zf.writestr("other-name/data.yaml", b"from zip")
+
+    def fake_download(url, dest, chunk_size=8192):
+        dest.write_bytes(src_zip.read_bytes())
+
+    monkeypatch.setattr(data_utils, "_download_file", fake_download)
+
+    project = tmp_path / "parent" / "project"
+    project.mkdir(parents=True)
+    (project / "data.yaml").write_text("mine")
+    (project / "notes.txt").write_text("keep me")
+    sibling = tmp_path / "parent" / "other-name"
+    sibling.mkdir()
+    (sibling / "untouched.txt").write_text("sibling")
+
+    data_utils._download_and_extract_zip("https://example.invalid/ds.zip", project)
+
+    assert (project / "notes.txt").read_text() == "keep me"
+    assert (project / "data.yaml").read_text() == "mine"  # not overwritten
+    assert (project / "train" / "images" / "a.jpg").exists()
+    assert (sibling / "untouched.txt").read_text() == "sibling"
+    assert not list((tmp_path / "parent").glob(".libreyolo-extract-*"))
+
+
+def test_zero_images_warning_includes_search_error(tmp_path, fake_datasets_dir, caplog):
+    ds = tmp_path / "partial"
+    _make_split_dataset(ds)
+    yaml_path = ds / "data.yaml"
+    yaml_path.write_text(
+        "path: .\ntrain: [train/images, train/missing]\nval: valid/images\nnames: [x]\n"
+    )
+
+    with caplog.at_level("WARNING"):
+        load_data_config(str(yaml_path), autodownload=False)
+
+    msgs = [r.getMessage() for r in caplog.records if "No images found" in r.getMessage()]
+    assert msgs and "missing" in msgs[0]
