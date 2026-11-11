@@ -846,8 +846,15 @@ def _has_depthwise_convs(module: torch.nn.Module) -> bool:
 CSPNEXT_POINTWISE_EQUALIZATION: str | None = "conv"
 #: Per-channel factor: ``"act"`` (activation peak / mean peak) or ``"cle"``
 #: (sqrt(activation peak / weight peak), geometric-mean normalized, which
-#: balances the activation and the pointwise weight columns).
-CSPNEXT_POINTWISE_EQUALIZATION_METHOD: str = "act"
+#: balances the activation and the pointwise weight columns). ``None`` picks
+#: the measured best per task (``CSPNEXT_POINTWISE_EQUALIZATION_METHOD_BY_TASK``).
+CSPNEXT_POINTWISE_EQUALIZATION_METHOD: str | None = None
+#: RTMDet-t on a Metis, 1000 COCO images: detect ``cle`` -2.29 vs ``act``
+#: -2.84 mAP50-95; segment measured with ``act`` only.
+CSPNEXT_POINTWISE_EQUALIZATION_METHOD_BY_TASK: dict[str, str] = {
+    "detect": "cle",
+    "segment": "act",
+}
 
 
 class _ChannelScale(torch.nn.Module):
@@ -4047,6 +4054,12 @@ class AxeleraExporter(BaseExporter):
             drift,
         )
 
+    def _pointwise_method(self) -> str:
+        """CSPNeXt pointwise equalization factor: the override, else the per-task best."""
+        if CSPNEXT_POINTWISE_EQUALIZATION_METHOD is not None:
+            return CSPNEXT_POINTWISE_EQUALIZATION_METHOD
+        return CSPNEXT_POINTWISE_EQUALIZATION_METHOD_BY_TASK.get(self._task(), "act")
+
     def _equalization_samples(self, limit: int = 32) -> list:
         """Up to ``limit`` calibration images (``[1, C, H, W]``), or ``[]``."""
         loader = getattr(self, "_calibration_loader", None)
@@ -4184,7 +4197,7 @@ class AxeleraExporter(BaseExporter):
                 copy_,
                 self._equalization_samples(),
                 CSPNEXT_POINTWISE_EQUALIZATION,
-                CSPNEXT_POINTWISE_EQUALIZATION_METHOD,
+                self._pointwise_method(),
             )
             wrapper_cls = (
                 _RTMDetInsRawHeadsWrapper
@@ -4286,7 +4299,7 @@ class AxeleraExporter(BaseExporter):
             meta["pointwise_equalized"] = {
                 "blocks": int(self._pointwise_equalized),
                 "mode": str(CSPNEXT_POINTWISE_EQUALIZATION),
-                "method": str(CSPNEXT_POINTWISE_EQUALIZATION_METHOD),
+                "method": self._pointwise_method(),
             }
         if getattr(self, "_pose_bounds", None):
             meta["pose_head_bounds"] = {

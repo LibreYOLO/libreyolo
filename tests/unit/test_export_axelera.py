@@ -566,6 +566,7 @@ def test_rtmdet_export_uses_the_rtmdet_raw_head_layout(exporter_sdk, tmp_path):
     assert meta["strides"] == [8, 16, 32] and "reg_max" not in meta
     assert meta["grid_cell_offset"] == 0.0 and meta["exp_on_reg"] is False
     assert meta["pointwise_equalized"]["blocks"] > 0
+    assert meta["pointwise_equalized"]["method"] == "cle"  # measured best for detect
     assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
     # The user's model is untouched: equalization runs on the export copy.
     after = model.model.state_dict()
@@ -590,6 +591,7 @@ def test_rtmdet_ins_export_uses_the_rtmdet_ins_layout(exporter_sdk, tmp_path):
     meta = yaml.safe_load((destination / "metadata.yaml").read_text())
     assert meta["model_family"] == "rtmdet" and meta["task"] == "segment"
     assert meta["output_layout"] == layout
+    assert meta["pointwise_equalized"]["method"] == "act"  # the measured segment recipe
     assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
 
 
@@ -1011,8 +1013,8 @@ def test_support_matrix_rows_for_axelera():
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
     rtmdet = get_support("rtmdet", "detect", "axelera")
-    assert rtmdet.tier == "available" and "supported sizes: t " in rtmdet.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["t"]
+    assert rtmdet.tier == "available" and "supported sizes: t, s " in rtmdet.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["s", "t"]
     other = get_support("yolo2", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
@@ -1151,17 +1153,12 @@ def test_efficientnetv2_sizes_that_do_not_compile_are_blocked(tmp_path, size):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 
-@pytest.mark.parametrize(
-    "size, message",
-    [
-        ("s", r"rtmdet-s detect export to axelera is blocked: it collapses on a Metis"),
-        ("m", r"rtmdet-m detect export to axelera is not available yet: it has not been measured"),
-    ],
-)
-def test_rtmdet_sizes_other_than_t_do_not_export(tmp_path, size, message):
+@pytest.mark.parametrize("size", ["m", "l", "x"])
+def test_unmeasured_rtmdet_sizes_do_not_export(tmp_path, size):
     from libreyolo import LibreRTMDet
 
     model = LibreRTMDet(None, size=size, nb_classes=3, device="cpu")
+    message = rf"rtmdet-{size} detect export to axelera is not available yet: it has not been measured"
     with pytest.raises(NotImplementedError, match=message):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 

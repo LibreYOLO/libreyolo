@@ -44,7 +44,8 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | PP-YOLOE | l | detect | COCO val2017, 1000 | 0.4771 | 0.4740 | -0.31 | validated | `ppyoloe/detect/l/2026-11-11/2` |
 | PP-YOLOE | x | detect | COCO val2017, 1000 | 0.4918 | 0.4747 | -1.71 | supported | `ppyoloe/detect/x/2026-11-11/2` |
 | PicoDet | s | detect | COCO val2017, 1000 | 0.2687 | 0.2453 | -2.34 | supported | `picodet/detect/s/2026-11-11/7` |
-| RTMDet | t | detect | COCO val2017, 1000 | 0.3906 | 0.3622 | -2.84 | supported | `rtmdet/detect/t/2026-11-11/6` |
+| RTMDet | t | detect | COCO val2017, 1000 | 0.3906 | 0.3677 | -2.29 | supported | `rtmdet/detect/t/2026-11-11/8` |
+| RTMDet | s | detect | COCO val2017, 1000 | 0.4121 | 0.3446 | -6.75 | supported | `rtmdet/detect/s/2026-11-11/6` |
 | RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3254 | -1.40 | supported | `rtmdet/segment/t/2026-11-11/4` |
 | ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 | validated | `resnet/classify/18/2026-11-10/2` |
 | ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated | `resnet/classify/34/2026-11-10` |
@@ -90,7 +91,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLOv7 | detect | b | see `docs/export_support.md` | b `yolo7/detect/b/2026-11-11/4` |
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-11/2` |
 | PicoDet | detect | s (supported with a measured drop; m and l not measured yet) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7` |
-| RTMDet | detect | t (supported with a measured drop; s blocked: collapses on a Metis; m, l and x not measured yet) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/6`; s blocked `rtmdet/detect/s/2026-11-11/4` |
+| RTMDet | detect | t, s (supported with a measured drop; m, l and x not measured yet) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6` |
 | RTMDet-Ins | segment | t (supported with a measured drop, box -2.64; s, m, l and x not measured yet) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-11/4` |
 | YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
 | RF-DETR and other transformer families | all | all | out of scope (section 11) | - |
@@ -286,7 +287,8 @@ table at the top of this page.
 | PP-YOLOE-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4771 | 0.4740 | -0.31 |
 | PP-YOLOE-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.4918 | 0.4747 | -1.71 (supported) |
 | PicoDet-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.2687 | 0.2453 | -2.34 (supported; -1.28 on 300) |
-| RTMDet-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.3906 | 0.3622 | -2.84 (supported) |
+| RTMDet-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.3906 | 0.3677 | -2.29 (supported) |
+| RTMDet-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4121 | 0.3446 | -6.75 (supported) |
 | RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3254 | -1.40 (supported; box -2.64) |
 
 Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
@@ -366,10 +368,16 @@ pointwise convolution whose input channels span very different ranges
 RTMDet-s), which one per-tensor int8 scale does not survive. The export equalizes every
 CSPNeXt pointwise input on its own copy of the model (each channel scaled by
 1/s through a 1x1 depthwise convolution, the pointwise weights by s, from
-calibration peaks; FP32 outputs unchanged): RTMDet-t goes from -4.44 to
--2.84 on 1000 images and is supported with that measured drop. RTMDet-s
-still collapses with it (0.079 vs 0.411 on 300 images; 0.136 without it), so
-its export is blocked.
+calibration peaks; FP32 outputs unchanged). For detection s is balanced,
+sqrt(activation peak / weight peak), so the activation and the int8 weight
+columns share the range: RTMDet-t goes from -4.44 to -2.29 on 1000 images
+(-2.84 with s = activation peak / mean peak) and is supported with that
+measured drop. RTMDet-s, whose stage-2 pointwise input spreads 45.9x
+(channel peak against the median), collapses without the equalization
+(-27.5 on 300 images) and gets worse with the activation-only factor
+(-33.2); with the balanced factor it scores -6.75 on 1000 images
+(supported). RTMDet-Ins keeps the activation-only factor, the recipe its
+numbers were measured with.
 
 RTMDet-Ins runs the same trunk on the device and returns, per level, the
 box, class and dynamic-kernel outputs, plus the stride-8 mask feature
@@ -509,7 +517,6 @@ Blocked for structural reasons (accuracy never blocks an export):
 - HRNet (pose): compiles, but the device output drifts from the quantized model stage by stage (keypoint mAP 0.000 on device vs a working CPU-quantized model).
 - ZipDepth: after an exact ReduceMean-to-pooling rewrite, quantization fails on the GCNet context MatMul.
 - DeepLabV3-ResNet50/101: quantize, but at output stride 8 the ASPP convolutions need the whole 64x64 feature map and lowering finds no L1 tiling.
-- RTMDet-s: compiles and runs, but the INT8 output collapses on a Metis (mAP50-95 0.079 vs FP32 0.411 on 300 COCO val2017 images, 0.136 without the pointwise equalization).
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
