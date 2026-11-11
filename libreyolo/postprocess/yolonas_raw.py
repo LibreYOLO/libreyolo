@@ -1,4 +1,4 @@
-"""Host-side decode for YOLO-NAS, YOLO9, PP-YOLOE, YOLOX and anchor-based YOLO raw head outputs.
+"""Host-side decode for YOLO-NAS, YOLO9, PP-YOLOE, YOLOX, PicoDet and anchor-based YOLO raw head outputs.
 
 Some accelerators run a YOLO-NAS or YOLO9 graph cut right after the head's
 last convolutions and leave the decode to the host: the DFL distance decode,
@@ -15,6 +15,8 @@ the order the layout lists:
 =============================  ===========================================
 ``yolonas_raw_heads_v1``,      ``reg`` [B, 4*(reg_max+1), H, W],
 ``ppyoloe_raw_heads_v1``       ``cls`` [B, nc, H, W]
+``picodet_raw_heads_v1``       ``reg`` [B, 4*(reg_max+1), H, W] (DFL logits,
+                               side-major), ``cls`` [B, nc, H, W]; four levels
 ``yolonas_pose_raw_heads_v1``  ``reg`` [B, 4*(reg_max+1), H, W],
                                ``cls`` [B, nc + K, H, W] (class logits, then
                                one visibility logit per keypoint),
@@ -53,6 +55,7 @@ import numpy as np
 YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "yolonas_raw_heads_v1": ("reg", "cls"),
     "ppyoloe_raw_heads_v1": ("reg", "cls"),
+    "picodet_raw_heads_v1": ("reg", "cls"),
     "yolonas_pose_raw_heads_v1": ("reg", "cls", "pose"),
     "yolonas_obb_raw_heads_v1": ("reg", "cls", "offset", "rot"),
     "yolo9_raw_heads_v1": ("reg", "cls"),
@@ -101,6 +104,9 @@ YOLOX_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {}
 
 # PP-YOLOE windows (see docs/axelera.md); empty until measured.
 PPYOLOE_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {}
+
+#: Output windows PicoDet raw-head exports apply, ``{part: (low, high)}``.
+PICODET_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {}
 
 # A windowed part is mapped from [low, high] onto [0, OUTPUT_WINDOW_SPAN].
 OUTPUT_WINDOW_SPAN = 6.0
@@ -261,9 +267,56 @@ def decode_yolonas_raw(
     PP-YOLOE heads (``ppyoloe_raw_heads_v1``) have the same distribution box
     head and anchor grid, and decode here too.
     """
-    layout = "yolonas_raw_heads_v1"
+    return _decode_dfl_detect(
+        outputs, "yolonas_raw_heads_v1", strides, reg_max, grid_cell_offset
+    )
+
+
+def decode_picodet_raw(
+    outputs: Sequence[np.ndarray],
+    *,
+    strides: Sequence[int] = (8, 16, 32, 64),
+    reg_max: int = 7,
+    grid_cell_offset: float = 0.5,
+    **_unused,
+) -> list[np.ndarray]:
+    """Decode PicoDet heads to the decoded export's ``(B, N, 4 + nc)`` tensor.
+
+    PicoDet's GFL head is the same DFL decode as YOLO-NAS (side-major bins,
+    centres at ``(cell + 0.5) * stride``, ltrb distances times the stride),
+    with ``reg_max`` 7 and four levels; the export concatenates xyxy boxes and
+    sigmoid scores.
+    """
+    boxes, scores = _decode_dfl_detect(
+        outputs,
+        "picodet_raw_heads_v1",
+        strides,
+        reg_max,
+        grid_cell_offset,
+        ceil_levels=True,
+    )
+    return [np.concatenate([boxes, scores], axis=-1)]
+
+
+def _decode_dfl_detect(
+    outputs, layout, strides, reg_max, grid_cell_offset, *, ceil_levels=False
+):
     levels = _split_levels(outputs, layout, strides)
-    _check_strides(levels, strides)
+    if ceil_levels:
+        # Stride-2 convolutions round odd sizes up (PicoDet-m at 416 has a 7x7
+        # stride-64 level), so each level is ceil(extent / stride) cells.
+        extent_h = levels[0]["cls"].shape[2] * int(strides[0])
+        extent_w = levels[0]["cls"].shape[3] * int(strides[0])
+        for level, stride in zip(levels, strides):
+            expected = (-(-extent_h // int(stride)), -(-extent_w // int(stride)))
+            if tuple(level["cls"].shape[2:]) != expected:
+                raise ValueError(
+                    f"Feature-map sizes do not match strides {tuple(strides)}: "
+                    f"level {stride} is {tuple(level['cls'].shape[2:])}, "
+                    f"expected {expected}."
+                )
+    else:
+        _check_strides(levels, strides)
     batch = levels[0]["cls"].shape[0]
     total = sum(level["cls"].shape[2] * level["cls"].shape[3] for level in levels)
     boxes = np.empty((batch, total, 4), dtype=np.float32)
@@ -519,6 +572,7 @@ def _anchor_decoder(layout: str):
 _DECODERS = {
     "yolonas_raw_heads_v1": decode_yolonas_raw,
     "ppyoloe_raw_heads_v1": decode_yolonas_raw,
+    "picodet_raw_heads_v1": decode_picodet_raw,
     "yolonas_pose_raw_heads_v1": decode_yolonas_pose_raw,
     "yolonas_obb_raw_heads_v1": decode_yolonas_obb_raw,
     "yolo9_raw_heads_v1": decode_yolo9_raw,
@@ -606,6 +660,7 @@ __all__ = [
     "YOLONAS_REG_MAX",
     "YOLONAS_STRIDES",
     "YOLOX_RAW_OUTPUT_WINDOWS",
+    "PICODET_RAW_OUTPUT_WINDOWS",
     "PPYOLOE_RAW_OUTPUT_WINDOWS",
     "check_output_windows",
     "decode_anchor_yolo_raw",
@@ -613,6 +668,7 @@ __all__ = [
     "decode_yolo9_raw",
     "decode_yolonas_obb_raw",
     "decode_yolonas_pose_raw",
+    "decode_picodet_raw",
     "decode_yolonas_raw",
     "decode_yolox_raw",
     "raw_head_output_names",

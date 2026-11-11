@@ -25,6 +25,7 @@ CASES = {
     "mobilenetv4": ("LibreMobileNetV4", dict(size='m', nb_classes=3)),
     "fcn": ("LibreFCN", dict(size='r50', nb_classes=3)),
     "efficientnetv2": ("LibreEfficientNetV2", dict(size='b0', nb_classes=3)),
+    "picodet": ("LibrePICODET", dict(size='s', nb_classes=3)),
     "quicksrnet": ("LibreQuickSRNet", dict(size='m2')),
     "midas": ("LibreMiDaS", dict(size='s')),
 }
@@ -43,6 +44,7 @@ SUPPORT_KEYS = {
     "mobilenetv4": ('mobilenetv4', 'classify'),
     "fcn": ('fcn', 'semantic'),
     "efficientnetv2": ('efficientnetv2', 'classify'),
+    "picodet": ('picodet', 'detect'),
     "quicksrnet": ('quicksrnet', 'restore'),
     "midas": ('midas', 'depth'),
 }

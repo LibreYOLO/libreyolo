@@ -979,6 +979,99 @@ class _AnchorYOLORawHeadsWrapper(torch.nn.Module):
         return tuple(outputs)
 
 
+def _conv_output_rows(conv: torch.nn.Conv2d, rows) -> torch.nn.Conv2d:
+    """A copy of ``conv`` that computes only the output channels ``rows``."""
+    rows = list(rows)
+    part = torch.nn.Conv2d(
+        conv.in_channels,
+        len(rows),
+        conv.kernel_size,
+        stride=conv.stride,
+        padding=conv.padding,
+        dilation=conv.dilation,
+        groups=conv.groups,
+        bias=conv.bias is not None,
+    ).to(conv.weight.device)
+    with torch.no_grad():
+        part.weight.copy_(conv.weight[rows])
+        if conv.bias is not None:
+            part.bias.copy_(conv.bias[rows])
+    return part
+
+
+class _PicoDetRawHeadsWrapper(torch.nn.Module):
+    """PicoDet graph cut before its box decode (layout ``picodet_raw_heads_v1``).
+
+    When the head shares one final convolution between the class logits and
+    the box distribution (``share_cls_reg``), it is split into a ``reg`` and a
+    ``cls`` convolution with the same weights, so the two get separate INT8
+    scales. The host rebuilds the decoded export's ``(B, N, 4 + nc)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_picodet_raw`).
+    """
+
+    output_layout = "picodet_raw_heads_v1"
+    grid_cell_offset = 0.5
+
+    def __init__(self, model: torch.nn.Module, output_windows=None):
+        super().__init__()
+        from ..postprocess.yolonas_raw import (
+            PICODET_RAW_OUTPUT_WINDOWS,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        self.output_windows = check_output_windows(
+            self.output_layout,
+            PICODET_RAW_OUTPUT_WINDOWS if output_windows is None else output_windows,
+        )
+
+        model = copy.deepcopy(model).eval()
+        head = model.head
+        self.backbone = model.backbone
+        self.neck = model.neck
+        self.cls_convs = head.cls_convs
+        self.reg_convs = None if head.share_cls_reg else head.reg_convs
+        self.strides = tuple(int(stride) for stride in head.strides)
+        self.reg_max = int(head.reg_max)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        classes, bins = int(head.num_classes), 4 * (self.reg_max + 1)
+        self.reg_heads = torch.nn.ModuleList()
+        self.cls_heads = torch.nn.ModuleList()
+        for level in range(len(self.strides)):
+            if head.share_cls_reg:  # PicoHead splits [classes, distribution]
+                shared = head.gfl_cls[level]
+                self.cls_heads.append(_conv_output_rows(shared, range(classes)))
+                self.reg_heads.append(
+                    _conv_output_rows(shared, range(classes, classes + bins))
+                )
+            else:
+                self.cls_heads.append(head.gfl_cls[level])
+                self.reg_heads.append(head.gfl_reg[level])
+
+    def forward(self, x):
+        outputs = []
+        for level, feat in enumerate(self.neck(self.backbone(x))):
+            cls_feat = feat
+            for conv in self.cls_convs[level]:
+                cls_feat = conv(cls_feat)
+            reg_feat = cls_feat
+            if self.reg_convs is not None:
+                reg_feat = feat
+                for conv in self.reg_convs[level]:
+                    reg_feat = conv(reg_feat)
+            for part, conv, part_feat in (
+                ("reg", self.reg_heads[level], reg_feat),
+                ("cls", self.cls_heads[level], cls_feat),
+            ):
+                window = self.output_windows.get(part)
+                outputs.append(
+                    conv(part_feat)
+                    if window is None
+                    else _relu6_window(conv, part_feat, *window)
+                )
+        return tuple(outputs)
+
+
 def _fuse_darknet_batchnorms(net: torch.nn.Module) -> int:
     """Fold each Darknet convolution's batch norm into its weights and bias, in place.
 
@@ -3475,6 +3568,16 @@ class _GraphOutputsWrapper(torch.nn.Module):
         return tuple(output)[: len(self.output_names)]
 
 
+#: Exact ONNX rewrites applied before the Axelera compile, per family (see
+#: ``libreyolo.export.axelera.GRAPH_PASSES``). PicoDet's ESNet channel
+#: shuffles become fixed 1x1 permutation convolutions: left as
+#: Reshape/Transpose they are layout transforms inside the AIPU core, more
+#: than the compiler accepts.
+_AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
+    "picodet": ("channel_shuffle_to_conv",),
+}
+
+
 class AxeleraExporter(BaseExporter):
     """INT8 export for Axelera Metis AIPUs: a ``<stem>_axelera_model/`` directory.
 
@@ -3825,6 +3928,13 @@ class AxeleraExporter(BaseExporter):
             self._raw_wrapper = _darknet_raw_heads_wrapper(
                 live, self._task(), output_windows=self._size_recipe().get("output_windows")
             ).eval()
+        elif self.model._get_model_name() == "picodet":
+            if self._task() != "detect":
+                raise ValueError(
+                    f"PicoDet raw-head export supports detect only, got {self._task()!r}."
+                )
+            self._pose_bounds = {}
+            self._raw_wrapper = _PicoDetRawHeadsWrapper(live).eval()
         elif self.model._get_model_name() == "yolo9":
             # No reparameterization step; BatchNorm folds into the convs
             # during the ONNX export.
@@ -3996,6 +4106,7 @@ class AxeleraExporter(BaseExporter):
             reference_model=self._raw_wrapper,
             verify_samples=self._verify_samples(dummy.shape[-2:]) if verify else None,
             verify_source=getattr(self, "_verify_source", "images"),
+            graph_passes=_AXELERA_GRAPH_PASSES.get(self.model._get_model_name(), ()),
         )
 
     def _verify_samples(self, imgsz, limit: int = 32):

@@ -116,7 +116,7 @@ in preflight.
 | paddleocrvl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | pe | classify | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | pe | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
-| picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available |  | ✓ |  |  | ✓ |
+| picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | available | ✓ |  |  | ✓ |
 | picosam3 | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
 | ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
@@ -655,6 +655,7 @@ These converter paths are callable with the recorded validation context.
 - `pe` / `embed` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `pe` / `embed` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `picodet` / `detect` / `rknn`: Exact small variants passed RKNN Toolkit2 2.3.2 compilation, RK3588 PC-simulator raw-output gates, and matched post-NMS detections on a real image. Support is limited to YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s; on-device latency and parity have not been measured. Constraint: RKNN Toolkit2 2.3.2, RK3588 PC simulator, vendor floating build, batch 1, fixed square input
+- `picodet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the graph stops after each level's box-distribution and class convolutions, ESNet's channel shuffles become fixed permutation convolutions, and LibreYOLO decodes on the host. Measured on a Metis M.2 Max: PicoDet-s loses 2.3 mAP50-95 against FP32 on a paired 1000-image COCO val2017 subset (docs/axelera.md). Constraint: supported sizes: s (measured drop, SIZE_ACCURACY_NOTES); m and l are not compiled yet (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `pidnet` / `semantic` / `tensorrt`: TensorRT 10.16 FP32 exports and runs, but repeated builds produced raw-logit cosine as low as 0.9970, below the 0.999 promotion gate.
 - `ppdoclayoutv3` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppdoclayoutv3` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
@@ -1848,7 +1849,6 @@ These converter paths are callable with the recorded validation context.
 - `pe` / `embed` / `coreai`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `picodet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `picodet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
-- `picodet` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `picodet` / `detect` / `tflite`: LiteRT 2.1.2 cannot prepare the onnx2tf 2.6.7 artifact because a RESHAPE maps 19,200 input elements to 9,600 output elements.
 - `picodet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `picosam3` / `segment` / `torchscript`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.

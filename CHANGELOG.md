@@ -31,6 +31,9 @@ before 1.4.0 are documented in the
 - **Axelera Metis export for YOLOv4 detection; exported Darknet models validate correctly.**
   `LibreYOLO("LibreYOLO4t.pt").export(format="axelera")` splits each head convolution into box, objectness and class convolutions and decodes the anchors on the host (layout `darknet_raw_heads_v1`, which also covers YOLOv3). YOLOv4-tiny is validated on a Metis M.2 Max: 0.1968 vs FP32 0.2021 mAP50-95 on 1000 COCO val2017 images. Exported Darknet models of every format were validated with the wrong preprocessing (a YOLOv4-tiny ONNX export scored 0.031 instead of 0.22); they now use Darknet's letterbox, and Darknet INT8 calibration no longer skips every image.
 
+- **Axelera Metis export for PicoDet detection (supported, measured drop).**
+  `LibreYOLO("LibrePICODETs.pt").export(format="axelera")` cuts the graph after each level's box-distribution and class convolutions (layout `picodet_raw_heads_v1`, decoded on the host like YOLO-NAS) and turns ESNet's channel shuffles into fixed permutation convolutions, which the compiler otherwise rejects. PicoDet-s runs on a Metis M.2 Max at 0.2453 vs FP32 0.2687 mAP50-95 on 1000 COCO val2017 images (-2.3); the loss sits in the backbone's activation ranges.
+
 - **Axelera Metis export for YOLOv3 detection.**
   `LibreYOLO("LibreYOLO3t.pt").export(format="axelera")` uses the same Darknet raw-head path. Two graph changes make YOLOv3 compile: Darknet batch norms are folded into the convolutions (exported unfused, they stopped the compiler on every YOLOv3 size), and the -inf padding of YOLOv3-tiny's stride-1 max pool becomes the MaxPool's own padding (the AIPU accepts only zero-valued Pad). YOLOv3-tiny, YOLOv3 and YOLOv3-SPP are validated on a Metis M.2 Max: 0.1006 vs FP32 0.1023, 0.3580 vs 0.3656 and 0.4261 vs 0.4304 mAP50-95 on 1000 COCO val2017 images.
 - **Axelera Metis export for YOLOv7 detection; exported YOLOv7 models validate correctly.**

@@ -298,11 +298,19 @@ class _ReorderingQuantizedModel:
 
         self.session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
         names = [o.name for o in self.session.get_outputs()]
-        per_level = len(names) // 3
-        self.order = [
-            i for level in range(3)
-            for i in reversed(range(level * per_level, (level + 1) * per_level))
-        ] or list(range(len(names)))  # classifiers: one output
+        levels: dict[str, list[int]] = {}
+        # Raw-head names start with the pyramid level (p3_reg, p3_cls, ...).
+        for index, name in enumerate(names):
+            levels.setdefault(name.split("_", 1)[0], []).append(index)
+        if len(levels) > 1 and all(key[:1] == "p" for key in levels):
+            self.order = [i for indices in levels.values() for i in reversed(indices)]
+        else:
+            per_level = len(names) // 3
+            self.order = [
+                i
+                for level in range(3)
+                for i in reversed(range(level * per_level, (level + 1) * per_level))
+            ] or list(range(len(names)))  # classifiers and dense graphs: one output
         seen["device_order"] = [names[i] for i in self.order]
 
     def __call__(self, tensor):
@@ -645,6 +653,35 @@ def test_ppyoloe_export_uses_the_ppyoloe_raw_head_layout(exporter_sdk, tmp_path)
     assert meta["axelera"]["quantization_scheme"] == "per_tensor_min_max"
 
 
+def test_picodet_export_uses_the_dfl_raw_heads_and_shuffle_pass(exporter_sdk, tmp_path):
+    import torch
+    import yaml
+
+    from libreyolo import LibrePICODET
+    from libreyolo.postprocess.yolonas_raw import raw_head_output_names
+
+    torch.manual_seed(0)
+    model = LibrePICODET(None, size="s", nb_classes=3, device="cpu")
+    destination = tmp_path / "pico_axelera_model"
+    model.export(
+        format="axelera",
+        data=str(_dataset(tmp_path)),
+        imgsz=64,
+        output_path=str(destination),
+    )
+
+    layout = "picodet_raw_heads_v1"
+    strides = (8, 16, 32, 64)
+    assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout, strides)
+    # ESNet's channel shuffles reach the compiler as permutation convolutions.
+    assert "Transpose" not in exporter_sdk.seen["onnx_ops"]
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["model_family"] == "picodet" and meta["output_layout"] == layout
+    assert meta["reg_max"] == 7 and meta["grid_cell_offset"] == 0.5
+    assert meta["strides"] == list(strides)
+    assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+
+
 def test_depthwise_detection():
     import torch
 
@@ -773,9 +810,9 @@ def test_missing_devkit_fails_before_tracing(fake_sdk, tmp_path, monkeypatch):
 
 
 def test_other_families_are_blocked(exporter_sdk):
-    from libreyolo import LibrePICODET
+    from libreyolo import LibreRTMDet
 
-    model = LibrePICODET(None, size="s", device="cpu")
+    model = LibreRTMDet(None, size="t", device="cpu")
     with pytest.raises(NotImplementedError, match="blocked"):
         model.export(format="axelera")
 
@@ -907,6 +944,9 @@ def test_support_matrix_rows_for_axelera():
     yolo3 = get_support("yolo3", "detect", "axelera")
     assert yolo3.tier == "validated" and "validated sizes: t, b, spp" in yolo3.constraint
     assert precision_support("yolo3", "detect", "axelera") == (True, True)
+    picodet = get_support("picodet", "detect", "axelera")
+    assert picodet.tier == "available" and "supported sizes: s" in picodet.constraint
+    assert precision_support("picodet", "detect", "axelera") == (True, True)
     yolo4 = get_support("yolo4", "detect", "axelera")
     assert yolo4.tier == "validated" and "validated sizes: t" in yolo4.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("yolo4", "detect", "axelera")]) == ["b"]
@@ -1053,3 +1093,158 @@ def test_efficientnetv2_sizes_that_do_not_compile_are_blocked(tmp_path, size):
     with pytest.raises(NotImplementedError, match=rf"efficientnetv2-{size} classify export to axelera is blocked"):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
+
+
+def _shuffle_graph():
+    import numpy as np
+    from onnx import TensorProto, helper, numpy_helper
+
+    shape5 = numpy_helper.from_array(np.array([1, 2, 4, 3, 3], np.int64), "shape5")
+    shape4 = numpy_helper.from_array(np.array([1, 8, 3, 3], np.int64), "shape4")
+    weight = numpy_helper.from_array(
+        np.random.default_rng(0).normal(size=(4, 8, 1, 1)).astype(np.float32), "w"
+    )
+    nodes = [
+        helper.make_node("Concat", ["a", "b"], ["cat"], axis=1),
+        helper.make_node("Reshape", ["cat", "shape5"], ["grouped"]),
+        helper.make_node("Transpose", ["grouped"], ["swapped"], perm=[0, 2, 1, 3, 4]),
+        helper.make_node("Reshape", ["swapped", "shape4"], ["shuffled"]),
+        helper.make_node("Conv", ["shuffled", "w"], ["y"]),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "shuffle",
+        [
+            helper.make_tensor_value_info("a", TensorProto.FLOAT, [1, 4, 3, 3]),
+            helper.make_tensor_value_info("b", TensorProto.FLOAT, [1, 4, 3, 3]),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4, 3, 3])],
+        initializer=[shape5, shape4, weight],
+    )
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("", 13)], ir_version=8
+    )
+
+
+def test_channel_shuffle_pass_is_exact(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    source = tmp_path / "model.onnx"
+    onnx.save(_shuffle_graph(), str(source))
+
+    rewritten = ax.apply_graph_passes(
+        str(source), tmp_path, ["channel_shuffle_to_conv"]
+    )
+
+    ops = [node.op_type for node in onnx.load(rewritten).graph.node]
+    assert ops == ["Concat", "Conv", "Conv"]
+    rng = np.random.default_rng(1)
+    feeds = {
+        name: rng.normal(size=(1, 4, 3, 3)).astype(np.float32) for name in ("a", "b")
+    }
+    before = ort.InferenceSession(str(source)).run(None, feeds)[0]
+    after = ort.InferenceSession(rewritten).run(None, feeds)[0]
+    np.testing.assert_array_equal(before, after)
+
+
+def test_graph_passes_leave_other_graphs_alone(tmp_path):
+    onnx = pytest.importorskip("onnx")
+    source = tmp_path / "model.onnx"
+    onnx.save(_pad_maxpool_graph(0.0), str(source))
+    before = source.read_bytes()
+
+    assert ax.apply_graph_passes(
+        str(source), tmp_path, ["channel_shuffle_to_conv"]
+    ) == str(source)
+    assert ax.apply_graph_passes(str(source), tmp_path, []) == str(source)
+    assert source.read_bytes() == before
+    with pytest.raises(ValueError, match="Unknown Axelera graph pass"):
+        ax.apply_graph_passes(str(source), tmp_path, ["no_such_pass"])
+
+
+def test_only_picodet_requests_graph_passes():
+    from libreyolo.export.exporter import _AXELERA_GRAPH_PASSES
+
+    # Every other family's graph reaches the compiler unchanged by these
+    # passes (test_graph_passes_leave_other_graphs_alone covers the no-op).
+    assert _AXELERA_GRAPH_PASSES == {"picodet": ("channel_shuffle_to_conv",)}
+    requested = {name for names in _AXELERA_GRAPH_PASSES.values() for name in names}
+    assert requested <= set(ax.GRAPH_PASSES)
+
+
+def _hardswish_depthwise_graph():
+    import numpy as np
+    from onnx import TensorProto, helper, numpy_helper
+
+    rng = np.random.default_rng(0)
+    scale = np.array([1, 1, 10, 10, 100, 100, 1000, 1000], np.float32)[
+        :, None, None, None
+    ]
+    pw = (rng.normal(size=(8, 4, 1, 1)) * scale).astype(np.float32)
+    dw = rng.normal(size=(8, 1, 3, 3)).astype(np.float32)
+    nodes = [
+        helper.make_node("Conv", ["x", "pw", "pb"], ["c"]),
+        helper.make_node("HardSigmoid", ["c"], ["g"], alpha=1 / 6, beta=0.5),
+        helper.make_node("Mul", ["c", "g"], ["a"]),
+        helper.make_node(
+            "Conv", ["a", "dw"], ["y"], group=8, kernel_shape=[3, 3], pads=[1, 1, 1, 1]
+        ),
+        helper.make_node("Relu", ["a"], ["z"]),  # a second consumer of the activation
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "dw_groups",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4, 6, 6])],
+        [
+            helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 8, 6, 6]),
+            helper.make_tensor_value_info("z", TensorProto.FLOAT, [1, 8, 6, 6]),
+        ],
+        initializer=[
+            numpy_helper.from_array(pw, "pw"),
+            numpy_helper.from_array(rng.normal(size=8).astype(np.float32), "pb"),
+            numpy_helper.from_array(dw, "dw"),
+        ],
+    )
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("", 13)], ir_version=8
+    )
+
+
+def test_dw_channel_groups_is_exact(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    source = tmp_path / "model.onnx"
+    onnx.save(_hardswish_depthwise_graph(), str(source))
+    rng = np.random.default_rng(1)
+    samples = [rng.normal(size=(1, 4, 6, 6)).astype(np.float32) for _ in range(3)]
+
+    rewritten = ax.apply_graph_passes(
+        str(source), tmp_path, ["dw_channel_groups"], samples=samples
+    )
+
+    ops = [node.op_type for node in onnx.load(rewritten).graph.node]
+    assert rewritten != str(source) and ops.count("Conv") >= 2 * 3 + 2
+    x = rng.normal(size=(1, 4, 6, 6)).astype(np.float32)
+    before = ort.InferenceSession(str(source)).run(None, {"x": x})
+    after = ort.InferenceSession(rewritten).run(None, {"x": x})
+    for b, a in zip(before, after):
+        np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-4)
+
+
+def test_dw_channel_groups_needs_samples_and_a_target(tmp_path):
+    onnx = pytest.importorskip("onnx")
+    source = tmp_path / "model.onnx"
+    onnx.save(_hardswish_depthwise_graph(), str(source))
+    before = source.read_bytes()
+
+    assert ax.apply_graph_passes(str(source), tmp_path, ["dw_channel_groups"]) == str(
+        source
+    )
+    onnx.save(_pad_maxpool_graph(0.0), str(source))  # no depthwise conv
+    plain = source.read_bytes()
+    assert ax.apply_graph_passes(
+        str(source), tmp_path, ["dw_channel_groups"], samples=[None]
+    ) == str(source)
+    assert source.read_bytes() == plain and before != plain

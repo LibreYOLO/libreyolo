@@ -288,6 +288,421 @@ def merge_pad_into_maxpool(onnx_path: str, work_dir: Path) -> str:
     return str(out)
 
 
+def _channel_shuffle_to_conv(model) -> int:
+    """Channel shuffles -> fixed 1x1 permutation convolutions; returns the count.
+
+    Matches ``Reshape [B, g, C/g, H, W] -> Transpose [0, 2, 1, 3, 4] ->
+    Reshape [B, C, H, W]`` (ShuffleNet-style blocks such as PicoDet's ESNet).
+    Exact: output channel ``j`` copies input channel ``(j % g) * C/g + j // g``,
+    and the 0/1 weights are exact in INT8. Inside the AIPU core the
+    Reshape/Transpose pair is a layout transform, and the compiler rejects
+    graphs with more than a handful of them.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper, shape_inference
+
+    graph = model.graph
+    inferred = shape_inference.infer_shapes(model).graph
+    shapes = {
+        info.name: [dim.dim_value for dim in info.type.tensor_type.shape.dim]
+        for info in (*inferred.value_info, *inferred.input, *inferred.output)
+    }
+    producers = {name: node for node in graph.node for name in node.output}
+    consumers: dict[str, list] = {}
+    for node in graph.node:
+        for name in node.input:
+            consumers.setdefault(name, []).append(node)
+    count = 0
+    for transpose in [node for node in graph.node if node.op_type == "Transpose"]:
+        perm = next((list(a.ints) for a in transpose.attribute if a.name == "perm"), [])
+        before = producers.get(transpose.input[0])
+        after = consumers.get(transpose.output[0], [])
+        if (
+            perm != [0, 2, 1, 3, 4]
+            or before is None
+            or before.op_type != "Reshape"
+            or len(after) != 1
+            or after[0].op_type != "Reshape"
+            or len(consumers.get(before.output[0], [])) != 1
+        ):
+            continue
+        source = before.input[0]
+        shape_in = shapes.get(source)
+        shape_mid = shapes.get(before.output[0])
+        if (
+            not shape_in
+            or len(shape_in) != 4
+            or shape_in != shapes.get(after[0].output[0])
+            or not shape_mid
+            or len(shape_mid) != 5
+            or shape_mid[1] * shape_mid[2] != shape_in[1]
+        ):
+            continue
+        channels, groups, per_group = shape_in[1], shape_mid[1], shape_mid[2]
+        weight = np.zeros((channels, channels, 1, 1), np.float32)
+        for out in range(channels):
+            weight[out, (out % groups) * per_group + out // groups] = 1.0
+        name = f"{transpose.name or transpose.output[0]}_shuffle_conv".strip("/")
+        graph.initializer.append(numpy_helper.from_array(weight, f"{name}_w"))
+        conv = helper.make_node(
+            "Conv",
+            [source, f"{name}_w"],
+            [after[0].output[0]],
+            name=name,
+            kernel_shape=[1, 1],
+        )
+        index = list(graph.node).index(before)
+        for node in (before, transpose, after[0]):
+            graph.node.remove(node)
+        graph.node.insert(index, conv)
+        count += 1
+    return count
+
+
+def _graph_tables(model):
+    """Shapes, producers, consumers and constant initializers of an ONNX model."""
+    from onnx import numpy_helper, shape_inference
+
+    inferred = shape_inference.infer_shapes(model).graph
+    shapes = {
+        info.name: [dim.dim_value for dim in info.type.tensor_type.shape.dim]
+        for info in (*inferred.value_info, *inferred.input, *inferred.output)
+    }
+    graph = model.graph
+    producers = {name: node for node in graph.node for name in node.output}
+    consumers: dict[str, list] = {}
+    for node in graph.node:
+        for name in node.input:
+            consumers.setdefault(name, []).append(node)
+    weights = {init.name: numpy_helper.to_array(init) for init in graph.initializer}
+    return shapes, producers, consumers, weights
+
+
+def _attributes(node) -> dict:
+    from onnx import helper
+
+    return {a.name: helper.get_attribute_value(a) for a in node.attribute}
+
+
+def _drop_unused_initializers(graph) -> None:
+    used = {name for node in graph.node for name in node.input}
+    for init in [i for i in graph.initializer if i.name not in used]:
+        graph.initializer.remove(init)
+
+
+def _topological_sort(graph) -> None:
+    """Reorder ``graph.node`` so every node follows its producers (stable)."""
+    available = (
+        {i.name for i in graph.input} | {i.name for i in graph.initializer} | {""}
+    )
+    nodes = list(graph.node)
+    pending = list(range(len(nodes)))
+    order = []
+    while pending:
+        ready = [
+            i for i in pending if all(name in available for name in nodes[i].input)
+        ]
+        if not ready:
+            raise ValueError("Axelera graph pass left a cycle or a dangling input.")
+        for i in ready:
+            order.append(i)
+            available.update(nodes[i].output)
+        done = set(ready)
+        pending = [i for i in pending if i not in done]
+    copies = [type(nodes[i])() for i in order]
+    for copy_, i in zip(copies, order):
+        copy_.CopyFrom(nodes[i])
+    del graph.node[:]
+    graph.node.extend(copies)
+
+
+#: Depthwise convolutions whose inputs are split into range groups by
+#: ``dw_channel_groups``: a channel joins group ``floor(log4(max_span /
+#: span))``, capped here. Three groups recover most of what per-channel input
+#: ranges give (PicoDet-s fake-quant box error: 1.62 px with one range per
+#: tensor, 0.67 px with three groups, 0.62 px per channel).
+DW_CHANNEL_GROUPS = 3
+_ELEMENTWISE_ACTIVATIONS = (
+    "Relu",
+    "LeakyRelu",
+    "Clip",
+    "Sigmoid",
+    "HardSwish",
+    "HardSigmoid",
+    "Tanh",
+)
+
+
+def _depthwise_input_site(node, producers, consumers, weights):
+    """``(producer_conv, activation_nodes)`` feeding a depthwise conv, or None.
+
+    Accepts ``Conv -> DW``, ``Conv -> act -> DW`` and the exported HardSwish
+    ``Conv -> HardSigmoid -> Mul(conv, .) -> DW``, where the producer's output
+    feeds nothing else.
+    """
+    attrs = _attributes(node)
+    weight = weights.get(node.input[1])
+    if weight is None or weight.ndim != 4 or weight.shape[1] != 1:
+        return None
+    if attrs.get("group", 1) != weight.shape[0] or weight.shape[0] < 2:
+        return None
+    source = producers.get(node.input[0])
+    if source is None:
+        return None
+    if source.op_type == "Conv":
+        conv, activation = source, []
+    elif source.op_type in _ELEMENTWISE_ACTIVATIONS and len(source.input) == 1:
+        conv, activation = producers.get(source.input[0]), [source]
+    elif source.op_type == "Mul" and len(source.input) == 2:
+        gate = producers.get(source.input[1]) or producers.get(source.input[0])
+        if gate is None or gate.op_type != "HardSigmoid":
+            return None
+        if set(source.input) != {gate.input[0], gate.output[0]}:
+            return None
+        conv, activation = producers.get(gate.input[0]), [gate, source]
+    else:
+        return None
+    if conv is None or conv.op_type != "Conv" or conv.input[1] not in weights:
+        return None
+    if _attributes(conv).get("group", 1) != 1:
+        return None
+    expected = {n.output[0] for n in activation} if activation else {node.output[0]}
+    users = {n.output[0] for n in consumers.get(conv.output[0], [])}
+    if users != expected:
+        return None
+    return conv, activation
+
+
+def _dw_channel_groups(model, samples=None) -> int:
+    """Give a depthwise conv's input channels a few per-tensor ranges.
+
+    With one INT8 range per tensor, a depthwise input whose channels span very
+    different ranges loses the small channels; a per-channel range is what
+    helps (the SDK's hybrid scheme does that, but puts histogram ranges on
+    every other activation). This pass splits the producer convolution by
+    output channels into range groups (measured on ``samples``), repeats the
+    activation per group, runs one depthwise conv per group, and restores
+    the channel order with a fixed 1x1 permutation conv; consumers of the
+    activation other than the depthwise conv get it back the same way. Each
+    group's tensor then gets its own range, and the result is exact in FP32.
+    Returns the number of rewritten depthwise convs (0 without samples).
+    """
+    import numpy as np
+    from onnx import TensorProto, helper, numpy_helper
+
+    if not samples:
+        return 0
+    _, producers, consumers, weights = _graph_tables(model)
+    graph = model.graph
+    sites = {}
+    for node in graph.node:
+        if node.op_type == "Conv":
+            site = _depthwise_input_site(node, producers, consumers, weights)
+            if site is not None:
+                sites[node.input[0]] = (node, *site)
+    if not sites:
+        return 0
+    import onnxruntime as ort
+
+    probe = type(model)()
+    probe.CopyFrom(model)
+    known = {o.name for o in probe.graph.output}
+    for name in sites:
+        if name not in known:
+            probe.graph.output.append(
+                helper.make_tensor_value_info(name, TensorProto.FLOAT, None)
+            )
+    session = ort.InferenceSession(
+        probe.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
+    input_name = session.get_inputs()[0].name
+    out_names = [o.name for o in session.get_outputs()]
+    low = {name: None for name in sites}
+    high = {name: None for name in sites}
+    for sample in samples:
+        values = dict(
+            zip(
+                out_names,
+                session.run(None, {input_name: np.asarray(sample, np.float32)}),
+            )
+        )
+        for name in sites:
+            v = values[name]
+            lo, hi = v.min(axis=(0, 2, 3)), v.max(axis=(0, 2, 3))
+            low[name] = lo if low[name] is None else np.minimum(low[name], lo)
+            high[name] = hi if high[name] is None else np.maximum(high[name], hi)
+    count = 0
+    for name, (dw, conv, activation) in sites.items():
+        span = np.maximum(high[name] - low[name], 1e-9)
+        group = np.minimum(
+            np.floor(np.log(span.max() / span) / np.log(4.0)), DW_CHANNEL_GROUPS - 1
+        ).astype(int)
+        members = [np.flatnonzero(group == g) for g in range(DW_CHANNEL_GROUPS)]
+        members = [m for m in members if m.size]
+        if len(members) < 2:
+            continue
+        tag = (dw.name or dw.output[0]).strip("/").replace("/", "_") + "_dwg"
+        conv_w, dw_w = weights[conv.input[1]], weights[dw.input[1]]
+        conv_b = weights.get(conv.input[2]) if len(conv.input) > 2 else None
+        dw_b = weights.get(dw.input[2]) if len(dw.input) > 2 else None
+        conv_attrs, dw_attrs = _attributes(conv), _attributes(dw)
+        nodes, act_outs, dw_outs = [], [], []
+        for g, rows in enumerate(members):
+
+            def init(array, suffix, prefix=f"{tag}{g}"):
+                name = f"{prefix}_{suffix}"
+                graph.initializer.append(
+                    numpy_helper.from_array(
+                        np.ascontiguousarray(array).astype(np.float32), name
+                    )
+                )
+                return name
+
+            ins = [conv.input[0], init(conv_w[rows], "pw")] + (
+                [init(conv_b[rows], "pb")] if conv_b is not None else []
+            )
+            nodes.append(
+                helper.make_node(
+                    "Conv", ins, [f"{tag}{g}_c"], name=f"{tag}{g}_c", **conv_attrs
+                )
+            )
+            current = f"{tag}{g}_c"
+            if len(activation) == 2:  # HardSwish = x * HardSigmoid(x)
+                gate_attrs = _attributes(activation[0])
+                nodes.append(
+                    helper.make_node(
+                        "HardSigmoid",
+                        [current],
+                        [f"{tag}{g}_g"],
+                        name=f"{tag}{g}_g",
+                        **gate_attrs,
+                    )
+                )
+                nodes.append(
+                    helper.make_node(
+                        "Mul",
+                        [current, f"{tag}{g}_g"],
+                        [f"{tag}{g}_a"],
+                        name=f"{tag}{g}_a",
+                    )
+                )
+                current = f"{tag}{g}_a"
+            elif activation:
+                act = activation[0]
+                nodes.append(
+                    helper.make_node(
+                        act.op_type,
+                        [current],
+                        [f"{tag}{g}_a"],
+                        name=f"{tag}{g}_a",
+                        **_attributes(act),
+                    )
+                )
+                current = f"{tag}{g}_a"
+            act_outs.append(current)
+            attrs = dict(dw_attrs, group=int(rows.size))
+            ins = [current, init(dw_w[rows], "dw")] + (
+                [init(dw_b[rows], "db")] if dw_b is not None else []
+            )
+            nodes.append(
+                helper.make_node(
+                    "Conv", ins, [f"{tag}{g}_y"], name=f"{tag}{g}_y", **attrs
+                )
+            )
+            dw_outs.append(f"{tag}{g}_y")
+        order = np.concatenate(members)
+        channels = order.size
+        perm = np.zeros((channels, channels, 1, 1), np.float32)
+        perm[order, np.arange(channels), 0, 0] = (
+            1.0  # concat position k holds channel order[k]
+        )
+        graph.initializer.append(numpy_helper.from_array(perm, f"{tag}_perm"))
+        nodes.append(
+            helper.make_node(
+                "Concat", dw_outs, [f"{tag}_ycat"], name=f"{tag}_ycat", axis=1
+            )
+        )
+        nodes.append(
+            helper.make_node(
+                "Conv",
+                [f"{tag}_ycat", f"{tag}_perm"],
+                [dw.output[0]],
+                name=f"{tag}_yperm",
+                kernel_shape=[1, 1],
+            )
+        )
+        others = [n for n in consumers.get(name, []) if n.output[0] != dw.output[0]]
+        if others:  # rebuild the activation in channel order for its other consumers
+            nodes.append(
+                helper.make_node(
+                    "Concat", act_outs, [f"{tag}_acat"], name=f"{tag}_acat", axis=1
+                )
+            )
+            nodes.append(
+                helper.make_node(
+                    "Conv",
+                    [f"{tag}_acat", f"{tag}_perm"],
+                    [f"{tag}_afull"],
+                    name=f"{tag}_aperm",
+                    kernel_shape=[1, 1],
+                )
+            )
+            for other in others:
+                for i, value in enumerate(other.input):
+                    if value == name:
+                        other.input[i] = f"{tag}_afull"
+        for old in [conv, *activation, dw]:
+            graph.node.remove(old)
+        graph.node.extend(nodes)
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+        _topological_sort(graph)
+    return count
+
+
+#: Passes that measure the graph on calibration samples (``samples=``).
+_DATA_PASSES = {"dw_channel_groups"}
+
+#: Named exact ONNX rewrites an export may request (``graph_passes``); each
+#: rewrites a ModelProto in place and returns how many sites it changed.
+GRAPH_PASSES = {
+    "channel_shuffle_to_conv": _channel_shuffle_to_conv,
+    "dw_channel_groups": _dw_channel_groups,
+}
+
+
+def apply_graph_passes(
+    onnx_path: str, work_dir: Path, passes: Iterable[str], samples=None
+) -> str:
+    """Run the named :data:`GRAPH_PASSES` on ``onnx_path``.
+
+    Returns ``onnx_path`` untouched when no pass changes anything; otherwise
+    writes the rewritten graph to ``work_dir`` and returns its path.
+    """
+    passes = list(passes)
+    if not passes:
+        return onnx_path
+    unknown = sorted(set(passes) - set(GRAPH_PASSES))
+    if unknown:
+        raise ValueError(f"Unknown Axelera graph pass(es): {', '.join(unknown)}.")
+    import onnx
+
+    model = onnx.load(onnx_path)
+    changed = {}
+    for name in passes:
+        rewrite = GRAPH_PASSES[name]
+        changed[name] = (
+            rewrite(model, samples=samples) if name in _DATA_PASSES else rewrite(model)
+        )
+    if not any(changed.values()):
+        return onnx_path
+    out = Path(work_dir) / f"{Path(onnx_path).stem}.graph_passes.onnx"
+    onnx.save(model, str(out))
+    logger.info("Axelera graph passes: %s", changed)
+    return str(out)
+
+
 def compile_to_axm(
     model_input, calibration: Iterable, config, work_dir: Path, before_compile=None
 ):
@@ -553,6 +968,7 @@ def export_axelera(
     reference_model=None,
     verify_samples: Iterable | None = None,
     verify_source: str = "images",
+    graph_passes: Iterable[str] = (),
 ) -> str:
     """Compile ``onnx_path`` and publish ``<stem>.axm`` + sidecars at ``output_path``."""
     import json
@@ -591,8 +1007,17 @@ def export_axelera(
                         quantized, reference_model, verify_samples or []
                     )
 
+            model_input = merge_pad_into_maxpool(onnx_path, work_dir)
+            graph_passes = list(graph_passes)
+            samples = None
+            if any(name in _DATA_PASSES for name in graph_passes):
+                calibration = list(calibration)  # also feeds data-based passes
+                samples = calibration[:16]
+            model_input = apply_graph_passes(
+                model_input, work_dir, graph_passes, samples=samples
+            )
             axm, _ = compile_to_axm(
-                merge_pad_into_maxpool(onnx_path, work_dir),
+                model_input,
                 _remember_first(calibration, first),
                 config,
                 work_dir,
