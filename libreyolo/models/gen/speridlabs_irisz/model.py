@@ -431,8 +431,8 @@ class LibreSperidlabsIrisZ(LibreGenModel):
                         if save_dir is None:
                             save_dir = increment_path(Path("runs/depth/predict"), mkdir=True)
                             self._save_dir = save_dir
-                        stem = Path(path).stem if path else f"image{index}"
-                        destination = save_dir / f"{stem}.png"
+                        stem = Path(path).stem if path else "image"
+                        destination = save_dir / f"{index:03d}_{stem}.png"
                     result.save(str(destination))
                     log_saved_result(result, destination)
                 yield result
@@ -450,7 +450,7 @@ class LibreSperidlabsIrisZ(LibreGenModel):
         from .pipeline import (
             SKY_VALUE,
             SMALL_IMAGE_PIXELS,
-            choose_resolution,
+            working_size,
             ensemble,
             sample_depth,
             unsqueeze_from_ceiling,
@@ -460,7 +460,7 @@ class LibreSperidlabsIrisZ(LibreGenModel):
         sky_ceiling = float(networks.config.get("sky_ceiling", 1.0))
         if imgsz is None:
             imgsz = 512 if image.width * image.height < SMALL_IMAGE_PIXELS else 1024
-        width, height = choose_resolution(image.width, image.height, imgsz)
+        width, height = working_size(image.width, image.height, imgsz)
         rgb = np.asarray(image.resize((width, height), Image.LANCZOS))
 
         def decode(latent):

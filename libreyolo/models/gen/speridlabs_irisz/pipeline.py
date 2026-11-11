@@ -272,6 +272,23 @@ def choose_resolution(
     return best[1], best[2]
 
 
+def enlarged_size(source_width: int, source_height: int, target_side: int) -> Tuple[int, int]:
+    """Like :func:`choose_resolution`, but smaller sources are enlarged first."""
+    area = source_width * source_height
+    if area < target_side * target_side:
+        factor = (target_side * target_side / area) ** 0.5
+        source_width, source_height = round(source_width * factor), round(source_height * factor)
+    return choose_resolution(source_width, source_height, target_side)
+
+
+def working_size(source_width: int, source_height: int, target_side: int) -> Tuple[int, int]:
+    """Upstream's depth size; images too small for a 16-multiple grid near their own area are enlarged."""
+    try:
+        return choose_resolution(source_width, source_height, target_side)
+    except ValueError:
+        return enlarged_size(source_width, source_height, target_side)
+
+
 # -- FLUX.2 VAE --------------------------------------------------------------
 
 

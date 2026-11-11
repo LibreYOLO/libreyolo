@@ -19,7 +19,6 @@ from PIL import Image
 
 from libreyolo import LibreGen, LibreSperidlabsIrisZ, Results
 from libreyolo.models.gen import _ALIASES
-from libreyolo.models.gen.speridlabs_irisz import model as irisz_model
 from libreyolo.models.gen.speridlabs_irisz import nn as irisz_nn
 from libreyolo.models.gen.speridlabs_irisz import pipeline as irisz_pipeline
 from libreyolo.models.gen.speridlabs_irisz import text as irisz_text
@@ -258,6 +257,21 @@ def test_sky_decoding_matches_upstream():
     np.testing.assert_array_equal(irisz_pipeline.unsqueeze_from_ceiling(np.array([0.3, 1.0]), 1.0), [0.3, 1.0])
 
 
+def test_small_images_are_enlarged_instead_of_refused():
+    with pytest.raises(ValueError):
+        irisz_pipeline.choose_resolution(40, 40, 512)
+    assert irisz_pipeline.working_size(40, 40, 512) == (512, 512)
+    assert irisz_pipeline.working_size(12, 30, 512) == (320, 800)
+    # Sizes upstream accepts are unchanged.
+    assert irisz_pipeline.working_size(1920, 1080, 1024) == (1280, 720)
+
+
+def test_depth_on_a_tiny_image(tiny_runtime, snapshot):
+    model = LibreSperidlabsIrisZ(device="cpu", task="depth", checkpoint_dir=str(snapshot))
+    result = model(np.zeros((20, 24, 3), dtype=np.uint8), steps=3, imgsz=512)
+    assert tuple(result.depth_map.data.shape) == (20, 24)
+
+
 def test_ensemble_aligns_members_and_keeps_sky():
     base = np.linspace(-1, 0.5, 12).reshape(3, 4)
     base[0, 0] = 1.0
@@ -337,10 +351,13 @@ def test_depth_end_to_end(tiny_runtime, snapshot, photo, tmp_path, monkeypatch):
     # Same seed, same depth; the default seed is upstream's 0.
     np.testing.assert_array_equal(np.asarray(model(str(photo), steps=3, seed=0).depth_map.data), values)
     monkeypatch.chdir(tmp_path)
-    ensemble = model([str(photo), Image.open(photo)], steps=3, ensemble=2, save=True)
-    assert len(ensemble) == 2
+    twin = tmp_path / "other" / photo.name
+    twin.parent.mkdir()
+    twin.write_bytes(photo.read_bytes())
+    ensemble = model([str(photo), str(twin), Image.open(photo)], steps=3, ensemble=2, save=True)
+    assert len(ensemble) == 3
     saved = sorted((tmp_path / "runs" / "depth" / "predict").glob("*.png"))
-    assert [p.name for p in saved] == ["image1.png", "street.png"]
+    assert [p.name for p in saved] == ["000_street.png", "001_street.png", "002_image.png"]
 
 
 def test_depth_argument_validation(tiny_runtime, snapshot, photo):
