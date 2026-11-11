@@ -24,6 +24,9 @@ CASES = {
     "resnet": ("LibreResNet", dict(size='18', nb_classes=3)),
     "mobilenetv4": ("LibreMobileNetV4", dict(size='m', nb_classes=3)),
     "fcn": ("LibreFCN", dict(size='r50', nb_classes=3)),
+    "efficientnetv2": ("LibreEfficientNetV2", dict(size='b0', nb_classes=3)),
+    "quicksrnet": ("LibreQuickSRNet", dict(size='m2')),
+    "midas": ("LibreMiDaS", dict(size='s')),
 }
 
 SUPPORT_KEYS = {
@@ -39,7 +42,16 @@ SUPPORT_KEYS = {
     "resnet": ('resnet', 'classify'),
     "mobilenetv4": ('mobilenetv4', 'classify'),
     "fcn": ('fcn', 'semantic'),
+    "efficientnetv2": ('efficientnetv2', 'classify'),
+    "quicksrnet": ('quicksrnet', 'restore'),
+    "midas": ('midas', 'depth'),
 }
+
+#: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).
+OPTIONAL_DEPS = {"midas": "timm"}
+
+#: Support tiers whose exports users can run (accuracy is a label, not a gate: "available" also exports).
+EXPORTABLE_TIERS = ("validated", "available")
 
 
 class _Compiled(Exception):
@@ -81,12 +93,14 @@ def test_axelera_export_leaves_the_users_model_untouched(case, tmp_path, monkeyp
     from libreyolo.export import axelera as ax
     from libreyolo.export import exporter as ex
 
+    if case in OPTIONAL_DEPS:
+        pytest.importorskip(OPTIONAL_DEPS[case])
     cls_name, kwargs = CASES[case]
     from libreyolo.export.support import get_support
 
     family, task = SUPPORT_KEYS[case]
-    if getattr(get_support(family, task, "axelera"), "tier", None) != "validated":
-        pytest.skip(f"{family} {task} is not a validated Axelera export in this checkout")
+    if getattr(get_support(family, task, "axelera"), "tier", None) not in EXPORTABLE_TIERS:
+        pytest.skip(f"{family} {task} is not an exportable Axelera family in this checkout")
     torch.manual_seed(0)
     model = getattr(libreyolo, cls_name)(None, device="cpu", **kwargs)
     net = model.model
