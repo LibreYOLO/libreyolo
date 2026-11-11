@@ -4008,14 +4008,23 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "validated",
     ("yolo9",),
     ("detect",),
     ("axelera",),
     reason=(
-        "Axelera support starts with YOLO-NAS. YOLO9 follows the same raw-head "
-        "path but stays blocked until it has been compiled and measured on a "
-        "Metis device."
+        "INT8 export compiled with Axelera's toolchain; the graph is cut after "
+        "the head convolutions, class-tower activations and the class and "
+        "distance logits are bounded inside the convolutions, and LibreYOLO "
+        "decodes on the host. YOLO9-t, -s, -m and -c on a Metis M.2 Max are "
+        "within 0.6 mAP50-95 of FP32 on a paired 1000-image COCO val2017 subset "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: t, s, m, c (on-device results in docs/axelera.md). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed input size"
     ),
 )
 _add(
@@ -4070,7 +4079,8 @@ def get_support(family: str, task: str, fmt: str) -> SupportEntry:
     if fmt == "axelera":
         return SupportEntry(
             "blocked",
-            "Axelera export is implemented for YOLO-NAS detect, pose and obb only; "
+            "Axelera export is implemented for YOLO-NAS detect, pose and obb and "
+            "YOLO9 detect only; "
             "this family has not been compiled or measured on Axelera Metis.",
         )
     if fmt in {"tensorrt", "openvino"}:
@@ -4151,7 +4161,9 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
     # Full-integer TFLite export has been checked on real weights for these.
     "tflite": frozenset({("yolox", "detect"), ("yolo9", "detect")}),
     # Axelera Metis is INT8-only; see the axelera rows above.
-    "axelera": frozenset({("yolonas", "detect"), ("yolonas", "pose"), ("yolonas", "obb")}),
+    "axelera": frozenset(
+        {("yolonas", "detect"), ("yolonas", "pose"), ("yolonas", "obb"), ("yolo9", "detect")}
+    ),
 }
 
 #: Families whose export accepts FP32 only.

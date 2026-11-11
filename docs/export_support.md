@@ -193,7 +193,7 @@ in preflight.
 | yolo3 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  | ✓ |
 | yolo4 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  | ✓ |
 | yolo7 | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  | ✓ |  |  | ✓ |
-| yolo9 | detect | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | available |  | ✓ | ✓ | available | ✓ |
+| yolo9 | detect | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ |
 | yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available |  | ✓ | ✓ |  | ✓ |
 | yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  | available |  |  | ✓ |
 | yolonas | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ |
@@ -519,6 +519,7 @@ A check mark applies only under any constraint listed here.
 - `yolo9` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolo9` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolo9` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
+- `yolo9` / `detect` / `axelera`: validated sizes: t, s, m, c (on-device results in docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolo9` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with a fixed export canvas; trained MIT checkpoint covered by two-input raw parity, factory reload, metadata, and non-square public predict parity
 - `yolo9` / `detect` / `coreai`: fixed export canvas; trained LibreYOLO9t weights are covered on macOS 27 by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
 - `yolo9_e2e` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
@@ -742,14 +743,14 @@ These converter paths are callable with the recorded validation context.
 - `alexnet` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `alexnet` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `alexnet` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `alexnet` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `alexnet` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `alexnet` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `alexnet` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `alexnet` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
 - `ben2` / `matte` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ben2` / `matte` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ben2` / `matte` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ben2` / `matte` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `ben2` / `matte` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `ben2` / `matte` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ben2` / `matte` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ben2` / `matte` / `coreai`: This family and task have not been validated for Core AI export.
@@ -759,7 +760,7 @@ These converter paths are callable with the recorded validation context.
 - `birefnet` / `matte` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `birefnet` / `matte` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `birefnet` / `matte` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `birefnet` / `matte` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `birefnet` / `matte` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `birefnet` / `matte` / `ncnn`: BiRefNet's decoder requires torchvision deformable convolution, which PNNX/NCNN cannot lower to a runnable graph.
 - `birefnet` / `matte` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `birefnet` / `matte` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -767,7 +768,7 @@ These converter paths are callable with the recorded validation context.
 - `centernet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `centernet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `centernet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `centernet` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `centernet` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `centernet` / `detect` / `ncnn`: NCNN cannot lower CenterNet's portable deformable sampling plus baked top-k decode contract. Use ONNX or TorchScript.
 - `centernet` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `centernet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -775,14 +776,14 @@ These converter paths are callable with the recorded validation context.
 - `clip` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `clip` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `clip` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `clip` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `clip` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `clip` / `classify` / `ncnn`: No parity-valid frozen-class artifact is available for this runtime.
 - `clip` / `classify` / `tflite`: onnx2tf 2.6.7 emits a LiteRT graph whose TRANSPOSE receives a rank-5 permutation for a rank-4 tensor.
 - `clip` / `classify` / `coreml`: No parity-valid frozen-class artifact is available for this runtime.
 - `clip` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `clip` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `clip` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `clip` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `clip` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `clip` / `embed` / `ncnn`: PNNX 20260526 leaves unsupported pnnx.Expression nodes in the CLIP attention graph, so the generated NCNN network has no runnable input.
 - `clip` / `embed` / `tflite`: onnx2tf 2.6.7 emits a LiteRT graph whose TRANSPOSE receives a rank-5 permutation for a rank-4 tensor.
 - `clip` / `embed` / `coreml`: No parity-valid embedding artifact is available for this runtime.
@@ -790,12 +791,12 @@ These converter paths are callable with the recorded validation context.
 - `convnext` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `convnext` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `convnext` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `convnext` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `convnext` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `convnext` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `convnextv2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `convnextv2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `convnextv2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `convnextv2` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `convnextv2` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `convnextv2` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `convnextv2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `convnextv2` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
@@ -850,27 +851,27 @@ These converter paths are callable with the recorded validation context.
 - `deformable_detr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `deformable_detr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `deformable_detr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `deformable_detr` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `deformable_detr` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `deformable_detr` / `detect` / `ncnn`: NCNN export is not supported for Deformable DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deformable_detr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deformable_detr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `deformable_detr` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
 - `deim` / `detect` / `executorch`: The trained nano model captures, lowers, and serializes, but ExecuTorch 1.2 runtime execution fails with an invalid delegated tensor dimension order.
 - `deim` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `deim` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `deim` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `deim` / `detect` / `ncnn`: NCNN export is not supported for DEIM: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deim` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deim` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `deimv2` / `detect` / `executorch`: The trained atto model captures, lowers, and serializes, but the ExecuTorch 1.2 runtime process terminates while executing forward.
 - `deimv2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `deimv2` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `deimv2` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `deimv2` / `detect` / `ncnn`: NCNN export is not supported for DEIMv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deimv2` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deimv2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `deit` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `deit` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `deit` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `deit` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `deit` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `deit` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deit` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `deit` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
@@ -886,7 +887,7 @@ These converter paths are callable with the recorded validation context.
 - `depth_anything` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `depth_anything` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `depth_anything` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `depth_anything` / `depth` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `depth_anything` / `depth` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `depth_anything` / `depth` / `ncnn`: PNNX 20260526 reports unsupported batch-index reshapes in the DINOv2 transformer graph; the produced NCNN artifact fails numeric parity.
 - `depth_anything` / `depth` / `tflite`: onnx2tf 2.6.7 converts the DINOv2 depth graph, but LiteRT 2.1.2 cannot broadcast [1,3,3,32] and [1,72,72,32] in a generated ADD.
 - `depth_anything` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -914,7 +915,7 @@ These converter paths are callable with the recorded validation context.
 - `detr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `detr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `detr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `detr` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `detr` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `detr` / `detect` / `ncnn`: NCNN export is not supported for DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `detr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `detr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -922,13 +923,13 @@ These converter paths are callable with the recorded validation context.
 - `dexined` / `edge` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dexined` / `edge` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dexined` / `edge` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dexined` / `edge` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `dexined` / `edge` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `dexined` / `edge` / `ncnn`: PNNX 20260526 leaves an unsupported Tensor.index channel-reversal node, so the generated NCNN network has no runnable input.
 - `dexined` / `edge` / `coreml`: This edge runtime has no parity-valid artifact for the requested format.
 - `dexined` / `edge` / `coreai`: This edge runtime has no parity-valid artifact for the requested format.
 - `dfine` / `detect` / `executorch`: Strict capture reaches an unsupported ContextVar read in deformable attention. Forcing the manual exported grid-sample path permits serialization, but ExecuTorch 1.2 runtime execution still fails with an invalid delegated tensor dimension order.
 - `dfine` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dfine` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `dfine` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `dfine` / `detect` / `ncnn`: NCNN export is not supported for D-FINE: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dfine` / `detect` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError.
 - `dfine` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -936,7 +937,7 @@ These converter paths are callable with the recorded validation context.
 - `dfine` / `segment` / `paddle`: The trained LibreDFINEn segmentation graph converts and reloads, but mask-logit relative RMS error is 3.52% and minimum matched-mask IoU is only 0.582.
 - `dfine` / `segment` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dfine` / `segment` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dfine` / `segment` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `dfine` / `segment` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `dfine` / `segment` / `ncnn`: NCNN export is not supported for D-FINE: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dfine` / `segment` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError.
 - `dfine` / `segment` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -957,7 +958,7 @@ These converter paths are callable with the recorded validation context.
 - `dinodetr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dinodetr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dinodetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dinodetr` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `dinodetr` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `dinodetr` / `detect` / `ncnn`: NCNN export is not supported for DINO-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dinodetr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `dinodetr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -973,14 +974,14 @@ These converter paths are callable with the recorded validation context.
 - `dinov2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dinov2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dinov2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dinov2` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `dinov2` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `dinov2` / `classify` / `ncnn`: LibreDINOv2 classify export is not implemented for this format.
 - `dinov2` / `classify` / `tflite`: LibreDINOv2 classify export is not implemented for this format.
 - `dinov2` / `classify` / `coreml`: LibreDINOv2 classify export is not implemented for this format.
 - `dinov2` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dinov2` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dinov2` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dinov2` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `dinov2` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `dinov2` / `embed` / `ncnn`: PNNX 20260526 cannot lower the DINOv2 attention graph's batch-axis broadcasts and leaves an unsupported pnnx.Expression node.
 - `dinov2` / `embed` / `coreml`: No parity-valid embedding artifact is available for this runtime.
 - `dinov2` / `embed` / `coreai`: No parity-valid embedding artifact is available for this runtime.
@@ -1011,20 +1012,20 @@ These converter paths are callable with the recorded validation context.
 - `dpflow` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `dpflow` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `ec` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ec` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `ec` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `ec` / `detect` / `ncnn`: NCNN export is not supported for EC: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ec` / `detect` / `tflite`: onnx2tf 2.6.7 emits an ONNX_LAYERNORMALIZATION custom operation that LiteRT 2.1.2 cannot prepare.
 - `ec` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ec` / `pose` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ec` / `pose` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ec` / `pose` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `ec` / `pose` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `ec` / `pose` / `ncnn`: NCNN export is not supported for EC: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ec` / `pose` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ec` / `pose` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ec` / `pose` / `coreai`: This family and task have not been validated for Core AI export.
 - `ec` / `segment` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ec` / `segment` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ec` / `segment` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `ec` / `segment` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `ec` / `segment` / `ncnn`: NCNN export is not supported for EC: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ec` / `segment` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ec` / `segment` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1045,14 +1046,14 @@ These converter paths are callable with the recorded validation context.
 - `efficientdet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `efficientdet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `efficientdet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `efficientdet` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `efficientdet` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `efficientdet` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `efficientdet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `efficientdet` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
 - `efficientnetv2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `efficientnetv2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `efficientnetv2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `efficientnetv2` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `efficientnetv2` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `efficientnetv2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `eomt` / `semantic` / `executorch`: Strict torch.export capture fails on a data-dependent symbolic expression in the mask path before XNNPACK lowering.
 - `eomt` / `semantic` / `paddle`: EoMT instance and panoptic export do not yet have runtime parsing.
@@ -1135,7 +1136,7 @@ These converter paths are callable with the recorded validation context.
 - `faster_rcnn` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `faster_rcnn` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `faster_rcnn` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `faster_rcnn` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `faster_rcnn` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `faster_rcnn` / `detect` / `ncnn`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
 - `faster_rcnn` / `detect` / `tflite`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
 - `faster_rcnn` / `detect` / `coreml`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
@@ -1154,7 +1155,7 @@ These converter paths are callable with the recorded validation context.
 - `fcos` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `fcos` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `fcos` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `fcos` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `fcos` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `fcos` / `detect` / `ncnn`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `tflite`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `coreml`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
@@ -1178,7 +1179,7 @@ These converter paths are callable with the recorded validation context.
 - `feynobg` / `matte` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `feynobg` / `matte` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `feynobg` / `matte` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `feynobg` / `matte` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `feynobg` / `matte` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `feynobg` / `matte` / `ncnn`: BiRefNet's decoder requires torchvision deformable convolution, which PNNX/NCNN cannot lower to a runnable graph.
 - `feynobg` / `matte` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `feynobg` / `matte` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1443,7 +1444,7 @@ These converter paths are callable with the recorded validation context.
 - `levjepa` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `levjepa` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `levjepa` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `levjepa` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `levjepa` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `levjepa` / `embed` / `ncnn`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `levjepa` / `embed` / `tflite`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `levjepa` / `embed` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1562,7 +1563,7 @@ These converter paths are callable with the recorded validation context.
 - `lwdetr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `lwdetr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `lwdetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `lwdetr` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `lwdetr` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `lwdetr` / `detect` / `ncnn`: NCNN export is not supported for LW-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `lwdetr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `lwdetr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1646,14 +1647,14 @@ These converter paths are callable with the recorded validation context.
 - `midas` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `midas` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `midas` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `midas` / `depth` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `midas` / `depth` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `midas` / `depth` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `midas` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `midas` / `depth` / `coreai`: This family and task have not been validated for Core AI export.
 - `mobilenetv4` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `mobilenetv4` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `mobilenetv4` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `mobilenetv4` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `mobilenetv4` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `mobilenetv4` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `mobilesam` / `segment` / `onnx`: Promptable model export is out of scope for the v1 runtime contract.
 - `mobilesam` / `segment` / `torchscript`: Promptable model export is out of scope for the v1 runtime contract.
@@ -1741,7 +1742,7 @@ These converter paths are callable with the recorded validation context.
 - `nafnet` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `nafnet` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `nafnet` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `nafnet` / `restore` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `nafnet` / `restore` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `nafnet` / `restore` / `tflite`: onnx2tf 2.6.7 converts the fixed-canvas graph, but LiteRT 2.1.2 fails at invoke time because input tensor 4539 lacks data.
 - `nafnet` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `neuflowv2` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -1825,7 +1826,7 @@ These converter paths are callable with the recorded validation context.
 - `pe` / `classify` / `paddle`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `pe` / `classify` / `rknn`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
-- `pe` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `pe` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `pe` / `classify` / `ncnn`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `classify` / `tflite`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `classify` / `coreml`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
@@ -1833,14 +1834,14 @@ These converter paths are callable with the recorded validation context.
 - `pe` / `embed` / `paddle`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `pe` / `embed` / `rknn`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
-- `pe` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `pe` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `pe` / `embed` / `ncnn`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `embed` / `tflite`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `embed` / `coreml`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `pe` / `embed` / `coreai`: No parity-validated PE artifact exists for this runtime; the family ships only the ONNX and TorchScript graphs it was tested in.
 - `picodet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `picodet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
-- `picodet` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `picodet` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `picodet` / `detect` / `tflite`: LiteRT 2.1.2 cannot prepare the onnx2tf 2.6.7 artifact because a RESHAPE maps 19,200 input elements to 9,600 output elements.
 - `picodet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `picosam3` / `segment` / `torchscript`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
@@ -1863,7 +1864,7 @@ These converter paths are callable with the recorded validation context.
 - `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ppdoclayoutv3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ppdoclayoutv3` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `ppdoclayoutv3` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `ppdoclayoutv3` / `detect` / `ncnn`: NCNN export is not supported for PP-DocLayoutV3: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ppdoclayoutv3` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ppdoclayoutv3` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1893,7 +1894,7 @@ These converter paths are callable with the recorded validation context.
 - `ppyoloe` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppyoloe` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ppyoloe` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ppyoloe` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `ppyoloe` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `ppyoloe` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ppyoloe` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `ppyoloe` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
@@ -1926,7 +1927,7 @@ These converter paths are callable with the recorded validation context.
 - `quicksrnet` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `quicksrnet` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `quicksrnet` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `quicksrnet` / `restore` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `quicksrnet` / `restore` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `quicksrnet` / `restore` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `quicksrnet` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `quicksrnet` / `restore` / `coreai`: This family and task have not been validated for Core AI export.
@@ -1972,12 +1973,12 @@ These converter paths are callable with the recorded validation context.
 - `realesrgan` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `realesrgan` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `realesrgan` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `realesrgan` / `restore` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `realesrgan` / `restore` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `realesrgan` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `resnet` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `resnet` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `resnet` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `resnet` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `resnet` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `resnet` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `retinanet` / `detect` / `torchscript`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
 - `retinanet` / `detect` / `executorch`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
@@ -1986,7 +1987,7 @@ These converter paths are callable with the recorded validation context.
 - `retinanet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `retinanet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `retinanet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `retinanet` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `retinanet` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `retinanet` / `detect` / `ncnn`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
 - `retinanet` / `detect` / `tflite`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
 - `retinanet` / `detect` / `coreml`: RetinaNet's dynamic P3-P7 anchor graph and external class-aware postprocessing have parity evidence only through ONNX Runtime.
@@ -1999,7 +2000,7 @@ These converter paths are callable with the recorded validation context.
 - `rfdetr` / `segment` / `paddle`: RF-DETR requires ONNX opset 17 and GridSample, while X2Paddle 1.6.0 accepts opset 15 or lower and has no GridSample mapper.
 - `rfdetr` / `segment` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rfdetr` / `segment` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rfdetr` / `segment` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `rfdetr` / `segment` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `rfdetr` / `segment` / `ncnn`: NCNN export is not supported for RF-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rfdetr` / `segment` / `tflite`: onnx2tf 2.4.x assigns an invalid NHWC layout to the segmentation-head Einsum (78 channels versus the required 256), so conversion fails.
 - `rfdetr` / `segment` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2007,7 +2008,7 @@ These converter paths are callable with the recorded validation context.
 - `rfdetr` / `pose` / `paddle`: RF-DETR requires ONNX opset 17 and GridSample, while X2Paddle 1.6.0 accepts opset 15 or lower and has no GridSample mapper.
 - `rfdetr` / `pose` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rfdetr` / `pose` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rfdetr` / `pose` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `rfdetr` / `pose` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `rfdetr` / `pose` / `ncnn`: NCNN export is not supported for RF-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rfdetr` / `pose` / `tflite`: RF-DETR pose-x TFLite conversion exceeded the CPU timebox and 8 GB working memory without producing an artifact on this toolchain.
 - `rfdetr` / `pose` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2015,7 +2016,7 @@ These converter paths are callable with the recorded validation context.
 - `rfdetr` / `obb` / `paddle`: RF-DETR requires ONNX opset 17 and GridSample, while X2Paddle 1.6.0 accepts opset 15 or lower and has no GridSample mapper.
 - `rfdetr` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rfdetr` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rfdetr` / `obb` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `rfdetr` / `obb` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `rfdetr` / `obb` / `ncnn`: NCNN export is not supported for RF-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rfdetr` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rfdetr` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2023,39 +2024,39 @@ These converter paths are callable with the recorded validation context.
 - `riodetrv2` / `obb` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `riodetrv2` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `riodetrv2` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `riodetrv2` / `obb` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `riodetrv2` / `obb` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `riodetrv2` / `obb` / `ncnn`: NCNN export is not supported for RiO-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `riodetrv2` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `riodetrv2` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `riodetrv2` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
 - `rtdetr` / `detect` / `paddle`: The trained graphs require ONNX GridSample at opset 16 or newer, while X2Paddle 1.6.0 accepts opset 15 or lower.
 - `rtdetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtdetr` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `rtdetr` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `rtdetr` / `detect` / `ncnn`: NCNN export is not supported for RT-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetr` / `detect` / `tflite`: LiteRT 2.1.2 rejects the onnx2tf 2.6.7 graph because a CONCATENATION receives incompatible 256 and 1 dimensions.
 - `rtdetrv2` / `detect` / `paddle`: The trained graphs require ONNX GridSample at opset 16 or newer, while X2Paddle 1.6.0 accepts opset 15 or lower.
 - `rtdetrv2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtdetrv2` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `rtdetrv2` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `rtdetrv2` / `detect` / `ncnn`: NCNN export is not supported for RT-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv2` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rtdetrv2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rtdetrv2` / `obb` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `rtdetrv2` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rtdetrv2` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtdetrv2` / `obb` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `rtdetrv2` / `obb` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `rtdetrv2` / `obb` / `ncnn`: NCNN export is not supported for RT-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv2` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rtdetrv2` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rtdetrv2` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
 - `rtdetrv4` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtdetrv4` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `rtdetrv4` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `rtdetrv4` / `detect` / `ncnn`: NCNN export is not supported for RT-DETRv4: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv4` / `detect` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError at the native 640x640 canvas.
 - `rtdetrv4` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rtmdet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `rtmdet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rtmdet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtmdet` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `rtmdet` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `rtmdet` / `detect` / `ncnn`: PNNX 20260526 reports an unregistered nn.Conv2d layer and leaves the RTMDet NCNN graph without usable input blobs.
 - `rtmdet` / `detect` / `tflite`: onnx2tf 2.6.7 exports, reloads, and preserves raw output parity, but at the native 640x640 canvas public boxes fall to 0.911 IoU with 29.9 px coordinate drift.
 - `rtmdet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2278,13 +2279,13 @@ These converter paths are callable with the recorded validation context.
 - `siglip2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `siglip2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `siglip2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `siglip2` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `siglip2` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `siglip2` / `classify` / `ncnn`: No parity-valid frozen-class artifact is available for this runtime.
 - `siglip2` / `classify` / `coreml`: No parity-valid frozen-class artifact is available for this runtime.
 - `siglip2` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `siglip2` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `siglip2` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `siglip2` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `siglip2` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `siglip2` / `embed` / `ncnn`: PNNX 20260526 leaves unsupported pnnx.Expression nodes in the SigLIP2 attention graph, so the generated NCNN network has no runnable input.
 - `siglip2` / `embed` / `coreml`: No parity-valid embedding artifact is available for this runtime.
 - `siglip2` / `embed` / `coreai`: No parity-valid embedding artifact is available for this runtime.
@@ -2334,7 +2335,7 @@ These converter paths are callable with the recorded validation context.
 - `ssd` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ssd` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ssd` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ssd` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `ssd` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `ssd` / `detect` / `ncnn`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
 - `ssd` / `detect` / `tflite`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
 - `ssd` / `detect` / `coreml`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
@@ -2342,7 +2343,7 @@ These converter paths are callable with the recorded validation context.
 - `swin` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `swin` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `swin` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `swin` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `swin` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `swin` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `swin` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `swin` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
@@ -2350,21 +2351,21 @@ These converter paths are callable with the recorded validation context.
 - `swinir` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `swinir` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `swinir` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `swinir` / `restore` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `swinir` / `restore` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `swinir` / `restore` / `ncnn`: PNNX writes NCNN artifacts after reporting unsupported 5-rank Permute operations, but the NCNN runtime process exits while loading or executing the resulting graph.
 - `swinir` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `swinir` / `restore` / `coreai`: The export process DIES rather than hangs, and the kill point moves between runs, which is the signature of memory exhaustion rather than a stuck loop. One run reached 'Step 3/3: Optimizing and writing the asset' before stopping; a later run of the same graph at the same 128 canvas died inside to_coreai() before returning, in both cases with a leaked-semaphore warning and no traceback. Window attention unrolls into a very large number of small ops, so the converter's peak memory is the prime suspect on a 16 GB machine. Next steps: watch RSS during conversion, try the smallest available size at a 64 canvas, and check the system log for a memory kill. Do NOT assume optimize() is at fault; an earlier note said so on the strength of a single run and the second run contradicted it.
 - `teed` / `edge` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `teed` / `edge` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `teed` / `edge` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `teed` / `edge` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `teed` / `edge` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `teed` / `edge` / `ncnn`: PNNX 20260526 leaves an unsupported Tensor.index channel-reversal node, so the generated NCNN network has no runnable input.
 - `teed` / `edge` / `coreml`: This edge runtime has no parity-valid artifact for the requested format.
 - `teed` / `edge` / `coreai`: This edge runtime has no parity-valid artifact for the requested format.
 - `tinyformer` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `tinyformer` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `tinyformer` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `tinyformer` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `tinyformer` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `tinyformer` / `detect` / `ncnn`: NCNN export is not supported for TinyFormer: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `tinyformer` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `tinyformer` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2450,7 +2451,7 @@ These converter paths are callable with the recorded validation context.
 - `vgg` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vgg` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vgg` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `vgg` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `vgg` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `vgg` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `vgg` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vgg` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
@@ -2470,7 +2471,7 @@ These converter paths are callable with the recorded validation context.
 - `vit` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vit` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vit` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `vit` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `vit` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `vit` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `vit` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vit` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
@@ -2490,7 +2491,7 @@ These converter paths are callable with the recorded validation context.
 - `vjepa2` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vjepa2` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vjepa2` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `vjepa2` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `vjepa2` / `embed` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `vjepa2` / `embed` / `ncnn`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `vjepa2` / `embed` / `tflite`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `vjepa2` / `embed` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2498,7 +2499,7 @@ These converter paths are callable with the recorded validation context.
 - `vjepa2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vjepa2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vjepa2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `vjepa2` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `vjepa2` / `classify` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `vjepa2` / `classify` / `ncnn`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `vjepa2` / `classify` / `tflite`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
 - `vjepa2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2597,39 +2598,38 @@ These converter paths are callable with the recorded validation context.
 - `yolo1` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo1` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo1` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo1` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `yolo1` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `yolo1` / `detect` / `tflite`: onnx2tf 2.6.7 emits an ONNX_EINSUM custom operation that LiteRT 2.1.2 cannot prepare at the native 448x448 canvas.
 - `yolo1` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo2` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo2` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo2` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `yolo2` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `yolo2` / `detect` / `ncnn`: The public-domain trained checkpoint exports through PNNX 20260526, but NCNN 20260526 on Windows terminates the runtime with a native integer divide-by-zero during output extraction.
 - `yolo2` / `detect` / `tflite`: LiteRT 2.1.2 cannot prepare the onnx2tf 2.6.7 artifact because a RESHAPE maps 4,225 input elements to one output element.
 - `yolo2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo3` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `yolo3` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `yolo3` / `detect` / `tflite`: A public-domain trained checkpoint exports, reloads, and preserves normalized raw parity, but public top-k class membership changes.
 - `yolo3` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo4` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo4` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo4` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo4` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `yolo4` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `yolo4` / `detect` / `tflite`: onnx2tf 2.6.7 exports and runs, but public boxes fall to 0 IoU with 176 px coordinate drift on the deterministic full model.
 - `yolo4` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo7` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo7` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo7` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo7` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `yolo7` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `yolo7` / `detect` / `tflite`: The converted LiteRT graph changes decoded box coordinates beyond the detector parity tolerance.
 - `yolo7` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
-- `yolo9` / `detect` / `axelera`: Axelera support starts with YOLO-NAS. YOLO9 follows the same raw-head path but stays blocked until it has been compiled and measured on a Metis device.
-- `yolo9_e2e` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `yolo9_e2e` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `yolo9_e2e` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo9_p2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo9_p2` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `yolo9_p2` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `yolo9_p2` / `detect` / `tflite`: onnx2tf 2.6.9 exports a runnable artifact, but public top-k class membership changes after LiteRT 2.1.2 conversion.
 - `yolo9_p2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolonas` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2647,11 +2647,11 @@ These converter paths are callable with the recorded validation context.
 - `yolox` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolox` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolox` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolox` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `yolox` / `detect` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `zipdepth` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `zipdepth` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `zipdepth` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `zipdepth` / `depth` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb only; this family has not been compiled or measured on Axelera Metis.
+- `zipdepth` / `depth` / `axelera`: Axelera export is implemented for YOLO-NAS detect, pose and obb and YOLO9 detect only; this family has not been compiled or measured on Axelera Metis.
 - `zipdepth` / `depth` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct conversion does not support the edge-mode Pad operation in ZipDepth's convex upsampler.
 - `zipdepth` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `trellis2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).

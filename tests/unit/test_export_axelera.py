@@ -414,6 +414,37 @@ def test_export_writes_the_artifact_directory(exporter_sdk, tmp_path, task, capl
         assert "output_windows" not in meta
 
 
+def test_yolo9_export_uses_the_yolo9_raw_head_layout(exporter_sdk, tmp_path):
+    import torch
+    import yaml
+
+    from libreyolo import LibreYOLO9
+    from libreyolo.postprocess.yolonas_raw import (
+        YOLO9_RAW_OUTPUT_WINDOWS,
+        raw_head_output_names,
+    )
+
+    torch.manual_seed(0)
+    model = LibreYOLO9(None, size="t", nb_classes=3, device="cpu")
+    destination = tmp_path / "y9_axelera_model"
+    model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+
+    layout = "yolo9_raw_heads_v1"
+    assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout)
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["model_family"] == "yolo9" and meta["task"] == "detect"
+    assert meta["output_layout"] == layout
+    assert meta["output_names"] == exporter_sdk.seen["device_order"]
+    assert meta["strides"] == [8, 16, 32] and meta["reg_max"] == 16
+    assert meta["grid_cell_offset"] == 0.5
+    # Class logits are bounded like the TFLite INT8 export's; bins too.
+    assert meta["output_windows"] == {
+        part: list(bounds) for part, bounds in YOLO9_RAW_OUTPUT_WINDOWS.items()
+    }
+    assert meta["output_windows"]["cls"] == [-8.0, 8.0]
+    assert "weights_license" not in meta
+
+
 def test_default_output_path_and_reexport_replaces(exporter_sdk, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     data = _dataset(tmp_path)
@@ -655,8 +686,10 @@ def test_support_matrix_rows_for_axelera():
     assert "DOTA" in get_support("yolonas", "obb", "axelera").reason
     assert "validated sizes: m, l" in get_support("yolonas", "pose", "axelera").constraint
     assert sorted(REFUSED_SIZES[("yolonas", "pose", "axelera")]) == ["n", "s"]
-    yolo9 = get_support("yolo9", "detect", "axelera")
-    assert yolo9.tier == "blocked" and "YOLO-NAS" in yolo9.reason
+    assert get_support("yolo9", "detect", "axelera").tier in {"available", "validated"}
+    assert precision_support("yolo9", "detect", "axelera") == (True, True)
+    for family in ("yolo9_e2e", "yolo9_p2"):
+        assert get_support(family, "detect", "axelera").tier == "blocked"
     rfdetr = get_support("rfdetr", "detect", "axelera")
     assert rfdetr.tier == "blocked" and "attention" in rfdetr.reason
     other = get_support("yolox", "detect", "axelera")

@@ -443,6 +443,106 @@ class _YOLONASRawHeadsWrapper(torch.nn.Module):
         return tuple(outputs)
 
 
+#: Pre-activation bound for YOLO9 class towers in raw-head exports.
+_YOLO9_CLASS_ACTIVATION_BOUND = 32.0
+
+
+def _bounded_conv_bn_act(block: torch.nn.Module, x: torch.Tensor, bound: float) -> torch.Tensor:
+    """``block(x)`` for a Conv -> BatchNorm -> activation block, with the
+    pre-activation clamped to ``[-bound, bound]``.
+
+    BatchNorm and ``1 / bound`` are folded into the convolution and the clamp
+    is ``Clip(-1, 1)`` (HardTanh), which integer converters fuse into the
+    convolution, so no int8 tensor carries the unbounded range. The scale is
+    restored before the activation; SiLU of a bounded input is bounded.
+    """
+    conv, bn = block.conv, block.bn
+    scale = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+    weight = conv.weight * (scale / bound).reshape(-1, 1, 1, 1)
+    bias = (bn.bias - bn.running_mean * scale) / bound
+    if conv.bias is not None:
+        bias = bias + conv.bias * scale / bound
+    z = torch.nn.functional.conv2d(
+        x, weight, bias, conv.stride, conv.padding, conv.dilation, conv.groups
+    )
+    return block.act(z.clamp(-1.0, 1.0) * bound)
+
+
+class _YOLO9RawHeadsWrapper(torch.nn.Module):
+    """YOLO9 graph cut right after each level's last box and class convs.
+
+    Returns ``reg`` (``4 * reg_max`` distance-bin logits) and ``cls`` (class
+    logits) per level, stride 8, 16, 32, as layout ``yolo9_raw_heads_v1``.
+    The host rebuilds the decoded export's ``(B, 4 + nc, N)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_yolo9_raw`).
+    ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`; the
+    default is ``YOLO9_RAW_OUTPUT_WINDOWS``.
+
+    ``class_activation_bound`` caps the pre-activation of each class tower's
+    second convolution at +-bound (:func:`_bounded_conv_bn_act`). Its SiLU
+    output reaches about +540 on YOLO9-t while 99.9% of values stay below
+    about 50, so one per-tensor int8 scale leaves the class evidence a few
+    steps; the large values only push background logits further down, and
+    bounding them at 32 changes no float32 detection (COCO). ``None`` keeps
+    the plain tower.
+    """
+
+    output_layout = "yolo9_raw_heads_v1"
+    #: Anchors sit at cell centres (``k * stride + stride // 2``).
+    grid_cell_offset = 0.5
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str = "detect",
+        output_windows: dict[str, tuple[float, float]] | None = None,
+        class_activation_bound: float | None = _YOLO9_CLASS_ACTIVATION_BOUND,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import (
+            YOLO9_RAW_OUTPUT_WINDOWS,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        if task != "detect":
+            raise ValueError(f"YOLO9 raw-head export supports detect only, got {task!r}.")
+        self.model = model
+        self.task = task
+        head = model.head
+        self.strides = tuple(int(stride) for stride in head.strides)
+        self.reg_max = int(head.reg_max)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        if output_windows is None:
+            output_windows = YOLO9_RAW_OUTPUT_WINDOWS
+        self.output_windows = check_output_windows(self.output_layout, output_windows)
+        if class_activation_bound is not None and not class_activation_bound > 0:
+            raise ValueError(
+                f"class_activation_bound must be positive, got {class_activation_bound!r}."
+            )
+        self.class_activation_bound = class_activation_bound
+
+    def forward(self, x):
+        feats = self.model.neck(*self.model.backbone(x))
+        head = self.model.head
+        outputs = []
+        for box_tower, class_tower, feat in zip(head.anchor_convs, head.class_convs, feats):
+            outputs.append(self._final_conv("reg", box_tower[-1], box_tower[:-1](feat)))
+            hidden = class_tower[0](feat)
+            if self.class_activation_bound is None:
+                hidden = class_tower[1](hidden)
+            else:
+                hidden = _bounded_conv_bn_act(class_tower[1], hidden, self.class_activation_bound)
+            outputs.append(self._final_conv("cls", class_tower[2], hidden))
+        return tuple(outputs)
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+
 def _fused_yolonas_copy(model: torch.nn.Module, *, full_fusion: bool = True):
     """Deep-copied YOLO-NAS network with its QARepVGG branches fused.
 
@@ -3144,18 +3244,26 @@ class AxeleraExporter(BaseExporter):
 
         imgsz = (int(dummy.shape[-2]), int(dummy.shape[-1]))
         live = self.model.model
-        fused = _fused_yolonas_copy(live, full_fusion=True)
-        samples = self._equalization_samples() if self._task() == "pose" else []
-        if self._task() == "pose":
-            _equalize_yolonas_pose_heads(fused, samples)
-        # Fusion and equalization must leave the FP32 raw outputs unchanged.
-        self._fusion_parity = _check_yolonas_fusion_parity(
-            live, fused, self._task(), imgsz
-        )
-        self._pose_bounds = (
-            _bound_yolonas_pose_inputs(fused, samples) if samples else {}
-        )
-        self._raw_wrapper = _YOLONASRawHeadsWrapper(fused, self._task()).eval()
+        if self.model._get_model_name() == "yolo9":
+            # No reparameterization step; BatchNorm folds into the convs
+            # during the ONNX export.
+            self._pose_bounds = {}
+            self._raw_wrapper = _YOLO9RawHeadsWrapper(
+                copy.deepcopy(live).eval(), self._task()
+            ).eval()
+        else:
+            fused = _fused_yolonas_copy(live, full_fusion=True)
+            samples = self._equalization_samples() if self._task() == "pose" else []
+            if self._task() == "pose":
+                _equalize_yolonas_pose_heads(fused, samples)
+            # Fusion and equalization must leave the FP32 raw outputs unchanged.
+            self._fusion_parity = _check_yolonas_fusion_parity(
+                live, fused, self._task(), imgsz
+            )
+            self._pose_bounds = (
+                _bound_yolonas_pose_inputs(fused, samples) if samples else {}
+            )
+            self._raw_wrapper = _YOLONASRawHeadsWrapper(fused, self._task()).eval()
         out = Path(output_path)
         onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
         logger.info("Step 1/2: Exporting raw-head ONNX (%s)", onnx_output)
@@ -3175,7 +3283,10 @@ class AxeleraExporter(BaseExporter):
     def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
         meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
         wrapper = self._raw_wrapper
-        heads = wrapper.model.heads
+        heads = getattr(wrapper.model, "heads", None)  # YOLO-NAS heads
+        grid_cell_offset = (
+            heads.grid_cell_offset if heads is not None else wrapper.grid_cell_offset
+        )
         meta.update(
             {
                 "format": "axelera",
@@ -3186,7 +3297,7 @@ class AxeleraExporter(BaseExporter):
                 "output_names": list(wrapper.output_names),
                 "strides": list(wrapper.strides),
                 "reg_max": wrapper.reg_max,
-                "grid_cell_offset": float(heads.grid_cell_offset),
+                "grid_cell_offset": float(grid_cell_offset),
             }
         )
         if getattr(self, "_pose_bounds", None):

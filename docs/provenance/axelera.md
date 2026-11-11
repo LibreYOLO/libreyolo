@@ -1,7 +1,8 @@
 # Axelera Metis export integration
 
-- **LibreYOLO modules:** `libreyolo/export/axelera.py`, `AxeleraExporter` and
-  `_YOLONASRawHeadsWrapper` in `libreyolo/export/exporter.py`,
+- **LibreYOLO modules:** `libreyolo/export/axelera.py`, `AxeleraExporter`,
+  `_YOLONASRawHeadsWrapper` and `_YOLO9RawHeadsWrapper` in
+  `libreyolo/export/exporter.py`,
   `libreyolo/backends/axelera.py`, `libreyolo/postprocess/yolonas_raw.py`
 - **Origin:** original code written for this integration
 - **Runtime/compiler:** `axelera-devkit` and `axelera-rt` (Voyager SDK 1.9.0),
@@ -12,6 +13,10 @@
   YOLO-NAS decode (SuperGradients-derived, Apache-2.0, listed in
   `THIRD_PARTY_NOTICES.txt`), verified against it by
   `tests/unit/test_yolonas_raw_heads.py`
+- **YOLO9 decode:** `decode_yolo9_raw` reimplements LibreYOLO's own YOLO9 head
+  decode (`libreyolo/models/yolo9/nn.py`) with the same helpers, verified
+  against it by `tests/unit/test_yolo9_raw_heads.py`; the class-tower
+  activation bound and output windows are original code
 - **Evidence:** fake-SDK unit tests; real compilation and on-device validation
   on a Metis M.2 Max, recorded in `docs/axelera.md`
 - **Evaluation data:** COCO val2017 and DOTA-v2.0 subsets used locally for

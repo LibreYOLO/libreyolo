@@ -175,3 +175,27 @@ def test_pose_s_export_is_refused(tmp_path):
     model = LibreYOLO("LibreYOLONASs-pose.pt")
     with pytest.raises(NotImplementedError, match="use m or l"):
         model.export(format="axelera", data="coco128.yaml", output_path=str(tmp_path / "pose_axelera_model"))
+
+
+def test_yolo9_smoke(tmp_path, sample_image):
+    """YOLO9-t: export, then the same people as the PyTorch model on the device."""
+    import yaml
+
+    from libreyolo import LibreYOLO
+
+    model = LibreYOLO("LibreYOLO9t.pt")
+    path = Path(
+        model.export(
+            format="axelera", data="coco128.yaml", fraction=0.5,
+            output_path=str(tmp_path / "LibreYOLO9t_axelera_model"),
+        )
+    )
+    meta = yaml.safe_load((path / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "yolo9_raw_heads_v1"
+    npu = LibreYOLO(str(path))
+    assert type(npu).__name__ == "AxeleraBackend" and npu.model_family == "yolo9"
+    reference = model(sample_image, conf=0.5)
+    on_device = npu(sample_image, conf=0.5)
+    names = [npu.names[int(c)] for c in on_device.boxes.cls]
+    assert "person" in names
+    assert abs(len(on_device) - len(reference)) <= max(1, len(reference) // 5)

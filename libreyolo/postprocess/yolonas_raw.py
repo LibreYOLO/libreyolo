@@ -1,11 +1,12 @@
-"""Host-side decode for YOLO-NAS raw head outputs.
+"""Host-side decode for YOLO-NAS and YOLO9 raw head outputs.
 
-Some accelerators run a YOLO-NAS graph cut right after the head's last
-convolutions and leave the decode to the host: the DFL distance decode, the
-anchor grid, the sigmoids and the keypoint / rotated-box geometry are poorly
-suited to integer hardware. The functions here rebuild, in numpy, exactly the
-tensors the decoded LibreYOLO export emits, so the shared ``_parse_yolonas*``
-parsers in ``backends/base.py`` consume them unchanged.
+Some accelerators run a YOLO-NAS or YOLO9 graph cut right after the head's
+last convolutions and leave the decode to the host: the DFL distance decode,
+the anchor grid, the sigmoids and the keypoint / rotated-box geometry are
+poorly suited to integer hardware. The functions here rebuild, in numpy,
+exactly the tensors the decoded LibreYOLO export emits, so the shared
+``_parse_yolonas*`` / ``_parse_yolo9`` parsers in ``backends/base.py`` consume
+them unchanged.
 
 Each layout is named and versioned (``output_layout`` in export metadata).
 Outputs are ordered level by level (stride 8, 16, 32), and within a level in
@@ -21,6 +22,9 @@ the order the layout lists:
 ``yolonas_obb_raw_heads_v1``   ``reg`` [B, 2*(reg_max+1), H, W],
                                ``cls`` [B, nc, H, W],
                                ``offset`` [B, 2, H, W], ``rot`` [B, 1, H, W]
+``yolo9_raw_heads_v1``         ``reg`` [B, 4*reg_max, H, W] (YOLO9's
+                               ``reg_max`` counts the bins, 0..reg_max-1),
+                               ``cls`` [B, nc, H, W]
 =============================  ===========================================
 
 An export may also store some parts *windowed* (``output_windows`` in export
@@ -45,6 +49,7 @@ YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "yolonas_raw_heads_v1": ("reg", "cls"),
     "yolonas_pose_raw_heads_v1": ("reg", "cls", "pose"),
     "yolonas_obb_raw_heads_v1": ("reg", "cls", "offset", "rot"),
+    "yolo9_raw_heads_v1": ("reg", "cls"),
 }
 
 YOLONAS_RAW_LAYOUT_BY_TASK: dict[str, str] = {
@@ -64,6 +69,19 @@ YOLONAS_RAW_LAYOUT_BY_TASK: dict[str, str] = {
 # offsets are: [-10, 18] gives a finer INT8 step than +-20.
 YOLONAS_RAW_OUTPUT_WINDOWS_BY_TASK: dict[str, dict[str, tuple[float, float]]] = {
     "pose": {"cls": (-8.0, 8.0), "reg": (-12.0, 12.0), "pose": (-10.0, 18.0)},
+}
+
+# YOLO9 detect windows (yolo9_raw_heads_v1). Background class logits reach
+# about -450 at stride 16 on YOLO9-t (one int8 step ~1.8 logits); where an
+# object is detected the best class logit stays within [-1.1, +3.4] on every
+# size. Distance-bin logits differ by size: t and s span about [-38, +10]
+# and need bins down to about -12 near objects, m and c span about [-9, +19]
+# with top bins up to +19. The windows below cover both and change no
+# float32 result (COCO). The class bound matches _INT8_LOGIT_BOUND, which the
+# full-integer TFLite export uses for the same reason.
+YOLO9_RAW_OUTPUT_WINDOWS: dict[str, tuple[float, float]] = {
+    "cls": (-8.0, 8.0),
+    "reg": (-12.0, 20.0),
 }
 
 # A windowed part is mapped from [low, high] onto [0, OUTPUT_WINDOW_SPAN].
@@ -334,10 +352,44 @@ def decode_yolonas_obb_raw(
     return [boxes, _class_probabilities(levels)]
 
 
+def decode_yolo9_raw(
+    outputs: Sequence[np.ndarray],
+    *,
+    strides: Sequence[int] = YOLONAS_STRIDES,
+    reg_max: int = 16,
+    grid_cell_offset: float = YOLONAS_GRID_CELL_OFFSET,
+) -> list[np.ndarray]:
+    """Decode YOLO9 heads to ``[(B, 4 + nc, N)]``: xyxy px, then class scores.
+
+    The single tensor matches the decoded YOLO9 export: anchors at the cell
+    centres, distances as the softmax expectation over ``reg_max`` bins
+    scaled by the level stride.
+    """
+    layout = "yolo9_raw_heads_v1"
+    levels = _split_levels(outputs, layout, strides)
+    _check_strides(levels, strides)
+    batch, num_classes = levels[0]["cls"].shape[:2]
+    total = sum(level["cls"].shape[2] * level["cls"].shape[3] for level in levels)
+    # Filled as [B, N, 4 + nc] and returned as a [B, 4 + nc, N] view, so the
+    # parser's per-image transpose is contiguous again.
+    out = np.empty((batch, total, 4 + num_classes), dtype=np.float32)
+    start = 0
+    for level, stride in zip(levels, strides):
+        _, _, h, w = level["cls"].shape
+        anchors = _anchor_grid(h, w, float(grid_cell_offset))
+        # YOLO9 bins are 0..reg_max-1, i.e. YOLO-NAS's reg_max - 1.
+        distances = _dfl_expectation(level["reg"], 4, int(reg_max) - 1)
+        _write_xyxy(out[:, start : start + h * w, :4], distances, anchors, np.float32(stride))
+        start += h * w
+    out[..., 4:] = _class_probabilities(levels)
+    return [out.transpose(0, 2, 1)]
+
+
 _DECODERS = {
     "yolonas_raw_heads_v1": decode_yolonas_raw,
     "yolonas_pose_raw_heads_v1": decode_yolonas_pose_raw,
     "yolonas_obb_raw_heads_v1": decode_yolonas_obb_raw,
+    "yolo9_raw_heads_v1": decode_yolo9_raw,
 }
 
 
@@ -411,6 +463,7 @@ def decode_raw_heads(
 
 __all__ = [
     "OUTPUT_WINDOW_SPAN",
+    "YOLO9_RAW_OUTPUT_WINDOWS",
     "YOLONAS_GRID_CELL_OFFSET",
     "YOLONAS_RAW_LAYOUTS",
     "YOLONAS_RAW_LAYOUT_BY_TASK",
@@ -419,6 +472,7 @@ __all__ = [
     "YOLONAS_STRIDES",
     "check_output_windows",
     "decode_raw_heads",
+    "decode_yolo9_raw",
     "decode_yolonas_obb_raw",
     "decode_yolonas_pose_raw",
     "decode_yolonas_raw",

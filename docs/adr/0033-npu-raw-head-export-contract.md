@@ -21,8 +21,10 @@ decoded export emits, so the shared backend parsers are reused unchanged.
 
 - The artifact metadata names the contract in `output_layout`
   (`yolonas_raw_heads_v1`, `yolonas_pose_raw_heads_v1`,
-  `yolonas_obb_raw_heads_v1`) and carries the decode constants (`strides`,
-  `reg_max`, `grid_cell_offset`, pose offsets).
+  `yolonas_obb_raw_heads_v1`, `yolo9_raw_heads_v1`) and carries the decode
+  constants (`strides`, `reg_max`, `grid_cell_offset`, pose offsets). YOLO9's
+  `reg_max` counts the distance bins (0..reg_max-1); YOLO-NAS's is the last
+  bin index.
 - `output_names` lists the outputs in the order the compiled model returns
   them; compilers may reorder graph outputs, so backends map by name.
 - `output_windows` (optional, `{part: [low, high]}`) marks parts whose

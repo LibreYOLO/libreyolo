@@ -13,7 +13,8 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLO-NAS | detect | s, m, l | see `docs/export_support.md` |
 | YOLO-NAS | pose | m, l (n and s refused, section 7) | see `docs/export_support.md` |
 | YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) |
-| YOLO9, RF-DETR, other families | all | all | blocked (section 11) |
+| YOLO9 | detect | t, s, m, c | see `docs/export_support.md` |
+| YOLO9-E2E, YOLO9-P2, RF-DETR, other families | all | all | blocked (section 11) |
 
 The tiers in `docs/export_support.md` are generated from
 `libreyolo/export/support.py`; `libreyolo formats --family yolonas` prints
@@ -76,6 +77,7 @@ path = model.export(format="axelera")   # weights/LibreYOLONASs-converted_axeler
 
 ```bash
 libreyolo export model=LibreYOLONASs.pt format=axelera
+libreyolo export model=LibreYOLO9t.pt format=axelera   # weights/LibreYOLO9t_axelera_model
 ```
 
 | Argument | Axelera behavior |
@@ -182,6 +184,10 @@ not comparable to published full-set results; the deltas are the point.
 | YOLO-NAS-R-s | obb | DOTA-v2.0 val, 300 tiles | 64 DOTA tiles | 0.3844 | 0.3747 | -0.97 |
 | YOLO-NAS-R-m | obb | DOTA-v2.0 val, 300 tiles | 64 DOTA tiles | 0.4141 | 0.4105 | -0.36 |
 | YOLO-NAS-R-l | obb | DOTA-v2.0 val, 300 tiles | 64 DOTA tiles | 0.4327 | 0.4348 | +0.21 |
+| YOLO9-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.3669 | 0.3624 | -0.45 |
+| YOLO9-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4502 | 0.4450 | -0.52 |
+| YOLO9-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4913 | 0.4896 | -0.17 |
+| YOLO9-c | detect | COCO val2017, 1000 images | 64 coco128 | 0.5127 | 0.5093 | -0.34 |
 
 Values are mAP50-95 (box, rotated box for obb, keypoint OKS for pose). On
 mAP50 the obb deltas are -1.36 (s), -0.11 (m) and -0.43 (l).
@@ -194,6 +200,9 @@ pose-s measured 0.0758. Pose m and l pass; n and s stay outside the
 one-point bar and their export is refused (best measured: n -1.11 with
 person-image calibration, s -2.21 with an extra cap on the keypoint branch,
 which helps s but costs n, m and l several points).
+
+YOLO9 FP32 values come from the same raw-head graph and host decode as the
+device run; the PyTorch model gives the same numbers.
 
 Calibration scheme, YOLO-NAS-s detect, device, COCO val2017 1000 images:
 
@@ -229,7 +238,23 @@ then decodes the raw head outputs on the host (distribution-to-distance box
 decode, grid anchors, sigmoids, keypoint offsets) and runs the usual NMS.
 Box coordinates and probabilities never pass through an 8-bit tensor, which
 keeps their resolution. The decode lives in `libreyolo/postprocess/yolonas_raw.py`
-and is unit-tested against the in-graph decode.
+and is unit-tested against the in-graph decode. YOLO9 follows the same
+path: its graph stops after each level's last box and class convolutions
+(layout `yolo9_raw_heads_v1`) and the host rebuilds the decoded export's
+tensor.
+
+Integer quantization gives every tensor one scale over its calibrated range,
+so a few extreme values can leave the useful ones only a handful of steps.
+The export bounds such tensors inside the graph, with the scaling folded into
+the convolutions and the clamp expressed as a fused ReLU6 or HardTanh:
+
+- raw head outputs whose range dwarfs the useful part are emitted through a
+  window (`output_windows` below; YOLO-NAS pose, YOLO9);
+- in YOLO9 the class towers' second activation reaches about +540 while
+  99.9% of it stays below about 50, so its pre-activation is clamped to
+  [-32, 32]. Without the bound YOLO9-t lost 5.7 mAP50-95 on the device.
+
+None of these bounds changes a float32 detection on COCO.
 
 ```text
 image -> host preprocess -> [Metis: backbone, neck, head convs] -> raw heads
@@ -245,7 +270,7 @@ image -> host preprocess -> [Metis: backbone, neck, head convs] -> raw heads
 | `axm` | the `.axm` file name |
 | `output_layout` | raw output contract, for example `yolonas_raw_heads_v1` |
 | `output_names` | output names in the order the compiled model returns them |
-| `output_windows` | parts emitted through a ReLU6 window, as `[low, high]` logit bounds (pose exports); the backend maps them back before decoding |
+| `output_windows` | parts emitted through a ReLU6 window, as `[low, high]` logit bounds (YOLO-NAS pose and YOLO9 exports); the backend maps them back before decoding |
 | `strides`, `reg_max`, `grid_cell_offset` | decode constants |
 | `axelera` | SDK version, quantization scheme, cores, resources, compiler overrides, calibration source and image count |
 | `weights_license` | reminder of the weight license |
@@ -274,7 +299,7 @@ compiles their own.
 
 - YOLO-NAS-R (obb): validated on 300 DOTA-v2.0 tiles (the paired set prepared for this work), not on a 1000-image set.
 - YOLO-NAS-pose n and s: refused; keypoint mAP50-95 stays 1.1 to 2.2 points below FP32 at best (section 7). Use m or l.
-- YOLO9: blocked; it uses the same raw-head approach and is planned next.
+- YOLO9-E2E and YOLO9-P2: not compiled or measured; blocked.
 - RF-DETR and other transformer families: attention, data-dependent TopK and
   grid sampling are outside what the compiler places on the AIPU, and the host
   can only run operators before or after the accelerated graph.

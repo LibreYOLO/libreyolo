@@ -153,23 +153,30 @@ def _dataset(tmp_path, n=3):
 
 
 def _export(tmp_path, task="detect"):
+    """``task`` is a YOLO-NAS task, or ``"yolo9"`` for a YOLO9-t detector."""
     import torch
 
-    from libreyolo import LibreYOLONAS
+    from libreyolo import LibreYOLO9, LibreYOLONAS
 
     torch.manual_seed(0)
-    size, nc = {"detect": ("s", 3), "pose": ("n", 1)}[task]
-    model = LibreYOLONAS(None, size=size, nb_classes=nc, task=task, device="cpu")
-    with torch.no_grad():  # sharper class logits so a few detections pass conf
-        for head in (model.model.heads.head1, model.model.heads.head2, model.model.heads.head3):
-            head.cls_pred.bias.add_(4.0)
+    if task == "yolo9":
+        model = LibreYOLO9(None, size="t", nb_classes=3, device="cpu")
+        with torch.no_grad():  # class bias starts at -10; lift it so boxes pass conf
+            for tower in model.model.head.class_convs:
+                tower[-1].bias.fill_(0.0)
+    else:
+        size, nc = {"detect": ("s", 3), "pose": ("n", 1)}[task]
+        model = LibreYOLONAS(None, size=size, nb_classes=nc, task=task, device="cpu")
+        with torch.no_grad():  # sharper class logits so a few detections pass conf
+            for head in (model.model.heads.head1, model.model.heads.head2, model.model.heads.head3):
+                head.cls_pred.bias.add_(4.0)
     from unittest import mock
 
-    # The pose input bound changes FP32 keypoints by design (tested in
-    # test_yolonas_raw_heads); without it these stay strict decode tests.
     from libreyolo.export.support import REFUSED_SIZES
 
-    # The small test pose model is size n, refused on Metis by measurement.
+    # The pose input bound changes FP32 keypoints by design (tested in
+    # test_yolonas_raw_heads); without it these stay strict decode tests. The
+    # small test pose model is size n, refused on Metis by measurement.
     with mock.patch("libreyolo.export.exporter._bound_yolonas_pose_inputs", lambda *a, **k: {}), \
             mock.patch.dict(REFUSED_SIZES, {("yolonas", "pose", "axelera"): {}}):
         out = model.export(
@@ -237,6 +244,41 @@ def test_backend_matches_the_exported_graph(exports, tmp_path, task):
     np.testing.assert_array_equal(actual.boxes.cls, expected.boxes.cls)
     if task == "pose":
         np.testing.assert_allclose(actual.keypoints.data, expected.keypoints.data, atol=1e-3)
+
+
+def test_yolo9_backend_matches_the_exported_graph(exports, tmp_path):
+    """YOLO9 raw heads decode on the host to the decoded graph's tensor, and
+    predictions equal the ONNX backend's."""
+    import torch
+
+    from libreyolo import LibreYOLO
+
+    model, artifact = exports("yolo9")
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "yolo9_raw_heads_v1" and meta["reg_max"] == 16
+    backend = LibreYOLO(str(artifact))
+    assert type(backend).__name__ == "AxeleraBackend"
+    assert backend.model_family == "yolo9" and backend.task == "detect"
+
+    image = _image()
+    blob = model._preprocess(image, input_size=96)[0]
+    blob = blob.numpy() if hasattr(blob, "numpy") else np.asarray(blob)
+    with torch.no_grad():
+        reference = model.model.eval()(torch.from_numpy(blob))["predictions"].numpy()
+    (decoded,) = backend._run_inference(blob)
+    assert decoded.shape == reference.shape  # (1, 4 + nc, N)
+    np.testing.assert_allclose(decoded[:, :4], reference[:, :4], rtol=1e-6, atol=1e-3)
+    np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=1e-5)
+
+    onnx_backend = LibreYOLO(
+        model.export(format="onnx", imgsz=96, dynamic=False, output_path=str(tmp_path / "ref.onnx"))
+    )
+    expected = onnx_backend(image, conf=0.3)
+    actual = backend(image, conf=0.3)
+    assert len(expected) > 0 and len(actual) == len(expected)
+    np.testing.assert_allclose(actual.boxes.xyxy, expected.boxes.xyxy, atol=1e-3)
+    np.testing.assert_allclose(actual.boxes.conf, expected.boxes.conf, atol=1e-5)
+    np.testing.assert_array_equal(actual.boxes.cls, expected.boxes.cls)
 
 
 def test_axm_path_and_batched_predict(exports):
