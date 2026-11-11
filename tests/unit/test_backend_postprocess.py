@@ -1948,6 +1948,36 @@ def test_exported_mask_rcnn_backend_validates_with_the_mask_rcnn_geometry():
     assert validator._slice_batch_predictions(outputs, 0) is outputs
 
 
+def test_yolo1_validates_with_the_stretch_it_predicts_with():
+    """YOLOv1 validated with the Darknet letterbox (native) or a BGR stretch
+    (exported); its FC head and postprocess expect an RGB stretch."""
+    import numpy as np
+
+    from libreyolo.models.darknet.preprocess import preprocess_numpy_stretch
+    from libreyolo.models.yolo1.model import LibreYOLO1
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "yolo1"
+    backend.task = "detect"
+    backend.imgsz = 448
+    pre = backend._get_val_preprocessor(448)
+    assert type(pre) is LibreYOLO1.val_preprocessor_class
+    assert type(pre).__name__ == "YOLO1ValPreprocessor"
+
+    bgr = np.random.default_rng(0).integers(0, 256, (30, 50, 3), dtype=np.uint8)
+    targets = np.array([[5.0, 6.0, 25.0, 16.0, 3.0]], dtype=np.float32)
+    chw, padded = pre(bgr, targets, (448, 448))
+    expected, _ = preprocess_numpy_stretch(np.ascontiguousarray(bgr[:, :, ::-1]), 448)
+    np.testing.assert_array_equal(chw, expected)
+    np.testing.assert_allclose(
+        padded[0], [5 * 448 / 50, 6 * 448 / 30, 25 * 448 / 50, 16 * 448 / 30, 3]
+    )
+
+
 def test_exported_yolo7_backend_validates_like_the_pytorch_model():
     """StandardValPreprocessor feeds 0-255 pixels; YOLOv7 expects 0-1."""
 

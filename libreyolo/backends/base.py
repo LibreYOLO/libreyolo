@@ -4539,6 +4539,7 @@ class BaseBackend(ABC):
             RTMDetValPreprocessor,
             SSDValPreprocessor,
             StandardValPreprocessor,
+            YOLO1ValPreprocessor,
             YOLO9E2EValPreprocessor,
             YOLO9ValPreprocessor,
             YOLONASOBBValPreprocessor,
@@ -4604,6 +4605,8 @@ class BaseBackend(ABC):
             "yolo2": DarknetValPreprocessor,
             "yolo3": DarknetValPreprocessor,
             "yolo4": DarknetValPreprocessor,
+            # YOLOv1's FC head takes a plain stretch, not the letterbox.
+            "yolo1": YOLO1ValPreprocessor,
             # YOLOv7 validates like YOLO9 (letterbox, RGB, 0-1).
             "yolo7": YOLO9ValPreprocessor,
             # RetinaNet: upstream min/max aspect resize, ImageNet

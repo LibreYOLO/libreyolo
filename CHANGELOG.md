@@ -122,6 +122,9 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Validating a YOLOv1 model uses the stretch resize it predicts with.**
+  `val()` on the PyTorch YOLOv1 model used the Darknet letterbox of YOLOv2/v3/v4, while its fully-connected head and postprocessing expect a plain square stretch, so every box was misplaced; an ONNX or other exported YOLOv1 model instead used the standard preprocessor, a stretch on BGR pixels. On the 100-image COCO val2017 set relabelled to the 20 VOC classes, `LibreYOLO1b.pt` scored mAP50-95 0.0293 in PyTorch and 0.1745 as ONNX. Both now validate with the RGB stretch that `predict()` uses: 0.1679 in PyTorch and 0.1673 as ONNX. `predict()` was not affected.
+
 - **Validating an exported Mask R-CNN model no longer reports mAP 0.**
   `val()` on an ONNX Mask R-CNN export used the standard preprocessor, which resizes every image to a fixed square, while the graph does its own aspect resize and returns boxes and full-image masks in the coordinates of the image it was fed, so every box and mask was misplaced: on 10 COCO val2017 images the `r50` segment export scored mask mAP50-95 0.0 (box 0.0052) instead of 0.5029 (box 0.5097) for the PyTorch model. Exported backends now validate Mask R-CNN with its own source-resolution preprocessing and validator, one image at a time, and the ONNX export scores 0.5029 (box 0.5097), identical to the PyTorch model. `predict()` was not affected.
 
