@@ -208,7 +208,10 @@ def ultralytics_weight_hint(model_path: str) -> WeightHint | None:
         task_arg = "" if task == "detect" else f', task="{task}"'
         return WeightHint(
             f"from libreyolo import {cls_name}; "
-            f'model = {cls_name}(None, size="{s}"{task_arg})  # untrained',
+            f'model = {cls_name}(None, size="{s}"{task_arg}); '
+            # pretrained=False rebuilds the model for scratch training (some
+            # families freeze parts of a randomly initialised network otherwise).
+            f'model.train(data="your_data.yaml", pretrained=False)',
             cli,
             ultralytics,
             untrained=True,

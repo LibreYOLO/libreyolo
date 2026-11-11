@@ -163,7 +163,7 @@ def test_model_yaml_means_untrained(name, python, cli):
     assert hint.untrained
     assert python in hint.python
     assert hint.python.startswith("from libreyolo import ")
-    assert "# untrained" in hint.python
+    assert "pretrained=False" in hint.python
     assert ".pt" not in hint.python
     assert hint.cli == cli
 
