@@ -494,3 +494,90 @@ def test_cli_model_yaml_in_train_suggests_pretrained_false():
     assert data["error"] == "model_not_found"
     assert data["suggestion"].startswith("Use model=dfine-n-seg pretrained=False")
     assert "libreyolo train" not in data["suggestion"]
+
+
+# ---------------------------------------------------------------------------
+# Case variants: from libreyolo import Yolo
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("Yolo", "LibreYOLO9s.pt"),
+        ("yolo", "LibreYOLO9s.pt"),
+        ("Rtdetr", "LibreRTDETRl.pt"),
+        ("YoloWorld", "LibreOpenVocab"),
+        ("yoloe", "LibreOpenVocab"),
+        ("Sam", "LibreSAM"),
+    ],
+)
+def test_case_variants_get_the_same_hint(name, expected):
+    with pytest.raises(ImportError, match=expected) as info:
+        exec(f"from libreyolo import {name}", {})
+    assert not isinstance(info.value, AttributeError)
+    assert f"no '{name}'" in str(info.value)
+    with pytest.raises(UltralyticsNameError, match=expected):
+        getattr(libreyolo, name)
+    assert hasattr(libreyolo, name) is False
+    assert getattr(libreyolo, name, "default") == "default"
+
+
+# ---------------------------------------------------------------------------
+# Future Ultralytics versions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name, python",
+    [
+        ("yolo27n.pt", 'LibreYOLO("LibreYOLO9t.pt")'),
+        ("yolov27s-seg.pt", 'LibreYOLO("LibreDFINEs-seg.pt")'),
+        ("yolo30x.pt", 'LibreYOLO("LibreYOLO9c.pt")'),
+    ],
+)
+def test_future_versions_get_the_latest_hint(name, python):
+    hint = ultralytics_weight_hint(name)
+    assert hint is not None and hint.ultralytics
+    assert hint.python == python
+    latest = name.replace("v27", "26").replace("27", "26").replace("30", "26")
+    assert hint == ultralytics_weight_hint(latest)
+
+
+@pytest.mark.parametrize("name", ["yolov7.pt", "yolov4.pt", "yolo13n.pt", "yolo25s.pt"])
+def test_other_projects_versions_get_no_hint(name):
+    assert ultralytics_weight_hint(name) is None
+
+
+# ---------------------------------------------------------------------------
+# Pre-1.0 all-caps class names
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("LIBREYOLO", "LibreYOLO"),
+        ("LIBREYOLOX", "LibreYOLOX"),
+        ("LIBREYOLO9", "LibreYOLO9"),
+        ("LIBREYOLORFDETR", "LibreRFDETR"),
+        ("LIBREYOLONCNN", "NcnnBackend"),
+    ],
+)
+def test_all_caps_names_resolve_with_a_deprecation_warning(old, new):
+    with pytest.warns(DeprecationWarning, match=f"Use {new} instead: from libreyolo import {new}"):
+        namespace = {}
+        exec(f"from libreyolo import {old}", namespace)
+    assert namespace[old] is getattr(libreyolo, new)
+    assert old not in libreyolo.__all__
+    assert old not in dir(libreyolo)
+
+
+def test_import_libreyolo_stays_torch_free():
+    import subprocess
+
+    code = (
+        "import sys, libreyolo; "
+        "assert 'torch' not in sys.modules, 'import libreyolo imported torch'"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)

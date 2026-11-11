@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -55,6 +56,32 @@ def _numpy(data: TensorLike | None):
     if isinstance(data, torch.Tensor):
         return data.detach().cpu().numpy()
     return data
+
+
+def _is_scalar_int(idx) -> bool:
+    """True for a Python or NumPy integer index (bools excluded)."""
+    return isinstance(idx, (int, np.integer)) and not isinstance(idx, (bool, np.bool_))
+
+
+_image_indexing_warned = False
+
+
+def _warn_image_indexing_once() -> None:
+    """Say once per process that ``results[0]`` is the whole image now."""
+    global _image_indexing_warned
+    if _image_indexing_warned:
+        return
+    _image_indexing_warned = True
+    warnings.warn(
+        "results[0], results[-1] and `for r in results` on a single-image "
+        "Results return the whole result with all its detections, as for the "
+        "list predict() returns for several images. Earlier releases selected "
+        "detections. Select detections with a slice, mask or index "
+        "array (results[:1], results[results.boxes.conf > 0.5]) or use "
+        "results.boxes[i].",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 def _slice_first(data: TensorLike | None, idx):
@@ -2925,7 +2952,44 @@ class Results:
         return self._apply("__getitem__", idx)
 
     def __getitem__(self, idx) -> "Results":
+        """Index the image (an int) or select detections (anything else).
+
+        ``predict()`` of one image returns one Results, and code written for
+        a per-image list does ``results[0].boxes``. So an integer index
+        treats the Results as a batch of one image: ``results[0]`` (and
+        ``results[-1]``) return the whole result, all detections included.
+        Slices, boolean masks and index arrays select detections, as before:
+        ``results[:1]`` is the first detection, ``results[conf > 0.5]`` a
+        filter. Other integers still select one detection but are deprecated;
+        use ``results[i:i + 1]`` or ``results.boxes[i]``.
+        """
+        if _is_scalar_int(idx):
+            if int(idx) in (0, -1):
+                if len(self) > 1:
+                    _warn_image_indexing_once()
+                return self
+            warnings.warn(
+                f"Results[{int(idx)}] selects one detection, which is "
+                "deprecated: an integer index now picks the image, as for the "
+                "list predict() returns for several images. Use "
+                f"results[{int(idx)}:{int(idx) + 1}] or "
+                f"results.boxes[{int(idx)}] instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         return self._select(idx)
+
+    def __iter__(self):
+        """Iterate as a batch of one image: yields this Results once.
+
+        ``for r in model(image)`` then works like iterating the list
+        ``predict()`` returns for several images. Iterate detections with
+        ``for i in range(len(results)): results[i:i + 1]`` or over
+        ``results.boxes``.
+        """
+        if len(self) > 1:
+            _warn_image_indexing_once()
+        yield self
 
     def update(
         self,
@@ -3143,18 +3207,28 @@ class Results:
             rendered.show()
         if save or filename:
             if filename is None:
-                source = Path(self.path) if self.path else Path("image.jpg")
-                if source.suffix.lower() in Image.registered_extensions():
-                    filename = f"results_{source.name}"
-                else:
-                    # A video frame or clip: name the still after the video.
-                    frame = f"_{self.frame_idx}" if self.frame_idx is not None else ""
-                    filename = f"results_{source.stem}{frame}.jpg"
+                filename = self._default_plot_filename()
             Path(filename).parent.mkdir(parents=True, exist_ok=True)
             rendered.save(filename)
         if pil if pil is not None else default_pil:
             return rendered
         return np.ascontiguousarray(np.asarray(rendered.convert("RGB"))[..., ::-1])
+
+    def show(self, *args, **kwargs) -> None:
+        """Display the annotated result: ``plot(show=True)`` without a return."""
+        kwargs["show"] = True
+        self.plot(*args, **kwargs)
+
+    def _default_plot_filename(self) -> str:
+        """``results_<image name>``, or ``results_<video stem>[_<frame>].jpg``."""
+        from PIL import Image
+
+        source = Path(self.path) if self.path else Path("image.jpg")
+        if source.suffix.lower() in Image.registered_extensions():
+            return f"results_{source.name}"
+        # A video frame or clip: name the still after the video.
+        frame = f"_{self.frame_idx}" if self.frame_idx is not None else ""
+        return f"results_{source.stem}{frame}.jpg"
 
     def _plot_flow(
         self,
@@ -3333,14 +3407,45 @@ class Results:
             cap.release()
         return frame[..., ::-1] if ok else None
 
-    def save(self, path: str, image: Any = None) -> str:
-        """Save a generated image or 3D object, or a matte result as a transparent RGBA PNG.
+    def save(
+        self,
+        path: str | None = None,
+        image: Any = None,
+        *,
+        filename: str | None = None,
+        **plot_kwargs,
+    ) -> str:
+        """Save the result and return the written path.
 
-        Returns the written path. Generated Gaussians go to ``.ply`` or
-        ``.splat``, a generated mesh to ``.obj``. A matte cutout requires the
-        source image (via ``image`` or ``self.path``).
+        A generated image or 3D object is saved as itself (Gaussians to
+        ``.ply`` or ``.splat``, a generated mesh to ``.obj``), and a matte as
+        a transparent RGBA PNG cutout, which needs the source image (via
+        ``image`` or ``self.path``); these need a path. Every other result
+        saves its annotated image, ``plot(save=True)``, to ``path`` (default
+        ``results_<image name>``); ``plot_kwargs`` go to :meth:`plot`.
+        ``filename`` is another name for ``path``.
         """
         from PIL import Image
+
+        if filename is not None:
+            if path is not None and str(path) != str(filename):
+                raise TypeError("Pass the output file as path or filename, not both.")
+            path = filename
+        if self.generated is None and self.gaussians is None and self.matte is None and (
+            self.meshes is None or self.boxes is not None
+        ):
+            if plot_kwargs.pop("save", True) is False:
+                raise TypeError("save() always saves; drop save=False.")
+            plot_kwargs.pop("show", None)
+            path = path if path is not None else self._default_plot_filename()
+            self.plot(image, save=True, filename=str(path), **plot_kwargs)
+            return str(path)
+        if plot_kwargs:
+            raise TypeError(
+                f"save() got unexpected keyword arguments: {', '.join(sorted(plot_kwargs))}"
+            )
+        if path is None:
+            raise TypeError("save() needs a path for this result, e.g. result.save('out.png').")
 
         if self.generated is not None:
             self.generated.save(path)
@@ -3354,12 +3459,6 @@ class Results:
                 raise ValueError(f"A generated mesh saves as .obj, got {path!r}.")
             self.meshes.save_obj(path)
             return str(path)
-        if self.matte is None:
-            raise NotImplementedError(
-                "Results.save() writes a generated image or 3D object, or a "
-                "transparent-PNG matte cutout. Use result.plot(save=True) or CLI "
-                "--save for other tasks."
-            )
         rgba = self.cutout(image=image)
         out = Path(path)
         if out.parent and str(out.parent) not in (".", ""):

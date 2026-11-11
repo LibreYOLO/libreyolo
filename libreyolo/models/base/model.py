@@ -54,6 +54,7 @@ from ...utils.main_guard import (
 )
 from ...utils.model_info import build_model_info, format_model_info
 from ...utils.results import Results
+from ...utils.ultralytics_hints import UltralyticsMethodHint
 from ...utils.serialization import (
     REQUIRED_CHECKPOINT_METADATA_KEYS,
     load_untrusted_torch_file,
@@ -296,6 +297,8 @@ class BaseModel(ABC):
     RESUME_RESTORES_TRAIN_ARGS: ClassVar[bool] = False
     val_preprocessor_class = StandardValPreprocessor
     validator_class: ClassVar[Optional[type]] = None
+    # Ultralytics-only method: access raises a hint (an AttributeError).
+    add_callback = UltralyticsMethodHint("add_callback")
     # Dataset-variant weight suffixes (e.g. "visdrone" accepts
     # ``LibreYOLO9P2s-visdrone.pt``). Families that publish checkpoints
     # trained on a non-default dataset opt in; the variant stays part of the
