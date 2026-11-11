@@ -1,6 +1,47 @@
 # Axelera Metis export
 
-Status: YOLO-NAS detection, oriented boxes and pose (pose sizes m and l); YOLOX detection (sizes t, s, m, l and x); YOLOv3 detection (sizes t and b); YOLOv4 detection (size t); YOLOv7 detection (size b); PP-YOLOE detection (size l). Validation record below.
+> **PREVIEW.** Axelera Metis support is new in 1.8.0. Only the sizes in the
+> table below are validated; every other family, task or size is refused or
+> blocked with its reason (`docs/export_support.md`). Results are from one
+> Metis M.2 Max with axelera-devkit / axelera-rt 1.9.0.
+
+Validated on device, paired INT8 vs FP32 on the same images (section 7 has
+calibration details and the refused sizes):
+
+| Family | Size | Task | Dataset (paired) | FP32 | Metis INT8 | Delta |
+| --- | --- | --- | --- | --- | --- | --- |
+| YOLO-NAS | s | detect | COCO val2017, 1000 | 0.4549 | 0.4519 | -0.30 |
+| YOLO-NAS | m | detect | COCO val2017, 1000 | 0.4942 | 0.4893 | -0.49 |
+| YOLO-NAS | l | detect | COCO val2017, 1000 | 0.5036 | 0.5025 | -0.11 |
+| YOLO-NAS-pose | m | pose | COCO val2017 persons, 300 | 0.7885 | 0.7821 | -0.64 |
+| YOLO-NAS-pose | l | pose | COCO val2017 persons, 300 | 0.7922 | 0.7884 | -0.38 |
+| YOLO-NAS-R | s | obb | DOTA-v2.0 val, 300 tiles | 0.3844 | 0.3747 | -0.97 |
+| YOLO-NAS-R | m | obb | DOTA-v2.0 val, 300 tiles | 0.4141 | 0.4105 | -0.36 |
+| YOLO-NAS-R | l | obb | DOTA-v2.0 val, 300 tiles | 0.4327 | 0.4348 | +0.21 |
+| YOLO9 | t | detect | COCO val2017, 1000 | 0.3669 | 0.3624 | -0.45 |
+| YOLO9 | s | detect | COCO val2017, 1000 | 0.4502 | 0.4450 | -0.52 |
+| YOLO9 | m | detect | COCO val2017, 1000 | 0.4913 | 0.4896 | -0.17 |
+| YOLO9 | c | detect | COCO val2017, 1000 | 0.5127 | 0.5093 | -0.34 |
+| YOLOX | t | detect | COCO val2017, 1000 | 0.3238 | 0.3202 | -0.36 |
+| YOLOX | s | detect | COCO val2017, 1000 | 0.3981 | 0.3933 | -0.48 |
+| YOLOX | m | detect | COCO val2017, 1000 | 0.4582 | 0.4516 | -0.66 |
+| YOLOX | l | detect | COCO val2017, 1000 | 0.4849 | 0.4781 | -0.68 |
+| YOLOX | x | detect | COCO val2017, 1000 | 0.4943 | 0.4867 | -0.76 |
+| YOLOv3 | t | detect | COCO val2017, 1000 | 0.1023 | 0.1006 | -0.17 |
+| YOLOv3 | b | detect | COCO val2017, 1000 | 0.3656 | 0.3580 | -0.76 |
+| YOLOv4 | t | detect | COCO val2017, 1000 | 0.2021 | 0.1968 | -0.53 |
+| YOLOv7 | b | detect | COCO val2017, 1000 | 0.2843 | 0.2859 | +0.16 |
+| PP-YOLOE | l | detect | COCO val2017, 1000 | 0.4771 | 0.4740 | -0.31 |
+| ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 |
+| ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 |
+| ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 |
+| ResNet | 101 | classify (top-1) | ImageNetV2, 1000 | 0.713 | 0.708 | -0.5 |
+| MobileNetV4 | m | classify (top-1) | ImageNetV2, 1000 | 0.682 | 0.684 | +0.2 |
+| FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 |
+| FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 |
+
+Detection and pose report mAP50-95; ImageNetV2 is used locally under its
+licence terms and not redistributed.
 
 `format="axelera"` compiles a LibreYOLO model to an INT8 `.axm` for Axelera's
 Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
