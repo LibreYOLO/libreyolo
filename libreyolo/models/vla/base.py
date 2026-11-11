@@ -37,6 +37,7 @@ from ...utils.results import Actions, Results
 from ...utils.source import SourceKind, build_stream_source, classify_source
 from .checkpoint import read_contract
 from .observation import Observation, coerce_state, load_frames, map_cameras
+from ...utils.hf_hub import hf_url
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +270,7 @@ class LibreVLAModel:
         if repo is None:
             return None
         revision = cls.HF_REVISIONS.get(size) or "main"
-        return f"https://huggingface.co/{repo}/tree/{revision}"
+        return hf_url(f"{repo}/tree/{revision}")
 
     @classmethod
     def _notify_license_once(cls) -> None:

@@ -76,6 +76,25 @@ pip install -e .
 
 </details>
 
+<details>
+<summary><b>国内用户：模型下载</b></summary>
+
+<br>
+
+模型权重从 Hugging Face 下载。如果无法访问 huggingface.co，可设置标准的
+`HF_ENDPOINT` 环境变量，改用镜像站下载。[hf-mirror.com](https://hf-mirror.com)
+是社区维护的镜像，并非 Hugging Face 或 LibreYOLO 官方运营：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
+也可以手动下载权重文件，例如
+`https://hf-mirror.com/LibreYOLO/LibreYOLO9t/resolve/main/LibreYOLO9t.pt`，
+然后传入本地路径：`LibreYOLO("path/to/LibreYOLO9t.pt")`。
+
+</details>
+
 ## 一套 API，二十二种任务
 
 每种任务都是同样的三行代码，只有权重文件不同。

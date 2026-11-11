@@ -65,6 +65,7 @@ from .cuda_graph import (
     forward_maybe_graphed,
     normalize_cuda_graph_mode,
 )
+from ...utils.hf_hub import hf_url
 
 logger = logging.getLogger(__name__)
 
@@ -1155,7 +1156,7 @@ class BaseModel(ABC):
                 f"{Path(filename).name}: LibreYOLO publishes no "
                 f"{name}{cls.WEIGHT_EXT}. {reason}"
             )
-        return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}{cls.WEIGHT_EXT}"
+        return hf_url(f"LibreYOLO/{name}/resolve/main/{name}{cls.WEIGHT_EXT}")
 
     @classmethod
     def get_download_notice(cls, filename: str, url: str) -> Optional[str]:

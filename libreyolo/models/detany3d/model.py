@@ -18,6 +18,7 @@ from scipy.spatial.transform import Rotation
 from ...utils.image_loader import SUPPORTED_EXTENSIONS, ImageLoader
 from ...utils.results import Boxes, Boxes3D, Results
 from .runtime import RuntimeWorker
+from ...utils.hf_hub import hf_url
 
 logger = logging.getLogger(__name__)
 HF_REPO = "LibreYOLO/LibreDetAny3D"
@@ -112,7 +113,7 @@ class LibreDetAny3D:
         """Return the immutable byte-identical checkpoint mirror URL."""
         if filename not in (None, WEIGHT_FILE):
             return None
-        return f"https://huggingface.co/{HF_REPO}/resolve/{HF_REVISION}/{WEIGHT_FILE}"
+        return hf_url(f"{HF_REPO}/resolve/{HF_REVISION}/{WEIGHT_FILE}")
 
     @classmethod
     def get_download_notice(cls, filename, url):

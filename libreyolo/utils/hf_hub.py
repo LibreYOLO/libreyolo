@@ -17,15 +17,148 @@ it and torch-free deployments are unaffected.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import socket
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger("libreyolo")
 
 HF_URI_PREFIX = "hf://"
+
+# =============================================================================
+# Endpoint (HF_ENDPOINT) handling
+# =============================================================================
+
+#: The public Hub. Hardcoded weight and dataset URLs use this canonical form;
+#: :func:`apply_hf_endpoint` points them at ``HF_ENDPOINT`` at download time.
+HF_DEFAULT_ENDPOINT = "https://huggingface.co"
+
+#: Community-run Hub mirror suggested to users who cannot reach huggingface.co.
+HF_COMMUNITY_MIRROR = "https://hf-mirror.com"
+
+
+def hf_endpoint_is_set() -> bool:
+    """True when the user set ``HF_ENDPOINT`` to a non-empty value."""
+    return bool(os.environ.get("HF_ENDPOINT", "").strip())
+
+
+def hf_base_url() -> str:
+    """Base URL of the Hugging Face Hub, honouring ``HF_ENDPOINT``.
+
+    Same rule as ``huggingface_hub``: the variable wins when set, and a
+    trailing slash is stripped. Read on every call, so setting the variable
+    after ``import libreyolo`` still takes effect for direct URL downloads.
+    """
+    endpoint = os.environ.get("HF_ENDPOINT", "").strip()
+    return (endpoint or HF_DEFAULT_ENDPOINT).rstrip("/")
+
+
+def hf_url(path: str) -> str:
+    """Build a Hub URL, e.g. ``hf_url("LibreYOLO/x/resolve/main/x.pt")``."""
+    return f"{hf_base_url()}/{path.lstrip('/')}"
+
+
+def apply_hf_endpoint(url: str) -> str:
+    """Point a canonical ``https://huggingface.co/...`` URL at ``HF_ENDPOINT``.
+
+    Any other URL (another host, or one already on the endpoint) is returned
+    unchanged.
+    """
+    prefix = HF_DEFAULT_ENDPOINT + "/"
+    if isinstance(url, str) and url.startswith(prefix):
+        return hf_url(url[len(prefix) :])
+    return url
+
+
+def canonical_hf_url(url: str) -> str:
+    """Inverse of :func:`apply_hf_endpoint`: map an endpoint URL back to
+    ``https://huggingface.co/...`` so it can be compared with pinned URLs."""
+    base = hf_base_url() + "/"
+    if (
+        isinstance(url, str)
+        and base != HF_DEFAULT_ENDPOINT + "/"
+        and url.startswith(base)
+    ):
+        return f"{HF_DEFAULT_ENDPOINT}/{url[len(base):]}"
+    return url
+
+
+def _is_connection_failure(exc: BaseException | None) -> bool:
+    """True if ``exc`` or anything in its cause chain is a network failure
+    (cannot connect, DNS failure, connection reset, timeout).
+
+    An HTTP status error (401, 404, 500, ...) means the server answered, so a
+    mirror would not help: it is checked first and stops the walk.
+    """
+    from urllib.error import HTTPError, URLError
+
+    network_types: list[type] = [
+        ConnectionError,
+        TimeoutError,
+        socket.timeout,
+        URLError,
+    ]
+    status_types: list[type] = [HTTPError]
+    try:
+        import requests
+
+        network_types += [
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ]
+        status_types.append(requests.exceptions.HTTPError)
+    except ImportError:  # pragma: no cover - requests is a core dependency
+        pass
+    try:  # huggingface_hub 1.x talks to the Hub through httpx
+        import httpx
+
+        network_types += [
+            httpx.NetworkError,  # ConnectError, ReadError, WriteError, ...
+            httpx.TimeoutException,  # ConnectTimeout, ReadTimeout, ...
+            httpx.ProxyError,
+        ]
+        status_types.append(httpx.HTTPStatusError)
+    except ImportError:
+        pass
+    network, status = tuple(network_types), tuple(status_types)
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, status):
+            return False
+        if isinstance(exc, network):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def hf_unreachable_hint(exc: BaseException | None, url: str | None = None) -> str:
+    """Advice to append to a failed Hub download, or ``""`` when it does not fit.
+
+    Only given when the failure is a connection error or timeout, the target
+    is huggingface.co (``url=None`` means a Hub call), and ``HF_ENDPOINT`` is
+    not set. LibreYOLO never switches to a mirror on its own.
+    """
+    if hf_endpoint_is_set() or not _is_connection_failure(exc):
+        return ""
+    if url is not None:
+        host = urlparse(url).netloc.lower()
+        if host != "huggingface.co" and not host.endswith(".huggingface.co"):
+            return ""
+    return (
+        "\nhuggingface.co may be unreachable from your network (it is "
+        "blocked in mainland China, for example). To download through a "
+        "Hugging Face mirror, set HF_ENDPOINT and retry:\n"
+        f"  export HF_ENDPOINT={HF_COMMUNITY_MIRROR}\n"
+        "hf-mirror.com is a community mirror, not run by Hugging Face or "
+        "LibreYOLO. You can also download the weights manually and pass the "
+        "local file path instead."
+    )
 
 # The canonical checkpoint filename inside a pushed repo. Loading does not
 # depend on it (any single .pt in a repo is picked up), but a fixed name keeps
@@ -260,7 +393,7 @@ def resolve_hub_checkpoint(ref: HubRef, *, token: str | None = None) -> str:
             f"Could not download '{filename or ref.repo_id}' from the Hugging "
             f"Face Hub and it is not in the local cache. Check your network "
             f"connection, or unset HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE if you "
-            f"are in offline mode."
+            f"are in offline mode." + hf_unreachable_hint(exc)
         ) from exc
     except EntryNotFoundError as exc:
         raise FileNotFoundError(

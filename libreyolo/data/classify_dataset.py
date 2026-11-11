@@ -29,6 +29,8 @@ import torch
 from torch.utils.data import Dataset
 from torchvision.datasets import ImageFolder
 
+from ..utils.hf_hub import apply_hf_endpoint, hf_unreachable_hint
+
 # The transform / collate recipe lives in the augment package next to the
 # detection recipes; these names are re-exported here for existing importers.
 from .augment.classify import (  # noqa: F401
@@ -106,9 +108,17 @@ def _download_and_extract(url: str, name: str) -> Path:
     zip_path = dest_dir / f"{name}.zip"
 
     if not zip_path.exists():
+        url = apply_hf_endpoint(url)
         logger.info("Downloading classification dataset %s -> %s", url, zip_path)
-        with urlopen(url) as response, open(zip_path, "wb") as out:  # noqa: S310
-            out.write(response.read())
+        try:
+            with urlopen(url) as response, open(zip_path, "wb") as out:  # noqa: S310
+                out.write(response.read())
+        except Exception as e:
+            zip_path.unlink(missing_ok=True)
+            hint = hf_unreachable_hint(e, url)
+            if hint:
+                logger.warning(hint.strip())
+            raise
 
     with zipfile.ZipFile(zip_path) as zf:
         _safe_extract_zip(zf, dest_dir)

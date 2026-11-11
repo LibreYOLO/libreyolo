@@ -24,6 +24,8 @@ import requests
 import yaml
 from tqdm import tqdm
 
+from ..utils.hf_hub import apply_hf_endpoint, hf_unreachable_hint
+
 logger = logging.getLogger(__name__)
 
 # Default datasets directory (can be overridden via environment variable)
@@ -716,7 +718,14 @@ def _download_and_extract_zip(url: str, dest: Path) -> None:
 
 def _download_file(url: str, dest: Path, chunk_size: int = 8192) -> None:
     """Download a file with progress bar."""
-    response = requests.get(url, stream=True, allow_redirects=True)
+    url = apply_hf_endpoint(url)
+    try:
+        response = requests.get(url, stream=True, allow_redirects=True)
+    except Exception as e:
+        hint = hf_unreachable_hint(e, url)
+        if hint:
+            logger.warning(hint.strip())
+        raise
     response.raise_for_status()
 
     total_size = int(response.headers.get("content-length", 0))
