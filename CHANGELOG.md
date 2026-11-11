@@ -20,6 +20,12 @@ before 1.4.0 are documented in the
 - **Axelera Metis export for YOLOX detection.**
   `LibreYOLO("LibreYOLOXs.pt").export(format="axelera")` compiles YOLOX the same way: the graph stops after each level's box, objectness and class convolutions and LibreYOLO decodes on the host (layout `yolox_raw_heads_v1`). YOLOX-t, -s, -m, -l and -x are validated on a Metis M.2 Max within 0.8 mAP50-95 of FP32 on 1000 COCO val2017 images. Models with depthwise convolutions now compile with per-channel ranges for the depthwise inputs; with one range per tensor, YOLOX-n lost almost all accuracy, and with them it still misses the one-point bar (-1.66), so YOLOX-n export is refused.
 
+- **Axelera Metis export for YOLOv4 detection; exported Darknet models validate correctly.**
+  `LibreYOLO("LibreYOLO4t.pt").export(format="axelera")` splits each head convolution into box, objectness and class convolutions and decodes the anchors on the host (layout `darknet_raw_heads_v1`, which also covers YOLOv3). YOLOv4-tiny is validated on a Metis M.2 Max: 0.1968 vs FP32 0.2021 mAP50-95 on 1000 COCO val2017 images. Exported Darknet models of every format were validated with the wrong preprocessing (a YOLOv4-tiny ONNX export scored 0.031 instead of 0.22); they now use Darknet's letterbox, and Darknet INT8 calibration no longer skips every image.
+
+- **Axelera Metis export for YOLOv3 detection.**
+  `LibreYOLO("LibreYOLO3t.pt").export(format="axelera")` uses the same Darknet raw-head path. Two graph changes make YOLOv3 compile: Darknet batch norms are folded into the convolutions (exported unfused, they stopped the compiler on every YOLOv3 size), and the -inf padding of YOLOv3-tiny's stride-1 max pool becomes the MaxPool's own padding (the AIPU accepts only zero-valued Pad). YOLOv3-tiny and YOLOv3 are validated on a Metis M.2 Max: 0.1006 vs FP32 0.1023 and 0.3580 vs 0.3656 mAP50-95 on 1000 COCO val2017 images.
+
 - **LGM, image to 3D Gaussians through four generated views: `LibreGen("lgm")`.**
   LGM (MIT) behind the same call as the other image-to-3D families: ImageDream samples four views of the object, LGM turns them into Gaussian splats, `libreyolo generate source=chair.jpg model=lgm`. Upstream needs xformers on CUDA; LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `elevation`. Weights download from LibreYOLO's mirrors `LibreYOLO/LibreLGM0.4b` (MIT) and `LibreYOLO/LibreImageDream` (OpenRAIL use restrictions apply).
 

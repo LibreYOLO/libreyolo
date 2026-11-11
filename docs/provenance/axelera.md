@@ -23,6 +23,10 @@
   YOLOX export decode (Megvii YOLOX-derived, Apache-2.0, listed in
   `THIRD_PARTY_NOTICES.txt`), verified against it by
   `tests/unit/test_yolox_raw_heads.py`
+- **Darknet decode:** `decode_anchor_yolo_raw` reimplements LibreYOLO's
+  existing Darknet export decode (public-domain Darknet cfgs and weights,
+  see `libreyolo/models/darknet/`), verified against it by
+  `tests/unit/test_darknet_raw_heads.py`
 - **Evidence:** fake-SDK unit tests; real compilation and on-device validation
   on a Metis M.2 Max, recorded in `docs/axelera.md`
 - **Evaluation data:** COCO val2017, DOTA-v2.0 and ImageNetV2 subsets used

@@ -22,10 +22,13 @@ decoded export emits, so the shared backend parsers are reused unchanged.
 - The artifact metadata names the contract in `output_layout`
   (`yolonas_raw_heads_v1`, `yolonas_pose_raw_heads_v1`,
   `yolonas_obb_raw_heads_v1`, `yolo9_raw_heads_v1`; `yolox_raw_heads_v1` for
-  YOLOX: box offsets and log sizes, objectness and class logits per level)
-  and carries the decode constants (`strides`, `reg_max` for distribution
-  heads, `grid_cell_offset`, pose offsets). YOLO9's `reg_max` counts the
-  distance bins (0..reg_max-1); YOLO-NAS's is the last bin index.
+  YOLOX: box offsets and log sizes, objectness and class logits per level;
+  `darknet_raw_heads_v1` for Darknet YOLOv3/v4: the head convolution split
+  into box, objectness and class convolutions per anchor) and carries the
+  decode constants (`strides`, `reg_max` for distribution heads,
+  `grid_cell_offset`, pose offsets, `anchors` and `scale_x_y` for anchor
+  heads). YOLO9's `reg_max` counts the distance bins (0..reg_max-1);
+  YOLO-NAS's is the last bin index.
 - `output_names` lists the outputs in the order the compiled model returns
   them; compilers may reorder graph outputs, so backends map by name.
 - `output_windows` (optional, `{part: [low, high]}`) marks parts whose
@@ -40,7 +43,8 @@ decoded export emits, so the shared backend parsers are reused unchanged.
 - A layout's meaning never changes. Any change to what an output holds gets a
   new layout name (`..._v2`); backends reject layouts they do not know.
 - The host decode is tested against the in-graph decode at more than one input
-  size (`tests/unit/test_yolonas_raw_heads.py`, `tests/unit/test_yolox_raw_heads.py`).
+  size (`tests/unit/test_yolonas_raw_heads.py`, `tests/unit/test_yolox_raw_heads.py`,
+  `tests/unit/test_darknet_raw_heads.py`).
 
 ## Consequences
 

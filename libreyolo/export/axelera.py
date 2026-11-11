@@ -166,6 +166,90 @@ def build_compiler_config(
     return config, normalized
 
 
+#: A constant Pad at or below this value in front of a MaxPool is -inf padding.
+_MAXPOOL_PAD_FLOOR = -1e30
+
+
+def merge_pad_into_maxpool(onnx_path: str, work_dir: Path) -> str:
+    """Fold ``Pad(constant <= -1e30) -> MaxPool`` into the MaxPool's ``pads``.
+
+    Exact: ONNX MaxPool pads with -inf. Darknet's stride-1 2x2 maxpool
+    (yolov3-tiny) exports as a bottom/right Pad with -FLT_MAX followed by an
+    unpadded MaxPool, and the AIPU accepts Pad only with a zero value. Returns
+    ``onnx_path`` untouched when the graph has no such pair; otherwise writes
+    the rewritten graph to ``work_dir`` and returns its path.
+    """
+    import numpy as np
+    import onnx
+    from onnx import helper, numpy_helper
+
+    model = onnx.load(onnx_path)
+    graph = model.graph
+    if not any(node.op_type == "Pad" for node in graph.node):
+        return onnx_path
+    constants = {init.name: numpy_helper.to_array(init) for init in graph.initializer}
+    for node in graph.node:
+        if (
+            node.op_type == "Constant"
+            and node.attribute
+            and node.attribute[0].name == "value"
+        ):
+            constants[node.output[0]] = numpy_helper.to_array(node.attribute[0].t)
+    consumers: dict[str, list] = {}
+    for node in graph.node:
+        for name in node.input:
+            consumers.setdefault(name, []).append(node)
+    merged = []
+    for pad in graph.node:
+        if pad.op_type != "Pad" or len(pad.input) < 3 or not pad.input[2]:
+            continue
+        mode = next((a.s for a in pad.attribute if a.name == "mode"), b"constant")
+        pads = constants.get(pad.input[1])
+        value = constants.get(pad.input[2])
+        if mode != b"constant" or pads is None or value is None:
+            continue
+        if float(np.asarray(value).reshape(-1)[0]) > _MAXPOOL_PAD_FLOOR:
+            continue
+        pads = [int(v) for v in np.asarray(pads).reshape(-1)]
+        rank = len(pads) // 2
+        users = consumers.get(pad.output[0], [])
+        if (
+            rank < 3
+            or min(pads) < 0
+            or pads[0]
+            or pads[1]
+            or pads[rank]
+            or pads[rank + 1]
+            or not users
+            or any(user.op_type != "MaxPool" for user in users)
+            or any(
+                a.name == "auto_pad" and a.s not in (b"", b"NOTSET")
+                for user in users
+                for a in user.attribute
+            )
+        ):
+            continue
+        spatial = pads[2:rank] + pads[rank + 2 :]
+        for user in users:
+            old = next((a for a in user.attribute if a.name == "pads"), None)
+            base = list(old.ints) if old is not None else [0] * len(spatial)
+            if old is not None:
+                user.attribute.remove(old)
+            user.attribute.append(
+                helper.make_attribute("pads", [b + s for b, s in zip(base, spatial)])
+            )
+            user.input[0] = pad.input[0]
+        merged.append(pad)
+    if not merged:
+        return onnx_path
+    for pad in merged:
+        graph.node.remove(pad)
+    out = Path(work_dir) / f"{Path(onnx_path).stem}.maxpool_pads.onnx"
+    onnx.save(model, str(out))
+    logger.info("Axelera: folded %d -inf Pad(s) into MaxPool padding", len(merged))
+    return str(out)
+
+
 def compile_to_axm(
     model_input, calibration: Iterable, config, work_dir: Path, before_compile=None
 ):
@@ -470,7 +554,7 @@ def export_axelera(
                     )
 
             axm, _ = compile_to_axm(
-                onnx_path,
+                merge_pad_into_maxpool(onnx_path, work_dir),
                 _remember_first(calibration, first),
                 config,
                 work_dir,

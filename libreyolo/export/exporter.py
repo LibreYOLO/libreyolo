@@ -892,6 +892,154 @@ class _YOLOXRawHeadsWrapper(torch.nn.Module):
         return _relu6_window(conv, x, *window)
 
 
+def _split_anchor_head(
+    weight: torch.Tensor, bias: torch.Tensor, anchors: int, num_classes: int
+) -> dict[str, torch.nn.Conv2d]:
+    """An ``A * (5 + nc)`` channel head conv as three convs with the same weights:
+    ``reg`` (4 per anchor), ``obj`` (1 per anchor), ``cls`` (``nc`` per anchor)."""
+    per_anchor = 5 + num_classes
+    index = torch.arange(anchors * per_anchor).view(anchors, per_anchor)
+    rows = {
+        "reg": index[:, :4].reshape(-1),
+        "obj": index[:, 4].reshape(-1),
+        "cls": index[:, 5:].reshape(-1),
+    }
+    convs = {}
+    for part, selected in rows.items():
+        conv = torch.nn.Conv2d(weight.shape[1], len(selected), tuple(weight.shape[2:]))
+        with torch.no_grad():
+            conv.weight.copy_(weight[selected])
+            conv.bias.copy_(bias[selected])
+        convs[part] = conv
+    return convs
+
+
+class _PassThrough(torch.nn.Module):
+    def forward(self, x):
+        return x
+
+
+class _AnchorYOLORawHeadsWrapper(torch.nn.Module):
+    """Anchor-based YOLO graph (Darknet YOLOv3/v4) cut before the box decode.
+
+    ``model`` returns the inputs of each level's final 1x1 head convolution.
+    That convolution is split into ``reg`` (four box terms per anchor),
+    ``obj`` (one logit per anchor) and ``cls`` (``nc`` logits per anchor), so
+    box terms and logits get separate INT8 scales; the host rebuilds the
+    decoded export's ``(B, 4 + nc, N)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_anchor_yolo_raw`).
+    ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`.
+    """
+
+    #: Cells are indexed from their top-left corner.
+    grid_cell_offset = 0.0
+    reg_max = None
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        heads,
+        *,
+        layout: str,
+        strides,
+        anchors,
+        num_classes: int,
+        scale_x_y=None,
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import check_output_windows, raw_head_output_names
+
+        self.model = model
+        self.task = "detect"
+        self.output_layout = layout
+        self.strides = tuple(int(stride) for stride in strides)
+        self.anchors = [[[float(w), float(h)] for w, h in level] for level in anchors]
+        self.scale_x_y = None if scale_x_y is None else [float(s) for s in scale_x_y]
+        self.output_names = raw_head_output_names(layout, self.strides)
+        self.output_windows = check_output_windows(layout, output_windows or {})
+        self.heads = torch.nn.ModuleList(
+            torch.nn.ModuleDict(_split_anchor_head(weight, bias, len(level), num_classes))
+            for (weight, bias), level in zip(heads, self.anchors)
+        )
+
+    def forward(self, x):
+        outputs = []
+        for feat, head in zip(self.model(x), self.heads):
+            for part in ("reg", "obj", "cls"):
+                window = self.output_windows.get(part)
+                conv = head[part]
+                outputs.append(conv(feat) if window is None else _relu6_window(conv, feat, *window))
+        return tuple(outputs)
+
+
+def _fuse_darknet_batchnorms(net: torch.nn.Module) -> int:
+    """Fold each Darknet convolution's batch norm into its weights and bias, in place.
+
+    Darknet's norm is ``(x - mean) / (sqrt(var) + eps) * weight + bias``
+    (:class:`~libreyolo.models.darknet.blocks.DarknetBatchNorm2d`), so with
+    ``scale = weight / (sqrt(var) + eps)`` the fused convolution has weights
+    ``W * scale`` and bias ``(b - mean) * scale + bias``: the same outputs up to
+    float rounding. Unfused, every convolution exports as Conv -> Sub -> Div ->
+    Mul -> Add, and the Axelera compiler stops on YOLOv3 in its in-core
+    replication pass ("more than one ODR op in outlined composite"). Returns
+    the number of fused layers.
+    """
+    from libreyolo.models.darknet.blocks import DarknetConv
+
+    fused_count = 0
+    for module in net.modules():
+        if not isinstance(module, DarknetConv) or module.bn is None:
+            continue
+        conv, norm = module.conv, module.bn
+        scale = norm.weight / (torch.sqrt(norm.running_var) + norm.eps)
+        fused = torch.nn.Conv2d(
+            conv.in_channels,
+            conv.out_channels,
+            conv.kernel_size,
+            stride=conv.stride,
+            padding=conv.padding,
+            dilation=conv.dilation,
+            groups=conv.groups,
+            bias=True,
+        ).to(conv.weight.device)
+        with torch.no_grad():
+            fused.weight.copy_(conv.weight * scale.view(-1, 1, 1, 1))
+            base = conv.bias if conv.bias is not None else torch.zeros_like(scale)
+            fused.bias.copy_((base - norm.running_mean) * scale + norm.bias)
+        module.conv = fused
+        module.bn = None
+        fused_count += 1
+    return fused_count
+
+
+def _darknet_raw_heads_wrapper(holder: torch.nn.Module, task: str = "detect"):
+    """Raw-head wrapper for a Darknet ``[yolo]`` detector (LibreYOLO3, LibreYOLO4)."""
+    if task != "detect":
+        raise ValueError(f"Darknet raw-head export supports detect only, got {task!r}.")
+    net = copy.deepcopy(holder.net).eval()
+    _fuse_darknet_batchnorms(net)
+    specs = net.detection_specs()
+    if any(spec.kind != "yolo" for spec in specs):
+        raise ValueError("Raw-head export supports Darknet [yolo] heads only.")
+    heads = []
+    for spec in specs:
+        head = net.layers[spec.layer_index - 1]
+        if head.bn is not None or head.conv.bias is None:
+            raise ValueError("Darknet detection heads end in a linear conv with bias.")
+        heads.append((head.conv.weight.detach(), head.conv.bias.detach()))
+        net.layers[spec.layer_index - 1] = _PassThrough()
+    return _AnchorYOLORawHeadsWrapper(
+        net,
+        heads,
+        layout="darknet_raw_heads_v1",
+        strides=[spec.stride for spec in specs],
+        anchors=[spec.anchors for spec in specs],
+        num_classes=specs[0].num_classes,
+        scale_x_y=[spec.scale_x_y for spec in specs],
+    )
+
+
 class _YOLO9SplitOutputWrapper(torch.nn.Module):
     """YOLO9 detection graph with boxes and scores as separate outputs.
 
@@ -3481,7 +3629,10 @@ class AxeleraExporter(BaseExporter):
                 dynamic_axes=None,
             )
         live = self.model.model
-        if self.model._get_model_name() == "yolo9":
+        if self.model._get_model_name() in ("yolo3", "yolo4"):
+            self._pose_bounds = {}
+            self._raw_wrapper = _darknet_raw_heads_wrapper(live, self._task()).eval()
+        elif self.model._get_model_name() == "yolo9":
             # No reparameterization step; BatchNorm folds into the convs
             # during the ONNX export.
             self._pose_bounds = {}
@@ -3551,7 +3702,9 @@ class AxeleraExporter(BaseExporter):
                 }
             )
             return meta
-        heads = getattr(wrapper.model, "heads", None)  # YOLO-NAS heads
+        heads = (  # YOLO-NAS heads
+            wrapper.model.heads if isinstance(wrapper, _YOLONASRawHeadsWrapper) else None
+        )
         grid_cell_offset = (
             heads.grid_cell_offset if heads is not None else wrapper.grid_cell_offset
         )
@@ -3569,6 +3722,10 @@ class AxeleraExporter(BaseExporter):
         )
         if wrapper.reg_max is not None:
             meta["reg_max"] = int(wrapper.reg_max)
+        if getattr(wrapper, "anchors", None) is not None:
+            meta["anchors"] = [[list(pair) for pair in level] for level in wrapper.anchors]
+        if getattr(wrapper, "scale_x_y", None) is not None:
+            meta["scale_x_y"] = list(wrapper.scale_x_y)
         if getattr(self, "_pose_bounds", None):
             meta["pose_head_bounds"] = {
                 name: round(float(cap), 4) for name, cap in self._pose_bounds.items()

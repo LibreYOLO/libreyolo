@@ -153,11 +153,11 @@ def _dataset(tmp_path, n=3):
 
 
 def _export(tmp_path, task="detect"):
-    """``task`` is a YOLO-NAS task, ``"yolo9"`` for a YOLO9-t detector or
-    ``"yolox"`` for a YOLOX-n detector."""
+    """``task`` is a YOLO-NAS task, ``"yolo9"`` for a YOLO9-t detector,
+    ``"yolox"`` for a YOLOX-n detector or ``"yolo4"`` for a YOLOv4-tiny detector."""
     import torch
 
-    from libreyolo import LibreYOLO9, LibreYOLONAS, LibreYOLOX
+    from libreyolo import LibreYOLO4, LibreYOLO9, LibreYOLONAS, LibreYOLOX
 
     torch.manual_seed(0)
     if task == "yolo9":
@@ -165,6 +165,14 @@ def _export(tmp_path, task="detect"):
         with torch.no_grad():  # class bias starts at -10; lift it so boxes pass conf
             for tower in model.model.head.class_convs:
                 tower[-1].bias.fill_(0.0)
+    elif task == "yolo4":
+        model = LibreYOLO4(None, size="t", nb_classes=3, device="cpu")
+        generator = torch.Generator().manual_seed(1)
+        with torch.no_grad():  # spread scores so boxes pass conf without ties
+            for spec in model.model.net.detection_specs():
+                conv = model.model.net.layers[spec.layer_index - 1].conv
+                conv.weight.copy_(torch.randn(conv.weight.shape, generator=generator) * 0.05)
+                conv.bias.copy_(torch.randn(conv.bias.shape, generator=generator) + 1.0)
     elif task == "yolox":
         model = LibreYOLOX(None, size="n", nb_classes=3, device="cpu")
         generator = torch.Generator().manual_seed(1)
@@ -356,6 +364,42 @@ def test_yolox_backend_matches_the_exported_graph(exports, tmp_path):
         return table[np.lexsort(np.round(table, 2).T[::-1])]
 
     np.testing.assert_allclose(rows(actual), rows(expected), atol=1e-3)
+
+
+def test_yolo4_backend_matches_the_exported_graph(exports, tmp_path):
+    """YOLOv4 raw heads decode on the host to the decoded graph's tensor, and
+    predictions equal the ONNX backend's."""
+    import torch
+
+    from libreyolo import LibreYOLO
+    from libreyolo.models.darknet.export import DarknetExportWrapper
+
+    model, artifact = exports("yolo4")
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "darknet_raw_heads_v1" and len(meta["anchors"]) == 2
+    backend = LibreYOLO(str(artifact))
+    assert type(backend).__name__ == "AxeleraBackend"
+    assert backend.model_family == "yolo4" and backend.task == "detect"
+
+    image = _image()
+    blob = model._preprocess(image, input_size=96)[0]
+    blob = blob.numpy() if hasattr(blob, "numpy") else np.asarray(blob)
+    with torch.no_grad():
+        reference = DarknetExportWrapper(model.model.eval())(torch.from_numpy(blob)).numpy()
+    (decoded,) = backend._run_inference(blob)
+    assert decoded.shape == reference.shape  # (1, 4 + nc, N)
+    np.testing.assert_allclose(decoded[:, :4], reference[:, :4], rtol=1e-5, atol=1e-3)
+    np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=1e-5)
+
+    onnx_backend = LibreYOLO(
+        model.export(format="onnx", imgsz=96, dynamic=False, output_path=str(tmp_path / "ref.onnx"))
+    )
+    expected = onnx_backend(image, conf=0.3)
+    actual = backend(image, conf=0.3)
+    assert len(expected) > 0 and len(actual) == len(expected)
+    np.testing.assert_allclose(actual.boxes.xyxy, expected.boxes.xyxy, atol=1e-3)
+    np.testing.assert_allclose(actual.boxes.conf, expected.boxes.conf, atol=1e-5)
+    np.testing.assert_array_equal(actual.boxes.cls, expected.boxes.cls)
 
 
 def test_axm_path_and_batched_predict(exports):

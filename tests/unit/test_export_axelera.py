@@ -281,6 +281,7 @@ def exporter_sdk(monkeypatch, fake_sdk):
 
         graph = onnx.load(model).graph
         seen["onnx_outputs"] = [o.name for o in graph.output]
+        seen["onnx_ops"] = [node.op_type for node in graph.node]
         seen["onnx_input"] = [d.dim_value for d in graph.input[0].type.tensor_type.shape.dim]
         samples = list(calibration_dataset)
         seen["samples"] = samples
@@ -547,6 +548,61 @@ def test_yolox_n_is_refused_with_its_numbers(tmp_path):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 
+def test_yolo4_export_uses_the_anchor_raw_head_layout(exporter_sdk, tmp_path):
+    import torch
+    import yaml
+
+    from libreyolo import LibreYOLO4
+    from libreyolo.postprocess.yolonas_raw import raw_head_output_names
+
+    torch.manual_seed(0)
+    model = LibreYOLO4(None, size="t", nb_classes=3, device="cpu")
+    destination = tmp_path / "y4_axelera_model"
+    model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+
+    layout = "darknet_raw_heads_v1"
+    assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout, (32, 16))
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["model_family"] == "yolo4" and meta["output_layout"] == layout
+    # Calibration used Darknet's own letterbox (it takes the (h, w) pair the loader passes).
+    assert len(exporter_sdk.seen["samples"]) == 4
+    assert meta["output_names"] == exporter_sdk.seen["device_order"]
+    assert meta["strides"] == [32, 16] and "reg_max" not in meta
+    specs = model.model.net.detection_specs()
+    assert meta["anchors"] == [[list(pair) for pair in spec.anchors] for spec in specs]
+    assert meta["scale_x_y"] == [spec.scale_x_y for spec in specs]
+    assert meta["axelera"]["quantization_scheme"] == "per_tensor_min_max"
+    assert "output_windows" not in meta
+
+
+def test_yolo3_tiny_export_folds_norms_and_maxpool_padding(exporter_sdk, tmp_path):
+    import torch
+    import yaml
+
+    from libreyolo import LibreYOLO3
+    from libreyolo.postprocess.yolonas_raw import raw_head_output_names
+
+    torch.manual_seed(0)
+    model = LibreYOLO3(None, size="t", nb_classes=3, device="cpu")
+    destination = tmp_path / "y3_axelera_model"
+    model.export(
+        format="axelera",
+        data=str(_dataset(tmp_path)),
+        imgsz=64,
+        output_path=str(destination),
+    )
+
+    layout = "darknet_raw_heads_v1"
+    assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout, (32, 16))
+    ops = exporter_sdk.seen["onnx_ops"]
+    # yolov3-tiny's stride-1 maxpool reaches the compiler as one padded
+    # MaxPool, and the Darknet norms are folded into the convolutions.
+    assert "Pad" not in ops and "Div" not in ops and "Sub" not in ops
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["model_family"] == "yolo3" and meta["output_layout"] == layout
+    assert meta["output_names"] == exporter_sdk.seen["device_order"]
+
+
 def test_depthwise_detection():
     import torch
 
@@ -806,6 +862,13 @@ def test_support_matrix_rows_for_axelera():
     yolox = get_support("yolox", "detect", "axelera")
     assert yolox.tier == "validated" and "validated sizes: t, s, m, l" in yolox.constraint
     assert precision_support("yolox", "detect", "axelera") == (True, True)
+    yolo3 = get_support("yolo3", "detect", "axelera")
+    assert yolo3.tier == "validated" and "validated sizes: t, b" in yolo3.constraint
+    assert precision_support("yolo3", "detect", "axelera") == (True, True)
+    yolo4 = get_support("yolo4", "detect", "axelera")
+    assert yolo4.tier == "validated" and "validated sizes: t" in yolo4.constraint
+    assert sorted(REFUSED_SIZES[("yolo4", "detect", "axelera")]) == ["b"]
+    assert precision_support("yolo4", "detect", "axelera") == (True, True)
     other = get_support("yolo7", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
@@ -827,3 +890,55 @@ def test_pose_sizes_below_the_bar_are_refused(tmp_path):
     """Pose n and s miss the 1.0-point bar on Metis; the refusal names the numbers."""
     with pytest.raises(NotImplementedError, match=r"yolonas-n pose export to axelera is blocked: .*1\.30 points"):
         _model("pose").export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+
+
+def _pad_maxpool_graph(pad_value):
+    import numpy as np
+    from onnx import TensorProto, helper, numpy_helper
+
+    pads = numpy_helper.from_array(np.array([0, 0, 0, 0, 0, 0, 1, 1], np.int64), "pads")
+    value = numpy_helper.from_array(np.array(pad_value, np.float32), "value")
+    nodes = [
+        helper.make_node("LeakyRelu", ["x"], ["act"], alpha=0.1),
+        helper.make_node("Pad", ["act", "pads", "value"], ["padded"], mode="constant"),
+        helper.make_node("MaxPool", ["padded"], ["y"], kernel_shape=[2, 2], strides=[1, 1]),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "pad_maxpool",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 2, 5, 5])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 2, 5, 5])],
+        initializer=[pads, value],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)], ir_version=8)
+
+
+def test_merge_pad_into_maxpool_is_exact(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    source = tmp_path / "model.onnx"
+    onnx.save(_pad_maxpool_graph(np.finfo(np.float32).min), str(source))
+
+    merged = ax.merge_pad_into_maxpool(str(source), tmp_path)
+
+    assert merged != str(source)
+    graph = onnx.load(merged).graph
+    assert [node.op_type for node in graph.node] == ["LeakyRelu", "MaxPool"]
+    pool = graph.node[1]
+    assert list(next(a for a in pool.attribute if a.name == "pads").ints) == [0, 0, 1, 1]
+    x = -np.abs(np.random.default_rng(0).normal(size=(1, 2, 5, 5)).astype(np.float32))
+    before = ort.InferenceSession(str(source)).run(None, {"x": x})[0]
+    after = ort.InferenceSession(merged).run(None, {"x": x})[0]
+    np.testing.assert_array_equal(before, after)
+
+
+def test_merge_pad_into_maxpool_leaves_other_graphs_alone(tmp_path):
+    onnx = pytest.importorskip("onnx")
+    source = tmp_path / "model.onnx"
+    onnx.save(_pad_maxpool_graph(0.0), str(source))  # zero padding is not -inf padding
+    before = source.read_bytes()
+
+    assert ax.merge_pad_into_maxpool(str(source), tmp_path) == str(source)
+    assert source.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["model.onnx"]

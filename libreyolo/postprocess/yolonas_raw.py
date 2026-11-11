@@ -1,4 +1,4 @@
-"""Host-side decode for YOLO-NAS, YOLO9 and YOLOX raw head outputs.
+"""Host-side decode for YOLO-NAS, YOLO9, YOLOX and anchor-based YOLO raw head outputs.
 
 Some accelerators run a YOLO-NAS or YOLO9 graph cut right after the head's
 last convolutions and leave the decode to the host: the DFL distance decode,
@@ -27,6 +27,9 @@ the order the layout lists:
                                ``cls`` [B, nc, H, W]
 ``yolox_raw_heads_v1``         ``reg`` [B, 4, H, W] (x/y cell offsets, log
                                w/h), ``obj`` [B, 1, H, W], ``cls`` [B, nc, H, W]
+``darknet_raw_heads_v1``       per level and anchor (anchor-major):
+                               ``reg`` [B, 4A, H, W] (tx, ty, tw, th),
+                               ``obj`` [B, A, H, W], ``cls`` [B, A*nc, H, W]
 =============================  ===========================================
 
 An export may also store some parts *windowed* (``output_windows`` in export
@@ -53,6 +56,7 @@ YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "yolonas_obb_raw_heads_v1": ("reg", "cls", "offset", "rot"),
     "yolo9_raw_heads_v1": ("reg", "cls"),
     "yolox_raw_heads_v1": ("reg", "obj", "cls"),
+    "darknet_raw_heads_v1": ("reg", "obj", "cls"),
 }
 
 YOLONAS_RAW_LAYOUT_BY_TASK: dict[str, str] = {
@@ -433,12 +437,73 @@ def decode_yolox_raw(
     return [out]
 
 
+def decode_anchor_yolo_raw(
+    outputs: Sequence[np.ndarray],
+    *,
+    layout: str,
+    strides: Sequence[int],
+    anchors: Sequence[Sequence[Sequence[float]]],
+    scale_x_y: Sequence[float] | None = None,
+    **_unused,
+) -> list[np.ndarray]:
+    """Decode anchor-based YOLO heads to ``[(B, 4 + nc, N)]``: xyxy px, obj * cls.
+
+    Rows are ordered level, anchor, row, column, as in the decoded export.
+    ``anchors`` holds each level's ``(w, h)`` pairs in input pixels.
+    ``darknet_raw_heads_v1`` (Darknet YOLOv3/v4): centre ``(sigmoid(t) * s -
+    (s - 1) / 2 + cell) * stride`` with ``s = scale_x_y`` of the level, size ``exp(t) *
+    anchor``.
+    """
+    levels = _split_levels(outputs, layout, strides)
+    _check_strides(levels, strides)
+    if len(anchors) != len(levels):
+        raise ValueError(
+            f"{layout} needs anchors for {len(levels)} levels, got {len(anchors)}."
+        )
+    scales = [1.0] * len(levels) if scale_x_y is None else [float(s) for s in scale_x_y]
+    batch = levels[0]["obj"].shape[0]
+    rows = []
+    for level, stride, level_anchors, scale in zip(levels, strides, anchors, scales):
+        _, count, h, w = level["obj"].shape
+        pairs = np.asarray(level_anchors, dtype=np.float32).reshape(count, 2)
+        nc = level["cls"].shape[1] // count
+        reg = level["reg"].reshape(batch, count, 4, h, w)
+        obj = _sigmoid_(level["obj"].reshape(batch, count, h, w).astype(np.float32, copy=True))
+        cls = _sigmoid_(level["cls"].reshape(batch, count, nc, h, w).astype(np.float32, copy=True))
+        col = np.arange(w, dtype=np.float32).reshape(1, 1, 1, w)
+        row = np.arange(h, dtype=np.float32).reshape(1, 1, h, 1)
+        txy = _sigmoid_(reg[:, :, 0:2].astype(np.float32, copy=True))
+        if scale != 1.0:
+            txy = txy * np.float32(scale) - np.float32((scale - 1.0) / 2.0)
+        cx = (txy[:, :, 0] + col) * np.float32(stride)
+        cy = (txy[:, :, 1] + row) * np.float32(stride)
+        with np.errstate(over="ignore"):
+            half_w = np.exp(reg[:, :, 2]) * pairs[:, 0].reshape(1, count, 1, 1) / 2
+            half_h = np.exp(reg[:, :, 3]) * pairs[:, 1].reshape(1, count, 1, 1) / 2
+        out = np.empty((batch, 4 + nc, count, h, w), dtype=np.float32)
+        out[:, 0] = cx - half_w
+        out[:, 1] = cy - half_h
+        out[:, 2] = cx + half_w
+        out[:, 3] = cy + half_h
+        out[:, 4:] = cls.transpose(0, 2, 1, 3, 4) * obj[:, None]
+        rows.append(out.reshape(batch, 4 + nc, count * h * w))
+    return [np.concatenate(rows, axis=2)]
+
+
+def _anchor_decoder(layout: str):
+    def decode(outputs, **params):
+        return decode_anchor_yolo_raw(outputs, layout=layout, **params)
+
+    return decode
+
+
 _DECODERS = {
     "yolonas_raw_heads_v1": decode_yolonas_raw,
     "yolonas_pose_raw_heads_v1": decode_yolonas_pose_raw,
     "yolonas_obb_raw_heads_v1": decode_yolonas_obb_raw,
     "yolo9_raw_heads_v1": decode_yolo9_raw,
     "yolox_raw_heads_v1": decode_yolox_raw,
+    "darknet_raw_heads_v1": _anchor_decoder("darknet_raw_heads_v1"),
 }
 
 
@@ -521,6 +586,7 @@ __all__ = [
     "YOLONAS_STRIDES",
     "YOLOX_RAW_OUTPUT_WINDOWS",
     "check_output_windows",
+    "decode_anchor_yolo_raw",
     "decode_raw_heads",
     "decode_yolo9_raw",
     "decode_yolonas_obb_raw",

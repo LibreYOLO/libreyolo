@@ -4086,6 +4086,44 @@ _add(
 )
 _add(
     "validated",
+    ("yolo4",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; each head convolution "
+        "is split into box, objectness and class convolutions and LibreYOLO "
+        "decodes the anchors on the host. On a Metis M.2 Max, YOLOv4-tiny is "
+        "within 0.6 mAP50-95 of FP32 on a paired 1000-image COCO val2017 "
+        "subset (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: t (on-device results in docs/axelera.md). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed input size"
+    ),
+)
+_add(
+    "validated",
+    ("yolo3",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; as for YOLOv4, each head "
+        "convolution is split into box, objectness and class convolutions and "
+        "LibreYOLO decodes the anchors on the host. On a Metis M.2 Max, "
+        "YOLOv3-tiny and YOLOv3 are within 0.8 mAP50-95 of FP32 on a paired "
+        "1000-image COCO val2017 subset (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: t, b (on-device results in docs/axelera.md). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed input size"
+    ),
+)
+_add(
+    "validated",
     ("yolo9",),
     ("detect",),
     ("axelera",),
@@ -4228,6 +4266,14 @@ REFUSED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "outside the 1.0-point bar; use m."
         ),
     },
+    ("yolo4", "detect", "axelera"): {
+        "b": (
+            "on a Metis device YOLOv4 (size b) keeps mAP50-95 1.5 points below "
+            "FP32 at best (0.465 vs 0.481 on 1000 COCO val2017 images, with "
+            "histogram activation ranges and a box-output window; 6.8 points "
+            "with the default ranges), outside the 1.0-point bar; use t."
+        ),
+    },
     ("yolox", "detect", "axelera"): {
         "n": (
             "on a Metis device YOLOX-n keeps mAP50-95 1.66 points below FP32 at "
@@ -4266,6 +4312,8 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("mobilenetv4", "classify"),
             ("fcn", "semantic"),
             ("yolox", "detect"),
+            ("yolo4", "detect"),
+            ("yolo3", "detect"),
         }
     ),
 }

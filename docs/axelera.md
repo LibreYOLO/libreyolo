@@ -1,6 +1,6 @@
 # Axelera Metis export
 
-Status: YOLO-NAS detection, oriented boxes and pose (pose sizes m and l); YOLOX detection (sizes t, s, m, l and x). Validation record below.
+Status: YOLO-NAS detection, oriented boxes and pose (pose sizes m and l); YOLOX detection (sizes t, s, m, l and x); YOLOv3 detection (sizes t and b); YOLOv4 detection (size t). Validation record below.
 
 `format="axelera"` compiles a LibreYOLO model to an INT8 `.axm` for Axelera's
 Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
@@ -18,6 +18,8 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | MobileNetV4 | classify | m (s and l refused, section 7) | see `docs/export_support.md` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` |
 | YOLOX | detect | t, s, m, l, x (n refused, section 7) | see `docs/export_support.md` |
+| YOLOv3 | detect | t, b (spp not measured) | see `docs/export_support.md` |
+| YOLOv4 | detect | t (b refused, section 7) | see `docs/export_support.md` |
 | YOLO9-E2E, YOLO9-P2, RF-DETR, other families | all | all | blocked (section 11) |
 
 The tiers in `docs/export_support.md` are generated from
@@ -198,6 +200,10 @@ not comparable to published full-set results; the deltas are the point.
 | YOLOX-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4582 | 0.4516 | -0.66 |
 | YOLOX-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4849 | 0.4781 | -0.68 |
 | YOLOX-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.4943 | 0.4867 | -0.76 |
+| YOLOv3-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.1023 | 0.1006 | -0.17 |
+| YOLOv3-b | detect | COCO val2017, 1000 images | 64 coco128 | 0.3656 | 0.3580 | -0.76 |
+| YOLOv4-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.2021 | 0.1968 | -0.53 |
+| YOLOv4-b | detect | COCO val2017, 1000 images | 64 coco128 | 0.4806 | 0.4654 | -1.52 (refused) |
 
 Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
 class, a set with ImageNet's licence terms used locally only), calibrated on
@@ -259,6 +265,12 @@ depthwise ranges bring it to 0.244 (128 calibration images), still 1.66
 points below FP32; the loss is spread over the network, not in the outputs
 (windowing the logits or SmoothQuant changed nothing), so YOLOX-n export is
 refused. Use YOLOX-t.
+
+YOLOv4-b (608x608, Mish backbone) loses 6.8 points with the default
+min-max ranges, almost all of it in the box outputs (swapping them back to
+FP32 recovers 6.1 of 6.4 points on 300 images). Histogram activation ranges
+plus a [-6, 6] box-output window bring it to -1.5 on 1000 images, still
+outside the bar, so its export is refused.
 
 The pose rows include everything LibreYOLO applies to pose heads: ReLU6
 output windows, equalization of the keypoint branch from calibration
@@ -352,12 +364,13 @@ rejects larger ones. Calibration images go through that same preprocessing.
 | --- | --- |
 | `format` | `axelera` |
 | `axm` | the `.axm` file name |
-| `output_layout` | output contract, for example `yolonas_raw_heads_v1`, `yolox_raw_heads_v1`, `classify_logits_v1` or `graph_outputs_v1` |
+| `output_layout` | output contract, for example `yolonas_raw_heads_v1`, `yolox_raw_heads_v1`, `darknet_raw_heads_v1`, `classify_logits_v1` or `graph_outputs_v1` |
 | `output_names` | output names in the order the compiled model returns them |
 | `graph_outputs` | output names in graph order (`graph_outputs_v1`) |
 | `output_windows` | parts emitted through a ReLU6 window, as `[low, high]` logit bounds (YOLO-NAS pose and YOLO9 exports); the backend maps them back before decoding |
 | `strides`, `reg_max`, `grid_cell_offset` | decode constants (`reg_max` only for distribution heads) |
 | `crop_pct`, `interpolation` | classifier eval transform |
+| `anchors`, `scale_x_y` | anchor boxes in input pixels per level, and Darknet's centre scaling (anchor-based heads) |
 | `axelera` | SDK version, quantization scheme, cores, resources, compiler overrides, calibration source and image count |
 | `weights_license` | reminder of the weight license |
 
@@ -385,6 +398,7 @@ compiles their own.
 
 - YOLO-NAS-R (obb): validated on 300 DOTA-v2.0 tiles (the paired set prepared for this work), not on a 1000-image set.
 - YOLOX-n: refused; mAP50-95 stays 1.66 points below FP32 at best (section 7).
+- YOLOv4-b: refused; mAP50-95 stays 1.5 points below FP32 at best (section 7): its box outputs lose resolution in the Mish backbone; histogram ranges recover most of it (-6.8 to -1.5), not enough. Use YOLOv4-t.
 - YOLO-NAS-pose n and s: refused; keypoint mAP50-95 stays 1.1 to 2.2 points below FP32 at best (section 7). Use m or l.
 - YOLO9-E2E and YOLO9-P2: not compiled or measured; blocked.
 - RF-DETR and other transformer families: attention, data-dependent TopK and

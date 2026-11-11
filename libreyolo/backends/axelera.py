@@ -302,6 +302,12 @@ class AxeleraBackend(BaseBackend):
             "grid_cell_offset": float(meta.get("grid_cell_offset", 0.5)),
             "output_windows": output_windows,
         }
+        if meta.get("anchors") is not None:  # anchor-based YOLO layouts
+            self._decode_params["anchors"] = [
+                [(float(w), float(h)) for w, h in level] for level in meta["anchors"]
+            ]
+            if meta.get("scale_x_y") is not None:
+                self._decode_params["scale_x_y"] = [float(s) for s in meta["scale_x_y"]]
         if parsed.task == "pose":
             self._decode_params["pose_offset_multiplier"] = float(
                 meta.get("pose_offset_multiplier", 1.0)
