@@ -54,7 +54,26 @@ CLASSIFY_LOGITS_LAYOUT = "classify_logits_v1"
 #: Whole-graph dense exports (super-resolution, depth, semantic, heatmap pose):
 #: the outputs are the family's ONNX outputs, decoded by the shared parsers.
 GRAPH_OUTPUTS_LAYOUT = "graph_outputs_v1"
+#: Super-resolution trunk on Metis; the final pixel shuffle and the nearest-
+#: upsampled input skip (Real-ESRGAN's compact network) run on the host.
+RESTORE_SHUFFLE_SKIP_LAYOUT = "restore_shuffle_skip_v1"
 _PASS_THROUGH_LAYOUTS = (CLASSIFY_LOGITS_LAYOUT, GRAPH_OUTPUTS_LAYOUT)
+_HOST_TAIL_LAYOUTS = (RESTORE_SHUFFLE_SKIP_LAYOUT,)
+
+
+def shuffle_and_skip(body: np.ndarray, image: np.ndarray, scale: int) -> np.ndarray:
+    """``pixel_shuffle(body, scale) + nearest_upsample(image, scale)`` in numpy.
+
+    ``body`` is ``[1, C*scale*scale, H, W]`` (PyTorch ``PixelShuffle`` channel
+    order) and ``image`` the ``[1, C, H, W]`` network input.
+    """
+    b, c, h, w = body.shape
+    r = int(scale)
+    channels = c // (r * r)
+    out = body.reshape(b, channels, r, r, h, w).transpose(0, 1, 4, 2, 5, 3)
+    out = out.reshape(b, channels, h * r, w * r)
+    base = np.repeat(np.repeat(image, r, axis=2), r, axis=3)
+    return (out + base[:, :channels]).astype(np.float32, copy=False)
 
 
 def axelera_install_command(package: str) -> str:
@@ -235,7 +254,11 @@ class AxeleraBackend(BaseBackend):
         if not isinstance(meta, dict) or meta.get("format") != "axelera":
             raise _foreign_artifact(axm, "metadata.yaml has no format: axelera")
         layout = meta.get("output_layout")
-        if layout not in YOLONAS_RAW_LAYOUTS and layout not in _PASS_THROUGH_LAYOUTS:
+        if (
+            layout not in YOLONAS_RAW_LAYOUTS
+            and layout not in _PASS_THROUGH_LAYOUTS
+            and layout not in _HOST_TAIL_LAYOUTS
+        ):
             if isinstance(layout, str) and layout:
                 raise ValueError(
                     f"{metadata_path} uses output layout {layout!r}, which this "
@@ -277,6 +300,10 @@ class AxeleraBackend(BaseBackend):
             layout_names = [str(name) for name in meta.get("graph_outputs") or ()]
             if not layout_names:
                 raise _foreign_artifact(axm, "no graph_outputs in metadata.yaml")
+        elif layout == RESTORE_SHUFFLE_SKIP_LAYOUT:
+            layout_names = ["body"]
+            if int(meta.get("upscale", 0)) < 1:
+                raise _foreign_artifact(axm, "no upscale in metadata.yaml")
         else:
             layout_names = raw_head_output_names(layout, strides)
         # ``output_names`` lists the outputs in the order the compiled model
@@ -291,11 +318,12 @@ class AxeleraBackend(BaseBackend):
         try:
             output_windows = (
                 {}
-                if layout in _PASS_THROUGH_LAYOUTS
+                if layout in _PASS_THROUGH_LAYOUTS or layout in _HOST_TAIL_LAYOUTS
                 else check_output_windows(layout, meta.get("output_windows"))
             )
         except ValueError as exc:
             raise ValueError(f"{metadata_path}: {exc} Re-export the model.") from exc
+        self._upscale = int(meta.get("upscale", 1))
         self._decode_params: dict[str, Any] = {
             "strides": strides,
             "reg_max": int(meta.get("reg_max", 16)),
@@ -396,7 +424,7 @@ class AxeleraBackend(BaseBackend):
         arrays = [np.asarray(out, dtype=np.float32) for out in outputs]
         if self._layout == CLASSIFY_LOGITS_LAYOUT:
             arrays = [a.reshape(1, -1) for a in arrays]
-        elif self._layout == GRAPH_OUTPUTS_LAYOUT:
+        elif self._layout in (GRAPH_OUTPUTS_LAYOUT, RESTORE_SHUFFLE_SKIP_LAYOUT):
             pass  # already the ONNX graph's tensors, batch dimension included
         else:
             arrays = [a if a.ndim == 4 else a.reshape((1, *a.shape)) for a in arrays]
@@ -417,6 +445,11 @@ class AxeleraBackend(BaseBackend):
             raw = [self._invoke(image) for image in images]
         if self._layout in _PASS_THROUGH_LAYOUTS:
             decoded = [[np.array(a, copy=True) for a in arrays] for arrays in raw]
+        elif self._layout == RESTORE_SHUFFLE_SKIP_LAYOUT:
+            decoded = [
+                [shuffle_and_skip(np.asarray(arrays[0], np.float32), image, self._upscale)]
+                for arrays, image in zip(raw, images)
+            ]
         else:
             decoded = [
                 decode_raw_heads(self._layout, arrays, **self._decode_params)
@@ -433,6 +466,7 @@ __all__ = [
     "AXELERA_SDK_VERSION",
     "CLASSIFY_LOGITS_LAYOUT",
     "GRAPH_OUTPUTS_LAYOUT",
+    "RESTORE_SHUFFLE_SKIP_LAYOUT",
     "AxeleraBackend",
     "axelera_install_command",
     "is_axelera_artifact",

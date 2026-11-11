@@ -3872,6 +3872,30 @@ _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
 }
 
 
+class _RestoreBodyWrapper(torch.nn.Module):
+    """Real-ESRGAN compact trunk up to its last convolution (``restore_shuffle_skip_v1``).
+
+    The pixel shuffle and the nearest-upsampled input skip run on the host: a
+    graph whose output depends directly on its input cannot be split into a
+    host preamble and an accelerated core.
+    """
+
+    output_layout = "restore_shuffle_skip_v1"
+    output_names = ("body",)
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        self.upscale = int(model.upscale)
+
+    def forward(self, x):
+        out = x
+        for layer in self.model.body:
+            out = layer(out)
+        return (out,)
+
+
 class AxeleraExporter(BaseExporter):
     """INT8 export for Axelera Metis AIPUs: a ``<stem>_axelera_model/`` directory.
 
@@ -4027,7 +4051,11 @@ class AxeleraExporter(BaseExporter):
             output_path, imgsz, device, half, int8
         )
         stride = 32  # largest YOLO-NAS feature stride; the host decode needs whole cells
-        raw_heads = self._task() != "classify" and not self._graph_outputs()
+        raw_heads = (
+            self._task() != "classify"
+            and not self._graph_outputs()
+            and not self._shuffle_skip_restore()
+        )
         if raw_heads and (imgsz[0] % stride or imgsz[1] % stride):
             raise ValueError(
                 f"Axelera export needs imgsz to be a multiple of {stride}, got "
@@ -4039,6 +4067,15 @@ class AxeleraExporter(BaseExporter):
         # Whole-graph dense exports (HRNet's 256x192 person crop) keep their
         # canvas; the YOLO-NAS raw-head path stays square.
         return bool(self._graph_outputs())
+
+    def _shuffle_skip_restore(self) -> bool:
+        """Real-ESRGAN's compact network (x4t): trunk on Metis, tail on the host."""
+        net = self.model.model
+        return (
+            self.model._get_model_name() == "realesrgan"
+            and self._task() == "restore"
+            and all(hasattr(net, name) for name in ("body", "upsampler", "upscale"))
+        )
 
     def _graph_outputs(self) -> tuple[str, ...]:
         """ONNX output names when the whole dense graph runs on Metis, else ``()``."""
@@ -4185,6 +4222,21 @@ class AxeleraExporter(BaseExporter):
         imgsz = (int(dummy.shape[-2]), int(dummy.shape[-1]))
         out = Path(output_path)
         onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        if self._shuffle_skip_restore():
+            self._raw_wrapper = _RestoreBodyWrapper(nn_model).eval()
+            logger.info("Step 1/2: Exporting restore trunk ONNX (%s)", onnx_output)
+            return _export_onnx_graph(
+                self._raw_wrapper,
+                dummy,
+                output_path=onnx_output,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=["images"],
+                output_names=list(self._raw_wrapper.output_names),
+                dynamic_axes=None,
+            )
         graph_outputs = self._graph_outputs()
         if graph_outputs:
             if self.model._get_model_name() == "quicksrnet":
@@ -4315,6 +4367,19 @@ class AxeleraExporter(BaseExporter):
     def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
         meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
         wrapper = self._raw_wrapper
+        if isinstance(wrapper, _RestoreBodyWrapper):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": list(wrapper.output_names),
+                    "upscale": wrapper.upscale,
+                }
+            )
+            return meta
         if isinstance(wrapper, _GraphOutputsWrapper):
             meta.update(
                 {

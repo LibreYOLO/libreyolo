@@ -551,7 +551,7 @@ def dense_allowed(monkeypatch):
         return original(family, task, fmt)
 
     monkeypatch.setattr(exporter, "get_support", gate)
-    pairs = {("fcn", "semantic")}
+    pairs = {("fcn", "semantic"), ("realesrgan", "restore")}
     monkeypatch.setitem(INT8_EXPORTS, "axelera", INT8_EXPORTS["axelera"] | pairs)
 
 
@@ -671,3 +671,31 @@ def test_midas_backend_matches_the_onnx_backend(sdk, tmp_path):
         backend(image)[0].depth_map.data, reference(image)[0].depth_map.data, rtol=1e-4, atol=1e-4
     )
 
+
+def test_realesrgan_trunk_runs_on_device_and_tail_on_host(sdk, dense_allowed, tmp_path):
+    """restore_shuffle_skip_v1: the host pixel shuffle + input skip reproduce the full graph."""
+    import torch
+    import yaml
+
+    from libreyolo import LibreRealESRGAN, LibreYOLO
+    from libreyolo.backends.axelera import shuffle_and_skip
+
+    torch.manual_seed(0)
+    model = LibreRealESRGAN(None, size="x4t", device="cpu")
+    artifact = Path(model.export(
+        format="axelera", data=str(_dataset(tmp_path)), imgsz=32,
+        output_path=str(tmp_path / "esr_axelera_model"),
+    ))
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "restore_shuffle_skip_v1" and meta["upscale"] == 4
+    backend = LibreYOLO(str(artifact))
+    x = torch.rand(1, 3, 32, 32)
+    with torch.no_grad():
+        expected = model.model(x).numpy()
+    actual = backend._run_inference(x.numpy())[0]
+    np.testing.assert_allclose(actual, expected, rtol=1e-4, atol=1e-4)
+    body = np.random.default_rng(0).standard_normal((1, 48, 4, 5)).astype(np.float32)
+    image = np.random.default_rng(1).standard_normal((1, 3, 4, 5)).astype(np.float32)
+    reference = torch.nn.functional.pixel_shuffle(torch.from_numpy(body), 4) + torch.nn.functional.interpolate(
+        torch.from_numpy(image), scale_factor=4, mode="nearest")
+    np.testing.assert_allclose(shuffle_and_skip(body, image, 4), reference.numpy(), atol=1e-6)
