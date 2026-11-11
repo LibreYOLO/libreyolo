@@ -1846,6 +1846,21 @@ def test_backend_accepts_fomo_point_task_with_shared_parser():
     assert backend.task == "point"
 
 
+def test_exported_retinanet_backend_validates_with_the_retinanet_geometry():
+    """The standard preprocessor resized RetinaNet inputs to a fixed square, so
+    the parser's anchor geometry did not match and val() raised."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "retinanet"
+    backend.task = "detect"
+    backend.imgsz = 800
+    assert type(backend._get_val_preprocessor(800)).__name__ == "RetinaNetValPreprocessor"
+
+
 def test_exported_yolo7_backend_validates_like_the_pytorch_model():
     """StandardValPreprocessor feeds 0-255 pixels; YOLOv7 expects 0-1."""
 

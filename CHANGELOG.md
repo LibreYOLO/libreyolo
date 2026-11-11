@@ -104,6 +104,9 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Validating an exported RetinaNet model works.**
+  `val()` on an ONNX or other exported RetinaNet model used the standard preprocessing, whose geometry does not match RetinaNet's resize (shorter side 800, longer side up to 1333), so it raised "anchor count does not match preprocessing geometry" (120087 vs 182403 anchors for r50). Exported backends now validate RetinaNet with its own preprocessing and validator, one image at a time because the input size varies per image: on 100 COCO val2017 images the ONNX export scores mAP50-95 0.3785, identical to the PyTorch model. `predict()` was not affected.
+
 - **Validating an exported YOLOv7 model uses the model's own preprocessing.**
   `val()` on an ONNX, TensorRT or other exported YOLOv7 model used the standard preprocessor, which feeds 0-255 pixels to a model that expects 0-1 (mean input 151 instead of 0.54 on a test image). Exported backends now validate YOLOv7 with the letterbox, RGB, 0-1 recipe the PyTorch model uses. `predict()` was not affected.
 

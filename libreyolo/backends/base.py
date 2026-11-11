@@ -4458,6 +4458,7 @@ class BaseBackend(ABC):
             RTDETRValPreprocessor,
             RTDETRv2OBBValPreprocessor,
             RTDETRv2ValPreprocessor,
+            RetinaNetValPreprocessor,
             RTMDetValPreprocessor,
             StandardValPreprocessor,
             YOLO9E2EValPreprocessor,
@@ -4527,6 +4528,10 @@ class BaseBackend(ABC):
             "yolo4": DarknetValPreprocessor,
             # YOLOv7 validates like YOLO9 (letterbox, RGB, 0-1).
             "yolo7": YOLO9ValPreprocessor,
+            # RetinaNet: upstream min/max aspect resize, ImageNet
+            # normalization, pad to /32; the parser rebuilds its anchors
+            # from that geometry.
+            "retinanet": RetinaNetValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
         if preprocessor_cls in (YOLO9ValPreprocessor, YOLO9E2EValPreprocessor):
             return preprocessor_cls(
@@ -4844,6 +4849,11 @@ class BaseBackend(ABC):
             raise NotImplementedError(
                 "Exported gaze validation requires a gaze-labelled dataset contract."
             )
+        elif self.model_family == "retinanet":
+            # Aspect-resized RetinaNet inputs vary in shape: one per batch.
+            from ..models.retinanet.validator import RetinaNetValidator
+
+            validator_cls = RetinaNetValidator
         else:
             validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)
