@@ -4180,13 +4180,13 @@ _add(
         "level's box, class and dynamic-kernel outputs plus the stride-8 mask "
         "feature, and LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS, "
         "dynamic-kernel mask decode) runs on the host. Supported, not "
-        "validated: on a Metis M.2 Max RTMDet-Ins-t scores 1.40 mask mAP50-95 "
-        "below FP32 on a paired 1000-image COCO val2017 subset "
-        "(docs/axelera.md)."
+        "validated: on a Metis M.2 Max the mask mAP50-95 drops below FP32 are "
+        "RTMDet-Ins-t 1.44 and RTMDet-Ins-s 5.80 on a paired 1000-image COCO "
+        "val2017 subset (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t (measured drop, SIZE_ACCURACY_NOTES); s, m, l and x "
+        "supported sizes: t, s (measured drop, SIZE_ACCURACY_NOTES); m, l and x "
         "are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
@@ -4572,10 +4572,16 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("rtmdet", "segment", "axelera"): {
         "t": (
-            "measured mask mAP50-95 drop 1.40 points vs FP32 (0.3254 vs 0.3394 "
-            "on 1000 COCO val2017 images; box 0.3561 vs 0.3825, -2.64; 64 "
+            "measured mask mAP50-95 drop 1.44 points vs FP32 (0.3250 vs 0.3394 "
+            "on 1000 COCO val2017 images; box 0.3574 vs 0.3825, -2.51; 64 "
             "coco128 calibration images, per-channel depthwise ranges and "
-            "CSPNeXt pointwise equalization)"
+            "balanced CSPNeXt pointwise equalization)"
+        ),
+        "s": (
+            "measured mask mAP50-95 drop 5.80 points vs FP32 (0.3139 vs 0.3719 "
+            "on 1000 COCO val2017 images; box 0.3445 vs 0.4171, -7.26; 64 "
+            "coco128 calibration images, per-channel depthwise ranges and "
+            "balanced CSPNeXt pointwise equalization)"
         ),
     },
     ("ppyoloe", "detect", "axelera"): {
@@ -4665,7 +4671,7 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         size: "has not been measured on a Metis yet" for size in ("19", "16bn", "19bn")
     },
     ("rtmdet", "segment", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("s", "m", "l", "x")
+        size: "has not been measured on a Metis yet" for size in ("m", "l", "x")
     },
 }
 

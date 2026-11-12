@@ -591,7 +591,7 @@ def test_rtmdet_ins_export_uses_the_rtmdet_ins_layout(exporter_sdk, tmp_path):
     meta = yaml.safe_load((destination / "metadata.yaml").read_text())
     assert meta["model_family"] == "rtmdet" and meta["task"] == "segment"
     assert meta["output_layout"] == layout
-    assert meta["pointwise_equalized"]["method"] == "act"  # the measured segment recipe
+    assert meta["pointwise_equalized"]["method"] == "cle"  # the measured segment recipe
     assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
 
 
@@ -1023,6 +1023,7 @@ def test_support_matrix_rows_for_axelera():
     rtmdet = get_support("rtmdet", "detect", "axelera")
     assert rtmdet.tier == "available" and "supported sizes: t, s, m, l " in rtmdet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["l", "m", "s", "t"]
+    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]) == ["s", "t"]
     other = get_support("yolo2", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")

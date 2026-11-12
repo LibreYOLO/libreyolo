@@ -51,7 +51,8 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | RTMDet | m | detect | COCO val2017, 1000 | 0.4727 | 0.4461 | -2.66 | supported | `rtmdet/detect/m/2026-11-12/2` |
 | RTMDet | l | detect | COCO val2017, 1000 | 0.4805 | 0.4618 | -1.87 | supported | `rtmdet/detect/l/2026-11-12/2` |
 | RetinaNet | r50 | detect (800x800 canvas) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas about -4.0 more) | supported | `retinanet/detect/r50/2026-11-11/5` |
-| RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3254 | -1.40 | supported | `rtmdet/segment/t/2026-11-11/4` |
+| RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3250 | -1.44 | supported | `rtmdet/segment/t/2026-11-12/2` |
+| RTMDet-Ins | s | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3719 | 0.3139 | -5.80 | supported | `rtmdet/segment/s/2026-11-12/4` |
 | ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 | validated | `resnet/classify/18/2026-11-10/2` |
 | ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated | `resnet/classify/34/2026-11-10` |
 | ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 | validated | `resnet/classify/50/2026-11-10` |
@@ -99,7 +100,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-11/2` |
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
 | RTMDet | detect | t, s, m, l (supported with a measured drop; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x blocked `rtmdet/detect/x/2026-11-12/2` |
-| RTMDet-Ins | segment | t (supported with a measured drop, box -2.64; s, m, l and x not measured yet) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-11/4` |
+| RTMDet-Ins | segment | t, s (supported with a measured drop, box -2.51 and -7.26; m, l and x not measured yet) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-12/4` |
 | RetinaNet | detect | r50 (supported: fixed 800x800 canvas, about -4.2 end to end; r50v2 not measured yet) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-11/5` |
 | YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
 | RF-DETR and other transformer families | all | all | out of scope (section 11) | - |
@@ -303,7 +304,8 @@ table at the top of this page.
 | RTMDet-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4805 | 0.4618 | -1.87 (supported; -1.92 on 300) |
 | RTMDet-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.5128 | - | does not compile (blocked) |
 | RetinaNet-R50 (800x800 canvas) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas about -4.0) |
-| RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3254 | -1.40 (supported; box -2.64) |
+| RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3250 | -1.44 (supported; box -2.51) |
+| RTMDet-Ins-s | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3719 | 0.3139 | -5.80 (supported; box -7.26) |
 
 Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
 class, a set with ImageNet's licence terms used locally only), calibrated on
@@ -398,8 +400,10 @@ measured drop. RTMDet-s, whose stage-2 pointwise input spreads 45.9x
 (channel peak against the median), collapses without the equalization
 (-27.5 on 300 images) and gets worse with the activation-only factor
 (-33.2); with the balanced factor it scores -6.75 on 1000 images
-(supported). RTMDet-Ins keeps the activation-only factor, the recipe its
-numbers were measured with.
+(supported). RTMDet-Ins uses the balanced factor too: with the
+activation-only factor RTMDet-Ins-s collapses (mask 0.080 vs 0.402 on 300
+images); with the balanced one it scores -5.80 mask / -7.26 box on 1000,
+and RTMDet-Ins-t is unchanged within noise (-1.44 / -2.51 vs -1.40 / -2.64).
 
 RTMDet-Ins runs the same trunk on the device and returns, per level, the
 box, class and dynamic-kernel outputs, plus the stride-8 mask feature
@@ -555,7 +559,7 @@ Blocked for structural reasons (accuracy never blocks an export):
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
-- EfficientNetV2-b3, VGG-19, -16bn and -19bn, RetinaNet-r50v2, RTMDet-Ins-s, -m, -l and -x, MiDaS-l.
+- EfficientNetV2-b3, VGG-19, -16bn and -19bn, RetinaNet-r50v2, RTMDet-Ins-m, -l and -x, MiDaS-l.
 - YOLO9-E2E and YOLO9-P2.
 - Other families.
 

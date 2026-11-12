@@ -849,11 +849,12 @@ CSPNEXT_POINTWISE_EQUALIZATION: str | None = "conv"
 #: balances the activation and the pointwise weight columns). ``None`` picks
 #: the measured best per task (``CSPNEXT_POINTWISE_EQUALIZATION_METHOD_BY_TASK``).
 CSPNEXT_POINTWISE_EQUALIZATION_METHOD: str | None = None
-#: RTMDet-t on a Metis, 1000 COCO images: detect ``cle`` -2.29 vs ``act``
-#: -2.84 mAP50-95; segment measured with ``act`` only.
+#: RTMDet on a Metis, 1000 COCO images: detect-t ``cle`` -2.29 vs ``act``
+#: -2.84 mAP50-95; RTMDet-Ins-s collapses with ``act`` (mask 0.08 vs 0.40 on
+#: 300) and holds with ``cle``; RTMDet-Ins-t ties (-1.44 vs -1.40 mask).
 CSPNEXT_POINTWISE_EQUALIZATION_METHOD_BY_TASK: dict[str, str] = {
     "detect": "cle",
-    "segment": "act",
+    "segment": "cle",
 }
 
 
