@@ -1271,6 +1271,12 @@ def test_only_listed_families_request_graph_passes():
         "picodet": ("channel_shuffle_to_conv",),
         "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
         "vgg": ("fc_rowconv",),
+        "efficientdet": (
+            "float_div_to_mul",
+            "stack_sum_to_add",
+            "mean_hw_to_gap",
+            "gap_staged",
+        ),
     }
     requested = {name for names in _AXELERA_GRAPH_PASSES.values() for name in names}
     assert requested <= set(ax.GRAPH_PASSES)
@@ -1520,4 +1526,78 @@ def test_fc_rowconv_leaves_pooled_heads_alone(tmp_path):
     before = source.read_bytes()
 
     assert ax.apply_graph_passes(str(source), tmp_path, ["fc_rowconv"]) == str(source)
+    assert source.read_bytes() == before
+
+
+def _bifpn_graph():
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    inits = [
+        numpy_helper.from_array(np.array(0.7, np.float32), "w0"),
+        numpy_helper.from_array(np.array(1.3, np.float32), "w1"),
+        numpy_helper.from_array(np.array(2.0001, np.float32), "norm"),
+        numpy_helper.from_array(np.array([0], np.int64), "axis0"),
+        numpy_helper.from_array(np.array([2, 3], np.int64), "hw"),
+    ]
+    nodes = [
+        helper.make_node("Mul", ["a", "w0"], ["a_w"]),
+        helper.make_node("Div", ["a_w", "norm"], ["a_n"]),
+        helper.make_node("Mul", ["b", "w1"], ["b_w"]),
+        helper.make_node("Div", ["b_w", "norm"], ["b_n"]),
+        helper.make_node("Unsqueeze", ["a_n", "axis0"], ["a_u"]),
+        helper.make_node("Unsqueeze", ["b_n", "axis0"], ["b_u"]),
+        helper.make_node("Concat", ["a_u", "b_u"], ["stack"], axis=0),
+        helper.make_node("ReduceSum", ["stack", "axis0"], ["fused"], keepdims=0),
+        helper.make_node("ReduceMean", ["fused"], ["mean"], axes=[2, 3], keepdims=1),
+        helper.make_node("Mul", ["fused", "mean"], ["y"]),
+    ]
+    shape = [1, 4, 32, 32]
+    return _onnx_model(nodes, [("a", shape), ("b", shape)], [("y", shape)], inits)
+
+
+def test_bifpn_passes_are_exact(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    source = tmp_path / "model.onnx"
+    onnx.save(_bifpn_graph(), str(source))
+    names = ["float_div_to_mul", "stack_sum_to_add", "mean_hw_to_gap", "gap_staged"]
+
+    rewritten = ax.apply_graph_passes(str(source), tmp_path, names)
+
+    ops = [node.op_type for node in onnx.load(rewritten).graph.node]
+    for gone in ("Div", "ReduceSum", "ReduceMean", "Unsqueeze", "Concat"):
+        assert gone not in ops
+    # 32x32 -> three 2x2 average steps -> a global average over 4x4.
+    assert ops.count("AveragePool") == 3 and ops.count("GlobalAveragePool") == 1
+    rng = np.random.default_rng(5)
+    feeds = {k: rng.normal(size=(1, 4, 32, 32)).astype(np.float32) for k in ("a", "b")}
+    before = ort.InferenceSession(str(source)).run(None, feeds)[0]
+    after = ort.InferenceSession(rewritten).run(None, feeds)[0]
+    np.testing.assert_allclose(after, before, rtol=1e-5, atol=1e-5)
+
+
+def test_float_div_to_mul_leaves_integer_division_alone(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    from onnx import TensorProto, helper, numpy_helper
+
+    graph = helper.make_graph(
+        [helper.make_node("Div", ["i", "n"], ["q"])],
+        "intdiv",
+        [helper.make_tensor_value_info("i", TensorProto.INT64, [4])],
+        [helper.make_tensor_value_info("q", TensorProto.INT64, [4])],
+        initializer=[numpy_helper.from_array(np.array(90, np.int64), "n")],
+    )
+    model = helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("", 13)], ir_version=8
+    )
+    source = tmp_path / "model.onnx"
+    onnx.save(model, str(source))
+    before = source.read_bytes()
+
+    assert ax.apply_graph_passes(str(source), tmp_path, ["float_div_to_mul"]) == str(
+        source
+    )
     assert source.read_bytes() == before

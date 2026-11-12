@@ -3823,6 +3823,9 @@ _AXELERA_GRAPH_OUTPUTS = {
     ("quicksrnet", "restore"): ("restored",),
     ("midas", "depth"): ("depth",),
     ("deeplabv3", "semantic"): ("semantic_logits",),
+    # EfficientDet's decoded export; the top-candidate decode (TopK, Gather,
+    # Exp) lands in the compiled model's host postamble.
+    ("efficientdet", "detect"): ("output",),
 }
 
 
@@ -3859,6 +3862,13 @@ _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
     "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
     # VGG's fc6 (Gemm over 7x7x512) as row convolutions.
     "vgg": ("fc_rowconv",),
+    # BiFPN weighted fusion and squeeze-excite averages in AIPU-runnable form.
+    "efficientdet": (
+        "float_div_to_mul",
+        "stack_sum_to_add",
+        "mean_hw_to_gap",
+        "gap_staged",
+    ),
 }
 
 

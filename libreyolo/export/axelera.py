@@ -1018,6 +1018,183 @@ def _fc_rowconv(model) -> int:
     return count
 
 
+def _constant(graph, weights, name):
+    """Value of an initializer or Constant-node output, else None."""
+    from onnx import numpy_helper
+
+    if name in weights:
+        return weights[name]
+    for node in graph.node:
+        if node.op_type == "Constant" and node.output[0] == name and node.attribute:
+            return numpy_helper.to_array(node.attribute[0].t)
+    return None
+
+
+def _reduce_axes(graph, weights, node):
+    attrs = _attributes(node)
+    if "axes" in attrs:
+        return [int(a) for a in attrs["axes"]]
+    if len(node.input) > 1 and node.input[1]:
+        value = _constant(graph, weights, node.input[1])
+        return None if value is None else [int(a) for a in value.reshape(-1)]
+    return None
+
+
+def _float_div_to_mul(model) -> int:
+    """``Div(x, c)`` by a floating-point constant becomes ``Mul(x, 1 / c)``.
+
+    EfficientDet's BiFPN normalizes its learned fusion weights with a Div that
+    the AIPU does not run; the weights are constant after export, so the
+    division is a scaling. Integer divisions (index arithmetic in decodes) are
+    left alone. Exact up to float rounding. Returns the number of rewrites.
+    """
+    import numpy as np
+    from onnx import numpy_helper
+
+    _, _, _, weights = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "Div"]:
+        value = _constant(graph, weights, node.input[1])
+        if value is None or not np.issubdtype(value.dtype, np.floating):
+            continue
+        if np.any(value == 0):
+            continue
+        name = f"{node.input[1]}_reciprocal_{count}"
+        graph.initializer.append(
+            numpy_helper.from_array((1.0 / value).astype(value.dtype), name)
+        )
+        node.op_type = "Mul"
+        node.input[1] = name
+        count += 1
+    return count
+
+
+def _stack_sum_to_add(model) -> int:
+    """``ReduceSum(Concat(Unsqueeze(t_i)))`` over the stacking axis becomes ``t_0 + t_1 + ...``.
+
+    The BiFPN fuses its inputs by stacking and summing them; the reduction
+    over the new axis is not an AIPU op, an Add chain is. Exact up to
+    summation order. Returns the number of rewrites.
+    """
+    from onnx import helper
+
+    _, producers, consumers, weights = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for reduce in [n for n in graph.node if n.op_type == "ReduceSum"]:
+        concat = producers.get(reduce.input[0])
+        if concat is None or concat.op_type != "Concat":
+            continue
+        if len(consumers.get(concat.output[0], [])) != 1:
+            continue
+        axis = _attributes(concat).get("axis")
+        keep = _attributes(reduce).get("keepdims", 1)
+        unsqueezes = [producers.get(name) for name in concat.input]
+        if (
+            keep != 0
+            or _reduce_axes(graph, weights, reduce) != [axis]
+            or any(
+                u is None
+                or u.op_type != "Unsqueeze"
+                or _reduce_axes(graph, weights, u) != [axis]
+                or len(consumers.get(u.output[0], [])) != 1
+                for u in unsqueezes
+            )
+        ):
+            continue
+        terms = [u.input[0] for u in unsqueezes]
+        nodes, total = [], terms[0]
+        for index, term in enumerate(terms[1:]):
+            out = (
+                reduce.output[0]
+                if index == len(terms) - 2
+                else f"{reduce.output[0]}_sum{index}"
+            )
+            nodes.append(helper.make_node("Add", [total, term], [out], name=out))
+            total = out
+        for node in [reduce, concat, *unsqueezes]:
+            graph.node.remove(node)
+        graph.node.extend(nodes)
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+        _topological_sort(graph)
+    return count
+
+
+def _mean_hw_to_gap(model) -> int:
+    """``ReduceMean`` over H and W (keepdims) becomes ``GlobalAveragePool``. Exact."""
+    from onnx import helper
+
+    _, _, _, weights = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "ReduceMean"]:
+        if _attributes(node).get("keepdims", 1) != 1:
+            continue
+        if sorted(_reduce_axes(graph, weights, node) or []) not in ([2, 3], [-2, -1]):
+            continue
+        index = list(graph.node).index(node)
+        graph.node.remove(node)
+        graph.node.insert(
+            index,
+            helper.make_node(
+                "GlobalAveragePool", [node.input[0]], list(node.output), name=node.name
+            ),
+        )
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+    return count
+
+
+#: Largest map a GlobalAveragePool may average in one piece after gap_staged.
+_GAP_MAX_SIDE = 4
+
+
+def _gap_staged(model) -> int:
+    """Average large maps in 2x2 steps before the GlobalAveragePool.
+
+    A global average over a large map (EfficientDet-d0's first squeeze-excite
+    sees 256x256) fails in the compiler's integer sum-reduce; so does a single
+    16x16 averaging window. A chain of 2x2 / stride-2 AveragePools down to
+    at most 4x4, then the global average, gives the same mean (equal windows).
+    Returns the number of rewritten pools.
+    """
+    from onnx import helper
+
+    shapes, _, _, _ = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "GlobalAveragePool"]:
+        shape = shapes.get(node.input[0])
+        if not shape or len(shape) != 4:
+            continue
+        height, width = shape[2], shape[3]
+        nodes, current = [], node.input[0]
+        while max(height, width) > _GAP_MAX_SIDE and height % 2 == 0 and width % 2 == 0:
+            out = f"{node.input[0]}_avg2_{count}_{len(nodes)}"
+            nodes.append(
+                helper.make_node(
+                    "AveragePool",
+                    [current],
+                    [out],
+                    name=out,
+                    kernel_shape=[2, 2],
+                    strides=[2, 2],
+                )
+            )
+            current, height, width = out, height // 2, width // 2
+        if not nodes:
+            continue
+        node.input[0] = current
+        graph.node.extend(nodes)
+        count += 1
+    if count:
+        _topological_sort(graph)
+    return count
+
 _DATA_PASSES = {"dw_channel_groups"}
 
 #: Named exact ONNX rewrites an export may request (``graph_passes``); each
@@ -1028,6 +1205,10 @@ GRAPH_PASSES = {
     "pooled_branch_split": _pooled_branch_split,
     "conv_reduction_split": _conv_reduction_split,
     "fc_rowconv": _fc_rowconv,
+    "float_div_to_mul": _float_div_to_mul,
+    "stack_sum_to_add": _stack_sum_to_add,
+    "mean_hw_to_gap": _mean_hw_to_gap,
+    "gap_staged": _gap_staged,
 }
 
 
