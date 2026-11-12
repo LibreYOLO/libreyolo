@@ -4070,6 +4070,27 @@ _add(
     ),
 )
 _add(
+    "validated",
+    ("vgg",),
+    ("classify",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole classifier "
+        "runs on the Metis AIPU, with the fully connected head expressed as "
+        "convolutions (fc6 as one row convolution per row of the 7x7 map, an "
+        "exact graph pass), and the host applies the softmax. On a Metis M.2 "
+        "Max, VGG-16 is within 1.0 top-1 point of FP32 on a paired 1000-image "
+        "ImageNetV2 set (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: 16, calibrated with in-domain images (data=); 19, 16bn "
+        "and 19bn are not measured on a Metis yet (UNMEASURED_SIZES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 224 input"
+    ),
+)
+_add(
     "available",
     ("quicksrnet",),
     ("restore",),
@@ -4640,6 +4661,9 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("retinanet", "detect", "axelera"): {"r50v2": "has not been measured on a Metis yet"},
+    ("vgg", "classify", "axelera"): {
+        size: "has not been measured on a Metis yet" for size in ("19", "16bn", "19bn")
+    },
     ("rtmdet", "segment", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("s", "m", "l", "x")
     },
@@ -4660,6 +4684,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("resnet", "classify"),
             ("mobilenetv4", "classify"),
             ("efficientnetv2", "classify"),
+            ("vgg", "classify"),
             ("quicksrnet", "restore"),
             ("midas", "depth"),
             ("deeplabv3", "semantic"),

@@ -32,6 +32,7 @@ CASES = {
     "rtmdet": ("LibreRTMDet", dict(size='t', nb_classes=3)),
     "rtmdet_seg": ("LibreRTMDet", dict(size='t', nb_classes=3, task='segment')),
     "retinanet": ("LibreRetinaNet", dict(size='r50', nb_classes=3)),
+    "vgg": ("LibreVGG", dict(size='16', nb_classes=3)),
 }
 
 SUPPORT_KEYS = {
@@ -55,10 +56,14 @@ SUPPORT_KEYS = {
     "rtmdet": ('rtmdet', 'detect'),
     "rtmdet_seg": ('rtmdet', 'segment'),
     "retinanet": ('retinanet', 'detect'),
+    "vgg": ('vgg', 'classify'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).
 OPTIONAL_DEPS = {"midas": "timm"}
+
+#: Families whose export needs their fixed native resolution instead of the small default.
+EXPORT_IMGSZ = {"vgg": 224}
 
 #: Support tiers whose exports users can run (accuracy is a label, not a gate: "available" also exports).
 EXPORTABLE_TIERS = ("validated", "available")
@@ -131,7 +136,7 @@ def test_axelera_export_leaves_the_users_model_untouched(case, tmp_path, monkeyp
         model.export(
             format="axelera",
             data=str(_dataset(tmp_path)),
-            imgsz=64,
+            imgsz=EXPORT_IMGSZ.get(case, 64),
             output_path=str(tmp_path / "m_axelera_model"),
         )
     assert calls, f"export failed before the compile step: {info.value!r}"

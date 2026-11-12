@@ -175,7 +175,7 @@ in preflight.
 | direct3d_s2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  | available |  |  |  |
+| vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | video_depth_anything | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | vit | classify | ✓ | available | available | available | available |  |  |  |  | available |  |  |  |
 | vitmatte | matte |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -494,6 +494,7 @@ A check mark applies only under any constraint listed here.
 - `vgg` / `classify` / `torchscript`: FP32, batch 1, fixed 224x224 input
 - `vgg` / `classify` / `tensorrt`: FP32, batch 1, fixed 224x224 input
 - `vgg` / `classify` / `openvino`: FP32, batch 1, fixed 224x224 input
+- `vgg` / `classify` / `axelera`: validated sizes: 16, calibrated with in-domain images (data=); 19, 16bn and 19bn are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `vit` / `classify` / `onnx`: FP32, fixed 224x224 input
 - `vjepa2` / `embed` / `onnx`: FP32, dynamic batch, fixed frame count / crop / tubelet geometry per graph; ONNX needs opset >= 14 for scaled_dot_product_attention. The graph must be driven with a 5D clip: LibreYOLO's exported-backend path still preprocesses to a 4D image batch and raises NotImplementedError for this family.
 - `vjepa2` / `embed` / `torchscript`: FP32, dynamic batch, fixed frame count / crop / tubelet geometry per graph; ONNX needs opset >= 14 for scaled_dot_product_attention. The graph must be driven with a 5D clip: LibreYOLO's exported-backend path still preprocesses to a 4D image batch and raises NotImplementedError for this family.
@@ -2455,7 +2456,6 @@ These converter paths are callable with the recorded validation context.
 - `vgg` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vgg` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vgg` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `vgg` / `classify` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `vgg` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `vgg` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `vgg` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
