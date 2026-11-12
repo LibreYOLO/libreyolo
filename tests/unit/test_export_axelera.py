@@ -1415,6 +1415,7 @@ def test_only_listed_families_request_graph_passes():
             "channel_max_tree",
             "broadcast_mul_expand",
             "conv_reduction_split",
+            "resize_1x1_broadcast_add",
             "resize_factor_split",
         ),
         "pidnet": ("channel_reduce_to_conv", "broadcast_mul_expand"),
@@ -2058,3 +2059,46 @@ def test_resize_factor_split_only_where_exact(
     before = ort.InferenceSession(str(source)).run(None, feeds)[0]
     after = ort.InferenceSession(out).run(None, feeds)[0]
     np.testing.assert_allclose(after, before, rtol=1e-5, atol=1e-5)
+
+
+def test_resize_1x1_broadcast_add_is_exact(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    from onnx import TensorProto, helper, numpy_helper
+
+    graph = helper.make_graph(
+        [
+            helper.make_node("GlobalAveragePool", ["x"], ["pooled"]),
+            helper.make_node(
+                "Resize",
+                ["pooled", "", "", "sizes"],
+                ["up"],
+                mode="linear",
+                coordinate_transformation_mode="half_pixel",
+            ),
+            helper.make_node("Add", ["up", "x"], ["y"]),
+        ],
+        "pool_branch",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 3, 16, 32])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 3, 16, 32])],
+        [numpy_helper.from_array(np.array([1, 3, 16, 32], np.int64), "sizes")],
+    )
+    model = helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("", 18)], ir_version=8
+    )
+    source = tmp_path / "model.onnx"
+    onnx.save(model, str(source))
+
+    out = ax.apply_graph_passes(str(source), tmp_path, ["resize_1x1_broadcast_add"])
+
+    assert [n.op_type for n in onnx.load(out).graph.node] == [
+        "GlobalAveragePool",
+        "Add",
+    ]
+    feeds = {
+        "x": np.random.default_rng(4).normal(size=(1, 3, 16, 32)).astype(np.float32)
+    }
+    before = ort.InferenceSession(str(source)).run(None, feeds)[0]
+    after = ort.InferenceSession(out).run(None, feeds)[0]
+    np.testing.assert_allclose(after, before, rtol=1e-6, atol=1e-6)

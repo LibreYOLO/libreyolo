@@ -4067,13 +4067,15 @@ _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
     # VGG's fc6 (Gemm over 7x7x512) as row convolutions.
     "vgg": ("fc_rowconv",),
     # Spatial attention (channel mean/max, broadcast gating) in AIPU form; the
-    # pyramid pooling's unequal-factor upsampling (16x32 map at 512x1024) as
-    # an equal-factor resize plus a 2x1 average.
+    # pyramid pooling's 1x1 branch as a broadcast add and its other
+    # unequal-factor upsampling (16x32 map at 512x1024) as an equal-factor
+    # resize plus a 2x1 average.
     "ppliteseg": (
         "channel_reduce_to_conv",
         "channel_max_tree",
         "broadcast_mul_expand",
         "conv_reduction_split",
+        "resize_1x1_broadcast_add",
         "resize_factor_split",
     ),
     "pidnet": ("channel_reduce_to_conv", "broadcast_mul_expand"),

@@ -1400,6 +1400,40 @@ def _broadcast_mul_expand(model) -> int:
     return count
 
 
+def _resize_1x1_broadcast_add(model) -> int:
+    """Upsampling a 1x1 map into an addition becomes a broadcast addition.
+
+    Any resize of a 1x1 map is the same value everywhere, so when each
+    consumer adds it to a full-size map the per-channel ``[1, C, 1, 1]`` map
+    can be added directly. The compiler would otherwise lower the resize
+    (PP-LiteSeg's pyramid pooling, 1x1 to 16x32) to a depthwise window wider
+    than the core's scratchpad. Exact. Returns the number of removed resizes.
+    """
+    shapes, _, consumers, _ = _graph_tables(model)
+    graph = model.graph
+    outputs = {o.name for o in graph.output}
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "Resize"]:
+        source, target = shapes.get(node.input[0]), shapes.get(node.output[0])
+        if not source or not target or len(source) != 4 or source[2:] != [1, 1]:
+            continue
+        users = consumers.get(node.output[0], [])
+        if node.output[0] in outputs or not users:
+            continue
+        if any(u.op_type != "Add" or len(u.input) != 2 for u in users):
+            continue
+        partners = [u.input[1 - list(u.input).index(node.output[0])] for u in users]
+        if any(shapes.get(other) != target for other in partners):
+            continue
+        for user, other in zip(users, partners):
+            user.input[0], user.input[1] = other, node.input[0]
+        graph.node.remove(node)
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+    return count
+
+
 def _resize_factor_split(model) -> int:
     """Bilinear upsampling with unequal factors becomes an equal-factor one plus a pool.
 
@@ -1499,6 +1533,7 @@ GRAPH_PASSES = {
     "channel_reduce_to_conv": _channel_reduce_to_conv,
     "channel_max_tree": _channel_max_tree,
     "broadcast_mul_expand": _broadcast_mul_expand,
+    "resize_1x1_broadcast_add": _resize_1x1_broadcast_add,
     "resize_factor_split": _resize_factor_split,
 }
 
