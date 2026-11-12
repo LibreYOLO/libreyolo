@@ -4079,13 +4079,14 @@ _add(
         "runs on the Metis AIPU, with the fully connected head expressed as "
         "convolutions (fc6 as one row convolution per row of the 7x7 map, an "
         "exact graph pass), and the host applies the softmax. On a Metis M.2 "
-        "Max, VGG-16 is within 1.0 top-1 point of FP32 on a paired 1000-image "
-        "ImageNetV2 set (docs/axelera.md)."
+        "Max, VGG-16 and VGG-19 are within 1.0 top-1 point of FP32 on a paired "
+        "1000-image ImageNetV2 set; the batch-norm variants are supported with "
+        "a larger measured drop (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "validated sizes: 16, calibrated with in-domain images (data=); 19, 16bn "
-        "and 19bn are not measured on a Metis yet (UNMEASURED_SIZES). "
+        "validated sizes: 16, 19; supported sizes: 16bn, 19bn (measured drop, "
+        "SIZE_ACCURACY_NOTES); calibrated with in-domain images (data=). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed 224 input"
     ),
@@ -4584,6 +4585,18 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "balanced CSPNeXt pointwise equalization)"
         ),
     },
+    ("vgg", "classify", "axelera"): {
+        "16bn": (
+            "measured top-1 drop 2.9 points vs FP32 (0.604 vs 0.633 on 1000 "
+            "ImageNetV2 images, 250 ImageNetV2 calibration images, min-max "
+            "ranges)"
+        ),
+        "19bn": (
+            "measured top-1 drop 5.1 points vs FP32 (0.593 vs 0.644 on 1000 "
+            "ImageNetV2 images, 250 ImageNetV2 calibration images, min-max "
+            "ranges)"
+        ),
+    },
     ("ppyoloe", "detect", "axelera"): {
         "s": (
             "measured mAP50-95 drop 1.23 points vs FP32 (0.396 vs 0.409 on 1000 "
@@ -4667,9 +4680,6 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("retinanet", "detect", "axelera"): {"r50v2": "has not been measured on a Metis yet"},
-    ("vgg", "classify", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("19", "16bn", "19bn")
-    },
     ("rtmdet", "segment", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("m", "l", "x")
     },

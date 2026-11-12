@@ -1001,9 +1001,10 @@ def test_support_matrix_rows_for_axelera():
     assert yolo3.tier == "validated" and "validated sizes: t, b, spp" in yolo3.constraint
     assert precision_support("yolo3", "detect", "axelera") == (True, True)
     vgg = get_support("vgg", "classify", "axelera")
-    assert vgg.tier == "validated" and "validated sizes: 16," in vgg.constraint
+    assert vgg.tier == "validated" and "validated sizes: 16, 19;" in vgg.constraint
     assert precision_support("vgg", "classify", "axelera") == (True, True)
-    assert sorted(UNMEASURED_SIZES[("vgg", "classify", "axelera")]) == ["16bn", "19", "19bn"]
+    assert sorted(SIZE_ACCURACY_NOTES[("vgg", "classify", "axelera")]) == ["16bn", "19bn"]
+    assert ("vgg", "classify", "axelera") not in UNMEASURED_SIZES
     picodet = get_support("picodet", "detect", "axelera")
     assert picodet.tier == "available" and "supported sizes: s, m, l " in picodet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("picodet", "detect", "axelera")]) == ["l", "m", "s"]
