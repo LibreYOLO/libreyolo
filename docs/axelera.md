@@ -106,7 +106,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-11/2` |
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
 | RTMDet | detect | t, s, m, l (supported with a measured drop; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x blocked `rtmdet/detect/x/2026-11-12/2` |
-| RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -7.26, -3.96 and -5.34; x not measured yet, expected to fail like RTMDet-x) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-12/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2` |
+| RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -7.26, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-12/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
 | RetinaNet | detect | r50 (supported: fixed 800x800 canvas, about -4.2 end to end; r50v2 blocked, section 11) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-11/5` |
 | EfficientDet | detect | d0 (supported with a measured drop; d1-d4 not measured yet) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3` |
 | YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
@@ -316,6 +316,7 @@ table at the top of this page.
 | RTMDet-Ins-s | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3719 | 0.3139 | -5.80 (supported; box -7.26) |
 | RTMDet-Ins-m | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4011 | 0.3932 | -0.79 (supported: box -3.96; on 300 mask -0.67, box -4.56) |
 | RTMDet-Ins-l | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4163 | 0.4113 | -0.50 (supported: box -5.34; on 300 mask -0.58, box -5.75) |
+| RTMDet-Ins-x | segment (mask) | COCO val2017, 1000 images | 64 coco128 | - | - | does not compile (blocked) |
 
 Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
 class, a set with ImageNet's licence terms used locally only), calibrated on
@@ -588,11 +589,12 @@ Blocked for structural reasons (accuracy never blocks an export):
 - DeepLabV3-ResNet50/101: quantize, but at output stride 8 the ASPP convolutions need the whole 64x64 feature map and lowering finds no L1 tiling.
 - FCOS: the head normalizes every convolution with GroupNorm (per-image statistics), which the 1.9 INT8 toolchain has no form for: quantization stops on the head's 40 InstanceNormalization ops at opset 17 (on Resize at opset 18; ledger `fcos/detect/r50/2026-11-11/3`). It needs a head retrained with batch norm or no norm.
 - RetinaNet-r50v2: like FCOS, the head normalizes every convolution with GroupNorm (per-image statistics); quantization stops on the head's InstanceNormalization ops (fixed 800x800 canvas, 14.9 min, 5.1 GB peak RSS; ledger `retinanet/detect/r50v2/2026-11-12`). Use RetinaNet-r50.
+- RTMDet-Ins-x: at 640x640 lowering fails in AssignTilingFactors (ScheduleMemory, LowerTIR): no tiling factor fits L1 (3.99 MB needed, 3.32 MB available; 2 h 08 min, 8.1 GB peak RSS; ledger `rtmdet/segment/x/2026-11-12`). Use RTMDet-Ins-l.
 - RTMDet-x: at 640x640 the compiler's LowerTIR pass still overflows its on-chip buffers after 4 iterations (2 h 21 min, 7 GB peak RSS; ledger `rtmdet/detect/x/2026-11-12/2`). Use RTMDet-l.
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
-- EfficientNetV2-b3, EfficientDet-d1 to -d4, RTMDet-Ins-x (expected to fail like RTMDet-x), MiDaS-l.
+- EfficientNetV2-b3, EfficientDet-d1 to -d4, MiDaS-l.
 - YOLO9-E2E and YOLO9-P2.
 - Other families.
 

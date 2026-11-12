@@ -4188,8 +4188,8 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x is "
-        "not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
+        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does "
+        "not compile (BLOCKED_SIZES). axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
@@ -4720,6 +4720,14 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "RetinaNet-r50"
         ),
     },
+    ("rtmdet", "segment", "axelera"): {
+        "x": (
+            "does not compile for Metis at 640x640 with the 1.9 SDK: lowering "
+            "fails in AssignTilingFactors (ScheduleMemory, LowerTIR) because no "
+            "tiling factor fits L1 (3.99 MB needed, 3.32 MB available; after 2 h "
+            "08 min, 8.1 GB peak RSS); use RTMDet-Ins-l"
+        ),
+    },
     ("rtmdet", "detect", "axelera"): {
         "x": (
             "does not compile for Metis at 640x640 with the 1.9 SDK: the "
@@ -4739,12 +4747,6 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("efficientdet", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("d1", "d2", "d3", "d4")
-    },
-    ("rtmdet", "segment", "axelera"): {
-        "x": (
-            "has not been measured on a Metis yet (RTMDet-x fails the compiler's "
-            "LowerTIR pass at 640x640, and RTMDet-Ins-x is expected to as well)"
-        ),
     },
 }
 

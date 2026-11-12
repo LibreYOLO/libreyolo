@@ -1178,6 +1178,15 @@ def test_efficientnetv2_sizes_that_do_not_compile_are_blocked(tmp_path, size):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 
+def test_rtmdet_ins_x_is_blocked_with_its_compile_failure(tmp_path):
+    from libreyolo import LibreRTMDet
+
+    model = LibreRTMDet(None, size="x", nb_classes=3, task="segment", device="cpu")
+    message = r"rtmdet-x segment export to axelera is blocked: it does not compile .*tiling factor fits L1"
+    with pytest.raises(NotImplementedError, match=message):
+        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+
+
 def test_rtmdet_x_is_blocked_with_its_compile_failure(tmp_path):
     from libreyolo import LibreRTMDet
 
