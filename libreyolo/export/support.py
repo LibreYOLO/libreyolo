@@ -4181,13 +4181,14 @@ _add(
         "level's box, class and dynamic-kernel outputs plus the stride-8 mask "
         "feature, and LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS, "
         "dynamic-kernel mask decode) runs on the host. Supported, not "
-        "validated: on a Metis M.2 Max the mask mAP50-95 drops below FP32 are "
-        "RTMDet-Ins-t 1.44 and RTMDet-Ins-s 5.80 on a paired 1000-image COCO "
-        "val2017 subset (docs/axelera.md)."
+        "validated: on a Metis M.2 Max the mask / box mAP50-95 drops below FP32 "
+        "are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 5.80 / 7.26 and RTMDet-Ins-m "
+        "0.79 / 3.96 on a paired 1000-image COCO val2017 subset "
+        "(docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s (measured drop, SIZE_ACCURACY_NOTES); m, l and x "
+        "supported sizes: t, s, m (measured drop, SIZE_ACCURACY_NOTES); l and x "
         "are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
@@ -4598,6 +4599,12 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "coco128 calibration images, per-channel depthwise ranges and "
             "balanced CSPNeXt pointwise equalization)"
         ),
+        "m": (
+            "measured box mAP50-95 drop 3.96 points vs FP32 (box 0.4149 vs 0.4545, "
+            "mask 0.3932 vs 0.4011, -0.79, on 1000 COCO val2017 images; 64 "
+            "coco128 calibration images, per-channel depthwise ranges and "
+            "balanced CSPNeXt pointwise equalization)"
+        ),
     },
     ("vgg", "classify", "axelera"): {
         "16bn": (
@@ -4695,7 +4702,7 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("retinanet", "detect", "axelera"): {"r50v2": "has not been measured on a Metis yet"},
     ("rtmdet", "segment", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("m", "l", "x")
+        size: "has not been measured on a Metis yet" for size in ("l", "x")
     },
 }
 
