@@ -1601,3 +1601,16 @@ def test_float_div_to_mul_leaves_integer_division_alone(tmp_path):
         source
     )
     assert source.read_bytes() == before
+
+
+def test_efficientdet_preprocessing_accepts_a_square_pair():
+    np = pytest.importorskip("numpy")
+    from libreyolo.models.efficientdet.utils import preprocess_numpy
+
+    image = np.random.default_rng(6).integers(0, 256, (40, 60, 3), dtype=np.uint8)
+    by_int, scale_int = preprocess_numpy(image, 64)
+    by_pair, scale_pair = preprocess_numpy(image, (64, 64))
+    np.testing.assert_array_equal(by_pair, by_int)
+    assert scale_pair == scale_int and by_pair.shape == (3, 64, 64)
+    with pytest.raises(ValueError, match="square canvas"):
+        preprocess_numpy(image, (64, 96))
