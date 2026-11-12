@@ -854,6 +854,165 @@ def _conv_reduction_split(model) -> int:
     return count
 
 
+_FC_PASS_THROUGH = (
+    "Relu",
+    "LeakyRelu",
+    "Sigmoid",
+    "Tanh",
+    "HardSwish",
+    "Identity",
+    "Dropout",
+)
+
+
+def _fc_rowconv(model) -> int:
+    """Run a flattened-map classifier head as convolutions (VGG's fc6/fc7/fc8).
+
+    ``Flatten`` of a ``[1, C, H, W]`` map with ``H * W > 1`` followed by a
+    Gemm chain: the first Gemm (one reduction over ``C*H*W``, 25088 for
+    VGG-16, which the compiler cannot map) becomes ``H`` row convolutions
+    (a ``1 x W`` kernel on each H-slice of the map) summed by Adds, the later
+    Gemms become 1x1 convolutions, and a Flatten restores ``[1, N]``. Exact
+    up to summation order. A single ``H x W`` convolution is not an option:
+    the quantizer's own large-kernel rewrite fails on it. Classifiers that
+    pool to 1x1 first (ResNet, MobileNet) are left alone. Returns the
+    number of rewritten heads.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, _, consumers, weights = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for flatten in [node for node in graph.node if node.op_type == "Flatten"]:
+        shape = shapes.get(flatten.input[0])
+        if not shape or len(shape) != 4 or shape[0] != 1 or shape[2] * shape[3] <= 1:
+            continue
+        channels, height, width = shape[1:]
+        chain, current = [], flatten.output[0]
+        while True:
+            users = consumers.get(current, [])
+            if len(users) != 1:
+                break
+            user = users[0]
+            if user.op_type == "Gemm":
+                attrs = _attributes(user)
+                if (
+                    attrs.get("transA", 0)
+                    or float(attrs.get("alpha", 1.0)) != 1.0
+                    or float(attrs.get("beta", 1.0)) != 1.0
+                    or user.input[1] not in weights
+                ):
+                    break
+                chain.append(user)
+            elif user.op_type in _FC_PASS_THROUGH:
+                chain.append(user)
+            else:
+                break
+            current = user.output[0]
+        gemms = [n for n in chain if n.op_type == "Gemm"]
+        if not gemms:
+            continue
+        tag = (flatten.name or flatten.output[0]).strip("/").replace("/", "_") + "_rows"
+        graph.initializer.append(
+            numpy_helper.from_array(np.array([2], np.int64), f"{tag}_axis")
+        )
+        nodes, previous, first = [], flatten.input[0], True
+        for node in chain:
+            out = f"{node.output[0]}_4d"
+            if node.op_type != "Gemm":
+                op = "Identity" if node.op_type == "Dropout" else node.op_type
+                attrs = {} if op == "Identity" else _attributes(node)
+                nodes.append(helper.make_node(op, [previous], [out], name=out, **attrs))
+                previous = out
+                continue
+            weight = weights[node.input[1]]
+            if not _attributes(node).get("transB", 0):
+                weight = weight.T
+            bias = [node.input[2]] if len(node.input) > 2 and node.input[2] else []
+            if first:
+                kernel = weight.reshape(weight.shape[0], channels, height, width)
+                total = None
+                for row in range(height):
+                    name = f"{tag}{row}"
+                    graph.initializer.extend(
+                        [
+                            numpy_helper.from_array(
+                                np.array([row], np.int64), f"{name}_s"
+                            ),
+                            numpy_helper.from_array(
+                                np.array([row + 1], np.int64), f"{name}_e"
+                            ),
+                            numpy_helper.from_array(
+                                np.ascontiguousarray(
+                                    kernel[:, :, row : row + 1, :]
+                                ).astype(np.float32),
+                                f"{name}_w",
+                            ),
+                        ]
+                    )
+                    nodes.append(
+                        helper.make_node(
+                            "Slice",
+                            [previous, f"{name}_s", f"{name}_e", f"{tag}_axis"],
+                            [f"{name}_x"],
+                            name=f"{name}_x",
+                        )
+                    )
+                    nodes.append(
+                        helper.make_node(
+                            "Conv",
+                            [f"{name}_x", f"{name}_w", *(bias if row == 0 else [])],
+                            [f"{name}_y"],
+                            name=f"{name}_y",
+                            kernel_shape=[1, width],
+                        )
+                    )
+                    if total is None:
+                        total = f"{name}_y"
+                        continue
+                    summed = out if row == height - 1 else f"{name}_sum"
+                    nodes.append(
+                        helper.make_node(
+                            "Add", [total, f"{name}_y"], [summed], name=summed
+                        )
+                    )
+                    total = summed
+                if height == 1:
+                    nodes.append(helper.make_node("Identity", [total], [out], name=out))
+                first = False
+            else:
+                graph.initializer.append(
+                    numpy_helper.from_array(
+                        weight.reshape(*weight.shape, 1, 1).astype(np.float32),
+                        f"{node.output[0]}_w1x1",
+                    )
+                )
+                nodes.append(
+                    helper.make_node(
+                        "Conv",
+                        [previous, f"{node.output[0]}_w1x1", *bias],
+                        [out],
+                        name=out,
+                        kernel_shape=[1, 1],
+                    )
+                )
+            previous = out
+        last = chain[-1].output[0]
+        nodes.append(
+            helper.make_node(
+                "Flatten", [previous], [last], name=f"{tag}_flatten", axis=1
+            )
+        )
+        for node in [flatten, *chain]:
+            graph.node.remove(node)
+        graph.node.extend(nodes)
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+        _topological_sort(graph)
+    return count
+
 
 _DATA_PASSES = {"dw_channel_groups"}
 
@@ -864,6 +1023,7 @@ GRAPH_PASSES = {
     "dw_channel_groups": _dw_channel_groups,
     "pooled_branch_split": _pooled_branch_split,
     "conv_reduction_split": _conv_reduction_split,
+    "fc_rowconv": _fc_rowconv,
 }
 
 

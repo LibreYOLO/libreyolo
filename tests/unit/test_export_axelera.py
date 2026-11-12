@@ -1248,7 +1248,7 @@ def test_graph_passes_leave_other_graphs_alone(tmp_path):
         ax.apply_graph_passes(str(source), tmp_path, ["no_such_pass"])
 
 
-def test_only_picodet_and_deeplabv3_request_graph_passes():
+def test_only_listed_families_request_graph_passes():
     from libreyolo.export.exporter import _AXELERA_GRAPH_PASSES
 
     # Every other family's graph reaches the compiler unchanged by these
@@ -1256,6 +1256,7 @@ def test_only_picodet_and_deeplabv3_request_graph_passes():
     assert _AXELERA_GRAPH_PASSES == {
         "picodet": ("channel_shuffle_to_conv",),
         "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
+        "vgg": ("fc_rowconv",),
     }
     requested = {name for names in _AXELERA_GRAPH_PASSES.values() for name in names}
     assert requested <= set(ax.GRAPH_PASSES)
@@ -1455,3 +1456,54 @@ def test_deeplabv3_graph_passes_leave_other_graphs_alone(tmp_path):
     with pytest.raises(ValueError, match="Unknown Axelera graph pass"):
         ax.apply_graph_passes(str(source), tmp_path, ["no_such_pass"])
 
+
+
+def _fc_head_graph(height, width):
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    rng = np.random.default_rng(3)
+    k = 64 * height * width
+    inits = [
+        numpy_helper.from_array(
+            rng.normal(size=(32, k)).astype(np.float32) * 0.05, "w1"
+        ),
+        numpy_helper.from_array(rng.normal(size=32).astype(np.float32), "b1"),
+        numpy_helper.from_array(rng.normal(size=(10, 32)).astype(np.float32), "w2"),
+        numpy_helper.from_array(rng.normal(size=10).astype(np.float32), "b2"),
+    ]
+    nodes = [
+        helper.make_node("Flatten", ["x"], ["f"], axis=1),
+        helper.make_node("Gemm", ["f", "w1", "b1"], ["h"], transB=1),
+        helper.make_node("Relu", ["h"], ["r"]),
+        helper.make_node("Gemm", ["r", "w2", "b2"], ["y"], transB=1),
+    ]
+    return _onnx_model(nodes, [("x", [1, 64, height, width])], [("y", [1, 10])], inits)
+
+
+def test_fc_rowconv_is_exact(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    source = tmp_path / "model.onnx"
+    onnx.save(_fc_head_graph(3, 4), str(source))
+
+    rewritten = ax.apply_graph_passes(str(source), tmp_path, ["fc_rowconv"])
+
+    ops = [node.op_type for node in onnx.load(rewritten).graph.node]
+    assert "Gemm" not in ops and ops.count("Slice") == 3 and ops.count("Conv") == 4
+    x = np.random.default_rng(4).normal(size=(1, 64, 3, 4)).astype(np.float32)
+    before = ort.InferenceSession(str(source)).run(None, {"x": x})[0]
+    after = ort.InferenceSession(rewritten).run(None, {"x": x})[0]
+    assert after.shape == before.shape == (1, 10)
+    np.testing.assert_allclose(after, before, rtol=1e-5, atol=1e-4)
+
+
+def test_fc_rowconv_leaves_pooled_heads_alone(tmp_path):
+    onnx = pytest.importorskip("onnx")
+    source = tmp_path / "model.onnx"
+    onnx.save(_fc_head_graph(1, 1), str(source))  # GAP -> fc, as in ResNet
+    before = source.read_bytes()
+
+    assert ax.apply_graph_passes(str(source), tmp_path, ["fc_rowconv"]) == str(source)
+    assert source.read_bytes() == before

@@ -3856,6 +3856,8 @@ class _GraphOutputsWrapper(torch.nn.Module):
 _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
     "picodet": ("channel_shuffle_to_conv",),
     "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
+    # VGG's fc6 (Gemm over 7x7x512) as row convolutions.
+    "vgg": ("fc_rowconv",),
 }
 
 
