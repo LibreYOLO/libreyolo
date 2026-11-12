@@ -4182,14 +4182,14 @@ _add(
         "feature, and LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS, "
         "dynamic-kernel mask decode) runs on the host. Supported, not "
         "validated: on a Metis M.2 Max the mask / box mAP50-95 drops below FP32 "
-        "are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 5.80 / 7.26 and RTMDet-Ins-m "
-        "0.79 / 3.96 on a paired 1000-image COCO val2017 subset "
-        "(docs/axelera.md)."
+        "are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 5.80 / 7.26, RTMDet-Ins-m "
+        "0.79 / 3.96 and RTMDet-Ins-l 0.50 / 5.34 on a paired 1000-image COCO "
+        "val2017 subset (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s, m (measured drop, SIZE_ACCURACY_NOTES); l and x "
-        "are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
+        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x is "
+        "not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
@@ -4605,6 +4605,12 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "coco128 calibration images, per-channel depthwise ranges and "
             "balanced CSPNeXt pointwise equalization)"
         ),
+        "l": (
+            "measured box mAP50-95 drop 5.34 points vs FP32 (box 0.4193 vs 0.4727, "
+            "mask 0.4113 vs 0.4163, -0.50, on 1000 COCO val2017 images; 64 "
+            "coco128 calibration images, per-channel depthwise ranges and "
+            "balanced CSPNeXt pointwise equalization)"
+        ),
     },
     ("vgg", "classify", "axelera"): {
         "19bn": (
@@ -4697,7 +4703,10 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("retinanet", "detect", "axelera"): {"r50v2": "has not been measured on a Metis yet"},
     ("rtmdet", "segment", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("l", "x")
+        "x": (
+            "has not been measured on a Metis yet (RTMDet-x fails the compiler's "
+            "LowerTIR pass at 640x640, and RTMDet-Ins-x is expected to as well)"
+        ),
     },
 }
 
