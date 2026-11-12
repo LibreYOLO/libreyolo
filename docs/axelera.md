@@ -561,6 +561,7 @@ Blocked for structural reasons (accuracy never blocks an export):
 - HRNet (pose): compiles, but the device output drifts from the quantized model stage by stage (keypoint mAP 0.000 on device vs a working CPU-quantized model).
 - ZipDepth: after an exact ReduceMean-to-pooling rewrite, quantization fails on the GCNet context MatMul.
 - DeepLabV3-ResNet50/101: quantize, but at output stride 8 the ASPP convolutions need the whole 64x64 feature map and lowering finds no L1 tiling.
+- FCOS: the head normalizes every convolution with GroupNorm (per-image statistics), which the 1.9 INT8 toolchain has no form for: quantization stops on the head's 40 InstanceNormalization ops at opset 17 (on Resize at opset 18; ledger `fcos/detect/r50/2026-11-11/3`). It needs a head retrained with batch norm or no norm.
 - RTMDet-x: at 640x640 the compiler's LowerTIR pass still overflows its on-chip buffers after 4 iterations (2 h 21 min, 7 GB peak RSS; ledger `rtmdet/detect/x/2026-11-12/2`). Use RTMDet-l.
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):

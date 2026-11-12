@@ -1169,7 +1169,7 @@ These converter paths are callable with the recorded validation context.
 - `fcos` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `fcos` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `fcos` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `fcos` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `fcos` / `detect` / `axelera`: FCOS's detection head normalizes every convolution with GroupNorm, which divides each image's features by statistics computed from that image; Axelera's INT8 toolchain has no form for it. Measured with the 1.9 SDK: quantization stops on the head's 40 InstanceNormalization ops (at opset 18 it stops earlier, on Resize). Running FCOS on Metis needs a head with batch norm or no norm, i.e. a retrained model.
 - `fcos` / `detect` / `ncnn`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `tflite`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `coreml`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.

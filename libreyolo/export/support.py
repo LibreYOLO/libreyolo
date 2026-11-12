@@ -4352,6 +4352,20 @@ _add(
     ),
 )
 _add(
+    "blocked",
+    ("fcos",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "FCOS's detection head normalizes every convolution with GroupNorm, "
+        "which divides each image's features by statistics computed from that "
+        "image; Axelera's INT8 toolchain has no form for it. Measured with the "
+        "1.9 SDK: quantization stops on the head's 40 InstanceNormalization "
+        "ops (at opset 18 it stops earlier, on Resize). Running FCOS on Metis "
+        "needs a head with batch norm or no norm, i.e. a retrained model."
+    ),
+)
+_add(
     "validated",
     ("yolo9",),
     ("detect",),

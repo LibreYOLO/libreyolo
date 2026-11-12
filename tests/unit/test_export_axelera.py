@@ -1025,6 +1025,8 @@ def test_support_matrix_rows_for_axelera():
     assert rtmdet.tier == "available" and "supported sizes: t, s, m, l " in rtmdet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["l", "m", "s", "t"]
     assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]) == ["s", "t"]
+    fcos = get_support("fcos", "detect", "axelera")
+    assert fcos.tier == "blocked" and "GroupNorm" in fcos.reason
     other = get_support("yolo2", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
