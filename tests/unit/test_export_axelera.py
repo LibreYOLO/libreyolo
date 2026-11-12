@@ -981,7 +981,7 @@ def test_verify_reads_the_quantized_model_before_compile_lowers_it(exporter_sdk,
 def test_support_matrix_rows_for_axelera():
     from libreyolo.export.support import get_support, precision_support
 
-    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES
+    from libreyolo.export.support import BLOCKED_SIZES, SIZE_ACCURACY_NOTES, UNMEASURED_SIZES
 
     for task in ("detect", "pose", "obb"):
         assert get_support("yolonas", task, "axelera").tier == "validated"
@@ -1020,6 +1020,8 @@ def test_support_matrix_rows_for_axelera():
     retinanet = get_support("retinanet", "detect", "axelera")
     assert retinanet.tier == "available" and "supported sizes: r50 " in retinanet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("retinanet", "detect", "axelera")]) == ["r50"]
+    assert "GroupNorm" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
+    assert ("retinanet", "detect", "axelera") not in UNMEASURED_SIZES
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
     rtmdet = get_support("rtmdet", "detect", "axelera")

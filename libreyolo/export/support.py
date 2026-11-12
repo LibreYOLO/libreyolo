@@ -4348,7 +4348,7 @@ _add(
     since="1.7",
     constraint=(
         "supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed 800x800 "
-        "canvas; r50v2 is not measured on a Metis yet (UNMEASURED_SIZES). "
+        "canvas; r50v2 is blocked (GroupNorm head, BLOCKED_SIZES). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1"
     ),
 )
@@ -4712,6 +4712,14 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         )
         for size in ("r50", "r101")
     },
+    ("retinanet", "detect", "axelera"): {
+        "r50v2": (
+            "does not quantize for Metis with the 1.9 SDK: like FCOS, its head "
+            "normalizes every convolution with GroupNorm (per-image statistics) "
+            "and quantization stops on the head's InstanceNormalization ops; use "
+            "RetinaNet-r50"
+        ),
+    },
     ("rtmdet", "detect", "axelera"): {
         "x": (
             "does not compile for Metis at 640x640 with the 1.9 SDK: the "
@@ -4729,7 +4737,6 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         "b3": "has not been measured on a Metis yet",
     },
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
-    ("retinanet", "detect", "axelera"): {"r50v2": "has not been measured on a Metis yet"},
     ("efficientdet", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("d1", "d2", "d3", "d4")
     },
