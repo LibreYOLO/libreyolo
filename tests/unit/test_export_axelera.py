@@ -1017,8 +1017,8 @@ def test_support_matrix_rows_for_axelera():
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
     rtmdet = get_support("rtmdet", "detect", "axelera")
-    assert rtmdet.tier == "available" and "supported sizes: t, s " in rtmdet.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["s", "t"]
+    assert rtmdet.tier == "available" and "supported sizes: t, s, m " in rtmdet.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["m", "s", "t"]
     other = get_support("yolo2", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
@@ -1157,7 +1157,7 @@ def test_efficientnetv2_sizes_that_do_not_compile_are_blocked(tmp_path, size):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 
-@pytest.mark.parametrize("size", ["m", "l", "x"])
+@pytest.mark.parametrize("size", ["l", "x"])
 def test_unmeasured_rtmdet_sizes_do_not_export(tmp_path, size):
     from libreyolo import LibreRTMDet
 
