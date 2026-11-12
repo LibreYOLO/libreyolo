@@ -404,6 +404,7 @@ def test_default_quantization_scheme_per_model():
     assert ax.default_quantization_scheme("resnet", "classify") == "per_tensor_min_max"
     assert ax.default_quantization_scheme("yolonas", "pose") == "hybrid_per_tensor_per_channel"
     assert ax.default_quantization_scheme("yolonas", "detect") == "per_tensor_min_max"
+    assert ax.default_quantization_scheme("efficientdet", "detect") == "hybrid_per_tensor_per_channel"
 
 
 def test_classify_calibration_defaults_to_coco128(exporter_sdk):
@@ -1025,6 +1026,10 @@ def test_support_matrix_rows_for_axelera():
     assert rtmdet.tier == "available" and "supported sizes: t, s, m, l " in rtmdet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["l", "m", "s", "t"]
     assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]) == ["l", "m", "s", "t"]
+    effdet = get_support("efficientdet", "detect", "axelera")
+    assert effdet.tier == "available" and "supported sizes: d0 " in effdet.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("efficientdet", "detect", "axelera")]) == ["d0"]
+    assert precision_support("efficientdet", "detect", "axelera") == (True, True)
     fcos = get_support("fcos", "detect", "axelera")
     assert fcos.tier == "blocked" and "GroupNorm" in fcos.reason
     other = get_support("yolo2", "detect", "axelera")

@@ -63,6 +63,9 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
     ("efficientnetv2", "classify"): "hybrid_per_tensor_per_channel",
     # MobileNetV3 depthwise backbone: per-channel ranges on depthwise inputs.
     ("deeplabv3", "semantic"): "hybrid_per_tensor_per_channel",
+    # EfficientNet-B0 depthwise backbone: min-max lost 17.2 mAP50-95 points on
+    # EfficientDet-d0, per-channel ranges 1.0 (300 COCO images, docs/axelera.md).
+    ("efficientdet", "detect"): "hybrid_per_tensor_per_channel",
 }
 
 

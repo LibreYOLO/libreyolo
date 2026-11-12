@@ -33,6 +33,7 @@ CASES = {
     "rtmdet_seg": ("LibreRTMDet", dict(size='t', nb_classes=3, task='segment')),
     "retinanet": ("LibreRetinaNet", dict(size='r50', nb_classes=3)),
     "vgg": ("LibreVGG", dict(size='16', nb_classes=3)),
+    "efficientdet": ("LibreEfficientDet", dict(size='d0', nb_classes=3)),
 }
 
 SUPPORT_KEYS = {
@@ -57,13 +58,14 @@ SUPPORT_KEYS = {
     "rtmdet_seg": ('rtmdet', 'segment'),
     "retinanet": ('retinanet', 'detect'),
     "vgg": ('vgg', 'classify'),
+    "efficientdet": ('efficientdet', 'detect'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).
 OPTIONAL_DEPS = {"midas": "timm"}
 
 #: Families whose export needs their fixed native resolution instead of the small default.
-EXPORT_IMGSZ = {"vgg": 224}
+EXPORT_IMGSZ = {"vgg": 224, "efficientdet": 512}
 
 #: Support tiers whose exports users can run (accuracy is a label, not a gate: "available" also exports).
 EXPORTABLE_TIERS = ("validated", "available")

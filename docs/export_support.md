@@ -46,7 +46,7 @@ in preflight.
 | ec | pose | ✓ | ✓ | ✓ | available | available | ✓ |  |  |  |  |  |  |  |
 | ec | segment | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  |  |  |  |
 | edgetam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| efficientdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  | available |  |  |  |
+| efficientdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available | available |  |  |  |
 | efficientnetv2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
 | eomt | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | eomt | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -622,6 +622,7 @@ These converter paths are callable with the recorded validation context.
 - `ec` / `pose` / `openvino`: Raw parity passes after Hungarian query alignment, but trained public boxes fall to 0.916 matched IoU.
 - `ec` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes.
 - `efficientdet` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `efficientdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole EfficientDet graph runs on the Metis AIPU after exact rewrites of the BiFPN fusion (division by a constant as a multiplication, the stacked weighted sum as additions) and of the squeeze-excite averages (staged 2x2 pools), and the host decodes the boxes in float. Supported, not validated: on a Metis M.2 Max with per-channel activation ranges EfficientDet-d0 loses 1.78 mAP50-95 points against FP32 on 1000 COCO val2017 images (docs/axelera.md). Constraint: supported sizes: d0 (measured drop, SIZE_ACCURACY_NOTES); d1-d4 are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `efficientdet` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `efficientnetv2` / `classify` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole classifier runs on the Metis AIPU with histogram activation ranges. Supported, not validated: on a Metis M.2 Max EfficientNetV2-b0 keeps top-1 1.0-1.1 points below FP32 on a paired 1000-image ImageNetV2 set (docs/axelera.md). Constraint: supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1 and b2 do not compile with SDK 1.9.0 (BLOCKED_SIZES); b3 is not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `fcos` / `detect` / `openvino`: FP32 dynamic-shape conversion and high-confidence public predictions pass, but small score/box drift can change low-confidence NMS ordering. Constraint: OpenVINO CPU, FP32, batch 1, dynamic padded H/W
@@ -1062,7 +1063,6 @@ These converter paths are callable with the recorded validation context.
 - `efficientdet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `efficientdet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `efficientdet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `efficientdet` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `efficientdet` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `efficientdet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `efficientdet` / `detect` / `coreai`: This family and task have not been validated for Core AI export.

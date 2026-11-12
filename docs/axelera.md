@@ -51,6 +51,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | RTMDet | m | detect | COCO val2017, 1000 | 0.4727 | 0.4461 | -2.66 | supported | `rtmdet/detect/m/2026-11-12/2` |
 | RTMDet | l | detect | COCO val2017, 1000 | 0.4805 | 0.4618 | -1.87 | supported | `rtmdet/detect/l/2026-11-12/2` |
 | RetinaNet | r50 | detect (800x800 canvas) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas about -4.0 more) | supported | `retinanet/detect/r50/2026-11-11/5` |
+| EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3250 | -1.44 | supported | `rtmdet/segment/t/2026-11-12/2` |
 | RTMDet-Ins | s | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3719 | 0.3139 | -5.80 | supported | `rtmdet/segment/s/2026-11-12/4` |
 | RTMDet-Ins | m | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4011 | 0.3932 | -0.79 (box -3.96) | supported | `rtmdet/segment/m/2026-11-12/2` |
@@ -107,6 +108,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | RTMDet | detect | t, s, m, l (supported with a measured drop; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x blocked `rtmdet/detect/x/2026-11-12/2` |
 | RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -7.26, -3.96 and -5.34; x not measured yet, expected to fail like RTMDet-x) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-12/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2` |
 | RetinaNet | detect | r50 (supported: fixed 800x800 canvas, about -4.2 end to end; r50v2 not measured yet) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-11/5` |
+| EfficientDet | detect | d0 (supported with a measured drop; d1-d4 not measured yet) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3` |
 | YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
 | RF-DETR and other transformer families | all | all | out of scope (section 11) | - |
 
@@ -309,6 +311,7 @@ table at the top of this page.
 | RTMDet-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4805 | 0.4618 | -1.87 (supported; -1.92 on 300) |
 | RTMDet-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.5128 | - | does not compile (blocked) |
 | RetinaNet-R50 (800x800 canvas) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas about -4.0) |
+| EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3250 | -1.44 (supported; box -2.51) |
 | RTMDet-Ins-s | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3719 | 0.3139 | -5.80 (supported; box -7.26) |
 | RTMDet-Ins-m | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4011 | 0.3932 | -0.79 (supported: box -3.96; on 300 mask -0.67, box -4.56) |
@@ -426,6 +429,20 @@ exported model returns the same masks as native inference would for the
 same head outputs. Mask rows use COCO val2017 instance polygons for the same
 images as the box rows.
 
+EfficientDet runs whole on the AIPU after exact rewrites: the BiFPN's
+fast-normalized fusion divides by a constant (a multiplication by its
+reciprocal) and sums a stacked tensor (a chain of additions), and the
+squeeze-excite averages over large maps run as 2x2 average pools down to
+4x4 before the global average, since one global average over 256x256 does
+not compile. The box decode (sigmoid, top-k, anchors) runs on the host in
+float. The FP32 reference is identical through the PyTorch model, the plain
+ONNX export and the rewritten graph (0.3316 on 300 images each). With
+min-max ranges the Metis model scored 0.1593 on those 300 images (-17.2);
+per-channel ranges (`hybrid_per_tensor_per_channel`, the EfficientDet
+default) bring it to -1.0 there and -1.78 on 1000 images, spread over small
+(0.055 vs 0.056), medium (0.299 vs 0.320) and large objects (0.533 vs
+0.558).
+
 RetinaNet resizes each image so its shorter side is 800 pixels (longer
 side up to 1333), so its input shape changes from image to image. The Metis
 graph takes one fixed shape, so the export fits each image into an 800x800
@@ -460,7 +477,8 @@ Calibration scheme, YOLO-NAS-s detect, device, COCO val2017 1000 images:
 The histogram scheme clips rare large values, here the positive class logits
 and the peaks of the box distributions, which costs about one point.
 LibreYOLO therefore compiles with min-max ranges by default, except YOLO-NAS
-pose and MobileNetV4, which keep more accuracy with histogram ranges
+pose, MobileNetV4, DeepLabV3 and EfficientDet, which keep more accuracy with
+histogram ranges
 (`libreyolo.export.axelera.default_quantization_scheme(family, task)` names
 the scheme); pass `compiler_config={"quantization_scheme": ...}` to choose
 another.
@@ -573,7 +591,7 @@ Blocked for structural reasons (accuracy never blocks an export):
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
-- EfficientNetV2-b3, RetinaNet-r50v2, RTMDet-Ins-x (expected to fail like RTMDet-x), MiDaS-l.
+- EfficientNetV2-b3, EfficientDet-d1 to -d4, RetinaNet-r50v2, RTMDet-Ins-x (expected to fail like RTMDet-x), MiDaS-l.
 - YOLO9-E2E and YOLO9-P2.
 - Other families.
 

@@ -4353,6 +4353,28 @@ _add(
     ),
 )
 _add(
+    "available",
+    ("efficientdet",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole EfficientDet "
+        "graph runs on the Metis AIPU after exact rewrites of the BiFPN fusion "
+        "(division by a constant as a multiplication, the stacked weighted sum "
+        "as additions) and of the squeeze-excite averages (staged 2x2 pools), "
+        "and the host decodes the boxes in float. Supported, not validated: on "
+        "a Metis M.2 Max with per-channel activation ranges EfficientDet-d0 "
+        "loses 1.78 mAP50-95 points against FP32 on 1000 COCO val2017 images "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: d0 (measured drop, SIZE_ACCURACY_NOTES); d1-d4 are not "
+        "measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
+    ),
+)
+_add(
     "blocked",
     ("fcos",),
     ("detect",),
@@ -4578,6 +4600,12 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "equalization)"
         ),
     },
+    ("efficientdet", "detect", "axelera"): {
+        "d0": (
+            "measured mAP50-95 drop 1.78 points vs FP32 (0.3185 vs 0.3363 on 1000 "
+            "COCO val2017 images; spread over small, medium and large objects)"
+        ),
+    },
     ("retinanet", "detect", "axelera"): {
         "r50": (
             "measured mAP50-95 drop 0.22 points vs FP32 on the same 800x800 canvas "
@@ -4702,6 +4730,9 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("retinanet", "detect", "axelera"): {"r50v2": "has not been measured on a Metis yet"},
+    ("efficientdet", "detect", "axelera"): {
+        size: "has not been measured on a Metis yet" for size in ("d1", "d2", "d3", "d4")
+    },
     ("rtmdet", "segment", "axelera"): {
         "x": (
             "has not been measured on a Metis yet (RTMDet-x fails the compiler's "
@@ -4738,6 +4769,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("picodet", "detect"),
             ("rtmdet", "detect"),
             ("retinanet", "detect"),
+            ("efficientdet", "detect"),
             ("rtmdet", "segment"),
         }
     ),
