@@ -4079,13 +4079,13 @@ _add(
         "runs on the Metis AIPU, with the fully connected head expressed as "
         "convolutions (fc6 as one row convolution per row of the 7x7 map, an "
         "exact graph pass), and the host applies the softmax. On a Metis M.2 "
-        "Max, VGG-16 and VGG-19 are within 1.0 top-1 point of FP32 on a paired "
-        "1000-image ImageNetV2 set; the batch-norm variants are supported with "
-        "a larger measured drop (docs/axelera.md)."
+        "Max, VGG-16, VGG-19 and VGG-16-BN (histogram activation ranges) are "
+        "within 1.0 top-1 point of FP32 on a paired 1000-image ImageNetV2 set; "
+        "VGG-19-BN is supported with a larger measured drop (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "validated sizes: 16, 19; supported sizes: 16bn, 19bn (measured drop, "
+        "validated sizes: 16, 19, 16bn; supported sizes: 19bn (measured drop, "
         "SIZE_ACCURACY_NOTES); calibrated with in-domain images (data=). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed 224 input"
@@ -4607,15 +4607,10 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
         ),
     },
     ("vgg", "classify", "axelera"): {
-        "16bn": (
-            "measured top-1 drop 2.9 points vs FP32 (0.604 vs 0.633 on 1000 "
-            "ImageNetV2 images, 250 ImageNetV2 calibration images, min-max "
-            "ranges)"
-        ),
         "19bn": (
             "measured top-1 drop 5.1 points vs FP32 (0.593 vs 0.644 on 1000 "
             "ImageNetV2 images, 250 ImageNetV2 calibration images, min-max "
-            "ranges)"
+            "ranges; histogram ranges gave -6.0)"
         ),
     },
     ("ppyoloe", "detect", "axelera"): {

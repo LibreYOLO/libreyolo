@@ -64,7 +64,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | EfficientNetV2 | b0 | classify (top-1) | ImageNetV2, 1000 | 0.667 | 0.656 | -1.1 | supported | `efficientnetv2/classify/b0/2026-11-11/5` |
 | VGG | 16 | classify (top-1) | ImageNetV2, 1000 | 0.608 | 0.606 | -0.2 | validated | `vgg/classify/16/2026-11-12` |
 | VGG | 19 | classify (top-1) | ImageNetV2, 1000 | 0.610 | 0.619 | +0.9 | validated | `vgg/classify/19/2026-11-12` |
-| VGG | 16bn | classify (top-1) | ImageNetV2, 1000 | 0.633 | 0.604 | -2.9 | supported | `vgg/classify/16bn/2026-11-12` |
+| VGG | 16bn | classify (top-1) | ImageNetV2, 1000 | 0.633 | 0.631 | -0.2 | validated | `vgg/classify/16bn/2026-11-12/2` |
 | VGG | 19bn | classify (top-1) | ImageNetV2, 1000 | 0.644 | 0.593 | -5.1 | supported | `vgg/classify/19bn/2026-11-12` |
 | FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated | `fcn/semantic/r50/2026-11-11/2` |
 | FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated | `fcn/semantic/r101/2026-11-11` |
@@ -92,7 +92,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` | 18 `resnet/classify/18/2026-11-10/2`; 34 `resnet/classify/34/2026-11-10`; 50 `resnet/classify/50/2026-11-10`; 101 `resnet/classify/101/2026-11-10` |
 | MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` | s `mobilenetv4/classify/s/2026-11-11/3`; m `mobilenetv4/classify/m/2026-11-11/2`; l `mobilenetv4/classify/l/2026-11-10` |
 | EfficientNetV2 | classify | b0 (supported with a measured drop; b1 and b2 blocked: do not compile; b3 not measured yet) | see `docs/export_support.md` | b0 `efficientnetv2/classify/b0/2026-11-11/5`; b1 blocked `efficientnetv2/classify/b1/2026-11-11/3`; b2 blocked `efficientnetv2/classify/b2/2026-11-11` |
-| VGG | classify | 16, 19 (16bn and 19bn supported with a measured drop) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12`; 19bn `vgg/classify/19bn/2026-11-12` |
+| VGG | classify | 16, 19, 16bn (19bn supported with a measured drop) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12/2`; 19bn `vgg/classify/19bn/2026-11-12` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-11/7` |
 | MiDaS | depth | s (supported with a measured drop; l not measured yet) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
@@ -325,8 +325,8 @@ them):
 | ResNet-101 | 224 | 0.713 | 0.708 | -0.5 | 9.1 min |
 | VGG-16 | 224 | 0.608 | 0.606 | -0.2 | 7 min |
 | VGG-19 | 224 | 0.610 | 0.619 | +0.9 | - |
-| VGG-16-BN | 224 | 0.633 | 0.604 | -2.9 (supported) | - |
-| VGG-19-BN | 224 | 0.644 | 0.593 | -5.1 (supported) | - |
+| VGG-16-BN (histogram ranges) | 224 | 0.633 | 0.631 | -0.2 | - |
+| VGG-19-BN | 224 | 0.644 | 0.593 | -5.1 (supported; histogram ranges -6.0) | - |
 
 Calibrating a classifier on coco128 (the fallback when `data=` is omitted)
 cost ResNet-18 1.1 top-1 points instead of 0.6, and the histogram scheme 2.0.
@@ -336,7 +336,10 @@ values), more than the compiler maps in one piece; the export runs it as one
 1x7 convolution per row of the map, summed, and the other two layers as 1x1
 convolutions (an exact graph pass requested by VGG only; heads that pool to
 1x1 first, like ResNet's and MobileNet's, are left unchanged). VGG-16 top-5
-is 0.812 vs FP32 0.819.
+is 0.812 vs FP32 0.819. The batch-norm variants fold the norm into the
+convolutions, which widens their min-max ranges: VGG-16-BN compiles with
+histogram ranges (-2.9 with min-max, -0.2 with histogram); VGG-19-BN stays
+on min-max (-5.1; histogram ranges gave -6.0).
 
 MobileNetV4 needs more than the ResNet recipe: with plain min-max ranges
 size s lost 6.2 top-1 points. LibreYOLO equalizes its residual streams per

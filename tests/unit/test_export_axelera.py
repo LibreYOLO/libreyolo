@@ -1001,9 +1001,9 @@ def test_support_matrix_rows_for_axelera():
     assert yolo3.tier == "validated" and "validated sizes: t, b, spp" in yolo3.constraint
     assert precision_support("yolo3", "detect", "axelera") == (True, True)
     vgg = get_support("vgg", "classify", "axelera")
-    assert vgg.tier == "validated" and "validated sizes: 16, 19;" in vgg.constraint
+    assert vgg.tier == "validated" and "validated sizes: 16, 19, 16bn;" in vgg.constraint
     assert precision_support("vgg", "classify", "axelera") == (True, True)
-    assert sorted(SIZE_ACCURACY_NOTES[("vgg", "classify", "axelera")]) == ["16bn", "19bn"]
+    assert sorted(SIZE_ACCURACY_NOTES[("vgg", "classify", "axelera")]) == ["19bn"]
     assert ("vgg", "classify", "axelera") not in UNMEASURED_SIZES
     picodet = get_support("picodet", "detect", "axelera")
     assert picodet.tier == "available" and "supported sizes: s, m, l " in picodet.constraint
@@ -1062,7 +1062,13 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     assert set(AXELERA_SIZE_RECIPES) == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
         ("mobilenetv4", "classify", "l"), ("yolonas", "pose", "s"),
+        ("vgg", "classify", "16bn"),
     }
+    # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default.
+    assert size_recipe("vgg", "classify", "16bn") == {
+        "quantization_scheme": "hybrid_per_tensor_per_channel"
+    }
+    assert size_recipe("vgg", "classify", "19bn") == {}
     data = str(_dataset(tmp_path))
     # YOLOv4-b: histogram ranges and a [-6, 6] window on the box output.
     torch.manual_seed(0)

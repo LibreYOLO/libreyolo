@@ -94,6 +94,10 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("yolonas", "pose", "s"): {
         "pose_bounded_towers": (("cls_convs", "cls_pred"), ("pose_convs", "pose_pred")),
     },
+    # VGG-16-BN: the folded batch norms widen min-max ranges; histogram ranges
+    # take it from -2.9 to -0.2 top-1. VGG-19-BN does not follow (-6.0 vs -5.1
+    # with min-max) and plain VGG-16/19 stay on min-max.
+    ("vgg", "classify", "16bn"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
 }
 
 
