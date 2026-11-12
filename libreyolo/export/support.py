@@ -4138,14 +4138,14 @@ _add(
         "each level's box and class convolutions, CSPNeXt pointwise-conv inputs "
         "are equalized on the export copy (FP32 outputs unchanged), and "
         "LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 "
-        "Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 6.75 and "
-        "RTMDet-m 2.66 on a paired 1000-image COCO val2017 subset "
-        "(docs/axelera.md)."
+        "Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 6.75, "
+        "RTMDet-m 2.66 and RTMDet-l 1.87 on a paired 1000-image COCO val2017 "
+        "subset (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s, m (measured drop, SIZE_ACCURACY_NOTES); l and x "
-        "are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x is "
+        "not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
         "compile, INT8, batch 1, fixed input size"
     ),
 )
@@ -4534,6 +4534,12 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "per-channel depthwise ranges and balanced CSPNeXt pointwise "
             "equalization)"
         ),
+        "l": (
+            "measured mAP50-95 drop 1.87 points vs FP32 (0.4618 vs 0.4805 on 1000 "
+            "COCO val2017 images; -1.92 on 300; 64 coco128 calibration images, "
+            "per-channel depthwise ranges and balanced CSPNeXt pointwise "
+            "equalization)"
+        ),
     },
     ("retinanet", "detect", "axelera"): {
         "r50": (
@@ -4628,7 +4634,7 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("retinanet", "detect", "axelera"): {"r50v2": "has not been measured on a Metis yet"},
     ("rtmdet", "detect", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("l", "x")
+        "x": "has not been measured on a Metis yet"
     },
     ("rtmdet", "segment", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("s", "m", "l", "x")
