@@ -3966,6 +3966,8 @@ _AXELERA_GRAPH_OUTPUTS = {
     ("quicksrnet", "restore"): ("restored",),
     ("midas", "depth"): ("depth",),
     ("deeplabv3", "semantic"): ("semantic_logits",),
+    ("ppliteseg", "semantic"): ("semantic_logits",),
+    ("pidnet", "semantic"): ("semantic_logits",),
     # EfficientDet's decoded export; the top-candidate decode (TopK, Gather,
     # Exp) lands in the compiled model's host postamble.
     ("efficientdet", "detect"): ("output",),
@@ -4064,6 +4066,17 @@ _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
     "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
     # VGG's fc6 (Gemm over 7x7x512) as row convolutions.
     "vgg": ("fc_rowconv",),
+    # Spatial attention (channel mean/max, broadcast gating) in AIPU form; the
+    # pyramid pooling's unequal-factor upsampling (16x32 map at 512x1024) as
+    # an equal-factor resize plus a 2x1 average.
+    "ppliteseg": (
+        "channel_reduce_to_conv",
+        "channel_max_tree",
+        "broadcast_mul_expand",
+        "conv_reduction_split",
+        "resize_factor_split",
+    ),
+    "pidnet": ("channel_reduce_to_conv", "broadcast_mul_expand"),
     # YOLOv1's [connected] layer (Gemm over 7x7x256 after its [local] layer).
     "yolo1": ("fc_rowconv",),
     # BiFPN weighted fusion and squeeze-excite averages in AIPU-runnable form.

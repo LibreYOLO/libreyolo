@@ -1410,6 +1410,14 @@ def test_only_listed_families_request_graph_passes():
             "mean_hw_to_gap",
             "gap_staged",
         ),
+        "ppliteseg": (
+            "channel_reduce_to_conv",
+            "channel_max_tree",
+            "broadcast_mul_expand",
+            "conv_reduction_split",
+            "resize_factor_split",
+        ),
+        "pidnet": ("channel_reduce_to_conv", "broadcast_mul_expand"),
     }
     requested = {name for names in _AXELERA_GRAPH_PASSES.values() for name in names}
     assert requested <= set(ax.GRAPH_PASSES)
@@ -1930,3 +1938,123 @@ def test_l2cs_axelera_is_blocked_by_the_weights_licence():
 
     entry = get_support("l2cs", "gaze", "axelera")
     assert entry.tier == "blocked" and "Gaze360" in entry.reason
+
+
+def _seg_attention_graph():
+    """PP-LiteSeg-style spatial attention and pyramid upsampling, small."""
+    import numpy as np
+    from onnx import TensorProto, helper, numpy_helper
+
+    nodes = [
+        helper.make_node("ReduceMean", ["x", "axis1"], ["mean"], keepdims=1),
+        helper.make_node("ReduceMax", ["x", "axis1"], ["max"], keepdims=1),
+        helper.make_node("ReduceSum", ["x", "axis1"], ["sum"], keepdims=1),
+        helper.make_node("Add", ["mean", "max"], ["att0"]),
+        helper.make_node("Add", ["att0", "sum"], ["att"]),
+        helper.make_node("Mul", ["att", "x"], ["gated"]),
+        helper.make_node(
+            "Resize",
+            ["p", "", "", "sizes"],
+            ["up"],
+            mode="linear",
+            coordinate_transformation_mode="half_pixel",
+        ),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "seg_attention",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 7, 8, 8]),
+            helper.make_tensor_value_info("p", TensorProto.FLOAT, [1, 3, 2, 2]),
+        ],
+        [
+            helper.make_tensor_value_info("gated", TensorProto.FLOAT, [1, 7, 8, 8]),
+            helper.make_tensor_value_info("up", TensorProto.FLOAT, [1, 3, 16, 32]),
+        ],
+        [
+            numpy_helper.from_array(np.array([1], np.int64), "axis1"),
+            numpy_helper.from_array(np.array([1, 3, 16, 32], np.int64), "sizes"),
+        ],
+    )
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("", 18)], ir_version=8
+    )
+
+
+def test_segmentation_passes_are_exact(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    source = tmp_path / "model.onnx"
+    onnx.save(_seg_attention_graph(), str(source))
+    names = [
+        "channel_reduce_to_conv",
+        "channel_max_tree",
+        "broadcast_mul_expand",
+        "resize_factor_split",
+    ]
+
+    rewritten = ax.apply_graph_passes(str(source), tmp_path, names)
+
+    graph = onnx.load(rewritten).graph
+    ops = [node.op_type for node in graph.node]
+    for gone in ("ReduceMean", "ReduceMax", "ReduceSum"):
+        assert gone not in ops
+    # 2x2 -> 16x32 (factors 8, 16): resize by 16 on both axes, then a 2x1 pool.
+    pools = [n for n in graph.node if n.op_type == "AveragePool"]
+    assert len(pools) == 1 and list(pools[0].attribute[0].ints) == [2, 1]
+    rng = np.random.default_rng(7)
+    feeds = {
+        "x": rng.normal(size=(1, 7, 8, 8)).astype(np.float32),
+        "p": rng.normal(size=(1, 3, 2, 2)).astype(np.float32),
+    }
+    before = ort.InferenceSession(str(source)).run(None, feeds)
+    after = ort.InferenceSession(rewritten).run(None, feeds)
+    for b, a in zip(before, after):
+        np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("source_hw", "target_hw", "rewritten"),
+    [((1, 1), (16, 32), True), ((4, 4), (32, 16), True), ((3, 3), (9, 18), False)],
+)
+def test_resize_factor_split_only_where_exact(
+    tmp_path, source_hw, target_hw, rewritten
+):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    from onnx import TensorProto, helper, numpy_helper
+
+    graph = helper.make_graph(
+        [
+            helper.make_node(
+                "Resize",
+                ["p", "", "", "sizes"],
+                ["up"],
+                mode="linear",
+                coordinate_transformation_mode="half_pixel",
+            )
+        ],
+        "resize",
+        [helper.make_tensor_value_info("p", TensorProto.FLOAT, [1, 2, *source_hw])],
+        [helper.make_tensor_value_info("up", TensorProto.FLOAT, [1, 2, *target_hw])],
+        [numpy_helper.from_array(np.array([1, 2, *target_hw], np.int64), "sizes")],
+    )
+    model = helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("", 18)], ir_version=8
+    )
+    source = tmp_path / "model.onnx"
+    onnx.save(model, str(source))
+
+    out = ax.apply_graph_passes(str(source), tmp_path, ["resize_factor_split"])
+
+    # An odd smaller factor (3, from 3x3 -> 9x18) would put an interpolation
+    # corner between the averaged rows, so the resize is left alone.
+    assert (out != str(source)) is rewritten
+    feeds = {
+        "p": np.random.default_rng(3).normal(size=(1, 2, *source_hw)).astype(np.float32)
+    }
+    before = ort.InferenceSession(str(source)).run(None, feeds)[0]
+    after = ort.InferenceSession(out).run(None, feeds)[0]
+    np.testing.assert_allclose(after, before, rtol=1e-5, atol=1e-5)

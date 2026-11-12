@@ -1216,6 +1216,272 @@ def _gap_staged(model) -> int:
         _topological_sort(graph)
     return count
 
+def _channel_reduce_to_conv(model) -> int:
+    """``ReduceSum`` / ``ReduceMean`` over channels (keepdims) becomes a 1x1 conv.
+
+    PP-LiteSeg's and PIDNet's spatial attention reduce their features over
+    the channel axis, which the AIPU only reduces over H and W. A 1x1
+    convolution to one channel with weights 1 (or 1/C for the mean) computes
+    the same sum. Exact up to summation order. Returns the number of rewrites.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, _, _, weights = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type in ("ReduceSum", "ReduceMean")]:
+        shape = shapes.get(node.input[0])
+        if _attributes(node).get("keepdims", 1) != 1 or not shape or len(shape) != 4:
+            continue
+        if _reduce_axes(graph, weights, node) not in ([1], [-3]):
+            continue
+        channels = shape[1]
+        value = 1.0 if node.op_type == "ReduceSum" else 1.0 / channels
+        tag = node.name or node.output[0]
+        weight = f"{tag}_as_conv_w"
+        graph.initializer.append(
+            numpy_helper.from_array(
+                np.full((1, channels, 1, 1), value, np.float32), weight
+            )
+        )
+        index = list(graph.node).index(node)
+        graph.node.remove(node)
+        graph.node.insert(
+            index,
+            helper.make_node(
+                "Conv",
+                [node.input[0], weight],
+                list(node.output),
+                name=f"{tag}_as_conv",
+                kernel_shape=[1, 1],
+            ),
+        )
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+    return count
+
+
+def _channel_slice(nodes, constants, base, source, start, end, tag) -> str:
+    """Append a channel-axis Slice ``source[:, start:end]`` to ``nodes``."""
+    import numpy as np
+    from onnx import helper
+
+    out = f"{base}_{tag}"
+    constants[f"{out}_start"] = np.array([start], np.int64)
+    constants[f"{out}_end"] = np.array([end], np.int64)
+    nodes.append(
+        helper.make_node(
+            "Slice",
+            [source, f"{out}_start", f"{out}_end", f"{base}_axis"],
+            [out],
+            name=out,
+        )
+    )
+    return out
+
+
+def _channel_max_tree(model) -> int:
+    """``ReduceMax`` over channels (keepdims) becomes a halving tree of maxima.
+
+    ``max(a, b) = b + relu(a - b)`` on two channel slices, repeated until one
+    channel is left (an odd channel joins the next level). Slices, Mul by -1,
+    Add and Relu all run on the AIPU. Exact. Returns the number of rewrites.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, _, _, weights = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "ReduceMax"]:
+        shape = shapes.get(node.input[0])
+        if _attributes(node).get("keepdims", 1) != 1 or not shape or len(shape) != 4:
+            continue
+        if _reduce_axes(graph, weights, node) not in ([1], [-3]):
+            continue
+        base = f"{node.name or node.output[0]}_max_tree"
+        constants = {
+            f"{base}_neg_one": np.array(-1.0, np.float32),
+            f"{base}_axis": np.array([1], np.int64),
+        }
+        nodes = []
+        current, channels, level = node.input[0], shape[1], 0
+        while channels > 1:
+            half = channels // 2
+            a = _channel_slice(nodes, constants, base, current, 0, half, f"l{level}a")
+            b = _channel_slice(
+                nodes, constants, base, current, half, 2 * half, f"l{level}b"
+            )
+            names = [f"{base}_l{level}_{t}" for t in ("neg_b", "diff", "relu", "max")]
+            nodes += [
+                helper.make_node(
+                    "Mul", [b, f"{base}_neg_one"], [names[0]], name=names[0]
+                ),
+                helper.make_node("Add", [a, names[0]], [names[1]], name=names[1]),
+                helper.make_node("Relu", [names[1]], [names[2]], name=names[2]),
+                helper.make_node("Add", [b, names[2]], [names[3]], name=names[3]),
+            ]
+            merged = names[3]
+            if channels % 2:
+                odd = _channel_slice(
+                    nodes, constants, base, current, 2 * half, channels, f"l{level}odd"
+                )
+                merged = f"{base}_l{level}_cat"
+                nodes.append(
+                    helper.make_node(
+                        "Concat", [names[3], odd], [merged], name=merged, axis=1
+                    )
+                )
+                half += 1
+            current, channels, level = merged, half, level + 1
+        nodes.append(
+            helper.make_node("Identity", [current], list(node.output), name=base)
+        )
+        graph.initializer.extend(
+            numpy_helper.from_array(v, k) for k, v in constants.items()
+        )
+        index = list(graph.node).index(node)
+        graph.node.remove(node)
+        for offset, new in enumerate(nodes):
+            graph.node.insert(index + offset, new)
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+    return count
+
+
+def _broadcast_mul_expand(model) -> int:
+    """A one-channel map multiplied or added to a C-channel map is expanded first.
+
+    The AIPU combines a 4-D map only with a same-shape tensor, a per-channel
+    ``[1, C, 1, 1]`` constant or a scalar; an attention map ``[1, 1, H, W]``
+    against ``[1, C, H, W]`` is broadcast with a 1x1 convolution of ones to C
+    channels. Exact. Returns the number of expanded operands.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, _, _, _ = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type in ("Mul", "Add")]:
+        if len(node.input) != 2:
+            continue
+        first, second = shapes.get(node.input[0]), shapes.get(node.input[1])
+        if not first or not second or len(first) != 4 or len(second) != 4:
+            continue
+        for slot, (small, full) in enumerate(((first, second), (second, first))):
+            if small[1] != 1 or full[1] <= 1 or small[2:] != full[2:]:
+                continue
+            channels = full[1]
+            tag = node.name or node.output[0]
+            weight = f"{tag}_expand_{slot}_w"
+            graph.initializer.append(
+                numpy_helper.from_array(
+                    np.ones((channels, 1, 1, 1), np.float32), weight
+                )
+            )
+            out = f"{node.input[slot]}_expand{channels}_{tag}"
+            graph.node.insert(
+                list(graph.node).index(node),
+                helper.make_node(
+                    "Conv",
+                    [node.input[slot], weight],
+                    [out],
+                    name=f"{tag}_expand_{slot}",
+                    kernel_shape=[1, 1],
+                ),
+            )
+            node.input[slot] = out
+            count += 1
+            break
+    return count
+
+
+def _resize_factor_split(model) -> int:
+    """Bilinear upsampling with unequal factors becomes an equal-factor one plus a pool.
+
+    The compiler takes a bilinear resize only with the same whole factor on
+    both axes; PP-LiteSeg's pyramid pooling upsamples 1x1, 2x2 and 4x4 maps
+    to the 16x32 map of its 512x1024 canvas (factors f and 2f). With factors
+    ``(f, r * f)`` the map is resized by ``r * f`` on both axes and ``r``
+    neighbouring rows are averaged: with half-pixel sampling the averaged
+    rows sit around the coarse target position and no interpolation corner
+    (a source pixel centre or the clamped edge) falls between them when ``f``
+    is even, so the average is the coarse sample. Exact up to float rounding.
+    Returns the number of rewritten resizes.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, _, _, _ = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "Resize"]:
+        attrs = _attributes(node)
+        mode = attrs.get("mode", b"nearest")
+        transform = attrs.get("coordinate_transformation_mode", b"half_pixel")
+        mode = mode.decode() if isinstance(mode, bytes) else mode
+        transform = transform.decode() if isinstance(transform, bytes) else transform
+        if mode != "linear" or transform not in ("half_pixel", "pytorch_half_pixel"):
+            continue
+        source, target = shapes.get(node.input[0]), shapes.get(node.output[0])
+        if not source or not target or len(source) != 4 or len(target) != 4:
+            continue
+        (height, width), (out_h, out_w) = source[2:], target[2:]
+        if 0 in (height, width, out_h, out_w) or out_h % height or out_w % width:
+            continue
+        factor_h, factor_w = out_h // height, out_w // width
+        large, small = max(factor_h, factor_w), min(factor_h, factor_w)
+        if factor_h == factor_w or large % small:
+            continue
+        ratio = large // small
+        if small % 2 and (height if factor_h < factor_w else width) != 1:
+            continue
+        tag = node.name or node.output[0]
+        sizes = f"{tag}_equal_sizes"
+        graph.initializer.append(
+            numpy_helper.from_array(
+                np.array(
+                    [source[0], source[1], height * large, width * large], np.int64
+                ),
+                sizes,
+            )
+        )
+        equal = f"{node.output[0]}_equal_factor"
+        kernel = [ratio, 1] if factor_h < factor_w else [1, ratio]
+        index = list(graph.node).index(node)
+        graph.node.remove(node)
+        graph.node.insert(
+            index,
+            helper.make_node(
+                "AveragePool",
+                [equal],
+                list(node.output),
+                name=f"{tag}_average",
+                kernel_shape=kernel,
+                strides=kernel,
+            ),
+        )
+        graph.node.insert(
+            index,
+            helper.make_node(
+                "Resize",
+                [node.input[0], "", "", sizes],
+                [equal],
+                name=f"{tag}_equal_factor",
+                mode="linear",
+                coordinate_transformation_mode=transform,
+            ),
+        )
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+    return count
+
+
 _DATA_PASSES = {"dw_channel_groups"}
 
 #: Named exact ONNX rewrites an export may request (``graph_passes``); each
@@ -1230,6 +1496,10 @@ GRAPH_PASSES = {
     "stack_sum_to_add": _stack_sum_to_add,
     "mean_hw_to_gap": _mean_hw_to_gap,
     "gap_staged": _gap_staged,
+    "channel_reduce_to_conv": _channel_reduce_to_conv,
+    "channel_max_tree": _channel_max_tree,
+    "broadcast_mul_expand": _broadcast_mul_expand,
+    "resize_factor_split": _resize_factor_split,
 }
 
 
