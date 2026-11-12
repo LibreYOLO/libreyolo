@@ -1157,12 +1157,11 @@ def test_efficientnetv2_sizes_that_do_not_compile_are_blocked(tmp_path, size):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 
-@pytest.mark.parametrize("size", ["x"])
-def test_unmeasured_rtmdet_sizes_do_not_export(tmp_path, size):
+def test_rtmdet_x_is_blocked_with_its_compile_failure(tmp_path):
     from libreyolo import LibreRTMDet
 
-    model = LibreRTMDet(None, size=size, nb_classes=3, device="cpu")
-    message = rf"rtmdet-{size} detect export to axelera is not available yet: it has not been measured"
+    model = LibreRTMDet(None, size="x", nb_classes=3, device="cpu")
+    message = r"rtmdet-x detect export to axelera is blocked: it does not compile .*LowerTIR"
     with pytest.raises(NotImplementedError, match=message):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 

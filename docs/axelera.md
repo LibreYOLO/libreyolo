@@ -96,7 +96,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLOv7 | detect | b | see `docs/export_support.md` | b `yolo7/detect/b/2026-11-11/4` |
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-11/2` |
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
-| RTMDet | detect | t, s, m, l (supported with a measured drop; x not measured yet) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2` |
+| RTMDet | detect | t, s, m, l (supported with a measured drop; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x blocked `rtmdet/detect/x/2026-11-12/2` |
 | RTMDet-Ins | segment | t (supported with a measured drop, box -2.64; s, m, l and x not measured yet) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-11/4` |
 | RetinaNet | detect | r50 (supported: fixed 800x800 canvas, about -4.2 end to end; r50v2 not measured yet) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-11/5` |
 | YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
@@ -299,6 +299,7 @@ table at the top of this page.
 | RTMDet-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4121 | 0.3446 | -6.75 (supported) |
 | RTMDet-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4727 | 0.4461 | -2.66 (supported; -2.11 on 300) |
 | RTMDet-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4805 | 0.4618 | -1.87 (supported; -1.92 on 300) |
+| RTMDet-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.5128 | - | does not compile (blocked) |
 | RetinaNet-R50 (800x800 canvas) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas about -4.0) |
 | RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3254 | -1.40 (supported; box -2.64) |
 
@@ -540,10 +541,11 @@ Blocked for structural reasons (accuracy never blocks an export):
 - HRNet (pose): compiles, but the device output drifts from the quantized model stage by stage (keypoint mAP 0.000 on device vs a working CPU-quantized model).
 - ZipDepth: after an exact ReduceMean-to-pooling rewrite, quantization fails on the GCNet context MatMul.
 - DeepLabV3-ResNet50/101: quantize, but at output stride 8 the ASPP convolutions need the whole 64x64 feature map and lowering finds no L1 tiling.
+- RTMDet-x: at 640x640 the compiler's LowerTIR pass still overflows its on-chip buffers after 4 iterations (2 h 21 min, 7 GB peak RSS; ledger `rtmdet/detect/x/2026-11-12/2`). Use RTMDet-l.
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
-- EfficientNetV2-b3, RetinaNet-r50v2, RTMDet-x, RTMDet-Ins-s, -m, -l and -x, MiDaS-l.
+- EfficientNetV2-b3, RetinaNet-r50v2, RTMDet-Ins-s, -m, -l and -x, MiDaS-l.
 - YOLO9-E2E and YOLO9-P2.
 - Other families.
 

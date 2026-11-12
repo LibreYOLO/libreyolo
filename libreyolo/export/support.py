@@ -4144,8 +4144,8 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x is "
-        "not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does "
+        "not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
         "compile, INT8, batch 1, fixed input size"
     ),
 )
@@ -4622,6 +4622,13 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         )
         for size in ("r50", "r101")
     },
+    ("rtmdet", "detect", "axelera"): {
+        "x": (
+            "does not compile for Metis at 640x640 with the 1.9 SDK: the "
+            "compiler's LowerTIR pass still overflows its on-chip buffers after 4 "
+            "iterations (after 2 h 21 min, 7 GB peak RSS); use RTMDet-l"
+        ),
+    },
 }
 
 #: Sizes not exportable yet because nobody has measured them on a Metis. This
@@ -4633,9 +4640,6 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("retinanet", "detect", "axelera"): {"r50v2": "has not been measured on a Metis yet"},
-    ("rtmdet", "detect", "axelera"): {
-        "x": "has not been measured on a Metis yet"
-    },
     ("rtmdet", "segment", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("s", "m", "l", "x")
     },
