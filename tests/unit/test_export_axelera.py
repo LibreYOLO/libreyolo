@@ -981,7 +981,7 @@ def test_verify_reads_the_quantized_model_before_compile_lowers_it(exporter_sdk,
 def test_support_matrix_rows_for_axelera():
     from libreyolo.export.support import get_support, precision_support
 
-    from libreyolo.export.support import BLOCKED_SIZES, SIZE_ACCURACY_NOTES, UNMEASURED_SIZES
+    from libreyolo.export.support import BLOCKED_SIZES, INT8_EXPORTS, SIZE_ACCURACY_NOTES, UNMEASURED_SIZES
 
     for task in ("detect", "pose", "obb"):
         assert get_support("yolonas", task, "axelera").tier == "validated"
@@ -1042,6 +1042,11 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("yolox", "detect", "axelera")]) == ["n"]
     for notes in SIZE_ACCURACY_NOTES.values():
         assert all(note.startswith("measured ") and " vs FP32 " in note for note in notes.values())
+    esrgan = get_support("realesrgan", "restore", "axelera")
+    assert esrgan.tier == "available" and "supported sizes: x4t " in esrgan.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("realesrgan", "restore", "axelera")]) == ["x4t"]
+    assert sorted(UNMEASURED_SIZES[("realesrgan", "restore", "axelera")]) == ["x2", "x4"]
+    assert ("realesrgan", "restore") in INT8_EXPORTS["axelera"]
     fcn = get_support("fcn", "semantic", "axelera")
     assert fcn.tier == "validated" and "validated sizes: r50" in fcn.constraint
 

@@ -71,6 +71,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated | `fcn/semantic/r50/2026-11-11/2` |
 | FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated | `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | m2 | restore 2x (PSNR, dB) | COCO crops from 128 px, 296 | 29.12 | 28.66 | -0.46 | supported | `quicksrnet/restore/m2/2026-11-11/7` |
+| Real-ESRGAN | x4t | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.00 | -0.49 | supported | `realesrgan/restore/x4t/2026-11-12` |
 | MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported | `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
 
@@ -97,6 +98,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | VGG | classify | 16, 19, 16bn (19bn supported with a measured drop) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12/2`; 19bn `vgg/classify/19bn/2026-11-12` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-11/7` |
+| Real-ESRGAN | restore | x4t (supported with a measured drop; bar 0.3 dB; x4 and x2 not measured yet) | see `docs/export_support.md` | x4t `realesrgan/restore/x4t/2026-11-12` |
 | MiDaS | depth | s (supported with a measured drop; l not measured yet) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | semantic | mv3 (supported with a measured drop; r50 and r101 blocked: do not compile) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 blocked `deeplabv3/semantic/r50/2026-11-11/2`; r101 blocked `deeplabv3/semantic/r101/2026-11-11` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
@@ -541,6 +543,16 @@ same names, and LibreYOLO's shared parsers turn them into results on the
 host. The input is fixed at export: depth and semantic models stretch each
 image to the canvas, super-resolution pads smaller images into it and
 rejects larger ones. Calibration images go through that same preprocessing.
+
+Real-ESRGAN-x4t (the compact network) is the exception: its output adds a
+nearest-upsampled copy of the input to the pixel-shuffled trunk, and a graph
+whose output depends directly on its input cannot be split into a host
+preamble and an accelerated core. The device runs the convolution trunk up to
+its last convolution (layout `restore_shuffle_skip_v1`); the host applies the
+pixel shuffle and adds the upsampled input. On 296 COCO crops upscaled 4x from
+64 px, PSNR is 22.00 dB on a Metis M.2 Max vs 22.49 dB FP32 (-0.49 dB; SSIM
+0.606 vs 0.658), so x4t is supported with that measured drop (the validated
+bar for restoration is 0.3 dB).
 
 `metadata.yaml` holds LibreYOLO's export metadata (`schema_version`,
 `model_family`, `task`, `names`, `imgsz`, ...) plus:

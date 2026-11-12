@@ -4112,6 +4112,27 @@ _add(
 )
 _add(
     "available",
+    ("realesrgan",),
+    ("restore",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the compact network's "
+        "convolution trunk runs on the Metis AIPU and the host applies the pixel "
+        "shuffle and the nearest-upsampled input skip (layout "
+        "restore_shuffle_skip_v1). Supported, not validated: Real-ESRGAN-x4t "
+        "keeps PSNR 0.49 dB below FP32 on 296 COCO crops, 4x from 64 px "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: x4t (measured drop, SIZE_ACCURACY_NOTES); x4 and x2 are "
+        "not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 64x64 input "
+        "canvas (smaller images are padded)"
+    ),
+)
+_add(
+    "available",
     ("midas",),
     ("depth",),
     ("axelera",),
@@ -4548,6 +4569,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "for restoration is 0.3 dB)"
         ),
     },
+    ("realesrgan", "restore", "axelera"): {
+        "x4t": (
+            "measured PSNR drop 0.49 dB vs FP32 (22.00 vs 22.49 dB, SSIM 0.606 vs "
+            "0.658, on 296 COCO crops upscaled 4x from 64 px; the validated bar "
+            "for restoration is 0.3 dB)"
+        ),
+    },
     ("midas", "depth", "axelera"): {
         "s": (
             "measured depth error vs FP32 (AbsRel 0.069, delta1 0.94 between the "
@@ -4748,6 +4776,9 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("efficientdet", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("d1", "d2", "d3", "d4")
     },
+    ("realesrgan", "restore", "axelera"): {
+        size: "has not been measured on a Metis yet" for size in ("x4", "x2")
+    },
 }
 
 #: Formats whose INT8 export is limited to these (family, task) pairs.
@@ -4767,6 +4798,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("efficientnetv2", "classify"),
             ("vgg", "classify"),
             ("quicksrnet", "restore"),
+            ("realesrgan", "restore"),
             ("midas", "depth"),
             ("deeplabv3", "semantic"),
             ("fcn", "semantic"),

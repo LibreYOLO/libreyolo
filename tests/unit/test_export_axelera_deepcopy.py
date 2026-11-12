@@ -34,6 +34,7 @@ CASES = {
     "retinanet": ("LibreRetinaNet", dict(size='r50', nb_classes=3)),
     "vgg": ("LibreVGG", dict(size='16', nb_classes=3)),
     "efficientdet": ("LibreEfficientDet", dict(size='d0', nb_classes=3)),
+    "realesrgan": ("LibreRealESRGAN", dict(size='x4t')),
 }
 
 SUPPORT_KEYS = {
@@ -59,6 +60,7 @@ SUPPORT_KEYS = {
     "retinanet": ('retinanet', 'detect'),
     "vgg": ('vgg', 'classify'),
     "efficientdet": ('efficientdet', 'detect'),
+    "realesrgan": ('realesrgan', 'restore'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).

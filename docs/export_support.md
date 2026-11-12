@@ -129,7 +129,7 @@ in preflight.
 | qwen3vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | qwen3vl_embedding | embed |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | raft | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
+| realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
 | resnet | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |  | ✓ |
 | retinanet | detect | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
 | rfdetr | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ |  |  |  |  | available | ✓ |
@@ -670,6 +670,7 @@ These converter paths are callable with the recorded validation context.
 - `quicksrnet` / `restore` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `quicksrnet` / `restore` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole super-resolution graph runs on the Metis AIPU after its hidden channels are equalized through their Hardtanh bounds and its biases corrected for INT8 weight rounding. Supported, not validated: QuickSRNet-m2 keeps PSNR 0.46 dB below FP32 on 296 COCO crops, 2x from 128 px (docs/axelera.md). Constraint: supported sizes: m2 (measured drop, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (smaller images are padded)
 - `quicksrnet` / `restore` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `realesrgan` / `restore` / `axelera`: INT8 export compiled with Axelera's toolchain; the compact network's convolution trunk runs on the Metis AIPU and the host applies the pixel shuffle and the nearest-upsampled input skip (layout restore_shuffle_skip_v1). Supported, not validated: Real-ESRGAN-x4t keeps PSNR 0.49 dB below FP32 on 296 COCO crops, 4x from 64 px (docs/axelera.md). Constraint: supported sizes: x4t (measured drop, SIZE_ACCURACY_NOTES); x4 and x2 are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 64x64 input canvas (smaller images are padded)
 - `retinanet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain on one fixed square canvas (the image fitted inside, padded bottom-right); the graph stops after the box-delta and class convolutions and LibreYOLO rebuilds the anchors on the host. Supported, not validated: on a Metis M.2 Max RetinaNet-R50 scores about 4.2 mAP50-95 below the PyTorch model's own val(): about 4.0 from the fixed 800x800 canvas (100 COCO val2017 images) and 0.2 from INT8 (1000 images, same canvas; docs/axelera.md). Constraint: supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed 800x800 canvas; r50v2 is blocked (GroupNorm head, BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1
 - `rfdetr` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
 - `rfdetr` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes.
@@ -1982,7 +1983,6 @@ These converter paths are callable with the recorded validation context.
 - `realesrgan` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `realesrgan` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `realesrgan` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `realesrgan` / `restore` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `realesrgan` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `resnet` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `resnet` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
