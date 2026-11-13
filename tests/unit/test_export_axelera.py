@@ -1082,6 +1082,8 @@ def test_support_matrix_rows_for_axelera():
     assert yolo1.tier == "blocked" and "Einsum" in yolo1.reason
     assert "ViT-L" in BLOCKED_SIZES[("midas", "depth", "axelera")]["l"]
     assert ("midas", "depth", "axelera") not in UNMEASURED_SIZES
+    ssd = get_support("ssd", "detect", "axelera")
+    assert ssd.tier == "validated" and "validated sizes: 300" in ssd.constraint and "L2Norm" in ssd.reason
     fcn = get_support("fcn", "semantic", "axelera")
     assert fcn.tier == "validated" and "validated sizes: r50" in fcn.constraint
 
@@ -1690,7 +1692,6 @@ def test_efficientdet_preprocessing_accepts_a_square_pair():
 @pytest.mark.parametrize(
     ("family", "task", "keyword"),
     [
-        ("ssd", "detect", "L2Norm"),
         ("centernet", "detect", "deformable"),
         ("convnext", "classify", "LayerNorm"),
         ("convnextv2", "classify", "Global"),

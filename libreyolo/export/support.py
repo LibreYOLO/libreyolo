@@ -4390,6 +4390,27 @@ _add(
     ),
 )
 _add(
+    "validated",
+    ("ssd",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain in two parts with conv4_3's "
+        "L2Norm on the host between them (no Metis operator for a per-pixel "
+        "division by the channel norm): part 1 runs the VGG trunk and the level "
+        "1-5 heads, part 2 the level-0 heads, and LibreYOLO decodes the 8,732 "
+        "default boxes on the host. On a Metis M.2 Max, SSD300 is within 0.1 "
+        "mAP50-95 of FP32 on a paired 1000-image COCO val2017 subset "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: 300 (two .axm parts + metadata parts; keep them together). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 300x300 input"
+    ),
+)
+_add(
     "available",
     ("retinanet",),
     ("detect",),
@@ -4478,21 +4499,6 @@ _add(
         "validated sizes: t, s, m, c (on-device results in docs/axelera.md). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
         "batch 1, fixed input size"
-    ),
-)
-_add(
-    "blocked",
-    ("ssd",),
-    ("detect",),
-    ("axelera",),
-    reason=(
-        "SSD-300 normalizes the conv4_3 features per pixel (L2Norm: each "
-        "pixel's channel vector divided by its own norm), which Axelera's INT8 "
-        "toolchain has no form for: with SDK 1.9 quantization fails at the "
-        "L2Norm (ReduceL2, Expand, Div). A fixed scale in its place costs 3.4 "
-        "mAP50-95 points in FP32 alone (0.2361 to 0.2022 on 300 COCO val2017 "
-        "images), so it is not used; running SSD on Metis needs a two-model "
-        "split with the norm on the host."
     ),
 )
 _add(
@@ -5017,6 +5023,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("picodet", "detect"),
             ("rtmdet", "detect"),
             ("retinanet", "detect"),
+            ("ssd", "detect"),
             ("efficientdet", "detect"),
             ("rtmdet", "segment"),
         }

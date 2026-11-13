@@ -53,6 +53,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | RTMDet | m | detect | COCO val2017, 1000 | 0.4727 | 0.4461 | -2.66 | supported | `rtmdet/detect/m/2026-11-12/2` |
 | RTMDet | l | detect | COCO val2017, 1000 | 0.4805 | 0.4618 | -1.87 | supported | `rtmdet/detect/l/2026-11-12/2` |
 | RetinaNet | r50 | detect (800x800 canvas) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas about -4.0 more) | supported | `retinanet/detect/r50/2026-11-11/5` |
+| SSD | 300 | detect (two parts, L2Norm on the host) | COCO val2017, 1000 | 0.2408 | 0.2403 | -0.05 | validated | `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3250 | -1.44 | supported | `rtmdet/segment/t/2026-11-12/2` |
 | RTMDet-Ins | s | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3719 | 0.3139 | -5.80 | supported | `rtmdet/segment/s/2026-11-12/4` |
@@ -115,6 +116,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | RTMDet | detect | t, s, m, l (supported with a measured drop; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x blocked `rtmdet/detect/x/2026-11-12/2` |
 | RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -7.26, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-12/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
 | RetinaNet | detect | r50 (supported: fixed 800x800 canvas, about -4.2 end to end; r50v2 blocked, section 11) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-11/5` |
+| SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | detect | d0 (supported with a measured drop; d1-d4 not measured yet) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3` |
 | YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
 | RF-DETR and other transformer families | all | all | out of scope (section 11) | - |
@@ -320,6 +322,7 @@ table at the top of this page.
 | RTMDet-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4805 | 0.4618 | -1.87 (supported; -1.92 on 300) |
 | RTMDet-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.5128 | - | does not compile (blocked) |
 | RetinaNet-R50 (800x800 canvas) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas about -4.0) |
+| SSD300 (two parts) | detect | COCO val2017, 1000 images | 128 coco128 | 0.2408 | 0.2403 | -0.05 (+0.09 on 300) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3250 | -1.44 (supported; box -2.51) |
 | RTMDet-Ins-s | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3719 | 0.3139 | -5.80 (supported; box -7.26) |
@@ -627,7 +630,6 @@ Blocked for structural reasons (accuracy never blocks an export):
 - MiDaS-l (DPT ViT-L, 384 px): quantization stops at the quantizer's ONNX import ("unexpected input value type") on the ViT encoder (48 LayerNormalization, 24 Softmax, 28 Erf, attention MatMuls; the same graph's 5 Resize nodes also occur in MiDaS-s, which compiles). It peaks at 18 GB of host RAM before failing. Use MiDaS-s.
 - YOLOv1: the head's [local] locally connected layer exports as an Einsum, which the 1.9 quantizer does not support (YOLOv1-b; the tiny weights are not published). It would need the layer rewritten as convolutions.
 - RTMDet-x: at 640x640 the compiler's LowerTIR pass still overflows its on-chip buffers after 4 iterations (2 h 21 min, 7 GB peak RSS; ledger `rtmdet/detect/x/2026-11-12/2`). Use RTMDet-l.
-- SSD-300: the conv4_3 L2Norm divides every pixel by its own channel norm; quantization fails there (ledger `ssd/detect/300/2026-11-11`). A fixed scale instead costs 3.4 mAP50-95 points in FP32 alone (0.2361 to 0.2022 on 300 images); the exact route is a two-model split with the norm on the host.
 - CenterNet (ResDCN-18, DLA-34): the upsampling uses modulated deformable convolutions (grid_sample at learned offsets), which the quantizer has no converter for (ledger `centernet/detect/dla34/2026-11-11`).
 - ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).
 - Faster R-CNN: a two-stage graph (run-time proposals with If/NonZero/TopK, then RoIAlign before the second network); the host can only run operators before or after one accelerated graph (ledger `faster_rcnn/detect/n/2026-11-11/2`).

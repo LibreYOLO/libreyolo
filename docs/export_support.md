@@ -164,7 +164,7 @@ in preflight.
 | smolvla | act |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | smolvlm2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | speridlabs_idol | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| ssd | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
+| ssd | detect | ✓ |  |  |  |  |  |  |  | ✓ |  |  |  |  |
 | swin | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  | available |  |  |  |
 | swinir | restore | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  | ✓ |  |  |
 | teed | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |  |  |
@@ -476,6 +476,7 @@ A check mark applies only under any constraint listed here.
 - `siglip2` / `embed` / `openvino`: FP32, batch 1, fixed family-native square input; ExecuTorch uses 1.2/XNNPACK, TensorRT uses 10.16, and OpenVINO uses 2026.2
 - `siglip2` / `embed` / `tflite`: onnx2tf 2.6.7, LiteRT 2.1.2 CPU FP32, batch 1, fixed square input
 - `ssd` / `detect` / `onnx`: ONNX Runtime, FP32, opset 13, fixed 300 x 300 input
+- `ssd` / `detect` / `axelera`: validated sizes: 300 (two .axm parts + metadata parts; keep them together). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 300x300 input
 - `swin` / `classify` / `onnx`: Swin V1 at its fixed 224x224 native input resolution
 - `swin` / `classify` / `torchscript`: Swin V1 at its fixed 224x224 native input resolution
 - `swin` / `classify` / `tensorrt`: FP32, batch 1, and a fixed 224x224 input resolution
@@ -2341,7 +2342,6 @@ These converter paths are callable with the recorded validation context.
 - `ssd` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ssd` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ssd` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ssd` / `detect` / `axelera`: SSD-300 normalizes the conv4_3 features per pixel (L2Norm: each pixel's channel vector divided by its own norm), which Axelera's INT8 toolchain has no form for: with SDK 1.9 quantization fails at the L2Norm (ReduceL2, Expand, Div). A fixed scale in its place costs 3.4 mAP50-95 points in FP32 alone (0.2361 to 0.2022 on 300 COCO val2017 images), so it is not used; running SSD on Metis needs a two-model split with the norm on the host.
 - `ssd` / `detect` / `ncnn`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
 - `ssd` / `detect` / `tflite`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
 - `ssd` / `detect` / `coreml`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
