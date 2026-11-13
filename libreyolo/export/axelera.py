@@ -1634,6 +1634,121 @@ def export_axelera(
     return str(destination)
 
 
+def export_axelera_chain(
+    *,
+    onnx_paths: list[str],
+    output_path: str,
+    stem: str,
+    metadata: Mapping[str, Any],
+    calibration: Iterable,
+    calibration_info: Mapping[str, Any],
+    references: list,
+    host_step: Mapping[str, Any],
+    compiler_overrides: Mapping[str, Any] | None = None,
+    devkit_version: str | None = None,
+    quantization_scheme: str = DEFAULT_QUANTIZATION_SCHEME,
+    resources_used: float = DEFAULT_RESOURCES_USED,
+    verify: bool = False,
+) -> str:
+    """Compile a two-part export and publish ``<stem>.axm`` + ``<stem>_part2.axm`` + sidecars.
+
+    Part 1 (``onnx_paths[0]``) takes the images and is calibrated on them.
+    ``host_step`` names a host operation from the Axelera backend's
+    ``HOST_OPS`` that turns one part-1 output into part 2's input; part 2 is
+    calibrated on that operation applied to the FP32 part-1 outputs of the
+    same calibration images. ``references`` are the two FP32 graphs (with
+    ``output_names``), used to name each part's outputs in device order.
+    Metadata gains ``parts``: part 1, the host step, part 2.
+    """
+    import numpy as np
+    import torch
+
+    from ..backends.axelera import HOST_OPS
+
+    check_compile_platform()
+    if verify:
+        logger.warning(
+            "verify is not available for multi-part Axelera exports yet; run val on the device."
+        )
+    operation = HOST_OPS[host_step["host"]]
+    params = {k: v for k, v in host_step.items() if k not in ("host", "input", "output")}
+    head_ref, tail_ref = references
+    source_index = list(head_ref.output_names).index(host_step["input"])
+    samples = list(calibration)
+    if len(samples) < 2:
+        raise ValueError("A multi-part Axelera export needs at least 2 calibration images.")
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}.staging.", dir=destination.parent)
+    )
+    stems = [stem, f"{stem}_part2"]
+    try:
+        with tempfile.TemporaryDirectory(prefix="libreyolo-axelera-") as work:
+            work_dir = Path(work)
+            output_names: list[list[str]] = [[], []]
+            overrides: Mapping[str, Any] = {}
+            configs = []
+            tail_samples: list = []
+            for part, (onnx_path, part_stem, reference) in enumerate(
+                zip(onnx_paths, stems, (head_ref, tail_ref))
+            ):
+                part_dir = work_dir / f"part{part + 1}"
+                part_dir.mkdir()
+                config, overrides = build_compiler_config(
+                    part_stem,
+                    build_dir=part_dir / "build",
+                    quantization_scheme=quantization_scheme,
+                    resources_used=resources_used,
+                    overrides=compiler_overrides,
+                )
+                configs.append(config)
+                part_samples = samples if part == 0 else tail_samples
+
+                def before_compile(quantized, part=part, reference=reference, part_samples=part_samples):
+                    output_names[part] = device_output_order(quantized, reference, part_samples[0])
+
+                model_input = merge_pad_into_maxpool(onnx_path, part_dir) if part == 0 else onnx_path
+                axm, _ = compile_to_axm(
+                    model_input, part_samples, config, part_dir, before_compile=before_compile
+                )
+                shutil.copy2(axm, staging / f"{part_stem}.axm")
+                suffix = "" if part == 0 else ".part2"
+                (staging / f"compiler_config_final{suffix}.toml").write_text(
+                    _final_config_toml(config, part_dir / "build"), encoding="utf-8"
+                )
+                if part == 0:
+                    with torch.no_grad():
+                        for sample in samples:
+                            image = torch.as_tensor(np.asarray(sample, dtype=np.float32))
+                            features = head_ref(image)[source_index].numpy()
+                            tail_samples.append(operation(features, **params))
+        scheme = getattr(configs[0], "quantization_scheme", quantization_scheme)
+        meta = dict(metadata)
+        meta["axm"] = f"{stems[0]}.axm"
+        meta["parts"] = [
+            {"axm": f"{stems[0]}.axm", "input": "images", "outputs": output_names[0]},
+            {key: _plain(value) if not isinstance(value, list) else [float(v) for v in value]
+             for key, value in host_step.items()},
+            {"axm": f"{stems[1]}.axm", "input": host_step["output"], "outputs": output_names[1]},
+        ]
+        meta["axelera"] = {
+            "target": "metis",
+            "devkit_version": devkit_version,
+            "quantization_scheme": getattr(scheme, "value", scheme),
+            "aipu_cores_used": int(configs[0].aipu_cores_used),
+            "resources_used": float(configs[0].resources_used),
+            "compiler_overrides": {k: _plain(v) for k, v in dict(overrides).items()},
+            "calibration": dict(calibration_info),
+        }
+        _write_yaml(staging / "metadata.yaml", meta)
+        publish_directory(staging, destination)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+    return str(destination)
+
+
 def _plain(value):
     value = getattr(value, "value", value)
     if isinstance(value, Path):

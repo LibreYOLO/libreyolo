@@ -3962,6 +3962,66 @@ class _RestoreBodyWrapper(torch.nn.Module):
         return (out,)
 
 
+class _SSDPartAWrapper(torch.nn.Module):
+    """SSD300, part 1 of a two-part Axelera export (layout ``ssd_raw_heads_v1``).
+
+    conv4_3's L2Norm (a per-pixel division by the channel norm) has no form on
+    the Metis AIPU, and only the level-0 heads read its output. Part 1 runs the
+    VGG trunk and returns conv4_3 as it is (``conv4_3``), then the five extra
+    blocks and their box and class convolutions (levels 1-5). The host
+    normalizes conv4_3 (``HOST_OPS["l2norm"]`` in the Axelera backend) and part
+    2 (:class:`_SSDPartBWrapper`) runs the level-0 convolutions.
+    """
+
+    output_layout = "ssd_raw_heads_v1"
+    grid_cell_offset = 0.5
+    reg_max = None
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        from ..postprocess.yolonas_raw import SSD_STEPS, raw_head_output_names
+        from ..utils.coco import COCO91_CATEGORY_IDS
+
+        self.model = model
+        self.strides = tuple(SSD_STEPS)
+        #: The decoded heads' names, level by level (part 2 makes the first two).
+        self.layout_names = raw_head_output_names(self.output_layout, self.strides)
+        self.output_names = ["conv4_3", *self.layout_names[2:]]
+        self.output_windows: dict = {}
+        num_classes = int(model.num_classes)
+        self.class_index_map = (
+            list(COCO91_CATEGORY_IDS) if num_classes == 91 else list(range(1, num_classes))
+        )
+        self.l2norm_scale = [float(v) for v in model.backbone.scale_weight.detach().flatten()]
+
+    def forward(self, x):
+        backbone, head = self.model.backbone, self.model.head
+        features = backbone.features(x)
+        outputs = [features]
+        level = features
+        for index, block in enumerate(backbone.extra, start=1):
+            level = block(level)
+            outputs.append(head.regression_head.module_list[index](level))
+            outputs.append(head.classification_head.module_list[index](level))
+        return tuple(outputs)
+
+
+class _SSDPartBWrapper(torch.nn.Module):
+    """SSD300, part 2: the level-0 box and class convolutions on the host-normalized conv4_3."""
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = list(output_names)
+
+    def forward(self, normalized):
+        head = self.model.head
+        return (
+            head.regression_head.module_list[0](normalized),
+            head.classification_head.module_list[0](normalized),
+        )
+
+
 class AxeleraExporter(BaseExporter):
     """INT8 export for Axelera Metis AIPUs: a ``<stem>_axelera_model/`` directory.
 
@@ -4121,6 +4181,8 @@ class AxeleraExporter(BaseExporter):
             self._task() != "classify"
             and not self._graph_outputs()
             and not self._shuffle_skip_restore()
+            # SSD300's default boxes are built for its fixed 300 x 300 canvas.
+            and self.model._get_model_name() != "ssd"
         )
         if raw_heads and (imgsz[0] % stride or imgsz[1] % stride):
             raise ValueError(
@@ -4343,7 +4405,14 @@ class AxeleraExporter(BaseExporter):
                 dynamic_axes=None,
             )
         live = self.model.model
-        if self.model._get_model_name() == "retinanet":
+        self._chain_tail = None
+        if self.model._get_model_name() == "ssd":
+            # Two parts: conv4_3's L2Norm runs on the host between them.
+            self._pose_bounds = {}
+            net = copy.deepcopy(live).eval()
+            self._raw_wrapper = _SSDPartAWrapper(net).eval()
+            self._chain_tail = _SSDPartBWrapper(net, self._raw_wrapper.layout_names[:2]).eval()
+        elif self.model._get_model_name() == "retinanet":
             self._pose_bounds = {}
             self._raw_wrapper = _RetinaNetRawHeadsWrapper(
                 copy.deepcopy(live).eval(), self._task()
@@ -4417,7 +4486,7 @@ class AxeleraExporter(BaseExporter):
         out = Path(output_path)
         onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
         logger.info("Step 1/2: Exporting raw-head ONNX (%s)", onnx_output)
-        return _export_onnx_graph(
+        exported = _export_onnx_graph(
             self._raw_wrapper,
             dummy,
             output_path=onnx_output,
@@ -4429,6 +4498,22 @@ class AxeleraExporter(BaseExporter):
             output_names=list(self._raw_wrapper.output_names),
             dynamic_axes=None,
         )
+        if self._chain_tail is not None:
+            with torch.no_grad():
+                tail_input = torch.zeros_like(self._raw_wrapper(dummy)[0])
+            self._chain_tail_onnx = _export_onnx_graph(
+                self._chain_tail,
+                tail_input,
+                output_path=str(out.with_name(f"{out.name}.export_intermediate.part2.onnx")),
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=["conv4_3_norm"],
+                output_names=list(self._chain_tail.output_names),
+                dynamic_axes=None,
+            )
+        return exported
 
     def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
         meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
@@ -4490,6 +4575,10 @@ class AxeleraExporter(BaseExporter):
                 "grid_cell_offset": float(grid_cell_offset),
             }
         )
+        if isinstance(wrapper, _SSDPartAWrapper):
+            # The backend assembles the decoded heads from both parts.
+            meta["output_names"] = list(wrapper.layout_names)
+            meta["class_index_map"] = list(wrapper.class_index_map)
         if wrapper.reg_max is not None:
             meta["reg_max"] = int(wrapper.reg_max)
         if getattr(wrapper, "anchors", None) is not None:
@@ -4565,6 +4654,29 @@ class AxeleraExporter(BaseExporter):
         else:
             quantization_scheme = default_quantization_scheme(family, task)
 
+        if getattr(self, "_chain_tail", None) is not None:
+            from .axelera import export_axelera_chain
+
+            logger.info("Step 2/2: Quantizing and compiling for Axelera Metis (2 parts)")
+            return export_axelera_chain(
+                onnx_paths=[onnx_path, self._chain_tail_onnx],
+                output_path=output_path,
+                stem=Path(output_path).name.removesuffix(self.suffix) or "model",
+                metadata=metadata,
+                calibration=calibration_data,
+                quantization_scheme=quantization_scheme,
+                calibration_info=getattr(self, "_calibration_info", {}),
+                compiler_overrides=getattr(self, "_compiler_overrides", {}),
+                devkit_version=getattr(self, "_devkit_version", None),
+                references=[self._raw_wrapper, self._chain_tail],
+                host_step={
+                    "host": "l2norm",
+                    "input": "conv4_3",
+                    "output": "conv4_3_norm",
+                    "scale": list(self._raw_wrapper.l2norm_scale),
+                },
+                verify=bool(verify),
+            )
         logger.info("Step 2/2: Quantizing and compiling for Axelera Metis")
         return export_axelera(
             onnx_path=onnx_path,

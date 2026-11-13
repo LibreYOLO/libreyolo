@@ -58,10 +58,13 @@ class _CompiledModel:
         self.session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
         names = [o.name for o in self.session.get_outputs()]
         per_level = len(names) // 3
-        self.order = [
-            i for level in range(3)
-            for i in reversed(range(level * per_level, (level + 1) * per_level))
-        ] or list(range(len(names)))  # classifiers: one output
+        if len(names) % 3:  # not three pyramid levels: return them all, reversed
+            self.order = list(reversed(range(len(names))))
+        else:
+            self.order = [
+                i for level in range(3)
+                for i in reversed(range(level * per_level, (level + 1) * per_level))
+            ] or list(range(len(names)))  # classifiers: one output
         self.calls = 0
 
     def run(self, array):
@@ -551,7 +554,7 @@ def dense_allowed(monkeypatch):
         return original(family, task, fmt)
 
     monkeypatch.setattr(exporter, "get_support", gate)
-    pairs = {("fcn", "semantic"), ("realesrgan", "restore")}
+    pairs = {("fcn", "semantic"), ("realesrgan", "restore"), ("ssd", "detect")}
     monkeypatch.setitem(INT8_EXPORTS, "axelera", INT8_EXPORTS["axelera"] | pairs)
 
 
@@ -699,3 +702,153 @@ def test_realesrgan_trunk_runs_on_device_and_tail_on_host(sdk, dense_allowed, tm
     reference = torch.nn.functional.pixel_shuffle(torch.from_numpy(body), 4) + torch.nn.functional.interpolate(
         torch.from_numpy(image), scale_factor=4, mode="nearest")
     np.testing.assert_allclose(shuffle_and_skip(body, image, 4), reference.numpy(), atol=1e-6)
+
+
+@pytest.fixture(scope="module")
+def ssd_export(sdk, tmp_path_factory):
+    """One two-part SSD300 export (random weights) shared by the chain tests."""
+    import torch
+
+    from libreyolo import LibreSSD
+    from libreyolo.export import exporter
+    from libreyolo.export.support import INT8_EXPORTS, SupportEntry
+
+    tmp_path = tmp_path_factory.mktemp("ssd")
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        original = exporter.get_support
+        monkeypatch.setattr(
+            exporter, "get_support",
+            lambda f, t, fmt: SupportEntry("available", "unit test") if fmt == "axelera" else original(f, t, fmt),
+        )
+        monkeypatch.setitem(INT8_EXPORTS, "axelera", INT8_EXPORTS["axelera"] | {("ssd", "detect")})
+        torch.manual_seed(0)
+        model = LibreSSD(None, device="cpu")
+        artifact = Path(model.export(
+            format="axelera", data=str(_dataset(tmp_path)), output_path=str(tmp_path / "ssd_axelera_model"),
+        ))
+    return model, artifact
+
+
+def test_ssd_exports_two_parts_with_the_l2norm_on_the_host(ssd_export):
+    import yaml
+
+    _, artifact = ssd_export
+    assert sorted(p.name for p in artifact.glob("*.axm")) == ["ssd.axm", "ssd_part2.axm"]
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "ssd_raw_heads_v1" and meta["axm"] == "ssd.axm"
+    first, host, second = meta["parts"]
+    assert first["axm"] == "ssd.axm" and first["input"] == "images"
+    assert sorted(first["outputs"]) == sorted(["conv4_3", *meta["output_names"][2:]])
+    assert host["host"] == "l2norm" and host["input"] == "conv4_3" and host["output"] == "conv4_3_norm"
+    assert len(host["scale"]) == 512
+    assert second == {"axm": "ssd_part2.axm", "input": "conv4_3_norm", "outputs": second["outputs"]}
+    assert sorted(second["outputs"]) == sorted(meta["output_names"][:2])
+    assert len(meta["class_index_map"]) == 80
+
+
+def test_ssd_chain_matches_the_in_graph_decode(ssd_export):
+    import torch
+
+    from libreyolo import LibreYOLO
+    from libreyolo.models.ssd.nn import SSDExportWrapper
+
+    model, artifact = ssd_export
+    backend = LibreYOLO(str(artifact))
+    assert backend._chain is not None and len([m for m in backend._chain_models if m is not None]) == 2
+    image = np.random.default_rng(3).random((1, 3, 300, 300), dtype=np.float32)
+    (decoded,) = backend._run_inference(image)
+    with torch.no_grad():
+        expected = SSDExportWrapper(model.model.eval()).eval()(torch.from_numpy(image)).numpy()
+    assert decoded.shape == expected.shape == (1, 84, 8732)
+    np.testing.assert_allclose(decoded[:, :4], expected[:, :4], atol=1e-2)
+    np.testing.assert_allclose(decoded[:, 4:], expected[:, 4:], atol=1e-5)
+
+
+def test_ssd_chain_batches_every_part(ssd_export):
+    from libreyolo import LibreYOLO
+
+    _, artifact = ssd_export
+    backend = LibreYOLO(str(artifact))
+    rng = np.random.default_rng(4)
+    images = [rng.random((1, 3, 300, 300), dtype=np.float32) for _ in range(3)]
+    assert backend._supports_batched_inference()
+    batched = backend._invoke_batch(images)
+    single = [backend._invoke(image) for image in images]
+    assert [m.batches for m in backend._chain_models if m is not None] == [[3], [3]]
+    for got, want in zip(batched, single):
+        for a, b in zip(got, want):
+            np.testing.assert_array_equal(a, b)
+
+
+@pytest.mark.parametrize(
+    ("edit", "error"),
+    [
+        (lambda parts: parts[1].update(host="softplus"), "host operation 'softplus'"),
+        (lambda parts: parts[2].update(input="nowhere"), "reads 'nowhere'"),
+        (lambda parts: parts[2].update(outputs=parts[2]["outputs"][:1]), "do not produce"),
+        (lambda parts: parts.insert(0, {"host": "l2norm", "input": "images", "output": "x", "scale": [1.0]}),
+         "must be a compiled model"),
+    ],
+)
+def test_ssd_chain_metadata_is_validated(ssd_export, tmp_path, edit, error):
+    import shutil
+
+    import yaml
+
+    from libreyolo import LibreYOLO
+
+    _, artifact = ssd_export
+    copy_dir = tmp_path / "ssd_axelera_model"
+    shutil.copytree(artifact, copy_dir)
+    meta = yaml.safe_load((copy_dir / "metadata.yaml").read_text())
+    edit(meta["parts"])
+    (copy_dir / "metadata.yaml").write_text(yaml.safe_dump(meta))
+    with pytest.raises(ValueError, match=error):
+        LibreYOLO(str(copy_dir))
+
+
+def test_ssd_chain_needs_every_part_file(ssd_export, tmp_path):
+    import shutil
+
+    from libreyolo import LibreYOLO
+
+    _, artifact = ssd_export
+    copy_dir = tmp_path / "ssd_axelera_model"
+    shutil.copytree(artifact, copy_dir)
+    (copy_dir / "ssd_part2.axm").unlink()
+    with pytest.raises(FileNotFoundError, match="ssd_part2.axm"):
+        LibreYOLO(str(copy_dir))
+
+
+def test_host_l2norm_matches_torch_normalize():
+    import torch
+
+    from libreyolo.backends.axelera import HOST_OPS
+
+    rng = np.random.default_rng(5)
+    x = rng.standard_normal((1, 8, 5, 6)).astype(np.float32)
+    x[0, :, 0, 0] = 0.0  # an all-zero pixel stays zero
+    scale = rng.random(8).astype(np.float32) * 20
+    expected = scale.reshape(1, -1, 1, 1) * torch.nn.functional.normalize(torch.from_numpy(x)).numpy()
+    np.testing.assert_allclose(HOST_OPS["l2norm"](x, scale=scale.tolist()), expected, rtol=1e-6, atol=1e-6)
+
+
+def test_single_axm_artifacts_take_the_one_model_path(exports, tmp_path):
+    """Artifacts without ``parts`` load and run exactly one .axm, as before chained exports existed."""
+    import shutil
+
+    from libreyolo import LibreYOLO
+    from libreyolo.backends.axelera import resolve_axelera_artifact
+
+    _, artifact = exports("detect")
+    backend = LibreYOLO(str(artifact))
+    assert backend._chain is None and backend._chain_models == []
+    h, w = backend._fixed_input_hw
+    before = backend._model.model.calls
+    outputs = backend._invoke(np.zeros((1, 3, h, w), dtype=np.float32))
+    assert backend._model.model.calls == before + 1 and len(outputs) == len(backend._output_names)
+    copy_dir = tmp_path / "two_axm"
+    shutil.copytree(artifact, copy_dir)
+    (copy_dir / "extra.axm").write_bytes(b"axm")
+    with pytest.raises(ValueError, match="more than one .axm"):
+        resolve_axelera_artifact(copy_dir)

@@ -454,6 +454,18 @@ default) bring it to -1.0 there and -1.78 on 1000 images, spread over small
 (0.055 vs 0.056), medium (0.299 vs 0.320) and large objects (0.533 vs
 0.558).
 
+SSD300 runs in two compiled parts with one host step between them (layout
+`ssd_raw_heads_v1`, metadata `parts`). Its conv4_3 L2Norm divides each
+pixel's 512 channels by their norm, which the Metis AIPU has no operator for,
+and only the level-0 heads read it. Part 1 (`<stem>.axm`) runs the VGG trunk,
+returns conv4_3 unnormalized, and runs the extra blocks and the level 1-5 box
+and class convolutions; the host normalizes conv4_3 (`l2norm`, with SSD's
+learned per-channel scale); part 2 (`<stem>_part2.axm`) runs the level-0
+convolutions, calibrated on the normalized conv4_3 of the FP32 part 1 for the
+same calibration images. The host then decodes the 8,732 default boxes as
+SSD's own export does. Batched inference batches each part. Keep both `.axm`
+files and `metadata.yaml` together.
+
 RetinaNet resizes each image so its shorter side is 800 pixels (longer
 side up to 1333), so its input shape changes from image to image. The Metis
 graph takes one fixed shape, so the export fits each image into an 800x800
@@ -569,14 +581,16 @@ bar for restoration is 0.3 dB).
 | --- | --- |
 | `format` | `axelera` |
 | `axm` | the `.axm` file name |
-| `output_layout` | output contract, for example `yolonas_raw_heads_v1`, `yolox_raw_heads_v1`, `darknet_raw_heads_v1`, `darknet_region_raw_heads_v1`, `yolo7_raw_heads_v1`, `ppyoloe_raw_heads_v1`, `classify_logits_v1` or `graph_outputs_v1` |
+| `output_layout` | output contract, for example `yolonas_raw_heads_v1`, `yolox_raw_heads_v1`, `darknet_raw_heads_v1`, `darknet_region_raw_heads_v1`, `yolo7_raw_heads_v1`, `ssd_raw_heads_v1`, `ppyoloe_raw_heads_v1`, `classify_logits_v1` or `graph_outputs_v1` |
 | `output_names` | output names in the order the compiled model returns them |
 | `graph_outputs` | output names in graph order (`graph_outputs_v1`) |
 | `output_windows` | parts emitted through a ReLU6 window, as `[low, high]` logit bounds (YOLO-NAS pose and YOLO9 exports); the backend maps them back before decoding |
 | `strides`, `reg_max`, `grid_cell_offset` | decode constants (`reg_max` only for distribution heads) |
 | `crop_pct`, `interpolation` | classifier eval transform |
 | `anchors`, `scale_x_y` | anchor boxes in input pixels per level (YOLOv2's grid-cell anchors are converted), and Darknet's centre scaling (anchor-based heads) |
-| `axelera` | SDK version, quantization scheme, cores, resources, compiler overrides, calibration source and image count |
+| `parts` | multi-part exports only (SSD300): the compiled parts and host operations in order. A compiled part is `{axm, input, outputs}` (`input` is `images` for the first part, which is also `axm`); a host operation is `{host, input, output, ...parameters}` with `host` one of the backend's `HOST_OPS` (`l2norm`: `scale` per channel). The backend runs them in order and assembles `output_names` from their outputs; artifacts without `parts` are one `.axm`. |
+| `class_index_map` | logit columns kept after the softmax (SSD300 and RetinaNet: COCO-91 to the 80 classes) |
+| `axelera` | SDK version, quantization scheme, cores, resources, compiler overrides, calibration source and image count (of the first part, for multi-part exports) |
 | `weights_license` | reminder of the weight license |
 
 ## 9. Troubleshooting

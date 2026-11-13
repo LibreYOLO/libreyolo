@@ -172,6 +172,70 @@ def is_axelera_artifact(path: str | Path) -> bool:
     )
 
 
+def _host_l2norm(x: np.ndarray, *, scale, eps: float = 1e-12) -> np.ndarray:
+    """``scale[c] * x / ||x||_2`` over the channels of each pixel (SSD's conv4_3 L2Norm, as ``F.normalize``)."""
+    x = np.asarray(x, dtype=np.float32)
+    norm = np.sqrt((x * x).sum(axis=1, keepdims=True))
+    weights = np.asarray(scale, dtype=np.float32).reshape(1, -1, 1, 1)
+    return (weights * x / np.maximum(norm, np.float32(eps))).astype(np.float32)
+
+
+#: Host operations a multi-part (chained) export may run between two ``.axm``
+#: parts, by the ``host`` name its metadata gives them.
+HOST_OPS: dict[str, Any] = {"l2norm": _host_l2norm}
+_HOST_STEP_KEYS = ("host", "input", "output")
+
+
+def _validate_chain(parts, axm: Path, final_names: list[str]) -> list[dict]:
+    """Check a multi-part export's ``parts`` list; return it as plain dicts.
+
+    Each part is a compiled model (``axm``, ``input``, ``outputs``) or a host
+    operation (``host``, ``input``, ``output`` plus its parameters). The first
+    part is the primary ``.axm`` and takes the images; every input must be an
+    earlier output, and the parts together must produce ``final_names``.
+    """
+    if not isinstance(parts, list) or not parts:
+        raise _foreign_artifact(axm, "parts in metadata.yaml must be a non-empty list")
+    available = {"images"}
+    steps = []
+    for index, part in enumerate(parts):
+        if not isinstance(part, dict):
+            raise _foreign_artifact(axm, f"parts[{index}] is not a mapping")
+        step = dict(part)
+        source = step.get("input")
+        if source not in available:
+            raise _foreign_artifact(axm, f"parts[{index}] reads {source!r}, which no earlier part produces")
+        if "axm" in step:
+            if index == 0 and (step["axm"] != axm.name or source != "images"):
+                raise _foreign_artifact(axm, "parts[0] must be the primary .axm reading the images")
+            if not (axm.parent / str(step["axm"])).is_file():
+                raise FileNotFoundError(f"{axm.parent / str(step['axm'])} (parts[{index}]) is missing.")
+            produced = [str(name) for name in step.get("outputs") or ()]
+            if not produced:
+                raise _foreign_artifact(axm, f"parts[{index}] lists no outputs")
+        elif "host" in step:
+            if index == 0:
+                raise _foreign_artifact(axm, "parts[0] must be a compiled model")
+            if step["host"] not in HOST_OPS:
+                known = ", ".join(sorted(HOST_OPS))
+                raise ValueError(
+                    f"{axm.parent / 'metadata.yaml'} asks for host operation {step['host']!r}; "
+                    f"this LibreYOLO version knows {known}. Upgrade LibreYOLO or re-export the model."
+                )
+            produced = [str(step.get("output"))]
+        else:
+            raise _foreign_artifact(axm, f"parts[{index}] is neither a compiled model nor a host operation")
+        clash = available.intersection(produced)
+        if clash:
+            raise _foreign_artifact(axm, f"parts[{index}] produces {sorted(clash)} a second time")
+        available.update(produced)
+        steps.append(step)
+    missing = [name for name in final_names if name not in available]
+    if missing:
+        raise _foreign_artifact(axm, f"parts do not produce {missing}")
+    return steps
+
+
 def resolve_axelera_artifact(path: str | Path) -> tuple[Path, Path]:
     """Return ``(axm, metadata.yaml)`` for an export directory or ``.axm`` path."""
     path = Path(path)
@@ -186,6 +250,9 @@ def resolve_axelera_artifact(path: str | Path) -> tuple[Path, Path]:
         if not candidates:
             raise FileNotFoundError(f"No .axm file in {path}.")
         if len(candidates) > 1:
+            primary = _chained_primary(path)
+            if primary is not None:
+                return primary, path / "metadata.yaml"
             names = ", ".join(c.name for c in candidates)
             raise ValueError(
                 f"{path} holds more than one .axm ({names}); pass the .axm file "
@@ -199,6 +266,23 @@ def resolve_axelera_artifact(path: str | Path) -> tuple[Path, Path]:
             "models it exported itself: run model.export(format='axelera')."
         )
     return axm, metadata
+
+
+def _chained_primary(directory: Path) -> Path | None:
+    """The primary ``.axm`` of a multi-part export directory (its metadata lists ``parts``), else ``None``."""
+    import yaml
+
+    metadata = directory / "metadata.yaml"
+    if not metadata.is_file():
+        return None
+    try:
+        meta = yaml.safe_load(metadata.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return None
+    if not isinstance(meta, dict) or not meta.get("parts") or not meta.get("axm"):
+        return None
+    primary = directory / str(meta["axm"])
+    return primary if primary.is_file() else None
 
 
 def _foreign_artifact(axm: Path, detail: str) -> ValueError:
@@ -340,6 +424,8 @@ class AxeleraBackend(BaseBackend):
             ]
             if meta.get("scale_x_y") is not None:
                 self._decode_params["scale_x_y"] = [float(s) for s in meta["scale_x_y"]]
+        if layout == "ssd_raw_heads_v1":  # SSD300: 91 logits incl. background -> the listed classes
+            self._decode_params["class_index_map"] = meta.get("class_index_map")
         if meta.get("exp_on_reg") is not None:  # RTMDet
             self._decode_params["exp_on_reg"] = bool(meta["exp_on_reg"])
         if parsed.task == "pose":
@@ -359,7 +445,19 @@ class AxeleraBackend(BaseBackend):
         )
         self.axm_path = axm
         self.runtime_version = require_axelera_rt()
-        self._model = self._load(axm)
+        # A multi-part export (metadata ``parts``) runs its compiled parts and
+        # host operations in order; any other artifact is one .axm, as before.
+        self._chain = None
+        self._chain_models: list = []
+        if meta.get("parts") is not None:
+            self._chain = _validate_chain(meta["parts"], axm, layout_names)
+            self._chain_models = [
+                self._load(axm.parent / str(step["axm"])) if "axm" in step else None
+                for step in self._chain
+            ]
+            self._model = self._chain_models[0]
+        else:
+            self._model = self._load(axm)
         logger.info("Axelera model %s loaded; inference runs on the Metis AIPU.", axm.name)
 
         resolved_nb_classes = parsed.nb_classes if nb_classes is None else int(nb_classes)
@@ -397,6 +495,8 @@ class AxeleraBackend(BaseBackend):
 
     def _invoke(self, image: np.ndarray) -> list[np.ndarray]:
         """Run one ``(1, C, H, W)`` float32 image; outputs in layout order."""
+        if self._chain is not None:
+            return self._run_chain([image], batch=False)[0]
         try:
             outputs = self._model(image)
         except RuntimeError as exc:
@@ -405,11 +505,46 @@ class AxeleraBackend(BaseBackend):
 
     def _invoke_batch(self, images: list[np.ndarray]) -> list[list[np.ndarray]]:
         """Submit several images at once so the runtime can spread them over cores."""
+        if self._chain is not None:
+            return self._run_chain(images, batch=True)
         try:
             results = self._model.batch(images)
         except RuntimeError as exc:
             raise _no_device_error(exc) from exc
         return [self._to_layout(outputs) for outputs in results]
+
+    def _run_chain(self, images: list[np.ndarray], *, batch: bool) -> list[list[np.ndarray]]:
+        """Run a multi-part export: each compiled part (batched when asked) and host op in order."""
+        envs = [{"images": image} for image in images]
+        for index, (step, model) in enumerate(zip(self._chain, self._chain_models)):
+            if model is None:
+                operation = HOST_OPS[step["host"]]
+                params = {k: v for k, v in step.items() if k not in _HOST_STEP_KEYS}
+                for env in envs:
+                    env[step["output"]] = operation(env[step["input"]], **params)
+                continue
+            inputs = [np.ascontiguousarray(env[step["input"]], dtype=np.float32) for env in envs]
+            try:
+                if batch and len(inputs) > 1:
+                    results = model.batch(inputs)
+                else:
+                    results = [model(array) for array in inputs]
+            except RuntimeError as exc:
+                raise _no_device_error(exc) from exc
+            names = step["outputs"]
+            for env, outputs in zip(envs, results):
+                if not isinstance(outputs, (list, tuple)):
+                    outputs = [outputs]
+                if len(outputs) != len(names):
+                    raise ValueError(
+                        f"Part {index} ({step['axm']}) returned {len(outputs)} outputs; its "
+                        f"metadata lists {len(names)}. Re-export the model."
+                    )
+                for name, output in zip(names, outputs):
+                    array = np.asarray(output, dtype=np.float32)
+                    env[name] = array if array.ndim == 4 else array.reshape((1, *array.shape))
+        ordered = [[env[name] for name in self._output_names] for env in envs]
+        return [[arrays[i] for i in self._layout_order] for arrays in ordered]
 
     def _to_layout(self, outputs) -> list[np.ndarray]:
         if not isinstance(outputs, (list, tuple)):
@@ -433,6 +568,8 @@ class AxeleraBackend(BaseBackend):
     def _supports_batched_inference(self) -> bool:
         # The compiled model takes one image; batched calls go through the
         # runtime's batch submission, which keeps several cores busy.
+        if self._chain is not None:
+            return all(hasattr(m, "batch") for m in self._chain_models if m is not None)
         return hasattr(self._model, "batch")
 
     def _run_inference(self, blob: np.ndarray) -> list:
@@ -462,6 +599,7 @@ class AxeleraBackend(BaseBackend):
 
 __all__ = [
     "AUTOINSTALL_ENV",
+    "HOST_OPS",
     "AXELERA_INDEX_URL",
     "AXELERA_SDK_VERSION",
     "CLASSIFY_LOGITS_LAYOUT",

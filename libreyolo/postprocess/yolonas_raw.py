@@ -37,6 +37,11 @@ follow the levels (``RAW_LAYOUT_EXTRA_OUTPUTS``):
 ``darknet_region_raw_heads_v1``,
 ``yolo7_raw_heads_v1``         ``reg`` [B, 4A, H, W] (tx, ty, tw, th),
                                ``obj`` [B, A, H, W], ``cls`` [B, A*nc, H, W]
+``ssd_raw_heads_v1``           per SSD300 level (38, 19, 10, 5, 3, 1 cells; names
+                               p3-p8 from the steps 8, 16, 32, 64, 100, 300) and
+                               default box (box-major): ``reg`` [B, 4A, H, W]
+                               (box-coder deltas), ``cls`` [B, A*nc, H, W]
+                               (logits incl. background)
 ``rtmdet_raw_heads_v1``        ``reg`` [B, 4, H, W] (l, t, r, b distances in
                                strides, or their logs: ``exp_on_reg``),
                                ``cls`` [B, nc, H, W]
@@ -79,6 +84,7 @@ YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "yolo7_raw_heads_v1": ("reg", "obj", "cls"),
     "rtmdet_raw_heads_v1": ("reg", "cls"),
     "rtmdet_ins_raw_heads_v1": ("reg", "cls", "kernel"),
+    "ssd_raw_heads_v1": ("reg", "cls"),
 }
 
 # Outputs that are not per level, emitted after all levels (never windowed).
@@ -750,6 +756,95 @@ def decode_rtmdet_ins_raw(
     return [*cls, *bbox, *kernel, mask_feat]
 
 
+#: SSD300's default-box generator (torchvision's, as in ``postprocess.ssd``).
+SSD_FEATURE_SIZES = (38, 19, 10, 5, 3, 1)
+SSD_STEPS = (8, 16, 32, 64, 100, 300)
+_SSD_ASPECT_RATIOS = ((2,), (2, 3), (2, 3), (2, 3), (2,), (2,))
+_SSD_SCALES = (0.07, 0.15, 0.33, 0.51, 0.69, 0.87, 1.05)
+_SSD_BOX_CODER_WEIGHTS = (10.0, 10.0, 5.0, 5.0)
+_SSD_BBOX_XFORM_CLIP = math.log(1000.0 / 16)
+
+
+@lru_cache(maxsize=2)
+def _ssd_default_boxes(input_size: int = 300) -> np.ndarray:
+    """SSD300's 8,732 default boxes, ``xyxy`` pixels (numpy twin of ``postprocess.ssd._default_boxes``)."""
+    levels = []
+    for level, feature_size in enumerate(SSD_FEATURE_SIZES):
+        scale, next_scale = _SSD_SCALES[level], _SSD_SCALES[level + 1]
+        pairs = [[scale, scale], [math.sqrt(scale * next_scale)] * 2]
+        for aspect_ratio in _SSD_ASPECT_RATIOS[level]:
+            root = math.sqrt(aspect_ratio)
+            pairs.extend([[scale * root, scale / root], [scale / root, scale * root]])
+        sizes = np.clip(np.asarray(pairs, dtype=np.float32), 0.0, 1.0)
+        shifts = ((np.arange(feature_size) + 0.5) / (input_size / SSD_STEPS[level])).astype(np.float32)
+        shift_y, shift_x = np.meshgrid(shifts, shifts, indexing="ij")
+        centers = np.stack((shift_x, shift_y), axis=-1).reshape(-1, 1, 2)
+        centers = np.broadcast_to(centers, (centers.shape[0], len(pairs), 2)).reshape(-1, 2)
+        levels.append(np.concatenate((centers, np.tile(sizes, (feature_size * feature_size, 1))), axis=-1))
+    normalized = np.concatenate(levels, axis=0).astype(np.float32)
+    half = normalized[:, 2:] * np.float32(0.5)
+    size = np.float32(input_size)
+    return np.concatenate(((normalized[:, :2] - half) * size, (normalized[:, :2] + half) * size), axis=-1)
+
+
+def decode_ssd_raw(
+    outputs: Sequence[np.ndarray],
+    *,
+    class_index_map: Sequence[int] | None = None,
+    input_size: int = 300,
+    **_unused,
+) -> list[np.ndarray]:
+    """Decode SSD300 heads to ``[(B, 4 + nc, 8732)]`` as ``SSDExportWrapper`` does.
+
+    ``outputs`` are ``reg``/``cls`` per level (``ssd_raw_heads_v1``). Boxes
+    are the default boxes moved by the box coder (weights 10, 10, 5, 5, size
+    deltas clipped at log(1000 / 16)), ``xyxy`` pixels clipped to the canvas;
+    scores are a softmax over all logits (background included), then
+    ``class_index_map`` keeps the listed columns (COCO-91 to the 80 classes).
+    """
+    if len(outputs) != 2 * len(SSD_FEATURE_SIZES):
+        raise ValueError(
+            f"ssd_raw_heads_v1 needs reg and cls for {len(SSD_FEATURE_SIZES)} levels, "
+            f"got {len(outputs)} arrays."
+        )
+    regs, logits = [], []
+    for level in range(len(SSD_FEATURE_SIZES)):
+        reg = np.asarray(outputs[2 * level], dtype=np.float32)
+        cls = np.asarray(outputs[2 * level + 1], dtype=np.float32)
+        batch, channels, h, w = reg.shape
+        boxes_per_cell = channels // 4
+        nc = cls.shape[1] // boxes_per_cell
+        regs.append(reg.reshape(batch, boxes_per_cell, 4, h, w).transpose(0, 3, 4, 1, 2).reshape(batch, -1, 4))
+        logits.append(cls.reshape(batch, boxes_per_cell, nc, h, w).transpose(0, 3, 4, 1, 2).reshape(batch, -1, nc))
+    regression = np.concatenate(regs, axis=1)
+    cls_logits = np.concatenate(logits, axis=1)
+    anchors = _ssd_default_boxes(int(input_size))
+    if regression.shape[1] != anchors.shape[0]:
+        raise ValueError(f"SSD heads give {regression.shape[1]} boxes, expected {anchors.shape[0]}.")
+    widths = anchors[:, 2] - anchors[:, 0]
+    heights = anchors[:, 3] - anchors[:, 1]
+    center_x = anchors[:, 0] + np.float32(0.5) * widths
+    center_y = anchors[:, 1] + np.float32(0.5) * heights
+    wx, wy, ww, wh = (np.float32(v) for v in _SSD_BOX_CODER_WEIGHTS)
+    clip = np.float32(_SSD_BBOX_XFORM_CLIP)
+    pred_x = regression[..., 0] / wx * widths + center_x
+    pred_y = regression[..., 1] / wy * heights + center_y
+    pred_w = np.exp(np.minimum(regression[..., 2] / ww, clip)) * widths
+    pred_h = np.exp(np.minimum(regression[..., 3] / wh, clip)) * heights
+    boxes = np.stack(
+        (pred_x - 0.5 * pred_w, pred_y - 0.5 * pred_h, pred_x + 0.5 * pred_w, pred_y + 0.5 * pred_h),
+        axis=-1,
+    )
+    np.clip(boxes, 0.0, float(input_size), out=boxes)
+    cls_logits = cls_logits - cls_logits.max(axis=-1, keepdims=True)
+    probabilities = np.exp(cls_logits)
+    probabilities /= probabilities.sum(axis=-1, keepdims=True)
+    if class_index_map is not None:
+        probabilities = probabilities[..., np.asarray(list(class_index_map), dtype=np.int64)]
+    packed = np.concatenate((boxes, probabilities), axis=-1).astype(np.float32)
+    return [np.ascontiguousarray(packed.transpose(0, 2, 1))]
+
+
 _DECODERS = {
     "yolonas_raw_heads_v1": decode_yolonas_raw,
     "ppyoloe_raw_heads_v1": decode_yolonas_raw,
@@ -764,6 +859,7 @@ _DECODERS = {
     "yolo7_raw_heads_v1": _anchor_decoder("yolo7_raw_heads_v1"),
     "rtmdet_raw_heads_v1": decode_rtmdet_raw,
     "rtmdet_ins_raw_heads_v1": decode_rtmdet_ins_raw,
+    "ssd_raw_heads_v1": decode_ssd_raw,
 }
 
 
