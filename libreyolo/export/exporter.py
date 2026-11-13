@@ -4007,18 +4007,27 @@ class _SSDPartAWrapper(torch.nn.Module):
 
 
 class _SSDPartBWrapper(torch.nn.Module):
-    """SSD300, part 2: the level-0 box and class convolutions on the host-normalized conv4_3."""
+    """SSD300, part 2: the level-0 box and class convolutions on the host-normalized conv4_3.
+
+    The graph input first goes through an identity 1x1 depthwise convolution:
+    a graph input that fans out straight into two convolutions is cut into two
+    AIPU functions by the compiler's lowering ("Expected 1 AIPU function, got
+    2"), while one entry op followed by the fan-out compiles.
+    """
 
     def __init__(self, model: torch.nn.Module, output_names):
         super().__init__()
         self.model = model
         self.output_names = list(output_names)
+        channels = int(model.head.regression_head.module_list[0].in_channels)
+        self.entry = _ChannelScale(torch.ones(channels), as_conv=True)
 
     def forward(self, normalized):
         head = self.model.head
+        features = self.entry(normalized)
         return (
-            head.regression_head.module_list[0](normalized),
-            head.classification_head.module_list[0](normalized),
+            head.regression_head.module_list[0](features),
+            head.classification_head.module_list[0](features),
         )
 
 

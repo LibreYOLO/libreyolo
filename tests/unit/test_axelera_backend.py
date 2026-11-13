@@ -820,6 +820,28 @@ def test_ssd_chain_needs_every_part_file(ssd_export, tmp_path):
         LibreYOLO(str(copy_dir))
 
 
+def test_ssd_part2_input_feeds_one_op(tmp_path):
+    """A graph input that fans out straight into two convolutions is cut into two AIPU functions."""
+    import onnx
+    import torch
+
+    from libreyolo import LibreSSD
+    from libreyolo.export.exporter import _SSDPartBWrapper
+
+    model = LibreSSD(None, device="cpu").model.eval()
+    part = _SSDPartBWrapper(model, ["p3_reg", "p3_cls"]).eval()
+    x = torch.rand(1, 512, 38, 38)
+    with torch.no_grad():
+        reg, cls = part(x)
+        assert torch.equal(reg, model.head.regression_head.module_list[0](x))
+        assert torch.equal(cls, model.head.classification_head.module_list[0](x))
+    path = tmp_path / "part2.onnx"
+    torch.onnx.export(part, x, str(path), input_names=["conv4_3_norm"], output_names=part.output_names, dynamo=False)
+    graph = onnx.load(str(path)).graph
+    consumers = [node for node in graph.node if "conv4_3_norm" in node.input]
+    assert len(consumers) == 1 and consumers[0].op_type == "Conv"
+
+
 def test_host_l2norm_matches_torch_normalize():
     import torch
 
