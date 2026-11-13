@@ -4420,9 +4420,9 @@ _add(
         "canvas (the image fitted inside, padded bottom-right); the graph stops "
         "after the box-delta and class convolutions and LibreYOLO rebuilds the "
         "anchors on the host. Supported, not validated: on a Metis M.2 Max "
-        "RetinaNet-R50 scores about 4.2 mAP50-95 below the PyTorch model's own "
-        "val(): about 4.0 from the fixed 800x800 canvas (100 COCO val2017 "
-        "images) and 0.2 from INT8 (1000 images, same canvas; docs/axelera.md)."
+        "RetinaNet-R50 scores 2.25 mAP50-95 below the PyTorch model's own "
+        "val() on 1000 COCO val2017 images (0.3521 vs 0.3296): 2.03 from the "
+        "fixed 800x800 canvas and 0.22 from INT8 (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
@@ -4844,8 +4844,8 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
         "r50": (
             "measured mAP50-95 drop 0.22 points vs FP32 on the same 800x800 canvas "
             "(0.3296 vs 0.3318 on 1000 COCO val2017 images); the fixed canvas "
-            "itself costs about 4.0 against RetinaNet's own resize (0.3383 vs "
-            "0.3785 on 100 images), about 4.2 end to end"
+            "itself costs 2.03 against RetinaNet's own resize (0.3318 vs "
+            "0.3521 on the same 1000 images), 2.25 end to end"
         ),
     },
     ("rtmdet", "segment", "axelera"): {

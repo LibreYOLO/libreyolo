@@ -52,7 +52,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | RTMDet | s | detect | COCO val2017, 1000 | 0.4121 | 0.3446 | -6.75 | supported | `rtmdet/detect/s/2026-11-11/6` |
 | RTMDet | m | detect | COCO val2017, 1000 | 0.4727 | 0.4461 | -2.66 | supported | `rtmdet/detect/m/2026-11-12/2` |
 | RTMDet | l | detect | COCO val2017, 1000 | 0.4805 | 0.4618 | -1.87 | supported | `rtmdet/detect/l/2026-11-12/2` |
-| RetinaNet | r50 | detect (800x800 canvas) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas about -4.0 more) | supported | `retinanet/detect/r50/2026-11-11/5` |
+| RetinaNet | r50 | detect (800x800 canvas) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas -2.03 more) | supported | `retinanet/detect/r50/2026-11-14/3` |
 | SSD | 300 | detect (two parts, L2Norm on the host) | COCO val2017, 1000 | 0.2408 | 0.2403 | -0.05 | validated | `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
@@ -116,7 +116,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
 | RTMDet | detect | t, s, m, l (supported with a measured drop; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x blocked `rtmdet/detect/x/2026-11-12/2` |
 | RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -7.26, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-12/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
-| RetinaNet | detect | r50 (supported: fixed 800x800 canvas, about -4.2 end to end; r50v2 blocked, section 11) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-11/5` |
+| RetinaNet | detect | r50 (supported: fixed 800x800 canvas, -2.25 end to end; r50v2 blocked, section 11) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-14/3` |
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | detect | d0, d1 (supported with measured drops; d1 at a fixed 512x512 canvas; d2-d4 not measured yet) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3` |
 | YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
@@ -322,7 +322,7 @@ table at the top of this page.
 | RTMDet-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4727 | 0.4461 | -2.66 (supported; -2.11 on 300) |
 | RTMDet-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4805 | 0.4618 | -1.87 (supported; -1.92 on 300) |
 | RTMDet-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.5128 | - | does not compile (blocked) |
-| RetinaNet-R50 (800x800 canvas) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas about -4.0) |
+| RetinaNet-R50 (800x800 canvas) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas -2.03) |
 | SSD300 (two parts) | detect | COCO val2017, 1000 images | 128 coco128 | 0.2408 | 0.2403 | -0.05 (+0.09 on 300) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
@@ -487,11 +487,11 @@ graph takes one fixed shape, so the export fits each image into an 800x800
 canvas and pads the rest; images then reach the network smaller than with
 RetinaNet's own resize. The RetinaNet-R50 row compares FP32 and INT8 on
 that same canvas (0.3318 vs 0.3296 on 1000 images, -0.22; -0.19 on 300).
-With RetinaNet's own resize (shorter side 800) the PyTorch model scores
-0.3785 on 100 images vs 0.3383 on the canvas; that gap, about 4.0, is the
-cost of the fixed canvas, separate from INT8, so RetinaNet-R50 is supported,
-not validated (the native reference on 300 and 1000 images is still to be
-measured).
+On the same 1000 images the PyTorch model with RetinaNet's own resize
+(shorter side 800) scores 0.3521; that gap, 2.03, is the cost of the fixed
+canvas, separate from INT8, so RetinaNet-R50 is supported at -2.25 end to
+end, not validated (300 images: 0.3606 with its own resize, 0.3359 FP32 and
+0.3340 INT8 on the canvas).
 
 The pose rows include everything LibreYOLO applies to pose heads: ReLU6
 output windows, equalization of the keypoint branch from calibration
