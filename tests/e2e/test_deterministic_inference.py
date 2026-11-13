@@ -131,7 +131,7 @@ def _assert_batched_detection_output_matches_sequential(family, sequential, batc
     # allows that score drift and still requires retained boxes/classes to match.
     # Boxes are in pixels: the same kernel drift moved single coordinates by up
     # to ~0.1 px on the Guggenheim sample (L4), so require sub-pixel agreement.
-    torch.testing.assert_close(sequential_boxes, batched_boxes, rtol=1e-3, atol=0.5)
+    torch.testing.assert_close(sequential_boxes, batched_boxes, rtol=0, atol=0.5)
     torch.testing.assert_close(sequential_conf, batched_conf, rtol=1e-2, atol=5e-3)
     torch.testing.assert_close(sequential_cls, batched_cls, rtol=0, atol=0)
 
