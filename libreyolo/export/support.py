@@ -4063,10 +4063,9 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1 and b2 do "
-        "not compile with SDK 1.9.0 (BLOCKED_SIZES); b3 is not measured on a "
-        "Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed 224 input"
+        "supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1, b2 and b3 "
+        "do not compile with SDK 1.9.0 (BLOCKED_SIZES). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input"
     ),
 )
 _add(
@@ -4880,6 +4879,10 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "does not compile with Axelera's SDK 1.9.0: the compiled model has "
             "two output buffers for its one output"
         ),
+        "b3": (
+            "does not compile with Axelera's SDK 1.9.0: at its native 300 px and "
+            "at 224 px the compiled model has two output buffers for its one output"
+        ),
     },
     ("deeplabv3", "semantic", "axelera"): {
         size: (
@@ -4919,9 +4922,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
-    ("efficientnetv2", "classify", "axelera"): {
-        "b3": "has not been measured on a Metis yet",
-    },
     ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("efficientdet", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("d1", "d2", "d3", "d4")

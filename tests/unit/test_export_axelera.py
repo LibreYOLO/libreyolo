@@ -1076,6 +1076,8 @@ def test_support_matrix_rows_for_axelera():
     assert alexnet.tier == "validated" and "validated sizes: b;" in alexnet.constraint
     yolo2 = get_support("yolo2", "detect", "axelera")
     assert yolo2.tier == "validated" and "validated sizes: t, b." in yolo2.constraint
+    assert "two output buffers" in BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b3"]
+    assert ("efficientnetv2", "classify", "axelera") not in UNMEASURED_SIZES
     fcn = get_support("fcn", "semantic", "axelera")
     assert fcn.tier == "validated" and "validated sizes: r50" in fcn.constraint
 
@@ -1232,6 +1234,8 @@ def test_rtmdet_x_is_blocked_with_its_compile_failure(tmp_path):
 
 def test_unmeasured_sizes_are_not_exportable_and_not_called_blocked(tmp_path):
     """A size nobody has measured on a Metis raises, but is never labelled blocked."""
+    from unittest import mock
+
     from libreyolo import LibreEfficientNetV2
     from libreyolo.export.support import BLOCKED_SIZES, UNMEASURED_SIZES
 
@@ -1239,7 +1243,20 @@ def test_unmeasured_sizes_are_not_exportable_and_not_called_blocked(tmp_path):
         assert not set(sizes) & set(BLOCKED_SIZES.get(key, {})), key
         assert all("not been measured on a Metis" in reason for reason in sizes.values()), key
     model = LibreEfficientNetV2(size="b3", nb_classes=5, device="cpu")
-    with pytest.raises(NotImplementedError, match=r"efficientnetv2-b3 classify export to axelera is not available yet: it has not been measured on a Metis yet"):
+    key = ("efficientnetv2", "classify", "axelera")
+    # The mechanism, independent of which sizes are measured today.
+    with mock.patch.dict(BLOCKED_SIZES, {key: {}}), mock.patch.dict(
+        UNMEASURED_SIZES, {key: {"b3": "has not been measured on a Metis yet"}}
+    ):
+        with pytest.raises(NotImplementedError, match=r"efficientnetv2-b3 classify export to axelera is not available yet: it has not been measured on a Metis yet"):
+            model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+
+
+def test_efficientnetv2_b3_is_blocked_with_its_compile_failure(tmp_path):
+    from libreyolo import LibreEfficientNetV2
+
+    model = LibreEfficientNetV2(size="b3", nb_classes=5, device="cpu")
+    with pytest.raises(NotImplementedError, match=r"efficientnetv2-b3 classify export to axelera is blocked: .*two output buffers"):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 
