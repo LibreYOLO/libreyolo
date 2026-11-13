@@ -38,6 +38,7 @@ CASES = {
     "alexnet": ("LibreAlexNet", dict(size='b', nb_classes=3)),
     "yolo2": ("LibreYOLO2", dict(size='b', nb_classes=3)),
     "ssd": ("LibreSSD", dict(size='300', nb_classes=3)),
+    "efficientdet_d1": ("LibreEfficientDet", dict(size='d1', nb_classes=3)),
 }
 
 SUPPORT_KEYS = {
@@ -67,13 +68,14 @@ SUPPORT_KEYS = {
     "alexnet": ('alexnet', 'classify'),
     "yolo2": ('yolo2', 'detect'),
     "ssd": ('ssd', 'detect'),
+    "efficientdet_d1": ('efficientdet', 'detect'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).
 OPTIONAL_DEPS = {"midas": "timm"}
 
 #: Families whose export needs their fixed native resolution instead of the small default.
-EXPORT_IMGSZ = {"vgg": 224, "efficientdet": 512, "alexnet": 224, "ssd": 300}
+EXPORT_IMGSZ = {"vgg": 224, "efficientdet": 512, "alexnet": 224, "ssd": 300, "efficientdet_d1": 640}
 
 #: Support tiers whose exports users can run (accuracy is a label, not a gate: "available" also exports).
 EXPORTABLE_TIERS = ("validated", "available")
