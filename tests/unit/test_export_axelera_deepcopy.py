@@ -36,6 +36,7 @@ CASES = {
     "efficientdet": ("LibreEfficientDet", dict(size='d0', nb_classes=3)),
     "realesrgan": ("LibreRealESRGAN", dict(size='x4t')),
     "alexnet": ("LibreAlexNet", dict(size='b', nb_classes=3)),
+    "yolo2": ("LibreYOLO2", dict(size='b', nb_classes=3)),
 }
 
 SUPPORT_KEYS = {
@@ -63,6 +64,7 @@ SUPPORT_KEYS = {
     "efficientdet": ('efficientdet', 'detect'),
     "realesrgan": ('realesrgan', 'restore'),
     "alexnet": ('alexnet', 'classify'),
+    "yolo2": ('yolo2', 'detect'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).
