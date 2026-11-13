@@ -37,6 +37,7 @@ CASES = {
     "realesrgan": ("LibreRealESRGAN", dict(size='x4t')),
     "alexnet": ("LibreAlexNet", dict(size='b', nb_classes=3)),
     "yolo2": ("LibreYOLO2", dict(size='b', nb_classes=3)),
+    "ssd": ("LibreSSD", dict(size='300', nb_classes=3)),
 }
 
 SUPPORT_KEYS = {
@@ -65,13 +66,14 @@ SUPPORT_KEYS = {
     "realesrgan": ('realesrgan', 'restore'),
     "alexnet": ('alexnet', 'classify'),
     "yolo2": ('yolo2', 'detect'),
+    "ssd": ('ssd', 'detect'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).
 OPTIONAL_DEPS = {"midas": "timm"}
 
 #: Families whose export needs their fixed native resolution instead of the small default.
-EXPORT_IMGSZ = {"vgg": 224, "efficientdet": 512, "alexnet": 224}
+EXPORT_IMGSZ = {"vgg": 224, "efficientdet": 512, "alexnet": 224, "ssd": 300}
 
 #: Support tiers whose exports users can run (accuracy is a label, not a gate: "available" also exports).
 EXPORTABLE_TIERS = ("validated", "available")
@@ -140,6 +142,9 @@ def test_axelera_export_leaves_the_users_model_untouched(case, tmp_path, monkeyp
 
     monkeypatch.setattr(ex.AxeleraExporter, "_preflight", fake_preflight)
     monkeypatch.setattr(ax, "export_axelera", fake_export_axelera)
+    # Multi-part exports (SSD300) compile through the chain entry point instead.
+    if hasattr(ax, "export_axelera_chain"):
+        monkeypatch.setattr(ax, "export_axelera_chain", fake_export_axelera)
     with pytest.raises(Exception) as info:
         model.export(
             format="axelera",
