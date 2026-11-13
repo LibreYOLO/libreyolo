@@ -4163,8 +4163,8 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "supported sizes: s (measured drop, SIZE_ACCURACY_NOTES); l is not "
-        "measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
+        "supported sizes: s (measured drop, SIZE_ACCURACY_NOTES); l (DPT ViT-L) "
+        "does not quantize with SDK 1.9.0 (BLOCKED_SIZES). axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (images are stretched to it)"
     ),
 )
@@ -4430,6 +4430,20 @@ _add(
         "supported sizes: d0 (measured drop, SIZE_ACCURACY_NOTES); d1-d4 are not "
         "measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
+    ),
+)
+_add(
+    "blocked",
+    ("yolo1",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "YOLOv1's head runs a [local] locally connected layer (every one of the "
+        "7x7 output positions has its own 3x3 filter bank), which exports as an "
+        "Einsum; Axelera's 1.9 quantizer does not support Einsum, so "
+        "quantization of YOLOv1-b (the only published size) stops on that "
+        "layer. Running it on Metis would need the layer rewritten as "
+        "convolutions."
     ),
 )
 _add(
@@ -4869,6 +4883,14 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
 #: format, each with its structural reason. Accuracy never lands a size here
 #: (that is SIZE_ACCURACY_NOTES); the export raises for these.
 BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("midas", "depth", "axelera"): {
+        "l": (
+            "does not quantize for Metis with the 1.9 SDK: its DPT ViT-L encoder "
+            "(48 LayerNormalization, 24 Softmax, 28 Erf and the attention MatMuls "
+            "at 384 px) stops at the quantizer's ONNX import ('unexpected input "
+            "value type'), after 6 min and an 18 GB peak; use MiDaS-s"
+        ),
+    },
     ("efficientnetv2", "classify", "axelera"): {
         "b1": (
             "does not compile with Axelera's SDK 1.9.0: at 224 and 240 px the "
@@ -4922,7 +4944,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
-    ("midas", "depth", "axelera"): {"l": "has not been measured on a Metis yet"},
     ("efficientdet", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("d1", "d2", "d3", "d4")
     },

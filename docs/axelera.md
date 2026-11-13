@@ -103,7 +103,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-11/7` |
 | Real-ESRGAN | restore | x4t (supported with a measured drop; bar 0.3 dB; x4 and x2 not measured yet) | see `docs/export_support.md` | x4t `realesrgan/restore/x4t/2026-11-12` |
-| MiDaS | depth | s (supported with a measured drop; l not measured yet) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
+| MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | semantic | mv3 (supported with a measured drop; r50 and r101 blocked: do not compile) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 blocked `deeplabv3/semantic/r50/2026-11-11/2`; r101 blocked `deeplabv3/semantic/r101/2026-11-11` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
 | YOLOv2 | detect | t, b | see `docs/export_support.md` | t `yolo2/detect/t/2026-11-13/2`; b `yolo2/detect/b/2026-11-13/2` |
@@ -610,6 +610,8 @@ Blocked for structural reasons (accuracy never blocks an export):
 - FCOS: the head normalizes every convolution with GroupNorm (per-image statistics), which the 1.9 INT8 toolchain has no form for: quantization stops on the head's 40 InstanceNormalization ops at opset 17 (on Resize at opset 18; ledger `fcos/detect/r50/2026-11-11/3`). It needs a head retrained with batch norm or no norm.
 - RetinaNet-r50v2: like FCOS, the head normalizes every convolution with GroupNorm (per-image statistics); quantization stops on the head's InstanceNormalization ops (fixed 800x800 canvas, 14.9 min, 5.1 GB peak RSS; ledger `retinanet/detect/r50v2/2026-11-12`). Use RetinaNet-r50.
 - RTMDet-Ins-x: at 640x640 lowering fails in AssignTilingFactors (ScheduleMemory, LowerTIR): no tiling factor fits L1 (3.99 MB needed, 3.32 MB available; 2 h 08 min, 8.1 GB peak RSS; ledger `rtmdet/segment/x/2026-11-12`). Use RTMDet-Ins-l.
+- MiDaS-l (DPT ViT-L, 384 px): quantization stops at the quantizer's ONNX import ("unexpected input value type") on the ViT encoder (48 LayerNormalization, 24 Softmax, 28 Erf, attention MatMuls; the same graph's 5 Resize nodes also occur in MiDaS-s, which compiles). It peaks at 18 GB of host RAM before failing. Use MiDaS-s.
+- YOLOv1: the head's [local] locally connected layer exports as an Einsum, which the 1.9 quantizer does not support (YOLOv1-b; the tiny weights are not published). It would need the layer rewritten as convolutions.
 - RTMDet-x: at 640x640 the compiler's LowerTIR pass still overflows its on-chip buffers after 4 iterations (2 h 21 min, 7 GB peak RSS; ledger `rtmdet/detect/x/2026-11-12/2`). Use RTMDet-l.
 - SSD-300: the conv4_3 L2Norm divides every pixel by its own channel norm; quantization fails there (ledger `ssd/detect/300/2026-11-11`). A fixed scale instead costs 3.4 mAP50-95 points in FP32 alone (0.2361 to 0.2022 on 300 images); the exact route is a two-model split with the norm on the host.
 - CenterNet (ResDCN-18, DLA-34): the upsampling uses modulated deformable convolutions (grid_sample at learned offsets), which the quantizer has no converter for (ledger `centernet/detect/dla34/2026-11-11`).
@@ -621,7 +623,7 @@ Blocked for structural reasons (accuracy never blocks an export):
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
-- EfficientDet-d1 to -d4, MiDaS-l.
+- EfficientDet-d1 to -d4, Real-ESRGAN-x4 and -x2.
 - YOLO9-E2E and YOLO9-P2.
 - Other families.
 

@@ -650,7 +650,7 @@ These converter paths are callable with the recorded validation context.
 - `lwdetr` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `lwdetr` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `midas` / `depth` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
-- `midas` / `depth` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole MiDaS-s graph runs on the Metis AIPU and the host resizes the relative inverse depth. Supported, not validated: the device depth agrees with FP32 at AbsRel 0.069 (delta1 0.94) on 300 COCO val2017 images at 256 px (docs/axelera.md). Constraint: supported sizes: s (measured drop, SIZE_ACCURACY_NOTES); l is not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (images are stretched to it)
+- `midas` / `depth` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole MiDaS-s graph runs on the Metis AIPU and the host resizes the relative inverse depth. Supported, not validated: the device depth agrees with FP32 at AbsRel 0.069 (delta1 0.94) on 300 COCO val2017 images at 256 px (docs/axelera.md). Constraint: supported sizes: s (measured drop, SIZE_ACCURACY_NOTES); l (DPT ViT-L) does not quantize with SDK 1.9.0 (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (images are stretched to it)
 - `midas` / `depth` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `moge2` / `normal` / `ncnn`: PNNX/NCNN 20260526 exports, reloads, and runs, but the measured two-image raw signal is only 4.5x conversion error; validation requires more than 20x.
 - `pe` / `classify` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -2603,7 +2603,7 @@ These converter paths are callable with the recorded validation context.
 - `yolo1` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo1` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo1` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo1` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `yolo1` / `detect` / `axelera`: YOLOv1's head runs a [local] locally connected layer (every one of the 7x7 output positions has its own 3x3 filter bank), which exports as an Einsum; Axelera's 1.9 quantizer does not support Einsum, so quantization of YOLOv1-b (the only published size) stops on that layer. Running it on Metis would need the layer rewritten as convolutions.
 - `yolo1` / `detect` / `tflite`: onnx2tf 2.6.7 emits an ONNX_EINSUM custom operation that LiteRT 2.1.2 cannot prepare at the native 448x448 canvas.
 - `yolo1` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo2` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.

@@ -1078,6 +1078,10 @@ def test_support_matrix_rows_for_axelera():
     assert yolo2.tier == "validated" and "validated sizes: t, b." in yolo2.constraint
     assert "two output buffers" in BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b3"]
     assert ("efficientnetv2", "classify", "axelera") not in UNMEASURED_SIZES
+    yolo1 = get_support("yolo1", "detect", "axelera")
+    assert yolo1.tier == "blocked" and "Einsum" in yolo1.reason
+    assert "ViT-L" in BLOCKED_SIZES[("midas", "depth", "axelera")]["l"]
+    assert ("midas", "depth", "axelera") not in UNMEASURED_SIZES
     fcn = get_support("fcn", "semantic", "axelera")
     assert fcn.tier == "validated" and "validated sizes: r50" in fcn.constraint
 
