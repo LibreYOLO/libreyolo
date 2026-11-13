@@ -1208,17 +1208,79 @@ def _fuse_darknet_batchnorms(net: torch.nn.Module) -> int:
     return fused_count
 
 
+class _ReorgConv(torch.nn.Module):
+    """Darknet's ``[reorg]`` as one convolution with one-hot weights.
+
+    The layer is local (each output pixel reads only its own ``stride x stride``
+    input block) but Darknet interleaves the channels with three reshapes and
+    transposes, which an accelerator would have to run as layout transforms.
+    A ``stride x stride`` convolution with stride ``stride`` and 0/1 weights,
+    read off the reference layer on a basis input, computes the same tensor
+    exactly (and its weights are exact in INT8).
+    """
+
+    def __init__(self, reorg: torch.nn.Module, channels: int):
+        super().__init__()
+        s = int(reorg.stride)
+        cells = channels * s * s
+        basis = torch.eye(cells).reshape(cells, channels, s, s)
+        with torch.no_grad():
+            picks = reorg(basis).reshape(cells, cells)  # picks[j, o] = 1 if output o reads input cell j
+        self.conv = torch.nn.Conv2d(channels, cells, s, stride=s, bias=False)
+        with torch.no_grad():
+            self.conv.weight.copy_(picks.t().reshape(cells, channels, s, s))
+        self.stride = s
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+def _reorg_layers_to_conv(net: torch.nn.Module) -> int:
+    """Replace every Darknet ``[reorg]`` layer of ``net`` by a :class:`_ReorgConv`, in place."""
+    from libreyolo.models.darknet.blocks import Reorg
+
+    targets = [i for i, layer in enumerate(net.layers) if isinstance(layer, Reorg)]
+    if not targets:
+        return 0
+    channels: dict[int, int] = {}
+    hooks = [
+        net.layers[i].register_forward_pre_hook(
+            lambda _module, inputs, i=i: channels.__setitem__(i, int(inputs[0].shape[1]))
+        )
+        for i in targets
+    ]
+    try:
+        side = 32 * max(int(net.layers[i].stride) for i in targets) * 2
+        with torch.no_grad():
+            net(torch.zeros(1, 3, side, side))
+    finally:
+        for hook in hooks:
+            hook.remove()
+    for i in targets:
+        net.layers[i] = _ReorgConv(net.layers[i], channels[i])
+    return len(targets)
+
+
 def _darknet_raw_heads_wrapper(
     holder: torch.nn.Module, task: str = "detect", output_windows=None
 ):
-    """Raw-head wrapper for a Darknet ``[yolo]`` detector (LibreYOLO3, LibreYOLO4)."""
+    """Raw-head wrapper for a Darknet ``[yolo]`` (LibreYOLO3, LibreYOLO4) or ``[region]`` (LibreYOLO2) detector.
+
+    ``[region]`` heads (YOLOv2) use layout ``darknet_region_raw_heads_v1``: the
+    same head split, anchors converted from grid cells to pixels, and a softmax
+    over the classes on the host. ``[reorg]`` passthrough layers become one-hot
+    convolutions (:class:`_ReorgConv`).
+    """
     if task != "detect":
         raise ValueError(f"Darknet raw-head export supports detect only, got {task!r}.")
     net = copy.deepcopy(holder.net).eval()
     _fuse_darknet_batchnorms(net)
+    _reorg_layers_to_conv(net)
     specs = net.detection_specs()
-    if any(spec.kind != "yolo" for spec in specs):
-        raise ValueError("Raw-head export supports Darknet [yolo] heads only.")
+    kinds = {spec.kind for spec in specs}
+    if kinds not in ({"yolo"}, {"region"}):
+        raise ValueError("Raw-head export supports Darknet [yolo] or [region] heads only.")
+    region = kinds == {"region"}
     heads = []
     for spec in specs:
         head = net.layers[spec.layer_index - 1]
@@ -1226,12 +1288,16 @@ def _darknet_raw_heads_wrapper(
             raise ValueError("Darknet detection heads end in a linear conv with bias.")
         heads.append((head.conv.weight.detach(), head.conv.bias.detach()))
         net.layers[spec.layer_index - 1] = _PassThrough()
+    anchors = [
+        [(w * spec.stride, h * spec.stride) for w, h in spec.anchors] if region else spec.anchors
+        for spec in specs
+    ]
     return _AnchorYOLORawHeadsWrapper(
         net,
         heads,
-        layout="darknet_raw_heads_v1",
+        layout="darknet_region_raw_heads_v1" if region else "darknet_raw_heads_v1",
         strides=[spec.stride for spec in specs],
-        anchors=[spec.anchors for spec in specs],
+        anchors=anchors,
         num_classes=specs[0].num_classes,
         scale_x_y=[spec.scale_x_y for spec in specs],
         output_windows=output_windows,
@@ -4288,7 +4354,7 @@ class AxeleraExporter(BaseExporter):
         elif self.model._get_model_name() == "yolo7":
             self._pose_bounds = {}
             self._raw_wrapper = _yolo7_raw_heads_wrapper(live, self._task()).eval()
-        elif self.model._get_model_name() in ("yolo3", "yolo4"):
+        elif self.model._get_model_name() in ("yolo2", "yolo3", "yolo4"):
             self._pose_bounds = {}
             self._raw_wrapper = _darknet_raw_heads_wrapper(
                 live, self._task(), output_windows=self._size_recipe().get("output_windows")

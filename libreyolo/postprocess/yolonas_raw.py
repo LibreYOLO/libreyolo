@@ -34,6 +34,7 @@ follow the levels (``RAW_LAYOUT_EXTRA_OUTPUTS``):
                                ``reg`` [B, 4A, H, W] (box deltas),
                                ``cls`` [B, A*nc, H, W]
 ``darknet_raw_heads_v1``,      per level and anchor (anchor-major):
+``darknet_region_raw_heads_v1``,
 ``yolo7_raw_heads_v1``         ``reg`` [B, 4A, H, W] (tx, ty, tw, th),
                                ``obj`` [B, A, H, W], ``cls`` [B, A*nc, H, W]
 ``rtmdet_raw_heads_v1``        ``reg`` [B, 4, H, W] (l, t, r, b distances in
@@ -74,6 +75,7 @@ YOLONAS_RAW_LAYOUTS: dict[str, tuple[str, ...]] = {
     "yolox_raw_heads_v1": ("reg", "obj", "cls"),
     "retinanet_raw_heads_v1": ("reg", "cls"),
     "darknet_raw_heads_v1": ("reg", "obj", "cls"),
+    "darknet_region_raw_heads_v1": ("reg", "obj", "cls"),
     "yolo7_raw_heads_v1": ("reg", "obj", "cls"),
     "rtmdet_raw_heads_v1": ("reg", "cls"),
     "rtmdet_ins_raw_heads_v1": ("reg", "cls", "kernel"),
@@ -615,8 +617,10 @@ def decode_anchor_yolo_raw(
     ``anchors`` holds each level's ``(w, h)`` pairs in input pixels.
     ``darknet_raw_heads_v1`` (Darknet YOLOv3/v4): centre ``(sigmoid(t) * s -
     (s - 1) / 2 + cell) * stride`` with ``s = scale_x_y`` of the level, size ``exp(t) *
-    anchor``. ``yolo7_raw_heads_v1``: centre ``(2 * sigmoid(t) - 0.5 + cell) *
-    stride``, size ``(2 * sigmoid(t)) ** 2 * anchor``.
+    anchor``. ``darknet_region_raw_heads_v1`` (Darknet YOLOv2 ``[region]``): the
+    same box decode with the anchors already in pixels, and a softmax over the
+    classes instead of a sigmoid. ``yolo7_raw_heads_v1``: centre ``(2 * sigmoid(t)
+    - 0.5 + cell) * stride``, size ``(2 * sigmoid(t)) ** 2 * anchor``.
     """
     levels = _split_levels(outputs, layout, strides)
     _check_strides(levels, strides)
@@ -633,7 +637,13 @@ def decode_anchor_yolo_raw(
         nc = level["cls"].shape[1] // count
         reg = level["reg"].reshape(batch, count, 4, h, w)
         obj = _sigmoid_(level["obj"].reshape(batch, count, h, w).astype(np.float32, copy=True))
-        cls = _sigmoid_(level["cls"].reshape(batch, count, nc, h, w).astype(np.float32, copy=True))
+        cls = level["cls"].reshape(batch, count, nc, h, w).astype(np.float32, copy=True)
+        if layout == "darknet_region_raw_heads_v1":
+            cls -= cls.max(axis=2, keepdims=True)
+            np.exp(cls, out=cls)
+            cls /= cls.sum(axis=2, keepdims=True)
+        else:
+            _sigmoid_(cls)
         col = np.arange(w, dtype=np.float32).reshape(1, 1, 1, w)
         row = np.arange(h, dtype=np.float32).reshape(1, 1, h, 1)
         anchor_w = pairs[:, 0].reshape(1, count, 1, 1)
@@ -750,6 +760,7 @@ _DECODERS = {
     "yolox_raw_heads_v1": decode_yolox_raw,
     "retinanet_raw_heads_v1": decode_retinanet_raw,
     "darknet_raw_heads_v1": _anchor_decoder("darknet_raw_heads_v1"),
+    "darknet_region_raw_heads_v1": _anchor_decoder("darknet_region_raw_heads_v1"),
     "yolo7_raw_heads_v1": _anchor_decoder("yolo7_raw_heads_v1"),
     "rtmdet_raw_heads_v1": decode_rtmdet_raw,
     "rtmdet_ins_raw_heads_v1": decode_rtmdet_ins_raw,

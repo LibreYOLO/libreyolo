@@ -1,4 +1,4 @@
-"""Darknet (YOLOv3/v4) raw-head export contract: split head convs, output windows and host decode parity."""
+"""Darknet (YOLOv2/v3/v4) raw-head export contract: split head convs, output windows and host decode parity."""
 
 from __future__ import annotations
 
@@ -19,10 +19,10 @@ _LAYOUT = "darknet_raw_heads_v1"
 
 
 def _build(size: str = "t", nb_classes: int = 5, seed: int = 0, family: str = "yolo4"):
-    from libreyolo import LibreYOLO3, LibreYOLO4
+    from libreyolo import LibreYOLO2, LibreYOLO3, LibreYOLO4
 
     torch.manual_seed(seed)
-    cls = {"yolo3": LibreYOLO3, "yolo4": LibreYOLO4}[family]
+    cls = {"yolo2": LibreYOLO2, "yolo3": LibreYOLO3, "yolo4": LibreYOLO4}[family]
     model = cls(None, size=size, nb_classes=nb_classes, device="cpu")
     holder = model.model.eval()
     generator = torch.Generator().manual_seed(seed + 1)
@@ -69,7 +69,7 @@ def test_raw_wrapper_rejects_other_tasks():
 @pytest.mark.parametrize(
     ("family", "size", "hw"),
     [("yolo4", "t", (160, 160)), ("yolo4", "t", (192, 320)), ("yolo4", "b", (128, 128)),
-     ("yolo3", "t", (160, 160))],
+     ("yolo3", "t", (160, 160)), ("yolo2", "t", (160, 160)), ("yolo2", "b", (192, 320))],
 )
 @pytest.mark.parametrize("windowed", [False, True])
 def test_host_decode_matches_in_graph_decode(family, size, hw, windowed):
@@ -83,7 +83,7 @@ def test_host_decode_matches_in_graph_decode(family, size, hw, windowed):
         raw = [t.numpy() for t in wrapper(sample)]
 
     (decoded,) = decode_raw_heads(
-        _LAYOUT,
+        wrapper.output_layout,
         raw,
         strides=wrapper.strides,
         anchors=wrapper.anchors,
@@ -92,11 +92,58 @@ def test_host_decode_matches_in_graph_decode(family, size, hw, windowed):
     )
     assert decoded.shape == expected.shape and decoded.dtype == np.float32
     if windowed:
-        restored = unwindow_raw_heads(_LAYOUT, raw, wrapper.output_windows)
+        restored = unwindow_raw_heads(wrapper.output_layout, raw, wrapper.output_windows)
         logits = [r for name, r in zip(wrapper.output_names, restored) if not name.endswith("reg")]
         assert max(float(np.abs(r).max()) for r in logits) < 8.0
     np.testing.assert_allclose(decoded[:, :4], expected[:, :4], rtol=1e-5, atol=1e-3)
     np.testing.assert_allclose(decoded[:, 4:], expected[:, 4:], atol=1e-5)
+
+
+@pytest.mark.parametrize(("size", "reorgs"), [("t", 0), ("b", 1)])
+def test_region_wrapper_output_contract(size, reorgs):
+    from libreyolo.export.exporter import _ReorgConv
+
+    _, holder = _build(size=size, family="yolo2")
+    wrapper = _darknet_raw_heads_wrapper(holder).eval()
+    (spec,) = holder.net.detection_specs()
+    assert spec.kind == "region"
+    assert wrapper.output_layout == "darknet_region_raw_heads_v1"
+    assert wrapper.strides == (32,)
+    assert wrapper.output_names == ["p5_reg", "p5_obj", "p5_cls"]
+    # [region] anchors are in grid cells; the wrapper carries them in pixels.
+    assert wrapper.anchors == [[[w * 32, h * 32] for w, h in spec.anchors]]
+    assert sum(isinstance(layer, _ReorgConv) for layer in wrapper.model.layers) == reorgs
+    with torch.no_grad():
+        outputs = wrapper(torch.rand(1, 3, 128, 160))
+    count = len(spec.anchors)
+    assert [tuple(o.shape) for o in outputs] == [(1, 4 * count, 4, 5), (1, count, 4, 5), (1, 5 * count, 4, 5)]
+
+
+@pytest.mark.parametrize("stride", [2, 3])
+def test_reorg_conv_matches_darknet_reorg_exactly(stride):
+    from libreyolo.export.exporter import _ReorgConv
+    from libreyolo.models.darknet.blocks import Reorg
+
+    reorg = Reorg(stride)
+    x = torch.randn(2, 6, 4 * stride, 5 * stride, generator=torch.Generator().manual_seed(3))
+    conv = _ReorgConv(reorg, 6)
+    with torch.no_grad():
+        expected, actual = reorg(x), conv(x)
+    assert torch.equal(actual, expected)
+    assert set(conv.conv.weight.unique().tolist()) == {0.0, 1.0}
+    assert int(conv.conv.weight.sum()) == 6 * stride * stride  # one input cell per output channel
+
+
+def test_region_classes_get_a_softmax_on_the_host():
+    _, holder = _build(size="t", family="yolo2")
+    wrapper = _darknet_raw_heads_wrapper(holder).eval()
+    with torch.no_grad():
+        raw = [t.numpy() for t in wrapper(torch.rand(1, 3, 96, 96))]
+    raw[1] = np.full_like(raw[1], 50.0)  # objectness ~1: the scores are the class distribution
+    (decoded,) = decode_raw_heads(
+        wrapper.output_layout, raw, strides=wrapper.strides, anchors=wrapper.anchors
+    )
+    np.testing.assert_allclose(decoded[0, 4:].sum(axis=0), 1.0, atol=1e-5)
 
 
 def test_decode_needs_anchors_per_level():
