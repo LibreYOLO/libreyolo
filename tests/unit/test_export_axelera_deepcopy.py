@@ -40,6 +40,7 @@ CASES = {
     "ssd": ("LibreSSD", dict(size='300', nb_classes=3)),
     "deeplabv3_r50": ("LibreDeepLabv3", dict(size='r50', nb_classes=3)),
     "efficientdet_d1": ("LibreEfficientDet", dict(size='d1', nb_classes=3)),
+    "yolo9_e2e": ("LibreYOLO9E2E", dict(size='t', nb_classes=3)),
 }
 
 SUPPORT_KEYS = {
@@ -71,6 +72,7 @@ SUPPORT_KEYS = {
     "ssd": ('ssd', 'detect'),
     "deeplabv3_r50": ('deeplabv3', 'semantic'),
     "efficientdet_d1": ('efficientdet', 'detect'),
+    "yolo9_e2e": ('yolo9_e2e', 'detect'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).
