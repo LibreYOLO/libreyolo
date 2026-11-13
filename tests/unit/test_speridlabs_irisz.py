@@ -125,6 +125,9 @@ def _write_snapshot(root, variant="small", base_model="flux.2-klein-base-9b", pa
 @pytest.fixture
 def tiny_runtime(monkeypatch):
     """Shrink every network the loader builds and count text encoder loads."""
+    # The loader needs the gen extra (diffusers for the FLUX.2 VAE).
+    pytest.importorskip("diffusers")
+    pytest.importorskip("transformers")
     monkeypatch.setattr(irisz_nn, "Klein9BParams", TinyParams)
     monkeypatch.setattr(irisz_nn, "Flux2Params", TinyGuidedParams)
     monkeypatch.setattr(LibreSperidlabsIrisZ, "_load_vae", staticmethod(lambda: _tiny_vae().float()))
@@ -295,6 +298,7 @@ def test_text_layers_stack_layer_major_per_token():
 
 
 def test_vae_round_trip_shapes_and_normalization():
+    pytest.importorskip("diffusers")
     latents = irisz_pipeline.Flux2Latents(_tiny_vae())
     pixels = torch.rand(1, 3, 64, 48) * 2 - 1
     latent = latents.encode(pixels)
