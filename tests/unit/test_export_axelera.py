@@ -1706,3 +1706,15 @@ def test_structurally_blocked_axelera_families_name_the_reason(family, task, key
 
     entry = get_support(family, task, "axelera")
     assert entry.tier == "blocked" and keyword in entry.reason
+
+
+@pytest.mark.parametrize("family", ["pidnet", "unet"])
+def test_long_compiles_are_not_available_yet(family):
+    from libreyolo.export.support import get_support
+
+    entry = get_support(family, "semantic", "axelera")
+    assert entry.tier == "blocked"
+    assert (
+        entry.reason.startswith("Not available yet")
+        and "did not finish" in entry.reason
+    )

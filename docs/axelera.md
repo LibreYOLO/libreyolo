@@ -625,6 +625,8 @@ Not measured on a Metis yet (nothing is known to fail; the export raises until a
 
 - EfficientDet-d1 to -d4, Real-ESRGAN-x4 and -x2.
 - YOLO9-E2E and YOLO9-P2.
+- PIDNet-s: the compile did not finish within 90 minutes at 1024x1024 or 512x512 (ledgers `pidnet/semantic/s/2026-11-12`, `pidnet/semantic/s/2026-11-13`).
+- UNet-s: the compile at 512x1024 did not finish within 3 hours (ledger `unet/semantic/s/2026-11-13`); UNet also has no ONNX semantic export contract yet. At 1024x2048 lowering finds no L1 tiling.
 - Other families.
 
 Other known limits:

@@ -4594,6 +4594,33 @@ _add(
 )
 _add(
     "blocked",
+    ("pidnet",),
+    ("semantic",),
+    ("axelera",),
+    reason=(
+        "Not available yet: the SDK 1.9 compile of PIDNet-s did not finish "
+        "within 90 minutes at 1024x1024 or at 512x512 (both stopped in the "
+        "compiler's first lowering step, midend_to_tir); no structural error "
+        "was seen. Its spatial attention needs exact graph rewrites "
+        "(channel reductions as 1x1 convolutions, broadcast gating), which "
+        "quantize."
+    ),
+)
+_add(
+    "blocked",
+    ("unet",),
+    ("semantic",),
+    ("axelera",),
+    reason=(
+        "Not available yet: UNet has no ONNX semantic export contract in "
+        "LibreYOLO yet, and the SDK 1.9 compile of UNet-s at its 512x1024 crop "
+        "did not finish within 3 hours (quantization takes about 20 minutes); "
+        "no structural error was seen there. At the full 1024x2048 frame "
+        "lowering finds no L1 tiling (4.7 MB needed, 4.1 MB available)."
+    ),
+)
+_add(
+    "blocked",
     ("rfdetr",),
     ("detect",),
     ("axelera",),
