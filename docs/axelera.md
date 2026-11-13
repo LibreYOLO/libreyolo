@@ -29,6 +29,10 @@ a separate size:
 | YOLO9 | s | detect | COCO val2017, 1000 | 0.4502 | 0.4450 | -0.52 | validated | `yolo9/detect/s/2026-11-10/2` |
 | YOLO9 | m | detect | COCO val2017, 1000 | 0.4913 | 0.4896 | -0.17 | validated | `yolo9/detect/m/2026-11-10/2` |
 | YOLO9 | c | detect | COCO val2017, 1000 | 0.5127 | 0.5093 | -0.34 | validated | `yolo9/detect/c/2026-11-10/2` |
+| YOLO9-E2E | t | detect | COCO val2017, 1000 | 0.3329 | 0.3255 | -0.74 | validated | `yolo9_e2e/detect/t/2026-11-13` |
+| YOLO9-E2E | s | detect | COCO val2017, 1000 | 0.4154 | 0.4104 | -0.50 | validated | `yolo9_e2e/detect/s/2026-11-13` |
+| YOLO9-E2E | m | detect | COCO val2017, 1000 | 0.4695 | 0.4649 | -0.46 | validated | `yolo9_e2e/detect/m/2026-11-13` |
+| YOLO9-E2E | c | detect | COCO val2017, 1000 | 0.4900 | 0.4851 | -0.49 | validated | `yolo9_e2e/detect/c/2026-11-13` |
 | YOLOX | n | detect | COCO val2017, 300 | 0.2609 | 0.2428 | -1.81 | supported | `yolox/detect/n/2026-11-11/7` |
 | YOLOX | t | detect | COCO val2017, 1000 | 0.3238 | 0.3202 | -0.36 | validated | `yolox/detect/t/2026-11-11/2` |
 | YOLOX | s | detect | COCO val2017, 1000 | 0.3981 | 0.3933 | -0.48 | validated | `yolox/detect/s/2026-11-11/2` |
@@ -103,6 +107,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLO-NAS | pose | n, s, m, l (n and s supported with a measured drop) | see `docs/export_support.md` | n `yolonas/pose/n/2026-11-11`; s `yolonas/pose/s/2026-11-10/16`; m `yolonas/pose/m/2026-11-11/2`; l `yolonas/pose/l/2026-11-10/2` |
 | YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) | s `yolonas/obb/s/2026-11-10/2`; m `yolonas/obb/m/2026-11-10`; l `yolonas/obb/l/2026-11-10` |
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` | t `yolo9/detect/t/2026-11-10/7`; s `yolo9/detect/s/2026-11-10/2`; m `yolo9/detect/m/2026-11-10/2`; c `yolo9/detect/c/2026-11-10/2` |
+| YOLO9-E2E | detect | t, s, m, c | see `docs/export_support.md` | t `yolo9_e2e/detect/t/2026-11-13`; s `yolo9_e2e/detect/s/2026-11-13`; m `yolo9_e2e/detect/m/2026-11-13`; c `yolo9_e2e/detect/c/2026-11-13` |
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` | 18 `resnet/classify/18/2026-11-10/2`; 34 `resnet/classify/34/2026-11-10`; 50 `resnet/classify/50/2026-11-10`; 101 `resnet/classify/101/2026-11-10` |
 | MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` | s `mobilenetv4/classify/s/2026-11-11/3`; m `mobilenetv4/classify/m/2026-11-11/2`; l `mobilenetv4/classify/l/2026-11-10` |
 | EfficientNetV2 | classify | b0 (supported with a measured drop; b1, b2 and b3 blocked: do not compile) | see `docs/export_support.md` | b0 `efficientnetv2/classify/b0/2026-11-11/5`; b1 blocked `efficientnetv2/classify/b1/2026-11-11/3`; b2 blocked `efficientnetv2/classify/b2/2026-11-11`; b3 blocked `efficientnetv2/classify/b3/2026-11-13/2` |
@@ -125,7 +130,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | RetinaNet | detect | r50 (supported: 1024x1024 canvas by default, -1.11 end to end; imgsz=800 is about 1.64x less compute at -2.25; r50v2 blocked, section 11) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-14/4` |
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 blocked: does not compile; d4 not measured yet) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 blocked `efficientdet/detect/d3/2026-11-14` |
-| YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
+| YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
 | RF-DETR and other transformer families | all | all | out of scope (section 11) | - |
 
 The tiers in `docs/export_support.md` are generated from
@@ -302,6 +307,10 @@ table at the top of this page.
 | YOLO9-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4502 | 0.4450 | -0.52 |
 | YOLO9-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4913 | 0.4896 | -0.17 |
 | YOLO9-c | detect | COCO val2017, 1000 images | 64 coco128 | 0.5127 | 0.5093 | -0.34 |
+| YOLO9-E2E-t | detect | COCO val2017, 1000 images | 128 coco128 | 0.3329 | 0.3255 | -0.74 |
+| YOLO9-E2E-s | detect | COCO val2017, 1000 images | 128 coco128 | 0.4154 | 0.4104 | -0.50 |
+| YOLO9-E2E-m | detect | COCO val2017, 1000 images | 128 coco128 | 0.4695 | 0.4649 | -0.46 |
+| YOLO9-E2E-c | detect | COCO val2017, 1000 images | 128 coco128 | 0.4900 | 0.4851 | -0.49 |
 | YOLOX-n | detect | COCO val2017, 300 images | 64 coco128 | 0.2609 | 0.2428 | -1.81 (supported; -1.66 with 128 calibration images) |
 | YOLOX-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.3238 | 0.3202 | -0.36 |
 | YOLOX-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.3981 | 0.3933 | -0.48 |
@@ -413,6 +422,11 @@ before relying on it, or use R50 or MobileNetV3.
 
 Values are mAP50-95 (box, rotated box for obb, keypoint OKS for pose). On
 mAP50 the obb deltas are -1.36 (s), -0.11 (m) and -0.43 (l).
+
+YOLO9-E2E is cut at its one-to-one head (the branch its NMS-free inference
+decodes); the host rebuilds the same candidates as its ONNX export and
+keeps the top-scoring ones without NMS. The FP32 column is the plain ONNX
+export on the same images.
 
 YOLOX compiles with the default settings: its box, objectness and class
 outputs stay within a few INT8 steps of their useful range on every size,
@@ -696,7 +710,7 @@ Not measured on a Metis yet (nothing is known to fail; the export raises until a
 
 - EfficientDet-d4.
 - Real-ESRGAN-x4 and -x2 (their compiles did not finish within 4 h and 3.5 h; no error seen; ledger `realesrgan/restore/x4/2026-11-13`, `realesrgan/restore/x2/2026-11-13`).
-- YOLO9-E2E and YOLO9-P2.
+- YOLO9-P2 (its only published checkpoint is a non-commercial VisDrone preview).
 - PIDNet-s: the compile did not finish within 90 minutes at 1024x1024 or 512x512 (ledgers `pidnet/semantic/s/2026-11-12`, `pidnet/semantic/s/2026-11-13`).
 - DEKR-w32 (pose, 640x640): the whole-graph compile (raw heatmap logits and offsets) did not finish within 3 hours; no error seen, 4.6 GB peak RSS (ledger `dekr/pose/w32/2026-11-14`). DEKR also has no Axelera export contract yet.
 - UNet-s: the compile at 512x1024 did not finish within 3 hours (ledger `unet/semantic/s/2026-11-13`); UNet also has no ONNX semantic export contract yet. At 1024x2048 lowering finds no L1 tiling.

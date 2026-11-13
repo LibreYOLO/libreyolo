@@ -4520,6 +4520,26 @@ _add(
     ),
 )
 _add(
+    "validated",
+    ("yolo9_e2e",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the graph is cut after "
+        "the one-to-one head convolutions (the branch YOLO9-E2E's NMS-free "
+        "inference decodes), with the YOLO9 output windows and class-tower "
+        "bound, and LibreYOLO decodes on the host. YOLO9-E2E-t, -s, -m and -c "
+        "on a Metis M.2 Max are within 0.8 mAP50-95 of FP32 on a paired "
+        "1000-image COCO val2017 subset (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: t, s, m, c (on-device results in docs/axelera.md). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed input size"
+    ),
+)
+_add(
     "blocked",
     ("centernet",),
     ("detect",),
@@ -5049,6 +5069,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("yolonas", "pose"),
             ("yolonas", "obb"),
             ("yolo9", "detect"),
+            ("yolo9_e2e", "detect"),
             ("resnet", "classify"),
             ("mobilenetv4", "classify"),
             ("efficientnetv2", "classify"),

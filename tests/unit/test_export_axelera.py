@@ -1064,8 +1064,7 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("yolonas", "pose", "axelera")]) == ["n", "s"]
     assert get_support("yolo9", "detect", "axelera").tier in {"available", "validated"}
     assert precision_support("yolo9", "detect", "axelera") == (True, True)
-    for family in ("yolo9_e2e", "yolo9_p2"):
-        assert get_support(family, "detect", "axelera").tier == "blocked"
+    assert get_support("yolo9_p2", "detect", "axelera").tier == "blocked"
     rfdetr = get_support("rfdetr", "detect", "axelera")
     assert rfdetr.tier == "blocked" and "attention" in rfdetr.reason
     yolox = get_support("yolox", "detect", "axelera")
@@ -1897,3 +1896,12 @@ def test_efficientdet_canvas_recipe_exports_the_smaller_canvas(
     assert exporter_sdk.seen["onnx_input"][-2:] == [256, 256]
     assert model.input_size == 512 and model.model.image_size == 512
     assert tuple(model._last_export_imgsz) == (256, 256)
+
+
+def test_yolo9_e2e_axelera_is_validated():
+    from libreyolo.export.support import get_support, precision_support
+
+    entry = get_support("yolo9_e2e", "detect", "axelera")
+    assert entry.tier == "validated"
+    assert "validated sizes: t, s, m, c" in entry.constraint
+    assert precision_support("yolo9_e2e", "detect", "axelera") == (True, True)

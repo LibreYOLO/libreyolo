@@ -197,7 +197,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | yolo4 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo7 | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo9 | detect | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ |
-| yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available |  | ✓ | ✓ |  | ✓ |
+| yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ |
 | yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  | available |  |  | ✓ |
 | yolonas | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ |
 | yolonas | pose | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  | ✓ | ✓ |  |  |  |
@@ -540,6 +540,7 @@ A check mark applies only under any constraint listed here.
 - `yolo9_e2e` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
 - `yolo9_e2e` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolo9_e2e` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
+- `yolo9_e2e` / `detect` / `axelera`: validated sizes: t, s, m, c (on-device results in docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolo9_e2e` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with permissively licensed trained checkpoints; two-input raw parity, factory reload, metadata, and public predict parity
 - `yolo9_e2e` / `detect` / `tflite`: onnx2tf 2.6.9 or newer, LiteRT 2.1.2, fixed 128x128 export canvas
 - `yolo9_e2e` / `detect` / `coreai`: fixed export canvas; a representative published trained checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; RT-DETRv2 permits one shared whole-query permutation across its box and logit outputs because DETR query rows are an unordered set
@@ -2662,7 +2663,6 @@ rest on the host CPU; each entry names the split.
 - `yolo7` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo7` / `detect` / `tflite`: The converted LiteRT graph changes decoded box coordinates beyond the detector parity tolerance.
 - `yolo7` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
-- `yolo9_e2e` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `yolo9_e2e` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo9_p2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo9_p2` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
