@@ -4731,6 +4731,7 @@ class AxeleraExporter(BaseExporter):
                     "scale": list(self._raw_wrapper.l2norm_scale),
                 },
                 verify=bool(verify),
+                verify_samples=self._verify_samples(dummy.shape[-2:]) if verify else None,
             )
         logger.info("Step 2/2: Quantizing and compiling for Axelera Metis")
         return export_axelera(

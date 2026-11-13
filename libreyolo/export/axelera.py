@@ -1638,104 +1638,274 @@ def export_axelera(
     return str(destination)
 
 
-def export_axelera_chain(
+class OnnxReference:
+    """An FP32 ONNX graph run by ONNX Runtime, called like a torch reference.
+
+    Multi-part exports cut from one ONNX graph use it to calibrate and name
+    each part: called with one torch tensor, it returns the graph's outputs as
+    torch tensors, in the order of ``output_names``.
+    """
+
+    def __init__(self, onnx_path: str | Path):
+        import onnxruntime
+
+        self.path = str(onnx_path)
+        self.session = onnxruntime.InferenceSession(self.path, providers=["CPUExecutionProvider"])
+        self.input_names = [i.name for i in self.session.get_inputs()]
+        self.output_names = [o.name for o in self.session.get_outputs()]
+
+    def run(self, feeds: Mapping[str, Any]) -> list:
+        return self.session.run(self.output_names, dict(feeds))
+
+    def __call__(self, tensor):
+        import numpy as np
+        import torch
+
+        array = np.ascontiguousarray(tensor.detach().cpu().numpy(), dtype=np.float32)
+        return tuple(torch.from_numpy(out) for out in self.run({self.input_names[0]: array}))
+
+
+def _part_names(spec: Mapping[str, Any], single: str, plural: str) -> list[str]:
+    if plural in spec:
+        return [str(name) for name in spec[plural]]
+    return [str(spec[single])]
+
+
+def _host_value(value):
+    """A host-operation parameter as YAML: lists of numbers as floats, of names as strings."""
+    if isinstance(value, (list, tuple)):
+        if all(isinstance(v, str) for v in value):
+            return [str(v) for v in value]
+        return [float(v) for v in value]
+    return _plain(value)
+
+
+def _run_fp32_chain(parts: list[Mapping[str, Any]], sample, host_ops, host_arrays, onnx_refs, keep):
+    """Run one image through the FP32 chain; ``keep(part_index, array)`` gets each compiled part's input."""
+    import numpy as np
+    import torch
+
+    env: dict[str, Any] = {"images": np.ascontiguousarray(sample, dtype=np.float32)}
+    for index, spec in enumerate(parts):
+        if "compile" in spec:
+            source = env[spec["input"]]
+            keep(index, source)
+            reference = spec["reference"]
+            with torch.no_grad():
+                outputs = reference(torch.from_numpy(np.ascontiguousarray(source, dtype=np.float32)))
+            if isinstance(outputs, torch.Tensor):
+                outputs = (outputs,)
+            env.update(
+                zip(reference.output_names, (o.detach().cpu().numpy() for o in outputs))
+            )
+        elif "host" in spec:
+            names = _part_names(spec, "output", "outputs")
+            params = {
+                key: host_arrays[value[5:]] if isinstance(value, str) and value.startswith("@npz:") else value
+                for key, value in spec.items()
+                if key not in ("host", "input", "output", "inputs", "outputs")
+            }
+            result = host_ops[spec["host"]](
+                *(env[name] for name in _part_names(spec, "input", "inputs")), **params
+            )
+            env.update(zip(names, result if len(names) > 1 else (result,)))
+        else:
+            reference = onnx_refs[index]
+            feeds = {name: np.ascontiguousarray(env[name]) for name in spec["inputs"]}
+            env.update(zip(reference.output_names, reference.run(feeds)))
+    return env
+
+
+def export_axelera_parts(
     *,
-    onnx_paths: list[str],
+    parts: list[Mapping[str, Any]],
     output_path: str,
     stem: str,
     metadata: Mapping[str, Any],
     calibration: Iterable,
     calibration_info: Mapping[str, Any],
-    references: list,
-    host_step: Mapping[str, Any],
     compiler_overrides: Mapping[str, Any] | None = None,
     devkit_version: str | None = None,
     quantization_scheme: str = DEFAULT_QUANTIZATION_SCHEME,
     resources_used: float = DEFAULT_RESOURCES_USED,
     verify: bool = False,
+    verify_samples: Iterable | None = None,
+    host_arrays: Mapping[str, Any] | None = None,
+    item_limit: int = 8,
 ) -> str:
-    """Compile a two-part export and publish ``<stem>.axm`` + ``<stem>_part2.axm`` + sidecars.
+    """Compile a multi-part export and publish its ``.axm`` parts, host graphs and sidecars.
 
-    Part 1 (``onnx_paths[0]``) takes the images and is calibrated on them.
-    ``host_step`` names a host operation from the Axelera backend's
-    ``HOST_OPS`` that turns one part-1 output into part 2's input; part 2 is
-    calibrated on that operation applied to the FP32 part-1 outputs of the
-    same calibration images. ``references`` are the two FP32 graphs (with
-    ``output_names``), used to name each part's outputs in device order.
-    Metadata gains ``parts``: part 1, the host step, part 2.
+    ``parts`` lists the steps in run order, each one of:
+
+    * ``{"compile": onnx_path, "reference": model, "input": name}``: a part
+      compiled for the Metis AIPU. ``reference`` is the FP32 graph (a torch
+      module or :class:`OnnxReference` with ``output_names``); the first part
+      reads ``"images"``. ``"per_item": True`` makes the part take a stack of
+      items (one at a time on the device); ``"graph_passes"`` lists graph
+      passes for it, and ``"merge_pad"`` (default: first part only) merges
+      Pad into MaxPool.
+    * ``{"host": name, "input"/"inputs": ..., "output"/"outputs": ..., **params}``:
+      a numpy operation from the backend's ``HOST_OPS``. A parameter
+      ``"@npz:<key>"`` is ``host_arrays[<key>]``, saved next to the parts.
+    * ``{"host_onnx": onnx_path, "inputs": [...], "outputs": [...]}``: an FP32
+      ONNX graph the backend runs on the host CPU with ONNX Runtime.
+
+    Every compiled part is calibrated on what it will see: the calibration
+    images run through the FP32 chain (compiled parts as their references,
+    host steps as the backend runs them), and each part takes its own input.
+    Per-item parts take up to ``item_limit`` items per image. ``verify``
+    compares each compiled part's quantized model with its FP32 reference on
+    held-out images (``verify_samples``) carried through the FP32 chain the
+    same way, plus the device when one is present.
+    Metadata gains ``parts`` (and ``host_arrays`` when parameters use them);
+    the first compiled part is ``<stem>.axm`` and the k-th ``<stem>_part<k>.axm``.
     """
+    import json
+
     import numpy as np
-    import torch
 
     from ..backends.axelera import HOST_OPS
 
     check_compile_platform()
-    if verify:
-        logger.warning(
-            "verify is not available for multi-part Axelera exports yet; run val on the device."
-        )
-    operation = HOST_OPS[host_step["host"]]
-    params = {k: v for k, v in host_step.items() if k not in ("host", "input", "output")}
-    head_ref, tail_ref = references
-    source_index = list(head_ref.output_names).index(host_step["input"])
+    if not parts or "compile" not in parts[0] or parts[0].get("input") != "images":
+        raise ValueError("The first part of a multi-part Axelera export must be compiled and read the images.")
+    host_arrays = dict(host_arrays or {})
+    compiled = [i for i, spec in enumerate(parts) if "compile" in spec]
+    stems = {index: stem if k == 0 else f"{stem}_part{k + 1}" for k, index in enumerate(compiled)}
+    onnx_refs = {i: OnnxReference(spec["host_onnx"]) for i, spec in enumerate(parts) if "host_onnx" in spec}
+
+    def propagate(images, limit):
+        inputs: dict[int, list] = {i: [] for i in compiled}
+
+        def keep(index, array):
+            if parts[index].get("per_item"):
+                inputs[index].extend(array[i : i + 1] for i in range(min(len(array), limit)))
+            else:
+                inputs[index].append(array)
+
+        for image in images:
+            _run_fp32_chain(parts, image, HOST_OPS, host_arrays, onnx_refs, keep)
+        return inputs
+
     samples = list(calibration)
     if len(samples) < 2:
         raise ValueError("A multi-part Axelera export needs at least 2 calibration images.")
+    part_samples = propagate(samples, item_limit)
+    for index in compiled:
+        if len(part_samples[index]) < 2:
+            raise ValueError(
+                f"Part {index} of the multi-part export got {len(part_samples[index])} "
+                "calibration inputs from the calibration images; it needs at least 2."
+            )
+    part_verify = propagate(list(verify_samples or []), item_limit) if verify else {}
+    if verify and not any(part_verify.values()):
+        logger.warning("Axelera verify: no held-out images for the multi-part export; run val on the device.")
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{destination.name}.staging.", dir=destination.parent)
     )
-    stems = [stem, f"{stem}_part2"]
     try:
         with tempfile.TemporaryDirectory(prefix="libreyolo-axelera-") as work:
             work_dir = Path(work)
-            output_names: list[list[str]] = [[], []]
-            overrides: Mapping[str, Any] = {}
+            output_names: dict[int, list[str]] = {}
+            collected: dict[int, list] = {}
             configs = []
-            tail_samples: list = []
-            for part, (onnx_path, part_stem, reference) in enumerate(
-                zip(onnx_paths, stems, (head_ref, tail_ref))
-            ):
-                part_dir = work_dir / f"part{part + 1}"
+            overrides: Mapping[str, Any] = {}
+            reports = []
+            for k, index in enumerate(compiled):
+                spec = parts[index]
+                part_dir = work_dir / f"part{k + 1}"
                 part_dir.mkdir()
-                config, overrides = build_compiler_config(
-                    part_stem,
+                config, part_overrides = build_compiler_config(
+                    stems[index],
                     build_dir=part_dir / "build",
                     quantization_scheme=quantization_scheme,
                     resources_used=resources_used,
                     overrides=compiler_overrides,
                 )
+                if k == 0:
+                    overrides = part_overrides
                 configs.append(config)
-                part_samples = samples if part == 0 else tail_samples
+                reference = spec["reference"]
 
-                def before_compile(quantized, part=part, reference=reference, part_samples=part_samples):
-                    output_names[part] = device_output_order(quantized, reference, part_samples[0])
+                def before_compile(quantized, index=index, reference=reference):
+                    output_names[index] = device_output_order(quantized, reference, part_samples[index][0])
+                    if part_verify.get(index):
+                        collected[index] = collect_quantized_outputs(quantized, reference, part_verify[index])
 
-                model_input = merge_pad_into_maxpool(onnx_path, part_dir) if part == 0 else onnx_path
+                model_input = str(spec["compile"])
+                if spec.get("merge_pad", k == 0):
+                    model_input = merge_pad_into_maxpool(model_input, part_dir)
+                passes = list(spec.get("graph_passes") or ())
+                if passes:
+                    model_input = apply_graph_passes(
+                        model_input, part_dir, passes, samples=part_samples[index][:16]
+                    )
                 axm, _ = compile_to_axm(
-                    model_input, part_samples, config, part_dir, before_compile=before_compile
+                    model_input, part_samples[index], config, part_dir, before_compile=before_compile
                 )
-                shutil.copy2(axm, staging / f"{part_stem}.axm")
-                suffix = "" if part == 0 else ".part2"
+                shutil.copy2(axm, staging / f"{stems[index]}.axm")
+                suffix = "" if k == 0 else f".part{k + 1}"
                 (staging / f"compiler_config_final{suffix}.toml").write_text(
                     _final_config_toml(config, part_dir / "build"), encoding="utf-8"
                 )
-                if part == 0:
-                    with torch.no_grad():
-                        for sample in samples:
-                            image = torch.as_tensor(np.asarray(sample, dtype=np.float32))
-                            features = head_ref(image)[source_index].numpy()
-                            tail_samples.append(operation(features, **params))
+                if index in collected:
+                    device = _device_runner(
+                        staging / f"{stems[index]}.axm", output_names[index], list(reference.output_names)
+                    )
+                    report = parity_report(collected[index], list(reference.output_names), device=device)
+                    reports.append({"axm": f"{stems[index]}.axm", **report})
+        meta_parts = []
+        host_graphs = 0
+        for index, spec in enumerate(parts):
+            if "compile" in spec:
+                entry = {"axm": f"{stems[index]}.axm", "input": spec["input"], "outputs": output_names[index]}
+                if spec.get("per_item"):
+                    entry["per_item"] = True
+                    entry["item_shapes"] = {
+                        name: [int(d) for d in np.asarray(out).shape[1:]]
+                        for name, out in zip(
+                            spec["reference"].output_names,
+                            _reference_outputs(spec["reference"], part_samples[index][0]),
+                        )
+                        if name in output_names[index]
+                    }
+                meta_parts.append(entry)
+            elif "host" in spec:
+                meta_parts.append({key: _host_value(value) for key, value in spec.items()})
+            else:
+                host_graphs += 1
+                name = f"{stem}_host{host_graphs}.onnx"
+                shutil.copy2(spec["host_onnx"], staging / name)
+                meta_parts.append(
+                    {"onnx": name, "inputs": list(spec["inputs"]), "outputs": list(spec["outputs"])}
+                )
+        if reports:
+            (staging / f"{stem}.parity.json").write_text(
+                json.dumps({"parts": reports}, indent=2) + "\n", encoding="utf-8"
+            )
+            worst = min(
+                (o["min_cosine"] for r in reports for o in r["quantized_vs_fp32"]), default=float("nan")
+            )
+            logger.info(
+                "Axelera verify (%d compiled parts, each on its FP32 input): lowest per-output "
+                "cosine %.4f (quantized vs FP32); report %s.parity.json.",
+                len(reports), worst, stem,
+            )
+            if worst < 0.99:
+                logger.warning(
+                    "Axelera verify: quantized outputs drift from FP32 (cosine %.4f). "
+                    "Check calibration data and run val on the device.",
+                    worst,
+                )
         scheme = getattr(configs[0], "quantization_scheme", quantization_scheme)
         meta = dict(metadata)
-        meta["axm"] = f"{stems[0]}.axm"
-        meta["parts"] = [
-            {"axm": f"{stems[0]}.axm", "input": "images", "outputs": output_names[0]},
-            {key: _plain(value) if not isinstance(value, list) else [float(v) for v in value]
-             for key, value in host_step.items()},
-            {"axm": f"{stems[1]}.axm", "input": host_step["output"], "outputs": output_names[1]},
-        ]
+        meta["axm"] = f"{stem}.axm"
+        meta["parts"] = meta_parts
+        if host_arrays:
+            np.savez(staging / f"{stem}_host.npz", **{k: np.asarray(v) for k, v in host_arrays.items()})
+            meta["host_arrays"] = f"{stem}_host.npz"
         meta["axelera"] = {
             "target": "metis",
             "devkit_version": devkit_version,
@@ -1751,6 +1921,61 @@ def export_axelera_chain(
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
     return str(destination)
+
+
+def _reference_outputs(reference, sample) -> list:
+    import numpy as np
+    import torch
+
+    with torch.no_grad():
+        outputs = reference(torch.from_numpy(np.ascontiguousarray(sample, dtype=np.float32)))
+    if isinstance(outputs, torch.Tensor):
+        outputs = (outputs,)
+    return [o.detach().cpu().numpy() for o in outputs]
+
+
+def export_axelera_chain(
+    *,
+    onnx_paths: list[str],
+    output_path: str,
+    stem: str,
+    metadata: Mapping[str, Any],
+    calibration: Iterable,
+    calibration_info: Mapping[str, Any],
+    references: list,
+    host_step: Mapping[str, Any],
+    compiler_overrides: Mapping[str, Any] | None = None,
+    devkit_version: str | None = None,
+    quantization_scheme: str = DEFAULT_QUANTIZATION_SCHEME,
+    resources_used: float = DEFAULT_RESOURCES_USED,
+    verify: bool = False,
+    verify_samples: Iterable | None = None,
+) -> str:
+    """Two compiled parts with one host operation between them (SSD300's form).
+
+    A thin form of :func:`export_axelera_parts`: part 1 (``onnx_paths[0]``)
+    takes the images, ``host_step`` turns one part-1 output into part 2's
+    input. The metadata it writes is the two-part form SSD300 has always had.
+    """
+    head_ref, tail_ref = references
+    return export_axelera_parts(
+        parts=[
+            {"compile": onnx_paths[0], "reference": head_ref, "input": "images"},
+            dict(host_step),
+            {"compile": onnx_paths[1], "reference": tail_ref, "input": host_step["output"], "merge_pad": False},
+        ],
+        output_path=output_path,
+        stem=stem,
+        metadata=metadata,
+        calibration=calibration,
+        calibration_info=calibration_info,
+        compiler_overrides=compiler_overrides,
+        devkit_version=devkit_version,
+        quantization_scheme=quantization_scheme,
+        resources_used=resources_used,
+        verify=verify,
+        verify_samples=verify_samples,
+    )
 
 
 def _plain(value):
@@ -1811,7 +2036,10 @@ __all__ = [
     "compile_to_axm",
     "default_quantization_scheme",
     "device_output_order",
+    "OnnxReference",
     "export_axelera",
+    "export_axelera_chain",
+    "export_axelera_parts",
     "normalize_compiler_overrides",
     "parity_report",
     "publish_directory",

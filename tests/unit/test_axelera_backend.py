@@ -874,3 +874,284 @@ def test_single_axm_artifacts_take_the_one_model_path(exports, tmp_path):
     (copy_dir / "extra.axm").write_bytes(b"axm")
     with pytest.raises(ValueError, match="more than one .axm"):
         resolve_axelera_artifact(copy_dir)
+
+
+# --- Multi-part exports, general form (parts v2) ------------------------------
+
+
+def test_ssd_metadata_keeps_the_legacy_two_part_form(ssd_export, tmp_path):
+    """The generic exporter writes SSD300's ``parts`` byte for byte as the two-part exporter did."""
+    from libreyolo.export.axelera import _write_yaml
+
+    _, artifact = ssd_export
+    text = (artifact / "metadata.yaml").read_text(encoding="utf-8")
+    meta = yaml.safe_load(text)
+    first, host, second = meta["parts"]
+    assert list(first) == ["axm", "input", "outputs"] and list(second) == ["axm", "input", "outputs"]
+    assert list(host) == ["host", "input", "output", "scale"]
+    assert "host_arrays" not in meta
+    legacy = dict(meta)
+    legacy["parts"] = [
+        {"axm": "ssd.axm", "input": "images", "outputs": list(first["outputs"])},
+        {"host": "l2norm", "input": "conv4_3", "output": "conv4_3_norm", "scale": [float(v) for v in host["scale"]]},
+        {"axm": "ssd_part2.axm", "input": "conv4_3_norm", "outputs": list(second["outputs"])},
+    ]
+    _write_yaml(tmp_path / "legacy.yaml", legacy)
+    assert (tmp_path / "legacy.yaml").read_text(encoding="utf-8") == text
+
+
+def test_legacy_ssd_metadata_loads_as_chain_steps(ssd_export):
+    from libreyolo import LibreYOLO
+
+    _, artifact = ssd_export
+    before = (artifact / "metadata.yaml").read_bytes()
+    backend = LibreYOLO(str(artifact))
+    assert [step.kind for step in backend._chain] == ["axm", "host", "axm"]
+    host = backend._chain[1]
+    assert (host.source, host.inputs, host.outputs) == ("l2norm", ["conv4_3"], ["conv4_3_norm"])
+    assert list(host.params) == ["scale"] and len(host.params["scale"]) == 512
+    assert backend._chain[2].inputs == ["conv4_3_norm"] and not backend._chain[2].per_item
+    assert (artifact / "metadata.yaml").read_bytes() == before
+    backend._run_inference(np.zeros((1, 3, 300, 300), dtype=np.float32))
+    timing = backend.chain_timing
+    assert timing["images"] == 1 and timing["aipu_ms"] > 0 and timing["host_ms"] > 0
+
+
+def _onnx(module, inputs, names_in, names_out, path):
+    import torch
+
+    torch.onnx.export(
+        module.eval(), tuple(inputs), str(path), input_names=names_in, output_names=names_out,
+        opset_version=17, dynamo=False,
+    )
+    return str(path)
+
+
+class _Named:
+    """A torch module plus the ``output_names`` the exporter reads."""
+
+    def __init__(self, module, names):
+        self.module, self.output_names = module.eval(), list(names)
+
+    def __call__(self, tensor):
+        import torch
+
+        out = self.module(tensor)
+        return (out,) if isinstance(out, torch.Tensor) else tuple(out)
+
+
+def _toy_mix(a, b, *, k):
+    """A two-in, two-out host operation for the tests."""
+    k = np.asarray(k, dtype=np.float32).reshape(1, -1, 1, 1)
+    return (a + b).astype(np.float32), (a * k).astype(np.float32)
+
+
+def _toy_crops(feat, *, count):
+    """``count`` 4x4 crops of ``feat`` stacked as items (a stand-in for RoIAlign)."""
+    return np.concatenate([feat[:, :, i : i + 4, i : i + 4] for i in range(int(count))], axis=0).astype(np.float32)
+
+
+@pytest.fixture
+def toy_parts(sdk, tmp_path, monkeypatch):
+    """A four-step export: compiled part, two-in/two-out host op (npz array), host ONNX graph, compiled part."""
+    import torch
+
+    from libreyolo.export.axelera import export_axelera_parts
+
+    monkeypatch.setitem(axrt.HOST_OPS, "toy_mix", _toy_mix)
+    torch.manual_seed(0)
+
+    class Head(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.a, self.b = torch.nn.Conv2d(3, 4, 3, padding=1), torch.nn.Conv2d(3, 4, 1)
+
+        def forward(self, x):
+            return self.a(x), torch.relu(self.b(x))
+
+    class Middle(torch.nn.Module):
+        def forward(self, s, p):
+            return s - 0.5 * p
+
+    head, tail = Head(), torch.nn.Conv2d(4, 2, 3, padding=1)
+    x = torch.rand(1, 3, 8, 8)
+    f = torch.rand(1, 4, 8, 8)
+    head_onnx = _onnx(head, [x], ["images"], ["a", "b"], tmp_path / "head.onnx")
+    middle_onnx = _onnx(Middle(), [f, f], ["s", "p"], ["q"], tmp_path / "middle.onnx")
+    tail_onnx = _onnx(tail, [f], ["q"], ["out"], tmp_path / "tail.onnx")
+    k = np.array([2.0, -1.0, 0.5, 3.0], dtype=np.float32)
+    recorded: dict[str, list] = {}
+    original = sys.modules["axelera.compiler"].quantize
+
+    def quantize(*, model, config, calibration_dataset, transform_fn=None):
+        samples = list(calibration_dataset)
+        recorded[config.model_name] = samples
+        return original(model=model, config=config, calibration_dataset=iter(samples))
+
+    monkeypatch.setattr(sys.modules["axelera.compiler"], "quantize", quantize)
+    rng = np.random.default_rng(7)
+    calibration = [rng.random((1, 3, 8, 8), dtype=np.float32) for _ in range(3)]
+    held_out = [rng.random((1, 3, 8, 8), dtype=np.float32) for _ in range(2)]
+    artifact = Path(export_axelera_parts(
+        parts=[
+            {"compile": head_onnx, "reference": _Named(head, ["a", "b"]), "input": "images"},
+            {"host": "toy_mix", "inputs": ["a", "b"], "outputs": ["s", "p"], "k": "@npz:k"},
+            {"host_onnx": middle_onnx, "inputs": ["s", "p"], "outputs": ["q"]},
+            {"compile": tail_onnx, "reference": _Named(tail, ["out"]), "input": "q"},
+        ],
+        output_path=str(tmp_path / "toy_axelera_model"), stem="toy",
+        metadata={"output_layout": "graph_outputs_v1", "graph_outputs": ["out"]},
+        calibration=calibration, calibration_info={"source": "unit"},
+        host_arrays={"k": k}, verify=True, verify_samples=held_out,
+    ))
+
+    def reference(image):
+        with torch.no_grad():
+            a, b = (t.numpy() for t in head(torch.from_numpy(image)))
+            s, p = _toy_mix(a, b, k=k)
+            return a, b, s, p, tail(torch.from_numpy(s - 0.5 * p)).numpy()
+
+    return types.SimpleNamespace(artifact=artifact, recorded=recorded, calibration=calibration, reference=reference, k=k)
+
+
+def _chain_backend(artifact: Path, final_names: list[str]):
+    """An AxeleraBackend holding just a chain, built the way __init__ builds it."""
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    axm = artifact / meta["axm"]
+    backend = object.__new__(axrt.AxeleraBackend)
+    arrays = axrt._load_host_arrays(artifact, meta.get("host_arrays"), axm)
+    backend._chain = axrt._validate_chain(meta["parts"], axm, final_names, arrays)
+    backend._chain_sessions = {
+        i: axrt._host_onnx_session(artifact / s.source, s, axm) for i, s in enumerate(backend._chain) if s.kind == "onnx"
+    }
+    backend._chain_models = [
+        axrt.AxeleraBackend._load(artifact / s.source) if s.kind == "axm" else None for s in backend._chain
+    ]
+    backend._output_names, backend._layout_order = list(final_names), list(range(len(final_names)))
+    backend.chain_timing = {"images": 0, "aipu_ms": 0.0, "host_ms": 0.0}
+    return backend
+
+
+def test_parts_metadata_lists_every_step_kind(toy_parts):
+    meta = yaml.safe_load((toy_parts.artifact / "metadata.yaml").read_text())
+    assert [next(iter(part)) for part in meta["parts"]] == ["axm", "host", "onnx", "axm"]
+    first, host, graph, last = meta["parts"]
+    assert first["axm"] == "toy.axm" and sorted(first["outputs"]) == ["a", "b"]
+    assert host == {"host": "toy_mix", "inputs": ["a", "b"], "outputs": ["s", "p"], "k": "@npz:k"}
+    assert graph == {"onnx": "toy_host1.onnx", "inputs": ["s", "p"], "outputs": ["q"]}
+    assert last == {"axm": "toy_part2.axm", "input": "q", "outputs": ["out"]}
+    assert meta["host_arrays"] == "toy_host.npz"
+    names = sorted(p.name for p in toy_parts.artifact.iterdir())
+    for name in ("toy.axm", "toy_part2.axm", "toy_host1.onnx", "toy_host.npz", "compiler_config_final.part2.toml"):
+        assert name in names
+
+
+def test_each_compiled_part_is_calibrated_on_its_fp32_input(toy_parts):
+    head_samples, tail_samples = toy_parts.recorded["toy"], toy_parts.recorded["toy_part2"]
+    assert len(head_samples) == len(tail_samples) == 3
+    for image, seen_head, seen_tail in zip(toy_parts.calibration, head_samples, tail_samples):
+        np.testing.assert_array_equal(np.asarray(seen_head), image)
+        _, _, s, p, _ = toy_parts.reference(image)
+        np.testing.assert_allclose(np.asarray(seen_tail), s - 0.5 * p, rtol=1e-5, atol=1e-6)
+
+
+def test_parts_chain_runs_host_numpy_onnx_and_device_steps(toy_parts):
+    backend = _chain_backend(toy_parts.artifact, ["out"])
+    assert [s.kind for s in backend._chain] == ["axm", "host", "onnx", "axm"]
+    np.testing.assert_array_equal(backend._chain[1].params["k"], toy_parts.k)
+    image = np.random.default_rng(9).random((1, 3, 8, 8), dtype=np.float32)
+    (out,) = backend._run_chain([image], batch=False)[0]
+    np.testing.assert_allclose(out, toy_parts.reference(image)[-1], rtol=1e-4, atol=1e-5)
+    images = [np.random.default_rng(i).random((1, 3, 8, 8), dtype=np.float32) for i in range(3)]
+    batched = backend._run_chain(images, batch=True)
+    assert [m.batches[-1] for m in backend._chain_models if m is not None] == [3, 3]
+    for got, image in zip(batched, images):
+        np.testing.assert_allclose(got[0], toy_parts.reference(image)[-1], rtol=1e-4, atol=1e-5)
+    timing = backend.chain_timing
+    assert timing["images"] == 4 and timing["aipu_ms"] > 0 and timing["host_ms"] > 0
+
+
+def test_parts_verify_reports_every_compiled_part(toy_parts):
+    import json
+
+    report = json.loads((toy_parts.artifact / "toy.parity.json").read_text())
+    assert [part["axm"] for part in report["parts"]] == ["toy.axm", "toy_part2.axm"]
+    for part in report["parts"]:
+        assert part["images"] == 2
+        assert min(o["min_cosine"] for o in part["quantized_vs_fp32"]) > 0.999
+
+
+@pytest.mark.parametrize(
+    ("edit", "error", "kind"),
+    [
+        (lambda parts: parts[3].update(input=None, inputs=["q", "s"]), "compiled part with 2 inputs", ValueError),
+        (lambda parts: parts[1].update(k="@npz:missing"), "host array 'missing'", ValueError),
+        (lambda parts: parts[2].update(onnx="gone.onnx"), "gone.onnx", FileNotFoundError),
+        (lambda parts: parts[2].update(inputs=["s"]), "toy_host1.onnx takes", ValueError),
+        (lambda parts: parts[1].pop("outputs"), "lists no output", ValueError),
+    ],
+)
+def test_parts_metadata_is_validated(toy_parts, edit, error, kind):
+    meta = yaml.safe_load((toy_parts.artifact / "metadata.yaml").read_text())
+    edit(meta["parts"])
+    for part in meta["parts"]:
+        if part.get("input", "") is None:
+            del part["input"]
+    axm = toy_parts.artifact / "toy.axm"
+    with pytest.raises(kind, match=error):
+        arrays = axrt._load_host_arrays(toy_parts.artifact, meta.get("host_arrays"), axm)
+        steps = axrt._validate_chain(meta["parts"], axm, ["out"], arrays)
+        for step in steps:
+            if step.kind == "onnx":
+                axrt._host_onnx_session(toy_parts.artifact / step.source, step, axm)
+
+
+def test_host_onnx_steps_need_onnxruntime(toy_parts, monkeypatch):
+    meta = yaml.safe_load((toy_parts.artifact / "metadata.yaml").read_text())
+    axm = toy_parts.artifact / "toy.axm"
+    arrays = axrt._load_host_arrays(toy_parts.artifact, meta.get("host_arrays"), axm)
+    step = axrt._validate_chain(meta["parts"], axm, ["out"], arrays)[2]
+    monkeypatch.setitem(sys.modules, "onnxruntime", None)
+    with pytest.raises(ImportError, match="pip install onnxruntime"):
+        axrt._host_onnx_session(toy_parts.artifact / step.source, step, axm)
+
+
+def test_per_item_parts_run_every_item(sdk, tmp_path, monkeypatch):
+    import torch
+
+    from libreyolo.export.axelera import export_axelera_parts
+
+    monkeypatch.setitem(axrt.HOST_OPS, "toy_crops", _toy_crops)
+    torch.manual_seed(1)
+    trunk, item_head = torch.nn.Conv2d(3, 4, 3, padding=1), torch.nn.Conv2d(4, 2, 3, padding=1)
+    trunk_onnx = _onnx(trunk, [torch.rand(1, 3, 8, 8)], ["images"], ["feat"], tmp_path / "trunk.onnx")
+    item_onnx = _onnx(item_head, [torch.rand(1, 4, 4, 4)], ["crops"], ["y"], tmp_path / "item.onnx")
+    rng = np.random.default_rng(2)
+    artifact = Path(export_axelera_parts(
+        parts=[
+            {"compile": trunk_onnx, "reference": _Named(trunk, ["feat"]), "input": "images"},
+            {"host": "toy_crops", "input": "feat", "output": "crops", "count": 3},
+            {"compile": item_onnx, "reference": _Named(item_head, ["y"]), "input": "crops", "per_item": True},
+        ],
+        output_path=str(tmp_path / "items_axelera_model"), stem="items",
+        metadata={"output_layout": "graph_outputs_v1", "graph_outputs": ["y"]},
+        calibration=[rng.random((1, 3, 8, 8), dtype=np.float32) for _ in range(2)],
+        calibration_info={},
+    ))
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["parts"][2] == {
+        "axm": "items_part2.axm", "input": "crops", "outputs": ["y"], "per_item": True, "item_shapes": {"y": [2, 4, 4]},
+    }
+    backend = _chain_backend(artifact, ["y"])
+    images = [rng.random((1, 3, 8, 8), dtype=np.float32) for _ in range(2)]
+    results = backend._run_chain(images, batch=False)
+    assert backend._chain_models[2].batches[-1] == 6  # both images' items in one submission
+    for (y,), image in zip(results, images):
+        with torch.no_grad():
+            crops = _toy_crops(trunk(torch.from_numpy(image)).numpy(), count=3)
+            expected = item_head(torch.from_numpy(crops)).numpy()
+        assert y.shape == (3, 2, 4, 4)
+        np.testing.assert_allclose(y, expected, rtol=1e-4, atol=1e-5)
+    env = {"crops": np.zeros((0, 4, 4, 4), dtype=np.float32)}
+    backend._run_per_item(backend._chain[2], backend._chain_models[2], [env], 2)
+    assert env["y"].shape == (0, 2, 4, 4)

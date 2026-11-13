@@ -481,6 +481,22 @@ same calibration images. The host then decodes the 8,732 default boxes as
 SSD's own export does. Batched inference batches each part. Keep both `.axm`
 files and `metadata.yaml` together.
 
+Multi-part exports in general (metadata `parts`) chain three kinds of step:
+compiled parts on the Metis AIPU (one input each; `<stem>.axm`, then
+`<stem>_part2.axm`, `<stem>_part3.axm`, ...), host operations in numpy (the
+backend's `HOST_OPS`, any number of inputs and outputs; large parameters live
+in `<stem>_host.npz`), and FP32 ONNX graphs the host runs on the CPU with
+ONNX Runtime (`<stem>_host1.onnx`, ...; those artifacts need `onnxruntime`
+installed). A compiled part marked `per_item` takes a stack of items, such as
+regions of interest, and runs them one at a time on the device. The exporter
+calibrates every compiled part on what it will see: the calibration images
+run through the FP32 chain, host steps included, and each part takes its own
+input from it; `verify=True` compares each part's quantized model with its
+FP32 graph on held-out images carried through the chain the same way
+(`<stem>.parity.json`). The backend sums the time spent on the AIPU parts and
+on the host steps in `chain_timing` (`images`, `aipu_ms`, `host_ms`); each
+multi-part model's support note gives that split as measured.
+
 RetinaNet resizes each image so its shorter side is 800 pixels (longer
 side up to 1333), so its input shape changes from image to image. The Metis
 graph takes one fixed shape, so the export fits each image into an 800x800
@@ -603,7 +619,8 @@ bar for restoration is 0.3 dB).
 | `strides`, `reg_max`, `grid_cell_offset` | decode constants (`reg_max` only for distribution heads) |
 | `crop_pct`, `interpolation` | classifier eval transform |
 | `anchors`, `scale_x_y` | anchor boxes in input pixels per level (YOLOv2's grid-cell anchors are converted), and Darknet's centre scaling (anchor-based heads) |
-| `parts` | multi-part exports only (SSD300): the compiled parts and host operations in order. A compiled part is `{axm, input, outputs}` (`input` is `images` for the first part, which is also `axm`); a host operation is `{host, input, output, ...parameters}` with `host` one of the backend's `HOST_OPS` (`l2norm`: `scale` per channel). The backend runs them in order and assembles `output_names` from their outputs; artifacts without `parts` are one `.axm`. |
+| `parts` | multi-part exports only (SSD300): the compiled parts and host steps in order. A compiled part is `{axm, input, outputs}` (`input` is `images` for the first part, which is also `axm`), plus `per_item: true` and `item_shapes` for a part that runs a stack of items one at a time; a host operation is `{host, input or inputs, output or outputs, ...parameters}` with `host` one of the backend's `HOST_OPS` (`l2norm`: `scale` per channel; a parameter `"@npz:<key>"` is an array from `host_arrays`); a host ONNX graph is `{onnx, inputs, outputs}`, run on the CPU by ONNX Runtime. The backend runs them in order and assembles `output_names` from their outputs; artifacts without `parts` are one `.axm`. |
+| `host_arrays` | multi-part exports whose host operations take arrays: the `.npz` holding them |
 | `class_index_map` | logit columns kept after the softmax (SSD300 and RetinaNet: COCO-91 to the 80 classes) |
 | `axelera` | SDK version, quantization scheme, cores, resources, compiler overrides, calibration source and image count (of the first part, for multi-part exports) |
 | `weights_license` | reminder of the weight license |

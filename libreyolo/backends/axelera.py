@@ -22,6 +22,8 @@ import logging
 import os
 import subprocess
 import sys
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -180,51 +182,128 @@ def _host_l2norm(x: np.ndarray, *, scale, eps: float = 1e-12) -> np.ndarray:
     return (weights * x / np.maximum(norm, np.float32(eps))).astype(np.float32)
 
 
-#: Host operations a multi-part (chained) export may run between two ``.axm``
-#: parts, by the ``host`` name its metadata gives them.
+#: Host operations a multi-part (chained) export may run between its compiled
+#: parts, by the ``host`` name its metadata gives them. Each takes its input
+#: arrays positionally plus the step's parameters as keywords, and returns one
+#: array, or a tuple with one array per output.
 HOST_OPS: dict[str, Any] = {"l2norm": _host_l2norm}
-_HOST_STEP_KEYS = ("host", "input", "output")
+_HOST_STEP_KEYS = ("host", "input", "output", "inputs", "outputs")
+#: A host-operation parameter written as ``"@npz:<key>"`` is the array stored
+#: under ``<key>`` in the export's ``host_arrays`` file (an ``.npz``).
+_NPZ_PREFIX = "@npz:"
 
 
-def _validate_chain(parts, axm: Path, final_names: list[str]) -> list[dict]:
-    """Check a multi-part export's ``parts`` list; return it as plain dicts.
+@dataclass
+class ChainStep:
+    """One step of a multi-part export, as the backend runs it.
 
-    Each part is a compiled model (``axm``, ``input``, ``outputs``) or a host
-    operation (``host``, ``input``, ``output`` plus its parameters). The first
-    part is the primary ``.axm`` and takes the images; every input must be an
-    earlier output, and the parts together must produce ``final_names``.
+    ``kind`` is ``"axm"`` (a compiled part on the Metis AIPU, one input),
+    ``"host"`` (a ``HOST_OPS`` operation in numpy) or ``"onnx"`` (an FP32 ONNX
+    graph on the host CPU through ONNX Runtime). ``per_item`` compiled parts
+    take a stack of items (e.g. regions of interest) and run them one by one.
+    """
+
+    kind: str
+    source: str
+    inputs: list[str]
+    outputs: list[str]
+    params: dict[str, Any] = field(default_factory=dict)
+    per_item: bool = False
+    item_shapes: dict[str, list[int]] = field(default_factory=dict)
+
+
+def _step_names(step: dict, single: str, plural: str) -> list[str] | None:
+    """``[step[single]]`` or ``step[plural]`` as a list of names, else ``None``."""
+    if plural in step:
+        names = step[plural]
+        if not isinstance(names, (list, tuple)) or not names:
+            return []
+        return [str(name) for name in names]
+    if single in step and step[single] is not None:
+        return [str(step[single])]
+    return None
+
+
+def _resolve_host_param(value, arrays, axm: Path, index: int):
+    if isinstance(value, str) and value.startswith(_NPZ_PREFIX):
+        key = value[len(_NPZ_PREFIX):]
+        if arrays is None or key not in arrays:
+            raise _foreign_artifact(axm, f"parts[{index}] refers to host array {key!r}, which host_arrays does not hold")
+        return arrays[key]
+    return value
+
+
+def _validate_chain(parts, axm: Path, final_names: list[str], arrays=None) -> list[ChainStep]:
+    """Check a multi-part export's ``parts`` list; return its steps.
+
+    Each part is a compiled model (``axm``, ``input``, ``outputs``), a host
+    operation (``host``, ``input``/``inputs``, ``output``/``outputs`` plus its
+    parameters) or a host ONNX graph (``onnx``, ``inputs``, ``outputs``). The
+    first part is the primary ``.axm`` and takes the images; every input must
+    be an earlier output, and the parts together must produce ``final_names``.
+    ``arrays`` holds the ``host_arrays`` file's arrays, if the export has one.
     """
     if not isinstance(parts, list) or not parts:
         raise _foreign_artifact(axm, "parts in metadata.yaml must be a non-empty list")
     available = {"images"}
-    steps = []
+    steps: list[ChainStep] = []
     for index, part in enumerate(parts):
         if not isinstance(part, dict):
             raise _foreign_artifact(axm, f"parts[{index}] is not a mapping")
-        step = dict(part)
-        source = step.get("input")
-        if source not in available:
-            raise _foreign_artifact(axm, f"parts[{index}] reads {source!r}, which no earlier part produces")
-        if "axm" in step:
-            if index == 0 and (step["axm"] != axm.name or source != "images"):
-                raise _foreign_artifact(axm, "parts[0] must be the primary .axm reading the images")
-            if not (axm.parent / str(step["axm"])).is_file():
-                raise FileNotFoundError(f"{axm.parent / str(step['axm'])} (parts[{index}]) is missing.")
-            produced = [str(name) for name in step.get("outputs") or ()]
-            if not produced:
-                raise _foreign_artifact(axm, f"parts[{index}] lists no outputs")
-        elif "host" in step:
-            if index == 0:
-                raise _foreign_artifact(axm, "parts[0] must be a compiled model")
-            if step["host"] not in HOST_OPS:
-                known = ", ".join(sorted(HOST_OPS))
-                raise ValueError(
-                    f"{axm.parent / 'metadata.yaml'} asks for host operation {step['host']!r}; "
-                    f"this LibreYOLO version knows {known}. Upgrade LibreYOLO or re-export the model."
-                )
-            produced = [str(step.get("output"))]
+        if "axm" in part:
+            sources = _step_names(part, "input", "inputs")
+            if sources is not None and len(sources) > 1:
+                raise _foreign_artifact(axm, f"parts[{index}] is a compiled part with {len(sources)} inputs; compiled parts take one")
+        elif "host" in part:
+            sources = _step_names(part, "input", "inputs")
+        elif "onnx" in part:
+            sources = _step_names(part, "input", "inputs")
         else:
             raise _foreign_artifact(axm, f"parts[{index}] is neither a compiled model nor a host operation")
+        for source in sources or [part.get("input")]:
+            if source not in available:
+                raise _foreign_artifact(axm, f"parts[{index}] reads {source!r}, which no earlier part produces")
+        if "axm" in part:
+            if index == 0 and (part["axm"] != axm.name or sources != ["images"]):
+                raise _foreign_artifact(axm, "parts[0] must be the primary .axm reading the images")
+            if not (axm.parent / str(part["axm"])).is_file():
+                raise FileNotFoundError(f"{axm.parent / str(part['axm'])} (parts[{index}]) is missing.")
+            produced = [str(name) for name in part.get("outputs") or ()]
+            if not produced:
+                raise _foreign_artifact(axm, f"parts[{index}] lists no outputs")
+            shapes = part.get("item_shapes") or {}
+            step = ChainStep(
+                "axm", str(part["axm"]), sources, produced,
+                per_item=bool(part.get("per_item", False)),
+                item_shapes={str(k): [int(d) for d in v] for k, v in dict(shapes).items()},
+            )
+        elif "host" in part:
+            if index == 0:
+                raise _foreign_artifact(axm, "parts[0] must be a compiled model")
+            if part["host"] not in HOST_OPS:
+                known = ", ".join(sorted(HOST_OPS))
+                raise ValueError(
+                    f"{axm.parent / 'metadata.yaml'} asks for host operation {part['host']!r}; "
+                    f"this LibreYOLO version knows {known}. Upgrade LibreYOLO or re-export the model."
+                )
+            produced = _step_names(part, "output", "outputs") or []
+            if not produced:
+                raise _foreign_artifact(axm, f"parts[{index}] lists no output")
+            params = {
+                key: _resolve_host_param(value, arrays, axm, index)
+                for key, value in part.items()
+                if key not in _HOST_STEP_KEYS
+            }
+            step = ChainStep("host", str(part["host"]), sources, produced, params=params)
+        else:
+            if index == 0:
+                raise _foreign_artifact(axm, "parts[0] must be a compiled model")
+            if not (axm.parent / str(part["onnx"])).is_file():
+                raise FileNotFoundError(f"{axm.parent / str(part['onnx'])} (parts[{index}]) is missing.")
+            produced = _step_names(part, "output", "outputs") or []
+            if not produced or not sources:
+                raise _foreign_artifact(axm, f"parts[{index}] needs inputs and outputs")
+            step = ChainStep("onnx", str(part["onnx"]), sources, produced)
         clash = available.intersection(produced)
         if clash:
             raise _foreign_artifact(axm, f"parts[{index}] produces {sorted(clash)} a second time")
@@ -234,6 +313,53 @@ def _validate_chain(parts, axm: Path, final_names: list[str]) -> list[dict]:
     if missing:
         raise _foreign_artifact(axm, f"parts do not produce {missing}")
     return steps
+
+
+def _load_host_arrays(directory: Path, name, axm: Path) -> dict[str, np.ndarray] | None:
+    """The ``host_arrays`` ``.npz`` of a multi-part export, or ``None`` if it has none."""
+    if not name:
+        return None
+    path = directory / str(name)
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} (host_arrays) is missing.")
+    with np.load(path, allow_pickle=False) as data:
+        return {key: np.asarray(data[key]) for key in data.files}
+
+
+def _host_onnx_session(path: Path, step: ChainStep, axm: Path):
+    """An ONNX Runtime CPU session for a host ONNX step, its inputs and outputs checked."""
+    try:
+        import onnxruntime
+    except ImportError as exc:
+        raise ImportError(
+            f"{axm.parent} runs part of the model on the host CPU as ONNX ({path.name}), "
+            "which needs ONNX Runtime: pip install onnxruntime"
+        ) from exc
+    session = onnxruntime.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    graph_inputs = sorted(i.name for i in session.get_inputs())
+    graph_outputs = {o.name for o in session.get_outputs()}
+    if graph_inputs != sorted(step.inputs) or not set(step.outputs) <= graph_outputs:
+        raise _foreign_artifact(
+            axm,
+            f"{path.name} takes {graph_inputs} and gives {sorted(graph_outputs)}; "
+            f"its part lists {step.inputs} -> {step.outputs}",
+        )
+    return session
+
+
+def _as_list(outputs) -> list:
+    return list(outputs) if isinstance(outputs, (list, tuple)) else [outputs]
+
+
+def _device_array(output) -> np.ndarray:
+    """A compiled part's output as float32 with its batch dimension."""
+    array = np.asarray(output, dtype=np.float32)
+    return array if array.ndim == 4 else array.reshape((1, *array.shape))
+
+
+def _host_array(value) -> np.ndarray:
+    array = np.ascontiguousarray(value)
+    return array.astype(np.float32) if array.dtype == np.float64 else array
 
 
 def resolve_axelera_artifact(path: str | Path) -> tuple[Path, Path]:
@@ -449,10 +575,20 @@ class AxeleraBackend(BaseBackend):
         # host operations in order; any other artifact is one .axm, as before.
         self._chain = None
         self._chain_models: list = []
+        self._chain_sessions: dict[int, Any] = {}
+        #: Wall time a multi-part export spends on the AIPU parts and on the
+        #: host steps, summed over the images run so far.
+        self.chain_timing = {"images": 0, "aipu_ms": 0.0, "host_ms": 0.0}
         if meta.get("parts") is not None:
-            self._chain = _validate_chain(meta["parts"], axm, layout_names)
+            arrays = _load_host_arrays(axm.parent, meta.get("host_arrays"), axm)
+            self._chain = _validate_chain(meta["parts"], axm, layout_names, arrays)
+            self._chain_sessions = {
+                index: _host_onnx_session(axm.parent / step.source, step, axm)
+                for index, step in enumerate(self._chain)
+                if step.kind == "onnx"
+            }
             self._chain_models = [
-                self._load(axm.parent / str(step["axm"])) if "axm" in step else None
+                self._load(axm.parent / step.source) if step.kind == "axm" else None
                 for step in self._chain
             ]
             self._model = self._chain_models[0]
@@ -514,37 +650,69 @@ class AxeleraBackend(BaseBackend):
         return [self._to_layout(outputs) for outputs in results]
 
     def _run_chain(self, images: list[np.ndarray], *, batch: bool) -> list[list[np.ndarray]]:
-        """Run a multi-part export: each compiled part (batched when asked) and host op in order."""
+        """Run a multi-part export: compiled parts (batched when asked) and host steps in order."""
         envs = [{"images": image} for image in images]
         for index, (step, model) in enumerate(zip(self._chain, self._chain_models)):
-            if model is None:
-                operation = HOST_OPS[step["host"]]
-                params = {k: v for k, v in step.items() if k not in _HOST_STEP_KEYS}
+            start = time.perf_counter()
+            if step.kind == "host":
+                operation = HOST_OPS[step.source]
                 for env in envs:
-                    env[step["output"]] = operation(env[step["input"]], **params)
-                continue
-            inputs = [np.ascontiguousarray(env[step["input"]], dtype=np.float32) for env in envs]
-            try:
-                if batch and len(inputs) > 1:
-                    results = model.batch(inputs)
-                else:
-                    results = [model(array) for array in inputs]
-            except RuntimeError as exc:
-                raise _no_device_error(exc) from exc
-            names = step["outputs"]
-            for env, outputs in zip(envs, results):
-                if not isinstance(outputs, (list, tuple)):
-                    outputs = [outputs]
-                if len(outputs) != len(names):
-                    raise ValueError(
-                        f"Part {index} ({step['axm']}) returned {len(outputs)} outputs; its "
-                        f"metadata lists {len(names)}. Re-export the model."
-                    )
-                for name, output in zip(names, outputs):
-                    array = np.asarray(output, dtype=np.float32)
-                    env[name] = array if array.ndim == 4 else array.reshape((1, *array.shape))
+                    result = operation(*(env[name] for name in step.inputs), **step.params)
+                    self._store(env, step, index, result if len(step.outputs) > 1 else (result,))
+            elif step.kind == "onnx":
+                session = self._chain_sessions[index]
+                for env in envs:
+                    feeds = {name: _host_array(env[name]) for name in step.inputs}
+                    self._store(env, step, index, session.run(step.outputs, feeds))
+            elif step.per_item:
+                self._run_per_item(step, model, envs, index)
+            else:
+                inputs = [np.ascontiguousarray(env[step.inputs[0]], dtype=np.float32) for env in envs]
+                for env, outputs in zip(envs, self._call_part(model, inputs, batch)):
+                    self._store(env, step, index, [_device_array(o) for o in _as_list(outputs)])
+            elapsed = (time.perf_counter() - start) * 1000.0
+            self.chain_timing["aipu_ms" if step.kind == "axm" else "host_ms"] += elapsed
+        self.chain_timing["images"] += len(images)
         ordered = [[env[name] for name in self._output_names] for env in envs]
         return [[arrays[i] for i in self._layout_order] for arrays in ordered]
+
+    @staticmethod
+    def _call_part(model, inputs: list[np.ndarray], batch: bool) -> list:
+        try:
+            if batch and len(inputs) > 1:
+                return list(model.batch(inputs))
+            return [model(array) for array in inputs]
+        except RuntimeError as exc:
+            raise _no_device_error(exc) from exc
+
+    def _run_per_item(self, step: ChainStep, model, envs: list[dict], index: int) -> None:
+        """Run a per-item part: every item of every image's stack, submitted together."""
+        stacks = [np.ascontiguousarray(env[step.inputs[0]], dtype=np.float32) for env in envs]
+        items = [stack[i : i + 1] for stack in stacks for i in range(stack.shape[0])]
+        results = self._call_part(model, items, batch=hasattr(model, "batch")) if items else []
+        offset = 0
+        for env, stack in zip(envs, stacks):
+            count = stack.shape[0]
+            mine = [[_device_array(o) for o in _as_list(r)] for r in results[offset : offset + count]]
+            offset += count
+            outputs = []
+            for position, name in enumerate(step.outputs):
+                if mine:
+                    outputs.append(np.concatenate([r[position] for r in mine], axis=0))
+                else:
+                    shape = step.item_shapes.get(name)
+                    outputs.append(np.zeros((0, *shape) if shape else (0,), dtype=np.float32))
+            self._store(env, step, index, outputs)
+
+    @staticmethod
+    def _store(env: dict, step: ChainStep, index: int, outputs) -> None:
+        outputs = list(outputs)
+        if len(outputs) != len(step.outputs):
+            raise ValueError(
+                f"Part {index} ({step.source}) returned {len(outputs)} outputs; its "
+                f"metadata lists {len(step.outputs)}. Re-export the model."
+            )
+        env.update(zip(step.outputs, outputs))
 
     def _to_layout(self, outputs) -> list[np.ndarray]:
         if not isinstance(outputs, (list, tuple)):
