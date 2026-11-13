@@ -102,7 +102,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | AlexNet | classify | b | see `docs/export_support.md` | b `alexnet/classify/b/2026-11-13` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-11/7` |
-| Real-ESRGAN | restore | x4t (supported with a measured drop; bar 0.3 dB; x4 and x2 not measured yet) | see `docs/export_support.md` | x4t `realesrgan/restore/x4t/2026-11-12` |
+| Real-ESRGAN | restore | x4t (supported with a measured drop; bar 0.3 dB; x4 and x2 not measured yet: their compiles did not finish within 4 h) | see `docs/export_support.md` | x4t `realesrgan/restore/x4t/2026-11-12` |
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | semantic | mv3 (supported with a measured drop; r50 and r101 blocked: do not compile) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 blocked `deeplabv3/semantic/r50/2026-11-11/2`; r101 blocked `deeplabv3/semantic/r101/2026-11-11` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
@@ -623,7 +623,7 @@ Blocked for structural reasons (accuracy never blocks an export):
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
-- EfficientDet-d1 to -d4, Real-ESRGAN-x4 and -x2.
+- EfficientDet-d1 to -d4, Real-ESRGAN-x4 and -x2 (their compiles did not finish within 4 h and 3.5 h; no error seen; ledger `realesrgan/restore/x4/2026-11-13`, `realesrgan/restore/x2/2026-11-13`).
 - YOLO9-E2E and YOLO9-P2.
 - PIDNet-s: the compile did not finish within 90 minutes at 1024x1024 or 512x512 (ledgers `pidnet/semantic/s/2026-11-12`, `pidnet/semantic/s/2026-11-13`).
 - UNet-s: the compile at 512x1024 did not finish within 3 hours (ledger `unet/semantic/s/2026-11-13`); UNet also has no ONNX semantic export contract yet. At 1024x2048 lowering finds no L1 tiling.

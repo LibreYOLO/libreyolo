@@ -4975,7 +4975,14 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         size: "has not been measured on a Metis yet" for size in ("d1", "d2", "d3", "d4")
     },
     ("realesrgan", "restore", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("x4", "x2")
+        "x4": (
+            "has not been measured on a Metis yet: its whole-graph compile at 64 px "
+            "with SDK 1.9.0 did not finish within 4 h (no error seen)"
+        ),
+        "x2": (
+            "has not been measured on a Metis yet: its whole-graph compile at 128 px "
+            "with SDK 1.9.0 did not finish within 3.5 h (no error seen)"
+        ),
     },
 }
 
