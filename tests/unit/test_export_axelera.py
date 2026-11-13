@@ -1047,6 +1047,8 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("realesrgan", "restore", "axelera")]) == ["x4t"]
     assert sorted(UNMEASURED_SIZES[("realesrgan", "restore", "axelera")]) == ["x2", "x4"]
     assert ("realesrgan", "restore") in INT8_EXPORTS["axelera"]
+    alexnet = get_support("alexnet", "classify", "axelera")
+    assert alexnet.tier == "validated" and "validated sizes: b;" in alexnet.constraint
     fcn = get_support("fcn", "semantic", "axelera")
     assert fcn.tier == "validated" and "validated sizes: r50" in fcn.constraint
 

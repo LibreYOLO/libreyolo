@@ -35,6 +35,7 @@ CASES = {
     "vgg": ("LibreVGG", dict(size='16', nb_classes=3)),
     "efficientdet": ("LibreEfficientDet", dict(size='d0', nb_classes=3)),
     "realesrgan": ("LibreRealESRGAN", dict(size='x4t')),
+    "alexnet": ("LibreAlexNet", dict(size='b', nb_classes=3)),
 }
 
 SUPPORT_KEYS = {
@@ -61,13 +62,14 @@ SUPPORT_KEYS = {
     "vgg": ('vgg', 'classify'),
     "efficientdet": ('efficientdet', 'detect'),
     "realesrgan": ('realesrgan', 'restore'),
+    "alexnet": ('alexnet', 'classify'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).
 OPTIONAL_DEPS = {"midas": "timm"}
 
 #: Families whose export needs their fixed native resolution instead of the small default.
-EXPORT_IMGSZ = {"vgg": 224, "efficientdet": 512}
+EXPORT_IMGSZ = {"vgg": 224, "efficientdet": 512, "alexnet": 224}
 
 #: Support tiers whose exports users can run (accuracy is a label, not a gate: "available" also exports).
 EXPORTABLE_TIERS = ("validated", "available")

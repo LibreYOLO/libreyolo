@@ -4092,6 +4092,25 @@ _add(
     ),
 )
 _add(
+    "validated",
+    ("alexnet",),
+    ("classify",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole classifier "
+        "runs on the Metis AIPU (its fully connected head included) and the "
+        "host applies the softmax. On a Metis M.2 Max, AlexNet is within 1.0 "
+        "top-1 point of FP32 on a paired 1000-image ImageNetV2 set "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: b; calibrated with in-domain images (data=). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 224 input"
+    ),
+)
+_add(
     "available",
     ("quicksrnet",),
     ("restore",),
@@ -4909,6 +4928,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("mobilenetv4", "classify"),
             ("efficientnetv2", "classify"),
             ("vgg", "classify"),
+            ("alexnet", "classify"),
             ("quicksrnet", "restore"),
             ("realesrgan", "restore"),
             ("midas", "depth"),

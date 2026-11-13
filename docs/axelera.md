@@ -68,6 +68,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | VGG | 19 | classify (top-1) | ImageNetV2, 1000 | 0.610 | 0.619 | +0.9 | validated | `vgg/classify/19/2026-11-12` |
 | VGG | 16bn | classify (top-1) | ImageNetV2, 1000 | 0.633 | 0.631 | -0.2 | validated | `vgg/classify/16bn/2026-11-12/2` |
 | VGG | 19bn | classify (top-1) | ImageNetV2, 1000 | 0.644 | 0.593 | -5.1 | supported | `vgg/classify/19bn/2026-11-12` |
+| AlexNet | b | classify (top-1) | ImageNetV2, 1000 | 0.434 | 0.440 | +0.6 | validated | `alexnet/classify/b/2026-11-13` |
 | FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated | `fcn/semantic/r50/2026-11-11/2` |
 | FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated | `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | m2 | restore 2x (PSNR, dB) | COCO crops from 128 px, 296 | 29.12 | 28.66 | -0.46 | supported | `quicksrnet/restore/m2/2026-11-11/7` |
@@ -96,6 +97,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` | s `mobilenetv4/classify/s/2026-11-11/3`; m `mobilenetv4/classify/m/2026-11-11/2`; l `mobilenetv4/classify/l/2026-11-10` |
 | EfficientNetV2 | classify | b0 (supported with a measured drop; b1 and b2 blocked: do not compile; b3 not measured yet) | see `docs/export_support.md` | b0 `efficientnetv2/classify/b0/2026-11-11/5`; b1 blocked `efficientnetv2/classify/b1/2026-11-11/3`; b2 blocked `efficientnetv2/classify/b2/2026-11-11` |
 | VGG | classify | 16, 19, 16bn (19bn supported with a measured drop) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12/2`; 19bn `vgg/classify/19bn/2026-11-12` |
+| AlexNet | classify | b | see `docs/export_support.md` | b `alexnet/classify/b/2026-11-13` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-11/7` |
 | Real-ESRGAN | restore | x4t (supported with a measured drop; bar 0.3 dB; x4 and x2 not measured yet) | see `docs/export_support.md` | x4t `realesrgan/restore/x4t/2026-11-12` |
@@ -335,6 +337,7 @@ them):
 | VGG-19 | 224 | 0.610 | 0.619 | +0.9 | - |
 | VGG-16-BN (histogram ranges) | 224 | 0.633 | 0.631 | -0.2 | - |
 | VGG-19-BN | 224 | 0.644 | 0.593 | -5.1 (supported; histogram ranges -6.0) | - |
+| AlexNet | 224 | 0.434 | 0.440 | +0.6 | 3 min |
 
 Calibrating a classifier on coco128 (the fallback when `data=` is omitted)
 cost ResNet-18 1.1 top-1 points instead of 0.6, and the histogram scheme 2.0.

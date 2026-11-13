@@ -11,7 +11,7 @@ in preflight.
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 3dmood | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | act_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| alexnet | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  | available |  |  |  |
+| alexnet | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | ben2 | matte | ✓ | ✓ | available | available | available |  |  |  |  | available |  |  |  |
 | birefnet | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | centernet | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
@@ -221,6 +221,7 @@ A check mark applies only under any constraint listed here.
 - `alexnet` / `classify` / `torchscript`: FP32 at the native 224x224 input resolution
 - `alexnet` / `classify` / `tensorrt`: TensorRT 10.16 FP32 at the fixed native 224x224 resolution
 - `alexnet` / `classify` / `openvino`: OpenVINO 2026.2 CPU FP32 at the fixed native 224x224 resolution
+- `alexnet` / `classify` / `axelera`: validated sizes: b; calibrated with in-domain images (data=). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `ben2` / `matte` / `onnx`: FP32, batch 1, fixed 1024x1024 input
 - `ben2` / `matte` / `torchscript`: FP32, batch 1, fixed 1024x1024 input
 - `birefnet` / `matte` / `torchscript`: fixed 1024x1024 input
@@ -762,7 +763,6 @@ These converter paths are callable with the recorded validation context.
 - `alexnet` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `alexnet` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `alexnet` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `alexnet` / `classify` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `alexnet` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `alexnet` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `alexnet` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
