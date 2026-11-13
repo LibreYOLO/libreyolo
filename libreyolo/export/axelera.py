@@ -77,6 +77,10 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: default on) and ``pose_bounded_towers`` (YOLO-NAS-pose towers whose input is
 #: bounded). Results with these recipes are in docs/axelera.md.
 AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
+    # EfficientDet-d1 at its native 640 finds no L1 tiling (3.42 MB needed at
+    # one-row tiles, 2.82 MB available); at d0's 512 canvas it compiles. The
+    # exporter rebuilds the BiFPN for the canvas (same weights).
+    ("efficientdet", "detect", "d1"): {"canvas": 512},
     # Histogram ranges recover most of the Mish backbone's loss (-6.8 -> -1.4);
     # the box-output window takes the rest of the way to -1.52 on 1000 images.
     ("yolo4", "detect", "b"): {

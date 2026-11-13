@@ -4031,6 +4031,31 @@ class _SSDPartBWrapper(torch.nn.Module):
         )
 
 
+def _efficientdet_at_canvas(model, canvas: int):
+    """A copy of ``model`` (a LibreEfficientDet) that runs at a smaller square canvas.
+
+    The BiFPN sizes its resampling from the configured image size when it is
+    built; its weights do not depend on the spatial size, so the copy gets a
+    BiFPN built for ``canvas`` with the original weights loaded. The caller's
+    model is left untouched.
+    """
+    from ..models.efficientdet.config import SCALE_CONFIGS
+    from ..models.efficientdet.nn import BiFpn
+
+    net = copy.deepcopy(model.model).eval()
+    cfg = SCALE_CONFIGS[model.size]
+    fpn = BiFpn(
+        int(canvas), net.backbone.feature_channels, cfg.fpn_channels, cfg.fpn_repeats
+    )
+    fpn.load_state_dict(net.fpn.state_dict())
+    net.fpn = fpn.to(next(net.parameters()).device).eval()
+    net.image_size = int(canvas)
+    clone = copy.copy(model)
+    clone.model = net
+    clone.input_size = int(canvas)
+    return clone
+
+
 class AxeleraExporter(BaseExporter):
     """INT8 export for Axelera Metis AIPUs: a ``<stem>_axelera_model/`` directory.
 
@@ -4145,6 +4170,24 @@ class AxeleraExporter(BaseExporter):
         self._compiler_overrides = normalize_compiler_overrides(
             kwargs.get("compiler_config")
         )
+        canvas = self._size_recipe().get("canvas")
+        if (
+            canvas
+            and self.model._get_model_name() == "efficientdet"
+            and int(self.model.input_size) != int(canvas)
+        ):
+            logger.warning(
+                "EfficientDet-%s exports for Axelera at a fixed %dx%d canvas: at "
+                "its native %d no tiling fits the AIPU's L1 memory. Images are "
+                "resized to the smaller canvas, which costs accuracy on small "
+                "objects (docs/axelera.md).",
+                self.model.size,
+                int(canvas),
+                int(canvas),
+                int(self.model.input_size),
+            )
+            self._source_model = self.model
+            self.model = _efficientdet_at_canvas(self.model, int(canvas))
 
     def _resolve_calibration_data(self, int8: bool, data: str | None):
         if data is not None:
@@ -4185,6 +4228,9 @@ class AxeleraExporter(BaseExporter):
         imgsz, device, output_path = super()._resolve_params(
             output_path, imgsz, device, half, int8
         )
+        if hasattr(self, "_source_model"):
+            # The caller's model, not the canvas copy, reports what was exported.
+            self._source_model._last_export_imgsz = imgsz
         stride = 32  # largest YOLO-NAS feature stride; the host decode needs whole cells
         raw_heads = (
             self._task() != "classify"

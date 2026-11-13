@@ -4443,14 +4443,17 @@ _add(
         "as additions) and of the squeeze-excite averages (staged 2x2 pools), "
         "and the host decodes the boxes in float. Supported, not validated: on "
         "a Metis M.2 Max with per-channel activation ranges EfficientDet-d0 "
-        "loses 1.78 mAP50-95 points against FP32 on 1000 COCO val2017 images "
+        "loses 1.78 mAP50-95 points against FP32 on 1000 COCO val2017 images; "
+        "EfficientDet-d1 runs at d0's 512x512 canvas (its native 640 does not "
+        "compile), which costs 3.10 points in FP32 and INT8 1.64 more "
         "(docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: d0 (measured drop, SIZE_ACCURACY_NOTES); d1-d4 are not "
-        "measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
-        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
+        "supported sizes: d0 and d1 (d1 at a fixed 512x512 canvas; measured "
+        "drops, SIZE_ACCURACY_NOTES); d2-d4 are not measured on a Metis yet "
+        "(UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "compile, INT8, batch 1, fixed input size"
     ),
 )
 _add(
@@ -4829,6 +4832,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "measured mAP50-95 drop 1.78 points vs FP32 (0.3185 vs 0.3363 on 1000 "
             "COCO val2017 images; spread over small, medium and large objects)"
         ),
+        "d1": (
+            "measured mAP50-95 drop 4.74 points vs FP32 at its native 640 (0.3475 "
+            "on the device at a fixed 512x512 canvas vs 0.3949 on 1000 COCO "
+            "val2017 images): its native 640 does not compile (no L1 tiling fits), "
+            "the smaller canvas costs 3.10 points (mostly small objects) and INT8 "
+            "1.64"
+        ),
     },
     ("retinanet", "detect", "axelera"): {
         "r50": (
@@ -4978,7 +4988,7 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("efficientdet", "detect", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("d1", "d2", "d3", "d4")
+        size: "has not been measured on a Metis yet" for size in ("d2", "d3", "d4")
     },
     ("realesrgan", "restore", "axelera"): {
         "x4": (

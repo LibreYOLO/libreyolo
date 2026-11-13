@@ -1055,7 +1055,8 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]) == ["l", "m", "s", "t"]
     effdet = get_support("efficientdet", "detect", "axelera")
     assert effdet.tier == "available" and "supported sizes: d0 " in effdet.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("efficientdet", "detect", "axelera")]) == ["d0"]
+    effdet_notes = SIZE_ACCURACY_NOTES[("efficientdet", "detect", "axelera")]
+    assert sorted(effdet_notes) == ["d0", "d1"]
     assert precision_support("efficientdet", "detect", "axelera") == (True, True)
     fcos = get_support("fcos", "detect", "axelera")
     assert fcos.tier == "blocked" and "GroupNorm" in fcos.reason
@@ -1108,11 +1109,13 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     from libreyolo.export.axelera import AXELERA_SIZE_RECIPES, size_recipe
 
     assert size_recipe("yolo4", "detect", "t") == {}
-    assert set(AXELERA_SIZE_RECIPES) == {
+    recipes = set(AXELERA_SIZE_RECIPES) - {("efficientdet", "detect", "d1")}
+    assert recipes == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
         ("mobilenetv4", "classify", "l"), ("yolonas", "pose", "s"),
         ("vgg", "classify", "16bn"),
     }
+    assert size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
     # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default.
     assert size_recipe("vgg", "classify", "16bn") == {
         "quantization_scheme": "hybrid_per_tensor_per_channel"
@@ -1719,3 +1722,56 @@ def test_long_compiles_are_not_available_yet(family):
         entry.reason.startswith("Not available yet")
         and "did not finish" in entry.reason
     )
+
+
+def test_efficientdet_canvas_copy_runs_smaller_and_leaves_the_model_alone():
+    torch = pytest.importorskip("torch")
+    from libreyolo import LibreEfficientDet
+    from libreyolo.export.exporter import _efficientdet_at_canvas
+
+    model = LibreEfficientDet(None, size="d0", device="cpu")
+    native_fpn = model.model.fpn
+    clone = _efficientdet_at_canvas(model, 384)
+
+    assert clone.input_size == 384 and clone.model.image_size == 384
+    assert model.input_size == 512 and model.model.fpn is native_fpn
+    for (name, a), b in zip(
+        clone.model.fpn.state_dict().items(), native_fpn.state_dict().values()
+    ):
+        assert torch.equal(a, b), name
+    with torch.no_grad():
+        clone.model.eval()(torch.rand(1, 3, 384, 384))
+
+
+def test_efficientdet_d1_axelera_recipe_is_the_512_canvas():
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES
+
+    assert ax.size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
+    notes = SIZE_ACCURACY_NOTES[("efficientdet", "detect", "axelera")]
+    assert "512x512 canvas" in notes["d1"] and "INT8" in notes["d1"]
+    assert "d1" not in UNMEASURED_SIZES[("efficientdet", "detect", "axelera")]
+
+
+def test_efficientdet_canvas_recipe_exports_the_smaller_canvas(
+    exporter_sdk, tmp_path, monkeypatch
+):
+    import yaml
+
+    from libreyolo import LibreEfficientDet
+
+    # Stand-in: d0 with a 256 canvas recipe (d1's real recipe is 512 < 640).
+    monkeypatch.setitem(
+        ax.AXELERA_SIZE_RECIPES, ("efficientdet", "detect", "d0"), {"canvas": 256}
+    )
+    model = LibreEfficientDet(None, size="d0", device="cpu")
+    out = model.export(
+        format="axelera",
+        data=str(_dataset(tmp_path)),
+        output_path=str(tmp_path / "effdet_axelera_model"),
+    )
+
+    meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
+    assert (meta["imgsz_h"], meta["imgsz_w"]) == (256, 256)
+    assert exporter_sdk.seen["onnx_input"][-2:] == [256, 256]
+    assert model.input_size == 512 and model.model.image_size == 512
+    assert tuple(model._last_export_imgsz) == (256, 256)
