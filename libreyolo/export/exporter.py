@@ -485,6 +485,11 @@ class _YOLO9RawHeadsWrapper(torch.nn.Module):
     ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`; the
     default is ``YOLO9_RAW_OUTPUT_WINDOWS``.
 
+    ``towers`` names the head's box and class tower lists: YOLO9-E2E cuts at
+    its one-to-one towers (``one_to_one_anchor_convs`` /
+    ``one_to_one_class_convs``), the branch its NMS-free inference decodes,
+    so the host decode rebuilds the same tensor as its ONNX export.
+
     ``class_activation_bound`` caps the pre-activation of each class tower's
     second convolution at +-bound (:func:`_bounded_conv_bn_act`). Its SiLU
     output reaches about +540 on YOLO9-t while 99.9% of values stay below
@@ -504,6 +509,7 @@ class _YOLO9RawHeadsWrapper(torch.nn.Module):
         task: str = "detect",
         output_windows: dict[str, tuple[float, float]] | None = None,
         class_activation_bound: float | None = _YOLO9_CLASS_ACTIVATION_BOUND,
+        towers: tuple[str, str] = ("anchor_convs", "class_convs"),
     ):
         super().__init__()
         from ..postprocess.yolonas_raw import (
@@ -528,12 +534,14 @@ class _YOLO9RawHeadsWrapper(torch.nn.Module):
                 f"class_activation_bound must be positive, got {class_activation_bound!r}."
             )
         self.class_activation_bound = class_activation_bound
+        self.towers = tuple(towers)
 
     def forward(self, x):
         feats = self.model.neck(*self.model.backbone(x))
         head = self.model.head
+        box_towers, class_towers = (getattr(head, name) for name in self.towers)
         outputs = []
-        for box_tower, class_tower, feat in zip(head.anchor_convs, head.class_convs, feats):
+        for box_tower, class_tower, feat in zip(box_towers, class_towers, feats):
             outputs.append(self._final_conv("reg", box_tower[-1], box_tower[:-1](feat)))
             hidden = class_tower[0](feat)
             if self.class_activation_bound is None:
@@ -4589,12 +4597,17 @@ class AxeleraExporter(BaseExporter):
                 )
             self._pose_bounds = {}
             self._raw_wrapper = _PicoDetRawHeadsWrapper(live).eval()
-        elif self.model._get_model_name() == "yolo9":
+        elif self.model._get_model_name() in ("yolo9", "yolo9_e2e"):
             # No reparameterization step; BatchNorm folds into the convs
-            # during the ONNX export.
+            # during the ONNX export. YOLO9-E2E decodes its one-to-one branch.
             self._pose_bounds = {}
+            towers = (
+                ("one_to_one_anchor_convs", "one_to_one_class_convs")
+                if self.model._get_model_name() == "yolo9_e2e"
+                else ("anchor_convs", "class_convs")
+            )
             self._raw_wrapper = _YOLO9RawHeadsWrapper(
-                copy.deepcopy(live).eval(), self._task()
+                copy.deepcopy(live).eval(), self._task(), towers=towers
             ).eval()
         elif self.model._get_model_name() == "yolox":
             self._pose_bounds = {}
