@@ -636,6 +636,31 @@ def test_yolo4_export_uses_the_anchor_raw_head_layout(exporter_sdk, tmp_path):
     assert "output_windows" not in meta
 
 
+@pytest.mark.parametrize("size", ["t", "b"])
+def test_yolo2_export_uses_the_region_raw_head_layout(exporter_sdk, tmp_path, size):
+    import torch
+    import yaml
+
+    from libreyolo import LibreYOLO2
+    from libreyolo.postprocess.yolonas_raw import raw_head_output_names
+
+    torch.manual_seed(0)
+    model = LibreYOLO2(None, size=size, nb_classes=3, device="cpu")
+    destination = tmp_path / f"y2{size}_axelera_model"
+    model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(destination))
+
+    layout = "darknet_region_raw_heads_v1"
+    assert exporter_sdk.seen["onnx_outputs"] == raw_head_output_names(layout, (32,))
+    # b's [reorg] passthrough reaches the compiler as a convolution, not as layout transforms.
+    assert "Transpose" not in exporter_sdk.seen["onnx_ops"]
+    meta = yaml.safe_load((destination / "metadata.yaml").read_text())
+    assert meta["model_family"] == "yolo2" and meta["output_layout"] == layout
+    assert meta["output_names"] == exporter_sdk.seen["device_order"]
+    assert meta["strides"] == [32]
+    (spec,) = model.model.net.detection_specs()
+    assert meta["anchors"] == [[[w * 32, h * 32] for w, h in spec.anchors]]
+
+
 def test_yolo3_tiny_export_folds_norms_and_maxpool_padding(exporter_sdk, tmp_path):
     import torch
     import yaml
@@ -867,9 +892,9 @@ def test_missing_devkit_fails_before_tracing(fake_sdk, tmp_path, monkeypatch):
 
 
 def test_other_families_are_blocked(exporter_sdk):
-    from libreyolo import LibreYOLO2
+    from libreyolo import LibreDFINE
 
-    model = LibreYOLO2(None, size="t", device="cpu")
+    model = LibreDFINE(None, size="l", device="cpu")
     with pytest.raises(NotImplementedError, match="blocked"):
         model.export(format="axelera")
 
@@ -1034,7 +1059,7 @@ def test_support_matrix_rows_for_axelera():
     assert precision_support("efficientdet", "detect", "axelera") == (True, True)
     fcos = get_support("fcos", "detect", "axelera")
     assert fcos.tier == "blocked" and "GroupNorm" in fcos.reason
-    other = get_support("yolo2", "detect", "axelera")
+    other = get_support("dfine", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
     assert mnv4.tier == "validated" and "validated sizes: m;" in mnv4.constraint
@@ -1049,6 +1074,8 @@ def test_support_matrix_rows_for_axelera():
     assert ("realesrgan", "restore") in INT8_EXPORTS["axelera"]
     alexnet = get_support("alexnet", "classify", "axelera")
     assert alexnet.tier == "validated" and "validated sizes: b;" in alexnet.constraint
+    yolo2 = get_support("yolo2", "detect", "axelera")
+    assert yolo2.tier == "validated" and "validated sizes: t, b." in yolo2.constraint
     fcn = get_support("fcn", "semantic", "axelera")
     assert fcn.tier == "validated" and "validated sizes: r50" in fcn.constraint
 

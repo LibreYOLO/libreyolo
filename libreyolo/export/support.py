@@ -4273,6 +4273,25 @@ _add(
 )
 _add(
     "validated",
+    ("yolo2",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the [region] head "
+        "convolution is split into box, objectness and class convolutions, "
+        "the [reorg] passthrough runs as an exact one-hot convolution, and "
+        "LibreYOLO decodes the anchors (softmax over the classes) on the host. "
+        "On a Metis M.2 Max, YOLOv2-tiny and YOLOv2 are within 1.0 mAP50-95 "
+        "of FP32 on a paired 1000-image COCO val2017 subset (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: t, b. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "compile, INT8, batch 1, fixed input size"
+    ),
+)
+_add(
+    "validated",
     ("yolo4",),
     ("detect",),
     ("axelera",),
@@ -4935,6 +4954,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("deeplabv3", "semantic"),
             ("fcn", "semantic"),
             ("yolox", "detect"),
+            ("yolo2", "detect"),
             ("yolo4", "detect"),
             ("yolo3", "detect"),
             ("yolo7", "detect"),

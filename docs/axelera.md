@@ -33,6 +33,8 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | YOLOX | m | detect | COCO val2017, 1000 | 0.4582 | 0.4516 | -0.66 | validated | `yolox/detect/m/2026-11-11/2` |
 | YOLOX | l | detect | COCO val2017, 1000 | 0.4849 | 0.4781 | -0.68 | validated | `yolox/detect/l/2026-11-11/2` |
 | YOLOX | x | detect | COCO val2017, 1000 | 0.4943 | 0.4867 | -0.76 | validated | `yolox/detect/x/2026-11-11/2` |
+| YOLOv2 | t | detect | COCO val2017, 1000 | 0.1108 | 0.1097 | -0.11 | validated | `yolo2/detect/t/2026-11-13/2` |
+| YOLOv2 | b | detect | COCO val2017, 1000 | 0.2947 | 0.2856 | -0.91 | validated | `yolo2/detect/b/2026-11-13/2` |
 | YOLOv3 | t | detect | COCO val2017, 1000 | 0.1023 | 0.1006 | -0.17 | validated | `yolo3/detect/t/2026-11-11/6` |
 | YOLOv3 | b | detect | COCO val2017, 1000 | 0.3656 | 0.3580 | -0.76 | validated | `yolo3/detect/b/2026-11-11/6` |
 | YOLOv3 | spp | detect | COCO val2017, 1000 | 0.4304 | 0.4261 | -0.43 | validated | `yolo3/detect/spp/2026-11-11/3` |
@@ -104,6 +106,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | MiDaS | depth | s (supported with a measured drop; l not measured yet) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | semantic | mv3 (supported with a measured drop; r50 and r101 blocked: do not compile) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 blocked `deeplabv3/semantic/r50/2026-11-11/2`; r101 blocked `deeplabv3/semantic/r101/2026-11-11` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
+| YOLOv2 | detect | t, b | see `docs/export_support.md` | t `yolo2/detect/t/2026-11-13/2`; b `yolo2/detect/b/2026-11-13/2` |
 | YOLOv3 | detect | t, b, spp | see `docs/export_support.md` | t `yolo3/detect/t/2026-11-11/6`; b `yolo3/detect/b/2026-11-11/6`; spp `yolo3/detect/spp/2026-11-11/3` |
 | YOLOv4 | detect | t, b (b supported with a measured drop) | see `docs/export_support.md` | t `yolo4/detect/t/2026-11-11/5`; b `yolo4/detect/b/2026-11-11/6` |
 | YOLOv7 | detect | b | see `docs/export_support.md` | b `yolo7/detect/b/2026-11-11/4` |
@@ -296,6 +299,8 @@ table at the top of this page.
 | YOLOX-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4582 | 0.4516 | -0.66 |
 | YOLOX-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4849 | 0.4781 | -0.68 |
 | YOLOX-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.4943 | 0.4867 | -0.76 |
+| YOLOv2-t | detect | COCO val2017, 1000 images | 128 coco128 | 0.1108 | 0.1097 | -0.11 (+0.41 on 300) |
+| YOLOv2-b | detect | COCO val2017, 1000 images | 128 coco128 | 0.2947 | 0.2856 | -0.91 (-1.15 on 300) |
 | YOLOv3-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.1023 | 0.1006 | -0.17 |
 | YOLOv3-b | detect | COCO val2017, 1000 images | 64 coco128 | 0.3656 | 0.3580 | -0.76 |
 | YOLOv3-spp | detect | COCO val2017, 1000 images | 64 coco128 | 0.4304 | 0.4261 | -0.43 |
@@ -570,7 +575,7 @@ bar for restoration is 0.3 dB).
 | `output_windows` | parts emitted through a ReLU6 window, as `[low, high]` logit bounds (YOLO-NAS pose and YOLO9 exports); the backend maps them back before decoding |
 | `strides`, `reg_max`, `grid_cell_offset` | decode constants (`reg_max` only for distribution heads) |
 | `crop_pct`, `interpolation` | classifier eval transform |
-| `anchors`, `scale_x_y` | anchor boxes in input pixels per level, and Darknet's centre scaling (anchor-based heads) |
+| `anchors`, `scale_x_y` | anchor boxes in input pixels per level (YOLOv2's grid-cell anchors are converted), and Darknet's centre scaling (anchor-based heads) |
 | `axelera` | SDK version, quantization scheme, cores, resources, compiler overrides, calibration source and image count |
 | `weights_license` | reminder of the weight license |
 

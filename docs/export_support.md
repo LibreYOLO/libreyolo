@@ -189,7 +189,7 @@ in preflight.
 | wevisonevl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | wilddet3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | yolo1 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  | ✓ |
-| yolo2 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  | ✓ |
+| yolo2 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  |  | ✓ |
 | yolo3 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo4 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo7 | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
@@ -507,6 +507,7 @@ A check mark applies only under any constraint listed here.
 - `yolo2` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolo2` / `detect` / `tensorrt`: FP32 with a fixed export canvas
 - `yolo2` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
+- `yolo2` / `detect` / `axelera`: validated sizes: t, b. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolo2` / `detect` / `coreai`: fixed family-native canvases (YOLO1 448, YOLO2 608, YOLO3 416, YOLO4 608); representative published trained checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; Core AI graph preparation exactly folds Darknet inference batch normalization into the preceding convolutions because Core AI 0.4.1 does not preserve Darknet's epsilon-after-square-root formula
 - `yolo3` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolo3` / `detect` / `tensorrt`: FP32 with a fixed export canvas
@@ -2608,7 +2609,6 @@ These converter paths are callable with the recorded validation context.
 - `yolo2` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo2` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo2` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `yolo2` / `detect` / `ncnn`: The public-domain trained checkpoint exports through PNNX 20260526, but NCNN 20260526 on Windows terminates the runtime with a native integer divide-by-zero during output extraction.
 - `yolo2` / `detect` / `tflite`: LiteRT 2.1.2 cannot prepare the onnx2tf 2.6.7 artifact because a RESHAPE maps 4,225 input elements to one output element.
 - `yolo2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
