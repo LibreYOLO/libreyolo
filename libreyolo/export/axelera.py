@@ -1434,24 +1434,42 @@ def _resize_1x1_broadcast_add(model) -> int:
     return count
 
 
-def _resize_factor_split(model) -> int:
-    """Bilinear upsampling with unequal factors becomes an equal-factor one plus a pool.
+#: Largest bilinear factor a resize keeps in one piece: the compiler lowers a
+#: factor-F upsampling to a depthwise window about 2F wide, and F = 16 (window
+#: 32) already overflows the DWPU scratchpad.
+_RESIZE_MAX_FACTOR = 4
+
+
+def _resize_corner_chain(model) -> int:
+    """Bilinear upsampling with a large or unequal factor becomes factor-2 steps.
 
     The compiler takes a bilinear resize only with the same whole factor on
-    both axes; PP-LiteSeg's pyramid pooling upsamples 1x1, 2x2 and 4x4 maps
-    to the 16x32 map of its 512x1024 canvas (factors f and 2f). With factors
-    ``(f, r * f)`` the map is resized by ``r * f`` on both axes and ``r``
-    neighbouring rows are averaged: with half-pixel sampling the averaged
-    rows sit around the coarse target position and no interpolation corner
-    (a source pixel centre or the clamped edge) falls between them when ``f``
-    is even, so the average is the coarse sample. Exact up to float rounding.
-    Returns the number of rewritten resizes.
+    both axes, and only small factors fit its depthwise unit; PP-LiteSeg's
+    pyramid pooling upsamples 2x2 and 4x4 maps to the 16x32 map of its
+    512x1024 canvas (factors 8x16 and 4x8). For half-pixel sampling with
+    factors ``(f, r * f)``, ``f`` even, ``F = r * f``:
+
+    - the source is padded by one replicated pixel per side (a Concat of
+      three distinct tensors per axis);
+    - align-corners factor-2 resizes (n -> 2n - 1) build the corner-aligned
+      factor-F samples: piecewise-linear interpolation through every source
+      pixel, which factor-2 steps reproduce exactly, and constant across the
+      replicated border;
+    - a crop keeps the samples from half a source pixel before the first
+      centre to half a pixel after the last;
+    - a 2x2 average with stride 1 gives the half-pixel factor-F samples (each
+      is the midpoint of two corner samples on one linear piece);
+    - an ``r x 1`` average gives the smaller factor on its axis.
+
+    Exact up to float rounding. A resize that is a graph output (the final
+    upsampling the host runs) is left alone. Returns the number of rewrites.
     """
     import numpy as np
     from onnx import helper, numpy_helper
 
     shapes, _, _, _ = _graph_tables(model)
     graph = model.graph
+    outputs = {o.name for o in graph.output}
     count = 0
     for node in [n for n in graph.node if n.op_type == "Resize"]:
         attrs = _attributes(node)
@@ -1462,54 +1480,112 @@ def _resize_factor_split(model) -> int:
         if mode != "linear" or transform not in ("half_pixel", "pytorch_half_pixel"):
             continue
         source, target = shapes.get(node.input[0]), shapes.get(node.output[0])
-        if not source or not target or len(source) != 4 or len(target) != 4:
+        if node.output[0] in outputs or not source or not target:
+            continue
+        if len(source) != 4 or len(target) != 4:
             continue
         (height, width), (out_h, out_w) = source[2:], target[2:]
-        if 0 in (height, width, out_h, out_w) or out_h % height or out_w % width:
+        if min(height, width) < 2 or out_h % height or out_w % width:
             continue
         factor_h, factor_w = out_h // height, out_w // width
         large, small = max(factor_h, factor_w), min(factor_h, factor_w)
-        if factor_h == factor_w or large % small:
+        if large % small or small % 2 or large & (large - 1):
             continue
-        ratio = large // small
-        if small % 2 and (height if factor_h < factor_w else width) != 1:
+        if factor_h == factor_w and large <= _RESIZE_MAX_FACTOR:
             continue
-        tag = node.name or node.output[0]
-        sizes = f"{tag}_equal_sizes"
-        graph.initializer.append(
-            numpy_helper.from_array(
-                np.array(
-                    [source[0], source[1], height * large, width * large], np.int64
-                ),
-                sizes,
+        tag = f"{node.name or node.output[0]}_corner_chain"
+        constants, nodes, current = {}, [], node.input[0]
+        for axis, size in ((2, height), (3, width)):
+            constants[f"{tag}_axis{axis}"] = np.array([axis], np.int64)
+            ends = (("first", 0, 1), ("last", size - 1, size))
+            names = []
+            for side, start, end in ends:
+                name = f"{tag}_{side}{axis}"
+                constants[f"{name}_start"] = np.array([start], np.int64)
+                constants[f"{name}_end"] = np.array([end], np.int64)
+                nodes.append(
+                    helper.make_node(
+                        "Slice",
+                        [current, f"{name}_start", f"{name}_end", f"{tag}_axis{axis}"],
+                        [name],
+                        name=name,
+                    )
+                )
+                names.append(name)
+            padded = f"{tag}_pad{axis}"
+            nodes.append(
+                helper.make_node(
+                    "Concat",
+                    [names[0], current, names[1]],
+                    [padded],
+                    name=padded,
+                    axis=axis,
+                )
+            )
+            current = padded
+        rows, cols, step = height + 2, width + 2, 0
+        while rows - 1 < (height + 1) * large:
+            rows, cols = 2 * rows - 1, 2 * cols - 1
+            sizes = f"{tag}_sizes{step}"
+            constants[sizes] = np.array([source[0], source[1], rows, cols], np.int64)
+            out = f"{tag}_x2_{step}"
+            nodes.append(
+                helper.make_node(
+                    "Resize",
+                    [current, "", "", sizes],
+                    [out],
+                    name=out,
+                    mode="linear",
+                    coordinate_transformation_mode="align_corners",
+                )
+            )
+            current, step = out, step + 1
+        first = large - large // 2
+        crop = f"{tag}_crop"
+        constants[f"{crop}_start"] = np.array([first, first], np.int64)
+        constants[f"{crop}_end"] = np.array(
+            [first + height * large + 1, first + width * large + 1], np.int64
+        )
+        constants[f"{crop}_axes"] = np.array([2, 3], np.int64)
+        nodes.append(
+            helper.make_node(
+                "Slice",
+                [current, f"{crop}_start", f"{crop}_end", f"{crop}_axes"],
+                [crop],
+                name=crop,
             )
         )
-        equal = f"{node.output[0]}_equal_factor"
-        kernel = [ratio, 1] if factor_h < factor_w else [1, ratio]
-        index = list(graph.node).index(node)
-        graph.node.remove(node)
-        graph.node.insert(
-            index,
+        ratio = large // small
+        averaged = f"{tag}_average" if ratio > 1 else node.output[0]
+        nodes.append(
             helper.make_node(
                 "AveragePool",
-                [equal],
-                list(node.output),
+                [crop],
+                [averaged],
                 name=f"{tag}_average",
-                kernel_shape=kernel,
-                strides=kernel,
-            ),
+                kernel_shape=[2, 2],
+                strides=[1, 1],
+            )
         )
-        graph.node.insert(
-            index,
-            helper.make_node(
-                "Resize",
-                [node.input[0], "", "", sizes],
-                [equal],
-                name=f"{tag}_equal_factor",
-                mode="linear",
-                coordinate_transformation_mode=transform,
-            ),
+        if ratio > 1:
+            kernel = [ratio, 1] if factor_h < factor_w else [1, ratio]
+            nodes.append(
+                helper.make_node(
+                    "AveragePool",
+                    [averaged],
+                    list(node.output),
+                    name=f"{tag}_ratio",
+                    kernel_shape=kernel,
+                    strides=kernel,
+                )
+            )
+        graph.initializer.extend(
+            numpy_helper.from_array(v, k) for k, v in constants.items()
         )
+        index = list(graph.node).index(node)
+        graph.node.remove(node)
+        for offset, new in enumerate(nodes):
+            graph.node.insert(index + offset, new)
         count += 1
     if count:
         _drop_unused_initializers(graph)
@@ -1534,7 +1610,7 @@ GRAPH_PASSES = {
     "channel_max_tree": _channel_max_tree,
     "broadcast_mul_expand": _broadcast_mul_expand,
     "resize_1x1_broadcast_add": _resize_1x1_broadcast_add,
-    "resize_factor_split": _resize_factor_split,
+    "resize_corner_chain": _resize_corner_chain,
 }
 
 
