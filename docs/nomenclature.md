@@ -1187,6 +1187,18 @@ own weights are the pinned `speridlabs/idol` snapshot in
 object as a `Gaussians` payload; `libreyolo generate source=...` is the CLI.
 See ADR 0031.
 
+`LibreSperidlabsIrisZ` (`speridlabs_irisz`, sizes `9b` for upstream's
+Iris-Z-small and `32b` for Iris-Z-big, aliases `speridlabs-iris-z` (`9b`),
+`speridlabs-iris-z-9b`, `speridlabs-iris-z-small`, `speridlabs-iris-z-32b`
+and `speridlabs-iris-z-big`) is the LibreGen family with two tasks:
+`generate` (default, text to image) and `depth` (image to relative log
+depth, `LibreGen(..., task="depth")`). Like Idol, the name keeps its maker
+and there is no bare `iris-z` alias. Weights are not mirrored: the size's
+folder of the pinned `speridlabs/iris-z` snapshot downloads into
+`weights/LibreSperidlabsIrisZ<size>/`; the FLUX.2 VAE loads from
+`FLUX.2-klein-4B` and the text encoders from their publishers, all at pinned
+revisions. Coverage group `s`. See ADR 0033.
+
 `LibreTripoSplat` (`triposplat`, size `0.6b`, aliases `triposplat` and
 `triposplat-0.6b`) is the second image-to-3D family, the TripoAI model Idol
 builds on; the name is upstream's and already carries its maker. Same task,

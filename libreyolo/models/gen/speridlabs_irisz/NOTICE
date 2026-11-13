@@ -1,0 +1,45 @@
+LibreSperidlabsIrisZ includes code ported from the Speridlabs Iris-Z SDK:
+
+Source: https://github.com/speridlabs/iris-z-sdk (commit 6c8925f42a2a3581127609d771aa5bfece557467)
+License: Apache-2.0.
+Copyright 2026 SperidLabs (https://speridlabs.com).
+
+The SDK's transformer, autoencoder, text-encoder and schedule code
+(iris_z/model/) is from FLUX.2 by Black Forest Labs:
+
+Source: https://github.com/black-forest-labs/flux2
+License: Apache-2.0.
+Copyright Black Forest Labs.
+
+Iris-Z adds a modality embedding and per-grid noise levels to the FLUX.2
+transformer (iris_z/model/model.py); the RGB-D samplers, depth decoding,
+resolution choice and seed ensembling are the SDK's own (iris_z/rgbd.py,
+iris_z/depth.py, iris_z/pipeline.py).
+
+The port covers inference: the transformer forward pass Iris-Z samples with
+(nn.py), the text-to-image and image-to-depth samplers, the schedule and the
+depth decoding (pipeline.py), and the prompt embedders (text.py). Parameter
+names mirror upstream so the released safetensors load with strict=True.
+Changes from upstream: the reference-image KV-cache paths of the FLUX.2
+transformer, which Iris-Z does not use, are left out, so attention is one
+scaled_dot_product_attention over the text and image tokens (numerically the
+same as upstream's attention with no reference tokens); the FLUX.2 VAE runs
+through diffusers' AutoencoderKLFlux2 (Apache-2.0) with upstream's posterior
+mean, 2x2 patchify and batch-norm normalization, loaded from the bfloat16
+copy in FLUX.2-klein-4B and upcast to float32 (upstream reads float32
+weights from the gated FLUX.2-dev repository); the text encoders keep only
+the embedding path (no prompt upsampling, no content filters, which Iris-Z
+does not call), and Qwen3's unquantized layers load in float32 explicitly,
+as transformers 4.57 did by default; latent grids are reshaped instead of
+scattered by position id, which gives the same tensors for Iris-Z's
+row-major grids.
+
+Weights are not redistributed by LibreYOLO. They download from their
+publishers at pinned revisions: speridlabs/iris-z (FLUX Non-Commercial
+License), the FLUX.2 VAE from black-forest-labs/FLUX.2-klein-4B
+(Apache-2.0), mistralai/Mistral-Small-3.2-24B-Instruct-2506 with the
+Mistral-Small-3.1-24B-Instruct-2503 processor (Apache-2.0), and
+Qwen/Qwen3-8B-FP8 (Apache-2.0).
+
+Iris-Z: https://speridlabs.com/research/iris-z
+Paper: https://speridlabs.com/assets/research/iris-z/iris-z.pdf

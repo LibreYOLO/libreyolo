@@ -906,6 +906,24 @@ Speridlabs Idol (Apache License 2.0)
     LibreYOLO/LibreDINOv3vith16plus, which ships the agreement. All at
     pinned revisions.
 
+Speridlabs Iris-Z (Apache License 2.0)
+    Path:    libreyolo/models/gen/speridlabs_irisz/
+    License: libreyolo/models/gen/speridlabs_irisz/NOTICE
+    Source:  https://github.com/speridlabs/iris-z-sdk
+             (commit 6c8925f42a2a3581127609d771aa5bfece557467)
+             Copyright 2026 SperidLabs.
+
+    The Iris-Z transformer forward pass (FLUX.2 with a modality embedding
+    and per-grid noise levels), the text-to-image and image-to-depth
+    samplers, the schedule, the depth decoding and the prompt embedders are
+    ported from the Apache-2.0 Iris-Z SDK, whose model code is from FLUX.2 by
+    Black Forest Labs (Apache-2.0, https://github.com/black-forest-labs/flux2).
+    The FLUX.2 VAE runs through diffusers. Weights are not redistributed:
+    speridlabs/iris-z (FLUX Non-Commercial License), the FLUX.2 VAE from
+    FLUX.2-klein-4B (Apache-2.0) and the Mistral Small 3.2 and Qwen3 8B text
+    encoders (Apache-2.0) download from their publishers at pinned
+    revisions.
+
 LGM (MIT License)
     Path:    libreyolo/models/gen/lgm/
     License: libreyolo/models/gen/lgm/NOTICE

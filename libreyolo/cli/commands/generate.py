@@ -1,4 +1,4 @@
-"""Text-to-image and image-to-3D generation with the LibreGen tier."""
+"""Text-to-image, image-to-3D and generative image-to-depth with the LibreGen tier."""
 
 import typer
 
@@ -21,12 +21,18 @@ def generate_cmd(
     source: str | None = typer.Option(
         None,
         help="Image, directory of images or URL to turn into 3D objects "
-        "(image-to-3D models; instead of prompt)",
+        "(image-to-3D models) or into depth (task=depth); instead of prompt",
+    ),
+    task: str | None = typer.Option(
+        None,
+        help="Task for models that solve several: generate (default) or depth "
+        "(speridlabs-iris-z)",
     ),
     model: str | None = typer.Option(
         None,
         help="LibreGen alias or local model directory; default flux2-klein-4b "
-        "for a prompt, speridlabs-idol for a source (or triposplat, trellis, trellis2, triposr, crm, direct3d-s2)",
+        "for a prompt, speridlabs-idol for a source (or triposplat, trellis, trellis2, triposr, crm, direct3d-s2), "
+        "speridlabs-iris-z for task=depth",
     ),
     imgsz: str | None = typer.Option(
         None, help="Output size: 1024 (square) or HEIGHTxWIDTH such as 768x1024"
@@ -62,6 +68,9 @@ def generate_cmd(
     max_tokens: int | None = typer.Option(
         None, help="Voxel budget of TRELLIS.2's fine shape stage (family knob)"
     ),
+    ensemble: int | None = typer.Option(
+        None, help="Depth: median over this many seeds (family knob, speridlabs-iris-z)"
+    ),
     device: str = typer.Option("auto", help="auto, cpu, mps, or a CUDA device"),
     dtype: str = typer.Option("auto", help="auto, bf16, fp16, or fp32"),
     offload: bool = typer.Option(False, help="Keep idle components off the GPU"),
@@ -84,7 +93,7 @@ def generate_cmd(
         help="Dump command schema as JSON",
     ),
 ) -> None:
-    """Generate images from a text prompt, or 3D objects from an image."""
+    """Generate images from a text prompt, or 3D objects or depth from an image."""
     import os
     import sys
     from contextlib import ExitStack, redirect_stderr, redirect_stdout
@@ -112,15 +121,32 @@ def generate_cmd(
             "config_conflict",
             f"Pass one of prompt, prompt_file or source, not {' and '.join(given)}.",
         )
+    from libreyolo.tasks import normalize_task
+
+    try:
+        task = normalize_task(task)
+    except ValueError as exc:
+        exit_with_error(out, "config_range_error", str(exc))
+    depth = task == "depth"
+    if depth and source is None:
+        exit_with_error(out, "config_required_key", "task=depth needs source=... .")
     if model is None:
-        model = "speridlabs-idol" if source is not None else "flux2-klein-4b"
+        if depth:
+            model = "speridlabs-iris-z"
+        else:
+            model = "speridlabs-idol" if source is not None else "flux2-klein-4b"
     try:
         size = parse_imgsz_str(imgsz)
     except (ValueError, TypeError) as exc:
         exit_with_error(out, "invalid_imgsz", str(exc))
     try:
         prompts: str | list[str] | None = None
-        if source is not None:
+        if depth:
+            if size is not None and not isinstance(size, int):
+                raise TypeError("imgsz for depth is one side, 512 or 1024.")
+            if n != 1:
+                raise TypeError("n does not apply to depth; use ensemble= for a multi-seed median.")
+        elif source is not None:
             if size is not None:
                 raise TypeError(
                     "imgsz does not apply to 3D generation; use gaussians=."
@@ -150,10 +176,13 @@ def generate_cmd(
                 ("texture", texture),
                 ("resolution", resolution),
                 ("max_tokens", max_tokens),
+                ("ensemble", ensemble),
             )
             if value is not None
         }
         load_kwargs = {"device": device, "dtype": dtype, "offload": offload}
+        if task is not None:
+            load_kwargs["task"] = task
         if compile:
             load_kwargs["compile"] = True
         with ExitStack() as stack:
@@ -168,7 +197,16 @@ def generate_cmd(
             model_obj = LibreGen(model, **load_kwargs)
             # Inputs go by keyword so a family refuses the kind it does not
             # take (an image for a text model, text for an image model).
-            if source is not None:
+            if depth:
+                results = model_obj(
+                    source=source,
+                    imgsz=size,
+                    seed=seed,
+                    save=save,
+                    output_path=output_path,
+                    **knobs,
+                )
+            elif source is not None:
                 results = model_obj(
                     source=source,
                     seed=seed,

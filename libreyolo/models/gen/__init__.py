@@ -14,6 +14,9 @@ object comes out as ``Results.gaussians``.
     model = LibreGen("speridlabs-idol")
     model("chair.jpg").save("chair.ply")
 
+    model = LibreGen("speridlabs-iris-z", task="depth")   # image -> depth
+    model("street.jpg").save("depth.png")
+
 See ``docs/libregen.md`` and ADRs 0030 and 0031 in ``docs/adr/``.
 """
 
@@ -32,6 +35,7 @@ from .lgm import LibreLGM
 from .prx import LibrePRX, LibrePRXPixel
 from .sana_sprint import LibreSanaSprint
 from .speridlabs_idol import LibreSperidlabsIdol
+from .speridlabs_irisz import LibreSperidlabsIrisZ
 from .trellis import LibreTRELLIS
 from .trellis2 import LibreTRELLIS2
 from .triposplat import LibreTripoSplat
@@ -52,6 +56,11 @@ _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
     "prx-pixel": (LibrePRXPixel, "7b"),
     "speridlabs-idol": (LibreSperidlabsIdol, "0.6b"),
     "speridlabs-idol-0.6b": (LibreSperidlabsIdol, "0.6b"),
+    "speridlabs-iris-z": (LibreSperidlabsIrisZ, "9b"),
+    "speridlabs-iris-z-9b": (LibreSperidlabsIrisZ, "9b"),
+    "speridlabs-iris-z-small": (LibreSperidlabsIrisZ, "9b"),
+    "speridlabs-iris-z-32b": (LibreSperidlabsIrisZ, "32b"),
+    "speridlabs-iris-z-big": (LibreSperidlabsIrisZ, "32b"),
     "triposplat": (LibreTripoSplat, "0.6b"),
     "triposplat-0.6b": (LibreTripoSplat, "0.6b"),
     "trellis": (LibreTRELLIS, "l"),
@@ -88,7 +97,7 @@ def LibreGen(model: str = _DEFAULT_MODEL, **kwargs) -> LibreGenModel:
     Args:
         model: Alias (``"flux2-klein-4b"``, ``"sana-sprint-0.6b"``,
             ``"prx-1024-beta"`` and the other ``prx-*`` checkpoints,
-            ``"prxpixel-7b"``, ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``, ``"crm"``, ``"trellis2"``, ``"direct3d-s2"``) or a path to a local model directory in a
+            ``"prxpixel-7b"``, ``"speridlabs-iris-z"`` (also ``-9b``/``-32b``), ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``, ``"crm"``, ``"trellis2"``, ``"direct3d-s2"``) or a path to a local model directory in a
             supported family's upstream format, such as a fine-tune or an
             offline copy.
         **kwargs: Forwarded to the family constructor: ``device``, ``dtype``
@@ -133,6 +142,7 @@ __all__ = [
     "LibrePRX",
     "LibrePRXPixel",
     "LibreSperidlabsIdol",
+    "LibreSperidlabsIrisZ",
     "LibreTripoSplat",
     "LibreTRELLIS",
     "LibreLGM",

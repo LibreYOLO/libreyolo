@@ -161,6 +161,7 @@ MODEL_GROUPS: dict[str, str] = {
     "prx": "s",
     "prxpixel": "s",
     "speridlabs_idol": "s",
+    "speridlabs_irisz": "s",
     "triposplat": "s",
     "trellis": "s",
     "lgm": "s",
