@@ -787,7 +787,7 @@ These converter paths are callable with the recorded validation context.
 - `centernet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `centernet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `centernet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `centernet` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `centernet` / `detect` / `axelera`: Both CenterNet sizes (ResDCN-18 and DLA-34) upsample with modulated deformable convolutions, which sample the feature map at learned per-pixel offsets (exported as grid_sample); Axelera's 1.9 quantizer has no converter for GridSample, and the host can only run operators before or after the accelerated graph.
 - `centernet` / `detect` / `ncnn`: NCNN cannot lower CenterNet's portable deformable sampling plus baked top-k decode contract. Use ONNX or TorchScript.
 - `centernet` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `centernet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -810,12 +810,12 @@ These converter paths are callable with the recorded validation context.
 - `convnext` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `convnext` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `convnext` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `convnext` / `classify` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `convnext` / `classify` / `axelera`: ConvNeXt normalizes every block with a per-pixel LayerNorm (each pixel divided by the standard deviation of its own channels), which needs a data-dependent division and square root that the AIPU does not run; with SDK 1.9 quantization stops on the stem's channel ReduceMean.
 - `convnext` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `convnextv2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `convnextv2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `convnextv2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `convnextv2` / `classify` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `convnextv2` / `classify` / `axelera`: ConvNeXt V2 normalizes every block with a per-pixel LayerNorm and Global Response Normalization (each channel scaled by its spatial L2 norm over the mean of those norms), data-dependent divisions and square roots that the AIPU does not run; with SDK 1.9 quantization stops on the first LayerNorm.
 - `convnextv2` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `convnextv2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `convnextv2` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
@@ -1030,7 +1030,7 @@ These converter paths are callable with the recorded validation context.
 - `dpflow` / `flow` / `coreml`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `dpflow` / `flow` / `coreai`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
 - `ec` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ec` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `ec` / `detect` / `axelera`: EC's decoder samples features with gather-based deformable attention (bounds masks, data-dependent Gather) and LayerNorm; with SDK 1.9 quantization has no converter for its GreaterOrEqual masks, and the host can only run operators before or after the accelerated graph.
 - `ec` / `detect` / `ncnn`: NCNN export is not supported for EC: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ec` / `detect` / `tflite`: onnx2tf 2.6.7 emits an ONNX_LAYERNORMALIZATION custom operation that LiteRT 2.1.2 cannot prepare.
 - `ec` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1152,7 +1152,7 @@ These converter paths are callable with the recorded validation context.
 - `faster_rcnn` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `faster_rcnn` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `faster_rcnn` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `faster_rcnn` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `faster_rcnn` / `detect` / `axelera`: Faster R-CNN is two-stage: the region proposals pick boxes at run time (If, NonZero, TopK) and RoIAlign crops them before the second network runs. Axelera's host can only run operators before or after one accelerated graph; with SDK 1.9 the graph cleaner rejects the export.
 - `faster_rcnn` / `detect` / `ncnn`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
 - `faster_rcnn` / `detect` / `tflite`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
 - `faster_rcnn` / `detect` / `coreml`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
@@ -1755,7 +1755,7 @@ These converter paths are callable with the recorded validation context.
 - `nafnet` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `nafnet` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `nafnet` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `nafnet` / `restore` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `nafnet` / `restore` / `axelera`: NAFNet adds the input image to the network output (a skip around the whole graph, which the compiler's graph cleaner rejects) and normalizes every block with a per-pixel LayerNorm (a data-dependent division); no trained LibreYOLO weights are published to measure an exported model against.
 - `nafnet` / `restore` / `tflite`: onnx2tf 2.6.7 converts the fixed-canvas graph, but LiteRT 2.1.2 fails at invoke time because input tensor 4539 lacks data.
 - `nafnet` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `neuflowv2` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -2340,7 +2340,7 @@ These converter paths are callable with the recorded validation context.
 - `ssd` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ssd` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ssd` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ssd` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `ssd` / `detect` / `axelera`: SSD-300 normalizes the conv4_3 features per pixel (L2Norm: each pixel's channel vector divided by its own norm), which Axelera's INT8 toolchain has no form for: with SDK 1.9 quantization fails at the L2Norm (ReduceL2, Expand, Div). A fixed scale in its place costs 3.4 mAP50-95 points in FP32 alone (0.2361 to 0.2022 on 300 COCO val2017 images), so it is not used; running SSD on Metis needs a two-model split with the norm on the host.
 - `ssd` / `detect` / `ncnn`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
 - `ssd` / `detect` / `tflite`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
 - `ssd` / `detect` / `coreml`: SSD's decoded fixed-default-box head has only been parity-validated through the ONNX Runtime contract.
@@ -2363,14 +2363,14 @@ These converter paths are callable with the recorded validation context.
 - `teed` / `edge` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `teed` / `edge` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `teed` / `edge` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `teed` / `edge` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `teed` / `edge` / `axelera`: TEED's Smish activation takes a logarithm, which Axelera's 1.9 INT8 toolchain has no form for (quantization stops on the Log); no trained LibreYOLO weights are published to measure an exported model against.
 - `teed` / `edge` / `ncnn`: PNNX 20260526 leaves an unsupported Tensor.index channel-reversal node, so the generated NCNN network has no runnable input.
 - `teed` / `edge` / `coreml`: This edge runtime has no parity-valid artifact for the requested format.
 - `teed` / `edge` / `coreai`: This edge runtime has no parity-valid artifact for the requested format.
 - `tinyformer` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `tinyformer` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `tinyformer` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `tinyformer` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `tinyformer` / `detect` / `axelera`: TinyFormer's decoder uses the same gather-based deformable attention as EC (bounds masks, data-dependent Gather) and LayerNorm; with SDK 1.9 quantization has no converter for its GreaterOrEqual masks.
 - `tinyformer` / `detect` / `ncnn`: NCNN export is not supported for TinyFormer: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `tinyformer` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `tinyformer` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.

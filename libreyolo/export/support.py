@@ -4431,6 +4431,118 @@ _add(
 )
 _add(
     "blocked",
+    ("ssd",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "SSD-300 normalizes the conv4_3 features per pixel (L2Norm: each "
+        "pixel's channel vector divided by its own norm), which Axelera's INT8 "
+        "toolchain has no form for: with SDK 1.9 quantization fails at the "
+        "L2Norm (ReduceL2, Expand, Div). A fixed scale in its place costs 3.4 "
+        "mAP50-95 points in FP32 alone (0.2361 to 0.2022 on 300 COCO val2017 "
+        "images), so it is not used; running SSD on Metis needs a two-model "
+        "split with the norm on the host."
+    ),
+)
+_add(
+    "blocked",
+    ("centernet",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "Both CenterNet sizes (ResDCN-18 and DLA-34) upsample with modulated "
+        "deformable convolutions, which sample the feature map at learned "
+        "per-pixel offsets (exported as grid_sample); Axelera's 1.9 quantizer "
+        "has no converter for GridSample, and the host can only run operators "
+        "before or after the accelerated graph."
+    ),
+)
+_add(
+    "blocked",
+    ("convnext",),
+    ("classify",),
+    ("axelera",),
+    reason=(
+        "ConvNeXt normalizes every block with a per-pixel LayerNorm (each pixel "
+        "divided by the standard deviation of its own channels), which needs a "
+        "data-dependent division and square root that the AIPU does not run; "
+        "with SDK 1.9 quantization stops on the stem's channel ReduceMean."
+    ),
+)
+_add(
+    "blocked",
+    ("convnextv2",),
+    ("classify",),
+    ("axelera",),
+    reason=(
+        "ConvNeXt V2 normalizes every block with a per-pixel LayerNorm and "
+        "Global Response Normalization (each channel scaled by its spatial L2 "
+        "norm over the mean of those norms), data-dependent divisions and "
+        "square roots that the AIPU does not run; with SDK 1.9 quantization "
+        "stops on the first LayerNorm."
+    ),
+)
+_add(
+    "blocked",
+    ("faster_rcnn",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "Faster R-CNN is two-stage: the region proposals pick boxes at run time "
+        "(If, NonZero, TopK) and RoIAlign crops them before the second network "
+        "runs. Axelera's host can only run operators before or after one "
+        "accelerated graph; with SDK 1.9 the graph cleaner rejects the export."
+    ),
+)
+_add(
+    "blocked",
+    ("ec",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "EC's decoder samples features with gather-based deformable attention "
+        "(bounds masks, data-dependent Gather) and LayerNorm; with SDK 1.9 "
+        "quantization has no converter for its GreaterOrEqual masks, and the "
+        "host can only run operators before or after the accelerated graph."
+    ),
+)
+_add(
+    "blocked",
+    ("tinyformer",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "TinyFormer's decoder uses the same gather-based deformable attention "
+        "as EC (bounds masks, data-dependent Gather) and LayerNorm; with SDK "
+        "1.9 quantization has no converter for its GreaterOrEqual masks."
+    ),
+)
+_add(
+    "blocked",
+    ("nafnet",),
+    ("restore",),
+    ("axelera",),
+    reason=(
+        "NAFNet adds the input image to the network output (a skip around the "
+        "whole graph, which the compiler's graph cleaner rejects) and "
+        "normalizes every block with a per-pixel LayerNorm (a data-dependent "
+        "division); no trained LibreYOLO weights are published to measure an "
+        "exported model against."
+    ),
+)
+_add(
+    "blocked",
+    ("teed",),
+    ("edge",),
+    ("axelera",),
+    reason=(
+        "TEED's Smish activation takes a logarithm, which Axelera's 1.9 INT8 "
+        "toolchain has no form for (quantization stops on the Log); no trained "
+        "LibreYOLO weights are published to measure an exported model against."
+    ),
+)
+_add(
+    "blocked",
     ("rfdetr",),
     ("detect",),
     ("axelera",),

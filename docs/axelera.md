@@ -603,6 +603,13 @@ Blocked for structural reasons (accuracy never blocks an export):
 - RetinaNet-r50v2: like FCOS, the head normalizes every convolution with GroupNorm (per-image statistics); quantization stops on the head's InstanceNormalization ops (fixed 800x800 canvas, 14.9 min, 5.1 GB peak RSS; ledger `retinanet/detect/r50v2/2026-11-12`). Use RetinaNet-r50.
 - RTMDet-Ins-x: at 640x640 lowering fails in AssignTilingFactors (ScheduleMemory, LowerTIR): no tiling factor fits L1 (3.99 MB needed, 3.32 MB available; 2 h 08 min, 8.1 GB peak RSS; ledger `rtmdet/segment/x/2026-11-12`). Use RTMDet-Ins-l.
 - RTMDet-x: at 640x640 the compiler's LowerTIR pass still overflows its on-chip buffers after 4 iterations (2 h 21 min, 7 GB peak RSS; ledger `rtmdet/detect/x/2026-11-12/2`). Use RTMDet-l.
+- SSD-300: the conv4_3 L2Norm divides every pixel by its own channel norm; quantization fails there (ledger `ssd/detect/300/2026-11-11`). A fixed scale instead costs 3.4 mAP50-95 points in FP32 alone (0.2361 to 0.2022 on 300 images); the exact route is a two-model split with the norm on the host.
+- CenterNet (ResDCN-18, DLA-34): the upsampling uses modulated deformable convolutions (grid_sample at learned offsets), which the quantizer has no converter for (ledger `centernet/detect/dla34/2026-11-11`).
+- ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).
+- Faster R-CNN: a two-stage graph (run-time proposals with If/NonZero/TopK, then RoIAlign before the second network); the host can only run operators before or after one accelerated graph (ledger `faster_rcnn/detect/n/2026-11-11/2`).
+- EC and TinyFormer: gather-based deformable attention in the decoder; no quantizer converter for its GreaterOrEqual bounds masks (ledgers `ec/detect/s/2026-11-11`, `tinyformer/detect/s/2026-11-11`).
+- NAFNet: the output adds the input image (a skip around the whole graph that the graph cleaner rejects) and every block has a per-pixel LayerNorm; no trained weights are published (ledger `nafnet/restore/s/2026-11-11`).
+- TEED: the Smish activation takes a logarithm, which quantization stops on; no trained weights are published (ledger `teed/edge/t/2026-11-11/2`).
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 

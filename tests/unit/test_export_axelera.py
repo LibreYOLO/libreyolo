@@ -1635,3 +1635,24 @@ def test_efficientdet_preprocessing_accepts_a_square_pair():
     assert scale_pair == scale_int and by_pair.shape == (3, 64, 64)
     with pytest.raises(ValueError, match="square canvas"):
         preprocess_numpy(image, (64, 96))
+
+
+@pytest.mark.parametrize(
+    ("family", "task", "keyword"),
+    [
+        ("ssd", "detect", "L2Norm"),
+        ("centernet", "detect", "deformable"),
+        ("convnext", "classify", "LayerNorm"),
+        ("convnextv2", "classify", "Global"),
+        ("faster_rcnn", "detect", "two-stage"),
+        ("ec", "detect", "deformable attention"),
+        ("tinyformer", "detect", "deformable attention"),
+        ("nafnet", "restore", "LayerNorm"),
+        ("teed", "edge", "logarithm"),
+    ],
+)
+def test_structurally_blocked_axelera_families_name_the_reason(family, task, keyword):
+    from libreyolo.export.support import get_support
+
+    entry = get_support(family, task, "axelera")
+    assert entry.tier == "blocked" and keyword in entry.reason
