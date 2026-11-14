@@ -302,7 +302,16 @@ def test_compact_criterion_loss_and_gradient_parity(monkeypatch):
             level["pred_boxes"].requires_grad_()
     criterion = _criterion()
     got = criterion(outputs, targets)
-    monkeypatch.setattr(criterion.matcher, "compute_matching_cost", criterion.matcher.compute_cost_matrix)
+    monkeypatch.setattr(
+        criterion.matcher,
+        "match_many",
+        lambda levels, targets, groups: [
+            criterion.matcher.solve(
+                criterion.matcher.compute_cost_matrix(level, targets), targets, groups
+            )
+            for level in levels
+        ],
+    )
     expected = criterion(reference, targets)
     for name in expected:
         torch.testing.assert_close(got[name], expected[name], rtol=0, atol=0)
@@ -314,7 +323,7 @@ def test_compact_criterion_loss_and_gradient_parity(monkeypatch):
             torch.testing.assert_close(a[key].grad, b[key].grad, rtol=0, atol=0)
 
 
-@pytest.mark.parametrize("kind", ["nan_logit", "zero_area", "overflow_weight"])
+@pytest.mark.parametrize("kind", ["nan_logit", "overflow_weight"])
 def test_compact_nonfinite_cost_uses_original_sanitizer(kind):
     generator = torch.Generator().manual_seed(127)
     matcher = _matcher()
@@ -400,3 +409,64 @@ def test_unsafe_compact_cost_releases_buffers_before_full_fallback(monkeypatch):
     monkeypatch.setattr(torch, "vmap", track_vmap)
     monkeypatch.setattr(matcher, "compute_cost_matrix", full_fallback)
     assert matcher.compute_matching_cost(outputs, targets) is sentinel
+
+
+@pytest.mark.parametrize("alpha", [0.1, 0.75])
+def test_nondefault_focal_alpha_changes_both_cost_paths(alpha):
+    generator = torch.Generator().manual_seed(149)
+    outputs = _outputs(3, generator)
+    targets = _targets(3, generator, [3, 4, 5])
+    matcher = HungarianMatcher(
+        cost_class=2, cost_bbox=5, cost_giou=2, focal_alpha=alpha
+    )
+    full = matcher.compute_cost_matrix(outputs, targets)
+    compact = matcher.compute_matching_cost(outputs, targets)
+    expected = torch.cat(
+        [block[i] for i, block in enumerate(full.split([3, 4, 5], -1))], -1
+    )
+    torch.testing.assert_close(compact, expected, rtol=0, atol=0)
+    assert not torch.equal(full, _matcher().compute_cost_matrix(outputs, targets))
+
+
+def test_degenerate_boxes_have_finite_loss_and_gradients():
+    criterion = _criterion()
+    outputs = {
+        "pred_logits": torch.zeros(2, NUM_QUERIES, NUM_CLASSES, requires_grad=True),
+        "pred_boxes": torch.zeros(2, NUM_QUERIES, 4, requires_grad=True),
+    }
+    targets = [
+        {"labels": torch.zeros(1, dtype=torch.long), "boxes": torch.zeros(1, 4)}
+        for _ in range(2)
+    ]
+    values = criterion(outputs, targets)
+    total = sum(v for k, v in values.items() if k.startswith("loss_"))
+    assert torch.isfinite(total)
+    total.backward()
+    assert torch.isfinite(outputs["pred_logits"].grad).all()
+    assert torch.isfinite(outputs["pred_boxes"].grad).all()
+
+
+def test_cardinality_uses_sigmoid_confidence():
+    criterion = _criterion()
+    logits = torch.tensor([[[-10.0, -9.0, -8.0], [1.0, -2.0, -3.0], [-1.0, -2.0, 2.0]]])
+    targets = [{"labels": torch.ones(2, dtype=torch.long)}]
+    value = criterion.loss_cardinality({"pred_logits": logits}, targets, None, None)
+    assert value["cardinality_error"] == 0
+
+
+def test_match_many_variable_query_counts_and_unsafe_fallback():
+    generator = torch.Generator().manual_seed(151)
+    matcher = _matcher()
+    targets = _targets(3, generator, [2, 4, 3])
+    levels = [_outputs(3, generator, num_queries=q) for q in (12, 18, 9)]
+    for unsafe in (False, True):
+        if unsafe:
+            levels[1]["pred_logits"][0, 0, targets[0]["labels"][0]] = float("nan")
+        actual = matcher.match_many(levels, targets, 3)
+        expected = [
+            matcher.solve(matcher.compute_cost_matrix(level, targets), targets, 3)
+            for level in levels
+        ]
+        for a, b in zip(actual, expected):
+            for x, y in zip(a, b):
+                assert all(torch.equal(i, j) for i, j in zip(x, y))

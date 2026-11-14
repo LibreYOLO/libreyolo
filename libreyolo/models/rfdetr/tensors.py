@@ -59,9 +59,12 @@ class NestedTensor:
     Stores both the padded tensor and a boolean mask indicating padding positions.
     """
 
-    def __init__(self, tensors: Tensor, mask: Tensor | None) -> None:
+    def __init__(
+        self, tensors: Tensor, mask: Tensor | None, *, no_padding: bool = False
+    ) -> None:
         self.tensors = tensors
         self.mask = mask
+        self.no_padding = no_padding
 
     def to(self, device: torch.device, **kwargs: Any) -> "NestedTensor":
         """Move tensors and mask to *device*.
@@ -80,7 +83,7 @@ class NestedTensor:
             cast_mask = mask.to(device, **kwargs)
         else:
             cast_mask = None
-        return NestedTensor(cast_tensor, cast_mask)
+        return NestedTensor(cast_tensor, cast_mask, no_padding=self.no_padding)
 
     def pin_memory(self) -> "NestedTensor":
         """Pin tensor and mask memory for faster CPU→GPU transfer.
@@ -91,6 +94,7 @@ class NestedTensor:
         return NestedTensor(
             self.tensors.pin_memory(),
             self.mask.pin_memory() if self.mask is not None else None,
+            no_padding=self.no_padding,
         )
 
     def decompose(self) -> tuple[Tensor, Tensor | None]:
@@ -123,6 +127,28 @@ def nested_tensor_from_tensor_list(
         NestedTensor with all images padded to the maximum spatial dimensions
         (rounded up to *block_size* when provided).
     """
+    if block_size is not None and block_size <= 0:
+        raise ValueError("block_size must be positive")
+    # Dense input batches already have uniform geometry. Preserve their storage
+    # when no rounding/padding is necessary; list inputs retain the padded path.
+    if (
+        isinstance(tensor_list, Tensor)
+        and tensor_list.ndim == 4
+        and tensor_list.is_contiguous()
+        and not torchvision._is_tracing()
+        and (
+            block_size is None
+            or (
+                tensor_list.shape[-2] % block_size == 0
+                and tensor_list.shape[-1] % block_size == 0
+            )
+        )
+    ):
+        return NestedTensor(
+            tensor_list,
+            torch.zeros_like(tensor_list[:, 0], dtype=torch.bool),
+            no_padding=True,
+        )
     # TODO make this more general
     if tensor_list[0].ndim == 3:
         if torchvision._is_tracing():

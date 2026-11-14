@@ -53,7 +53,7 @@ def box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> tuple[torch.Tensor, t
 
     union = area1[:, None] + area2 - inter
 
-    iou = inter / union
+    iou = inter / union.clamp(min=1e-7)
     return iou, union
 
 
@@ -75,7 +75,7 @@ def generalized_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Ten
     wh = (rb - lt).clamp(min=0)  # [N,M,2]
     area = wh[:, :, 0] * wh[:, :, 1]
 
-    return iou - (area - union) / area
+    return iou - (area - union) / area.clamp(min=1e-7)
 
 
 def paired_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -95,7 +95,7 @@ def paired_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> tuple[torch.Te
 
     union = area1 + area2 - inter
 
-    iou = inter / union
+    iou = inter / union.clamp(min=1e-7)
     return iou, union
 
 
@@ -109,7 +109,7 @@ def paired_generalized_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> to
     wh = (rb - lt).clamp(min=0)
     area = wh[:, 0] * wh[:, 1]
 
-    return iou - (area - union) / area
+    return iou - (area - union) / area.clamp(min=1e-7)
 
 
 def masks_to_boxes(masks: torch.Tensor) -> torch.Tensor:

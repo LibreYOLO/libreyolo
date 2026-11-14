@@ -7,29 +7,30 @@ from typing import Any, ClassVar, Dict, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
-from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
-from ...training.callbacks import TrainCallbacks
-from ..base import BaseModel
-from ..base.model import _drop_disabled_eval_interval
+from libreyolo.training.ddp_spawn import ddp_aware
+
 from ...data import load_data_config
 from ...data.pose_metadata import keypoints_per_class
+from ...postprocess.rfdetr import postprocess
 from ...tasks import normalize_task, task_to_suffix
+from ...training.callbacks import TrainCallbacks
+from ...utils.coco import COCO91_TO_COCO80
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
-from .nn import (
-    LibreRFDETRModel,
-    RFDETR_CONFIGS,
-    RFDETR_SEG_CONFIGS,
-)
+from ...validation.preprocessors import RFDETRValPreprocessor
+from ..base import BaseModel
+from ..base.model import _drop_disabled_eval_interval
 from .config import RFDETRConfig
 from .imgsz import resolve_patch_window, validate_imgsz
-from ...utils.coco import COCO91_TO_COCO80
-from ...postprocess.rfdetr import postprocess
-from .utils import IMAGENET_MEAN, IMAGENET_STD, preprocess_numpy
+from .nn import (
+    RFDETR_CONFIGS,
+    RFDETR_SEG_CONFIGS,
+    LibreRFDETRModel,
+)
 from .trainer import RFDETRTrainer
-from ...validation.preprocessors import RFDETRValPreprocessor
+from .utils import IMAGENET_MEAN, IMAGENET_STD, preprocess_numpy
 
 logger = logging.getLogger(__name__)
 
@@ -1349,6 +1350,7 @@ class LibreRFDETR(BaseModel):
             exist_ok = True
 
         resume_path = None
+        resume_wd_override = "weight_decay" in train_kwargs
         if resume:
             if resume_checkpoint is not None:
                 resume_path = resume_checkpoint
@@ -1358,6 +1360,16 @@ class LibreRFDETR(BaseModel):
                 )
             # Continue with the run's saved settings; explicit arguments win.
             saved = self._resume_saved_settings(resume_path)
+            # Legacy checkpoints used SciPy. Installing the optional GPU extra
+            # must not silently change their assignment backend on resume.
+            if "matcher_backend" not in saved:
+                train_kwargs.setdefault("matcher_backend", "scipy")
+            if "cls_loss_coef" not in saved:
+                # Old segmentation runs used 5; old detection/pose runs used 1.
+                legacy_cls = (
+                    5.0 if getattr(self, "task", "detect") == "segment" else 1.0
+                )
+                train_kwargs.setdefault("cls_loss_coef", legacy_cls)
             _drop_disabled_eval_interval(saved, train_kwargs.get("val"))
             if data is None:
                 data = self._checkpoint_train_config(resume_path).get("data")
@@ -1499,7 +1511,9 @@ class LibreRFDETR(BaseModel):
         for src, dst in _TRAIN_ARG_ALIASES.items():
             if src in train_kwargs:
                 train_kwargs[dst] = train_kwargs.pop(src)
-        train_kwargs.pop("early_stopping", None)
+        early_stopping = train_kwargs.pop("early_stopping", None)
+        if early_stopping is not None and "patience" not in train_kwargs:
+            train_kwargs["patience"] = 10 if early_stopping else 0
 
         if resume:
             if not train_kwargs.get("single_cls", False):
@@ -1518,6 +1532,7 @@ class LibreRFDETR(BaseModel):
             loggers=loggers,
             **train_kwargs,
         )
+        trainer._resume_weight_decay_override = resume_wd_override
         if resume:
             trainer.setup()
             trainer.resume(str(resume_path))

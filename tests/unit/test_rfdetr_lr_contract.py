@@ -303,3 +303,34 @@ def test_rfdetr_train_without_data_says_so(monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="needs data="):
         _make_wrapper().train(output_dir=str(tmp_path / "run"))
 
+
+@pytest.mark.parametrize("enabled,expected", [(True, 10), (False, 0)])
+def test_early_stopping_alias_controls_patience(monkeypatch, enabled, expected):
+    wrapper = _make_wrapper()
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": "runs/test"})
+    wrapper.train(data="data.yaml", early_stopping=enabled)
+    assert captured["kwargs"]["patience"] == expected
+
+
+def test_explicit_patience_wins_over_early_stopping_alias(monkeypatch):
+    wrapper = _make_wrapper()
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": "runs/test"})
+    wrapper.train(data="data.yaml", early_stopping=True, patience=7)
+    assert captured["kwargs"]["patience"] == 7
+
+
+@pytest.mark.parametrize(
+    "task,coefficient", [("detect", 1.0), ("segment", 5.0), ("pose", 1.0)]
+)
+def test_legacy_resume_recipe_defaults(monkeypatch, tmp_path, task, coefficient):
+    wrapper = _make_wrapper()
+    wrapper.task = task
+    # Pose metadata is outside this recipe-resolution check.
+    monkeypatch.setattr(type(wrapper), "_is_pose", property(lambda _: False))
+    monkeypatch.setattr(
+        wrapper, "_checkpoint_train_config", lambda _: {"data": "data.yaml"}
+    )
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": str(tmp_path / "run")})
+    wrapper.train(data="data.yaml", resume=str(tmp_path / "last.pt"))
+    assert captured["kwargs"]["cls_loss_coef"] == coefficient
+    assert captured["kwargs"]["matcher_backend"] == "scipy"

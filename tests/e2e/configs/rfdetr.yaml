@@ -1,44 +1,20 @@
-# RF5 - RF-DETR family
+# RF5 - native RF-DETR detection recipe
 model_type: rfdetr
-
-# Size-specific defaults
 sizes:
-  n: {imgsz: 544, lr0: 0.001, weights: LibreRFDETRn.pt}
-  s: {imgsz: 544, lr0: 0.001, weights: LibreRFDETRs.pt}
-  m: {imgsz: 544, lr0: 0.001, weights: LibreRFDETRm.pt}
-  l: {imgsz: 544, lr0: 0.001, weights: LibreRFDETRl.pt}
-
-# Training
+  n: {imgsz: 384, lr0: 0.0001, weights: LibreRFDETRn.pt}
+  s: {imgsz: 512, lr0: 0.0001, weights: LibreRFDETRs.pt}
+  m: {imgsz: 576, lr0: 0.0001, weights: LibreRFDETRm.pt}
+  l: {imgsz: 704, lr0: 0.0001, weights: LibreRFDETRl.pt}
 epochs: 100
 batch_size: 16
-optimizer: sgd
-momentum: 0.937
+optimizer: adamw
 weight_decay: 0.0001
-nesterov: true
-
-# Scheduler
 scheduler: step
-warmup_epochs: 5
-warmup_lr_start: 0.0
-no_aug_epochs: 15
-min_lr_ratio: 0.05
-
-# Augmentation
-mosaic_prob: 1.0
-mixup_prob: 0.5
-hsv_prob: 1.0
-flip_prob: 0.5
-degrees: 10.0
-translate: 0.1
-mosaic_scale: [0.5, 1.5]
-mixup_scale: [0.5, 1.5]
-shear: 2.0
-
-# Training options
+warmup_epochs: 0
 ema: true
-ema_decay: 0.9998
+ema_decay: 0.993
 amp: true
-patience: 20
-eval_interval: 10
+patience: 0
+eval_interval: 1
 save_period: 10
 workers: 4

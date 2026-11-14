@@ -106,6 +106,7 @@ class HungarianMatcher(nn.Module):
         keypoint_findable_loss_coef: float = 0.0,
         keypoint_visible_loss_coef: float = 0.0,
         keypoint_nll_loss_coef: float = 0.0,
+        matcher_backend: str = "auto",
     ):
         """Creates the matcher.
 
@@ -126,6 +127,10 @@ class HungarianMatcher(nn.Module):
         self.cost_giou = cost_giou
         assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, "all costs can't be 0"
         self.focal_alpha = focal_alpha
+        if matcher_backend not in ("auto", "scipy"):
+            raise ValueError("matcher_backend must be 'auto' or 'scipy'")
+        self.matcher_backend = matcher_backend
+        self._gpu_assignment_available = None
         self.mask_point_sample_ratio = mask_point_sample_ratio
         self.cost_mask_ce = cost_mask_ce
         self.cost_mask_dice = cost_mask_dice
@@ -178,18 +183,11 @@ class HungarianMatcher(nn.Module):
         sanitized_cost_matrix[~finite_mask] = replacement_cost
         return sanitized_cost_matrix
 
-    @torch.no_grad()
-    def compute_matching_cost(self, outputs, targets):
-        """Build compact same-image detection costs, or retain the full fallback.
-
-        Adapted from Roboflow RF-DETR b49df291 (Apache-2.0). The compact
-        representation is [queries, sum(targets)] instead of
-        [batch, queries, sum(targets)]. Keep the original formula/solver and
-        full-matrix sanitizer for exceptional inputs and non-detection tasks.
-        """
+    def _compact_path_applicable(self, outputs, targets):
+        """Metadata-only routing; no accelerator synchronization."""
         boxes = outputs["pred_boxes"]
         logits = outputs["pred_logits"]
-        batch, queries, classes = logits.shape
+        batch, queries, _classes = logits.shape
         if (
             batch < 2
             or boxes.dtype not in (torch.float32, torch.float64)
@@ -204,21 +202,37 @@ class HungarianMatcher(nn.Module):
                 for target in targets
             )
         ):
-            return self.compute_cost_matrix(outputs, targets)
+            return False
 
         sizes = [len(target["boxes"]) for target in targets]
         total_targets = sum(sizes)
         if not total_targets:
-            return boxes.new_empty((queries, 0), dtype=torch.float32)
+            return True
         # On a heavily skewed batch padding approaches the full matrix size.
         # Retain the original allocation order/path when savings are marginal.
         if 4 * max(sizes) > 3 * total_targets:
-            return self.compute_cost_matrix(outputs, targets)
+            return False
         # Compact construction adds launches and a safety read. Small accelerator
         # matrices are launch-bound; retain the original path there.
         if (boxes.is_cuda or boxes.device.type == "mps") and batch * queries * total_targets < 250_000:
-            return self.compute_cost_matrix(outputs, targets)
+            return False
 
+        return True
+
+    @torch.no_grad()
+    def _compute_compact_cost(self, outputs, targets):
+        """Return same-image costs and an unsynchronized safety predicate.
+
+        Adapted from RF-DETR b49df291 (Apache-2.0). Keeping the check on
+        device lets all decoder levels share one safety read and transfer.
+        """
+        boxes, logits = outputs["pred_boxes"], outputs["pred_logits"]
+        batch, queries, classes = logits.shape
+        sizes = [len(target["boxes"]) for target in targets]
+        if not sum(sizes):
+            return boxes.new_empty((queries, 0), dtype=torch.float32), boxes.new_ones(
+                (), dtype=torch.bool
+            )
         # Clamp only for safe speculative gather. Invalid labels still take the
         # original path, including its negative-index and out-of-range behavior.
         ids = torch.nn.utils.rnn.pad_sequence([t["labels"] for t in targets], batch_first=True)
@@ -230,9 +244,8 @@ class HungarianMatcher(nn.Module):
         )
         selected = logits.gather(2, ids.clamp(0, classes - 1)[:, None].expand(batch, queries, -1))
         prob = selected.sigmoid()
-        # Preserve the existing alpha/math; changing loss semantics is separate.
-        neg = 0.75 * prob.square() * (-F.logsigmoid(-selected))
-        pos = 0.25 * (1 - prob).square() * (-F.logsigmoid(selected))
+        neg = (1 - self.focal_alpha) * prob.square() * (-F.logsigmoid(-selected))
+        pos = self.focal_alpha * (1 - prob).square() * (-F.logsigmoid(selected))
         class_cost = pos - neg
         del selected, prob, neg, pos
         l1 = (boxes[:, :, None] - target_boxes[:, None]).abs().sum(-1)
@@ -248,11 +261,103 @@ class HungarianMatcher(nn.Module):
             ((ids >= 0) & (ids < classes)).all(),
             torch.isfinite(compact).all(),
         ]).all()
-        if not bool(safe):
-            # Do not allocate the full fallback on top of compact temporaries.
-            del ids, target_boxes, giou, class_cost, l1, padded, compact
+        return compact, safe
+
+    @torch.no_grad()
+    def compute_matching_cost(self, outputs, targets):
+        """Compact finite detection costs, or the original full-cost fallback."""
+        if not self._compact_path_applicable(outputs, targets):
             return self.compute_cost_matrix(outputs, targets)
-        return compact
+        compact, safe = self._compute_compact_cost(outputs, targets)
+        if bool(safe):
+            return compact
+        del compact, safe
+        return self.compute_cost_matrix(outputs, targets)
+
+    def _use_gpu_assignment(self, cost):
+        if (
+            self.matcher_backend == "scipy"
+            or not cost.is_cuda
+            or torch.version.hip is not None
+        ):
+            return False
+        import sys
+
+        if (
+            sys.platform != "linux"
+            or torch.cuda.get_device_capability(cost.device)[0] < 8
+        ):
+            return False
+        if self._gpu_assignment_available is None:
+            from importlib.metadata import PackageNotFoundError, version
+
+            try:
+                self._gpu_assignment_available = (
+                    version("torch-hungarian") == "0.1.0rc0"
+                )
+            except PackageNotFoundError:
+                self._gpu_assignment_available = False
+            logger.info(
+                "RF-DETR assignment backend: %s",
+                "torch-hungarian" if self._gpu_assignment_available else "scipy",
+            )
+        return self._gpu_assignment_available
+
+    def _solve_matching_cost(self, cost, targets, group_detr):
+        if (
+            cost.ndim == 2
+            and cost.shape[0] % group_detr == 0
+            and self._use_gpu_assignment(cost)
+        ):
+            from ._assignment import assign_many_bucketed
+
+            return assign_many_bucketed(
+                [cost], [len(t["boxes"]) for t in targets], group_detr
+            )[0]
+        return self.solve(cost.cpu(), targets, group_detr)
+
+    @torch.no_grad()
+    def match_many(self, levels, targets, group_detr=1):
+        """Match all decoder levels with one compact host transfer when bounded.
+
+        Large/extended-task batches retain the depth-two cost pipeline. Unsafe
+        detection inputs retain the original full-matrix sanitizer, whose
+        sentinel depends on the full matrix's finite values.
+        """
+        sizes = [len(target["boxes"]) for target in targets]
+        query_counts = [level["pred_logits"].shape[1] for level in levels]
+        # At most 64 MiB of live compact costs, plus the packed transfer buffer.
+        compact = sum(sizes) * sum(query_counts) <= 16_000_000 and all(
+            self._compact_path_applicable(level, targets) for level in levels
+        )
+        if compact:
+            costs, checks = zip(
+                *(self._compute_compact_cost(level, targets) for level in levels)
+            )
+            if bool(torch.stack(checks).all()):
+                if all(
+                    q % group_detr == 0 for q in query_counts
+                ) and self._use_gpu_assignment(costs[0]):
+                    from ._assignment import assign_many_bucketed
+
+                    return assign_many_bucketed(list(costs), sizes, group_detr)
+                packed = torch.cat(costs, dim=0).cpu()
+                return [
+                    self.solve(cost, targets, group_detr)
+                    for cost in packed.split(query_counts, dim=0)
+                ]
+            del costs, checks
+            compute = self.compute_cost_matrix
+        else:
+            compute = self.compute_matching_cost
+        indices = []
+        pending = compute(levels[0], targets)
+        for level in levels[1:]:
+            following = compute(level, targets)
+            indices.append(self._solve_matching_cost(pending, targets, group_detr))
+            pending = following
+        indices.append(self._solve_matching_cost(pending, targets, group_detr))
+        return indices
 
     @torch.no_grad()
     def compute_cost_matrix(self, outputs, targets):
@@ -295,7 +400,7 @@ class HungarianMatcher(nn.Module):
         cost_giou = -giou
 
         # Compute the classification cost.
-        alpha = 0.25
+        alpha = self.focal_alpha
         gamma = 2.0
 
         # neg_cost_class = (1 - alpha) * (out_prob ** gamma) * (-(1 - out_prob + 1e-8).log())
@@ -490,8 +595,8 @@ class HungarianMatcher(nn.Module):
             For each batch element, it holds:
                 len(index_i) = len(index_j) = min(num_queries, num_target_boxes)
         """
-        cost_matrix = self.compute_matching_cost(outputs, targets).cpu()
-        return self.solve(cost_matrix, targets, group_detr=group_detr)
+        cost_matrix = self.compute_matching_cost(outputs, targets)
+        return self._solve_matching_cost(cost_matrix, targets, group_detr)
 
 
 def build_matcher(args):
@@ -502,10 +607,13 @@ def build_matcher(args):
         "cost_bbox": args.set_cost_bbox,
         "cost_giou": args.set_cost_giou,
         "focal_alpha": args.focal_alpha,
+        "matcher_backend": getattr(args, "matcher_backend", "auto"),
         "cost_angle": getattr(args, "set_cost_angle", 0.0),
         "num_keypoints_per_class": getattr(args, "num_keypoints_per_class", []),
         "keypoint_l1_loss_coef": getattr(args, "keypoint_l1_loss_coef", 0.0),
-        "keypoint_findable_loss_coef": getattr(args, "keypoint_findable_loss_coef", 0.0),
+        "keypoint_findable_loss_coef": getattr(
+            args, "keypoint_findable_loss_coef", 0.0
+        ),
         "keypoint_visible_loss_coef": getattr(args, "keypoint_visible_loss_coef", 0.0),
         "keypoint_nll_loss_coef": getattr(args, "keypoint_nll_loss_coef", 0.0),
     }
