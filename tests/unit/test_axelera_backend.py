@@ -155,6 +155,61 @@ def _dataset(tmp_path, n=3):
     return path
 
 
+def _well_conditioned_yolo9():
+    """A YOLO9-t whose predictions on ``_image(shape=(96, 96, 3))`` can be
+    compared after NMS. At default init the head's input is ~1e-6, so every
+    anchor gets the same score and NMS order is decided by ties. BatchNorm
+    statistics are set in eval mode, layer by layer in forward order, on that
+    image plus three random ones; then each level's last convs are scaled by
+    their measured input std: class logits about -3 +- 1.5 (seven candidates above conf=0.5, some overlapping), box bins peaked
+    near 1.5 strides, all inside YOLO9_RAW_OUTPUT_WINDOWS and the class
+    activation bound. The parity test checks the margins before comparing."""
+    import torch
+
+    from libreyolo import LibreYOLO9
+
+    torch.manual_seed(0)
+    model = LibreYOLO9(None, size="t", nb_classes=3, device="cpu")
+    net = model.model.eval()
+    blob = model._preprocess(_image(shape=(96, 96, 3)), input_size=96)[0]
+    calib = torch.cat([blob, torch.rand(3, 3, 96, 96, generator=torch.Generator().manual_seed(3))])
+
+    def first_inputs(modules, x):
+        seen: dict = {}
+        hooks = [m.register_forward_hook(lambda m, i, o: seen.setdefault(m, i[0])) for m in modules]
+        with torch.no_grad():
+            net(x)
+        for hook in hooks:
+            hook.remove()
+        return seen
+
+    norms = [m for m in net.modules() if isinstance(m, torch.nn.BatchNorm2d)]
+    for norm in list(first_inputs(norms, calib)):  # dict order = forward order
+        x = first_inputs([norm], calib)[norm]
+        with torch.no_grad():
+            norm.running_mean.copy_(x.mean(dim=(0, 2, 3)))
+            # The floor keeps near-dead channels from amplifying float rounding.
+            norm.running_var.copy_(x.var(dim=(0, 2, 3)) + 1e-1)
+
+    head = net.head
+    lasts = [t[-1] for t in head.class_convs] + [t[-1] for t in head.anchor_convs]
+    input_std = {m: float(x.std()) for m, x in first_inputs(lasts, blob).items()}
+    generator = torch.Generator().manual_seed(24)
+    bins = torch.arange(16, dtype=torch.float32)
+    with torch.no_grad():
+        for tower in head.class_convs:
+            conv = tower[-1]
+            scale = 1.5 / (input_std[conv] * conv.in_channels**0.5)
+            conv.weight.copy_(torch.randn(conv.weight.shape, generator=generator) * scale)
+            conv.bias.fill_(-3.0)
+        for tower in head.anchor_convs:
+            conv = tower[-1]
+            scale = 0.5 / (input_std[conv] * conv.in_channels**0.5)
+            conv.weight.copy_(torch.randn(conv.weight.shape, generator=generator) * scale)
+            conv.bias.copy_(-0.7 * (bins - 1.5).abs().repeat(4))
+    return model
+
+
 def _export(tmp_path, task="detect"):
     """``task`` is a YOLO-NAS task, ``"yolo9"`` for a YOLO9-t detector,
     ``"yolox"`` for a YOLOX-n detector or ``"yolo4"`` for a YOLOv4-tiny detector."""
@@ -164,13 +219,7 @@ def _export(tmp_path, task="detect"):
 
     torch.manual_seed(0)
     if task == "yolo9":
-        model = LibreYOLO9(None, size="t", nb_classes=3, device="cpu")
-        generator = torch.Generator().manual_seed(1)
-        with torch.no_grad():  # class bias starts at -10 and its tower outputs zeros; randomize it so scores pass conf without ties
-            for tower in model.model.head.class_convs:
-                for param in tower.parameters():
-                    param.copy_(torch.randn(param.shape, generator=generator) * 0.5)
-                tower[-1].bias.copy_(torch.linspace(1.0, -1.0, tower[-1].bias.numel()))
+        model = _well_conditioned_yolo9()
     elif task == "yolo4":
         model = LibreYOLO4(None, size="t", nb_classes=3, device="cpu")
         generator = torch.Generator().manual_seed(1)
@@ -278,21 +327,42 @@ def test_yolo9_backend_matches_the_exported_graph(exports, tmp_path):
     assert type(backend).__name__ == "AxeleraBackend"
     assert backend.model_family == "yolo9" and backend.task == "detect"
 
-    image = _image()
+    image = _image(shape=(96, 96, 3))  # square: no letterbox padding to clamp into
     blob = model._preprocess(image, input_size=96)[0]
     blob = blob.numpy() if hasattr(blob, "numpy") else np.asarray(blob)
     with torch.no_grad():
         reference = model.model.eval()(torch.from_numpy(blob))["predictions"].numpy()
     (decoded,) = backend._run_inference(blob)
     assert decoded.shape == reference.shape  # (1, 4 + nc, N)
-    np.testing.assert_allclose(decoded[:, :4], reference[:, :4], rtol=1e-6, atol=1e-3)
-    np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=1e-5)
+    # Export fuses conv+BN: float rounding through the whole net, in pixels on a 96 px canvas.
+    np.testing.assert_allclose(decoded[:, :4], reference[:, :4], atol=2e-2)
+    np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=1e-3)
+
+    # Predictions can only be compared if no score sits near conf, no same-class
+    # pair near the NMS IoU and no overlapping pair on a score tie, each with a
+    # margin of at least 5x the tolerances above.
+    conf, iou = 0.5, 0.5
+    boxes, scores = np.clip(reference[0, :4].T, 0, 96), reference[0, 4:].T
+    assert np.abs(scores - conf).min() > 5e-3
+    above = np.argwhere(scores > conf)
+    assert 2 <= len(above) <= 40
+    for cls in np.unique(above[:, 1]):
+        rows = boxes[above[above[:, 1] == cls, 0]]
+        for i in range(len(rows)):
+            for j in range(i + 1, len(rows)):
+                a, b = rows[i], rows[j]
+                inter = max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+                union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+                assert abs(inter / union - iou) > 2e-2
+                if inter > 0:  # overlapping boxes: NMS order must not hang on a tie
+                    rows_idx = above[above[:, 1] == cls, 0]
+                    assert abs(scores[rows_idx[i], cls] - scores[rows_idx[j], cls]) > 5e-3
 
     onnx_backend = LibreYOLO(
         model.export(format="onnx", imgsz=96, dynamic=False, output_path=str(tmp_path / "ref.onnx"))
     )
-    expected = onnx_backend(image, conf=0.3)
-    actual = backend(image, conf=0.3)
+    expected = onnx_backend(image, conf=conf, iou=iou)
+    actual = backend(image, conf=conf, iou=iou)
     assert len(expected) > 0 and len(actual) == len(expected)
     np.testing.assert_allclose(actual.boxes.xyxy, expected.boxes.xyxy, atol=1e-3)
     np.testing.assert_allclose(actual.boxes.conf, expected.boxes.conf, atol=1e-5)
