@@ -59,6 +59,7 @@ a separate size:
 | SSD | 300 | detect (two parts, L2Norm on the host) | COCO val2017, 1000 | 0.2408 | 0.2403 | -0.05 | validated | `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
+| EfficientDet | d2 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3744 | 0.3606 | -1.38 (canvas -5.31 more) | supported | `efficientdet/detect/d2/2026-11-14` |
 | RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3250 | -1.44 | supported | `rtmdet/segment/t/2026-11-12/2` |
 | RTMDet-Ins | s | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3719 | 0.3139 | -5.80 | supported | `rtmdet/segment/s/2026-11-12/4` |
 | RTMDet-Ins | m | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4011 | 0.3932 | -0.79 (box -3.96) | supported | `rtmdet/segment/m/2026-11-12/2` |
@@ -121,7 +122,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -7.26, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-12/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
 | RetinaNet | detect | r50 (supported: 1024x1024 canvas by default, -1.11 end to end; imgsz=800 is about 1.64x less compute at -2.25; r50v2 blocked, section 11) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-14/4` |
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
-| EfficientDet | detect | d0, d1 (supported with measured drops; d1 at a fixed 512x512 canvas; d2-d4 not measured yet) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3` |
+| EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 blocked: does not compile; d4 not measured yet) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 blocked `efficientdet/detect/d3/2026-11-14` |
 | YOLO9-E2E, YOLO9-P2, other families | all | all | not measured yet (section 11) | - |
 | RF-DETR and other transformer families | all | all | out of scope (section 11) | - |
 
@@ -330,6 +331,7 @@ table at the top of this page.
 | SSD300 (two parts) | detect | COCO val2017, 1000 images | 128 coco128 | 0.2408 | 0.2403 | -0.05 (+0.09 on 300) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
+| EfficientDet-d2 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3744 | 0.3606 | -1.38 (supported; canvas -5.31 more) |
 | RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3250 | -1.44 (supported; box -2.51) |
 | RTMDet-Ins-s | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3719 | 0.3139 | -5.80 (supported; box -7.26) |
 | RTMDet-Ins-m | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4011 | 0.3932 | -0.79 (supported: box -3.96; on 300 mask -0.67, box -4.56) |
@@ -465,13 +467,16 @@ default) bring it to -1.0 there and -1.78 on 1000 images, spread over small
 
 EfficientDet-d1, -d2 and -d3 do not compile at their native 640, 768 and
 896: lowering finds no L1 tiling even with one-row tiles (3.42, 3.15 and
-2.52 MB needed against 2.82, 2.54 and 2.15 MB). EfficientDet-d1 therefore
-exports at d0's 512x512 canvas: the exporter rebuilds the BiFPN, whose
-resampling is sized from the image size, for 512 with the same weights, and
-images are resized to 512. On 1000 images the smaller canvas costs 3.10
-mAP50-95 points in FP32 (0.3949 at 640 vs 0.3639 at 512; small objects
-0.125 vs 0.072) and INT8 1.64 more (0.3475 on the device), which is still
-2.9 points above EfficientDet-d0 on the device.
+2.52 MB needed against 2.82, 2.54 and 2.15 MB). EfficientDet-d1 and -d2
+therefore export at d0's 512x512 canvas: the exporter rebuilds the BiFPN,
+whose resampling is sized from the image size, for 512 with the same
+weights, and images are resized to 512. On 1000 images the smaller canvas
+costs d1 3.10 mAP50-95 points in FP32 (0.3949 at 640 vs 0.3639 at 512; small
+objects 0.125 vs 0.072) and INT8 1.64 more (0.3475 on the device), and d2
+5.31 (0.4275 at 768 vs 0.3744) and INT8 1.38 more (0.3606). Both stay above
+EfficientDet-d0 on the device (0.3185). EfficientDet-d3 does not fit at 512
+either (2.58 vs 2.14 MB): its need is set by its 160-channel BiFPN and heads,
+not by the canvas.
 
 SSD300 runs in two compiled parts with one host step between them (layout
 `ssd_raw_heads_v1`, metadata `parts`). Its conv4_3 L2Norm divides each
@@ -660,6 +665,7 @@ compiles their own.
 Blocked for structural reasons (accuracy never blocks an export):
 
 - EfficientNetV2-b1, -b2 and -b3: do not compile with SDK 1.9.0 (the compiled model has two output buffers for its one output: b1 at 224 and 240 px, b3 at 224 and its native 300 px; at 256 px b1's squeeze-excitation pooling exceeds a reduction limit).
+- EfficientDet-d3: lowering finds no L1 tiling at its native 896 (2.52 MB needed, 2.15 MB available) nor at a 512 canvas (2.58 vs 2.14 MB); its 160-channel BiFPN and heads set the need (ledgers `efficientdet/detect/d3/2026-11-13/2`, `efficientdet/detect/d3/2026-11-14`). Use d2.
 - HRNet (pose): compiles, but the device output drifts from the quantized model stage by stage (keypoint mAP 0.000 on device vs a working CPU-quantized model).
 - ZipDepth: after an exact ReduceMean-to-pooling rewrite, quantization fails on the GCNet context MatMul.
 - DeepLabV3-ResNet50/101: quantize, but at output stride 8 the ASPP convolutions need the whole 64x64 feature map and lowering finds no L1 tiling.
@@ -678,7 +684,8 @@ Blocked for structural reasons (accuracy never blocks an export):
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
-- EfficientDet-d2 to -d4 (d2 and d3 do not compile at their native size; a 512 canvas is being measured), Real-ESRGAN-x4 and -x2 (their compiles did not finish within 4 h and 3.5 h; no error seen; ledger `realesrgan/restore/x4/2026-11-13`, `realesrgan/restore/x2/2026-11-13`).
+- EfficientDet-d4.
+- Real-ESRGAN-x4 and -x2 (their compiles did not finish within 4 h and 3.5 h; no error seen; ledger `realesrgan/restore/x4/2026-11-13`, `realesrgan/restore/x2/2026-11-13`).
 - YOLO9-E2E and YOLO9-P2.
 - PIDNet-s: the compile did not finish within 90 minutes at 1024x1024 or 512x512 (ledgers `pidnet/semantic/s/2026-11-12`, `pidnet/semantic/s/2026-11-13`).
 - DEKR-w32 (pose, 640x640): the whole-graph compile (raw heatmap logits and offsets) did not finish within 3 hours; no error seen, 4.6 GB peak RSS (ledger `dekr/pose/w32/2026-11-14`). DEKR also has no Axelera export contract yet.

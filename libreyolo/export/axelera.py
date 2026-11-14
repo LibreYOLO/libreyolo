@@ -81,6 +81,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # one-row tiles, 2.82 MB available); at d0's 512 canvas it compiles. The
     # exporter rebuilds the BiFPN for the canvas (same weights).
     ("efficientdet", "detect", "d1"): {"canvas": 512},
+    # EfficientDet-d2 at its native 768: 3.15 MB needed, 2.54 MB available.
+    ("efficientdet", "detect", "d2"): {"canvas": 512},
     # RetinaNet-R50 resizes each image to a shorter side of 800 (longer up to
     # 1333); the fixed canvas fits the whole image inside, so at 800x800 most
     # images reach the network smaller (-2.25 end to end on 1000 COCO images).

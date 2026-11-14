@@ -4447,16 +4447,17 @@ _add(
         "and the host decodes the boxes in float. Supported, not validated: on "
         "a Metis M.2 Max with per-channel activation ranges EfficientDet-d0 "
         "loses 1.78 mAP50-95 points against FP32 on 1000 COCO val2017 images; "
-        "EfficientDet-d1 runs at d0's 512x512 canvas (its native 640 does not "
-        "compile), which costs 3.10 points in FP32 and INT8 1.64 more "
-        "(docs/axelera.md)."
+        "EfficientDet-d1 and -d2 run at d0's 512x512 canvas (their native 640 "
+        "and 768 do not compile), which costs 3.10 and 5.31 points in FP32 and "
+        "INT8 1.64 and 1.38 more (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: d0 and d1 (d1 at a fixed 512x512 canvas; measured "
-        "drops, SIZE_ACCURACY_NOTES); d2-d4 are not measured on a Metis yet "
-        "(UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
-        "compile, INT8, batch 1, fixed input size"
+        "supported sizes: d0, d1 and d2 (d1 and d2 at a fixed 512x512 canvas; "
+        "measured drops, SIZE_ACCURACY_NOTES); d3 does not compile "
+        "(BLOCKED_SIZES); d4 is not measured on a Metis yet (UNMEASURED_SIZES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed input size"
     ),
 )
 _add(
@@ -4842,6 +4843,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "the smaller canvas costs 3.10 points (mostly small objects) and INT8 "
             "1.64"
         ),
+        "d2": (
+            "measured mAP50-95 drop 6.69 points vs FP32 at its native 768 (0.3606 "
+            "on the device at a fixed 512x512 canvas vs 0.4275 on 1000 COCO "
+            "val2017 images): its native 768 does not compile (no L1 tiling fits), "
+            "the smaller canvas costs 5.31 points (mostly small objects) and INT8 "
+            "1.38"
+        ),
     },
     ("retinanet", "detect", "axelera"): {
         "r50": (
@@ -4931,6 +4939,14 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
 #: format, each with its structural reason. Accuracy never lands a size here
 #: (that is SIZE_ACCURACY_NOTES); the export raises for these.
 BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("efficientdet", "detect", "axelera"): {
+        "d3": (
+            "does not compile for Metis with the 1.9 SDK: lowering finds no L1 "
+            "tiling even with one-row tiles, at its native 896 (2.52 MB needed, "
+            "2.15 MB available) and at a 512 canvas (2.58 vs 2.14 MB); its "
+            "160-channel BiFPN and heads set the need, not the canvas; use d2"
+        ),
+    },
     ("midas", "depth", "axelera"): {
         "l": (
             "does not quantize for Metis with the 1.9 SDK: its DPT ViT-L encoder "
@@ -4993,7 +5009,7 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("efficientdet", "detect", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("d2", "d3", "d4")
+        "d4": "has not been measured on a Metis yet"
     },
     ("realesrgan", "restore", "axelera"): {
         "x4": (

@@ -1054,9 +1054,10 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["l", "m", "s", "t"]
     assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]) == ["l", "m", "s", "t"]
     effdet = get_support("efficientdet", "detect", "axelera")
-    assert effdet.tier == "available" and "supported sizes: d0 " in effdet.constraint
+    assert effdet.tier == "available"
+    assert "supported sizes: d0, d1 and d2 " in effdet.constraint
     effdet_notes = SIZE_ACCURACY_NOTES[("efficientdet", "detect", "axelera")]
-    assert sorted(effdet_notes) == ["d0", "d1"]
+    assert sorted(effdet_notes) == ["d0", "d1", "d2"]
     assert precision_support("efficientdet", "detect", "axelera") == (True, True)
     fcos = get_support("fcos", "detect", "axelera")
     assert fcos.tier == "blocked" and "GroupNorm" in fcos.reason
@@ -1110,7 +1111,9 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
 
     assert size_recipe("yolo4", "detect", "t") == {}
     recipes = set(AXELERA_SIZE_RECIPES) - {
-        ("efficientdet", "detect", "d1"), ("retinanet", "detect", "r50"),
+        ("efficientdet", "detect", "d1"),
+        ("efficientdet", "detect", "d2"),
+        ("retinanet", "detect", "r50"),
     }
     assert recipes == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
@@ -1752,6 +1755,11 @@ def test_efficientdet_d1_axelera_recipe_is_the_512_canvas():
     notes = SIZE_ACCURACY_NOTES[("efficientdet", "detect", "axelera")]
     assert "512x512 canvas" in notes["d1"] and "INT8" in notes["d1"]
     assert "d1" not in UNMEASURED_SIZES[("efficientdet", "detect", "axelera")]
+    assert ax.size_recipe("efficientdet", "detect", "d2") == {"canvas": 512}
+    assert sorted(UNMEASURED_SIZES[("efficientdet", "detect", "axelera")]) == ["d4"]
+    from libreyolo.export.support import BLOCKED_SIZES
+
+    assert "L1" in BLOCKED_SIZES[("efficientdet", "detect", "axelera")]["d3"]
 
 
 def test_axelera_canvas_recipe_sets_only_the_default_imgsz(monkeypatch):
