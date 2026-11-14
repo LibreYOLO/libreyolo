@@ -347,16 +347,43 @@ class HungarianMatcher(nn.Module):
                     for cost in packed.split(query_counts, dim=0)
                 ]
             del costs, checks
-            compute = self.compute_cost_matrix
+            use_compact = False
         else:
-            compute = self.compute_matching_cost
+            use_compact = True
+
+        def prepare(level):
+            if use_compact and self._compact_path_applicable(level, targets):
+                return self._compute_compact_cost(level, targets)
+            return self.compute_cost_matrix(level, targets), None
+
         indices = []
-        pending = compute(levels[0], targets)
-        for level in levels[1:]:
-            following = compute(level, targets)
-            indices.append(self._solve_matching_cost(pending, targets, group_detr))
+        pending = prepare(levels[0])
+        for index, level in enumerate(levels):
+            # Queue the following level before reading any device safety flag.
+            following = (
+                prepare(levels[index + 1]) if index + 1 < len(levels) else None
+            )
+            cost, safe = pending
+            pending = None
+            host_cost = None
+            if safe is not None:
+                if self._use_gpu_assignment(cost):
+                    accepted = bool(safe)
+                else:
+                    host_safe = safe.to("cpu", non_blocking=True)
+                    host_cost = cost.cpu()
+                    accepted = bool(host_safe)
+                if not accepted:
+                    # Release compact storage before allocating the full matrix.
+                    cost = safe = host_cost = None
+                    cost = self.compute_cost_matrix(level, targets)
+            if host_cost is not None:
+                indices.append(self.solve(host_cost, targets, group_detr))
+            else:
+                indices.append(self._solve_matching_cost(cost, targets, group_detr))
+            cost = safe = host_cost = None
             pending = following
-        indices.append(self._solve_matching_cost(pending, targets, group_detr))
+            del following
         return indices
 
     @torch.no_grad()

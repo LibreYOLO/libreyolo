@@ -470,3 +470,60 @@ def test_match_many_variable_query_counts_and_unsafe_fallback():
         for a, b in zip(actual, expected):
             for x, y in zip(a, b):
                 assert all(torch.equal(i, j) for i, j in zip(x, y))
+
+
+@pytest.mark.parametrize("unsafe", [False, True])
+def test_bounded_match_pipeline_queues_next_before_safety_read(monkeypatch, unsafe):
+    generator = torch.Generator().manual_seed(153)
+    matcher = _matcher()
+    targets = _targets(3, generator, [2, 4, 3])
+    levels = [_outputs(3, generator, num_queries=q) for q in (12, 18, 9)]
+    if unsafe:
+        levels[1]["pred_logits"][0, 0, targets[0]["labels"][0]] = float("nan")
+    expected = [
+        matcher.solve(matcher.compute_cost_matrix(x, targets), targets, 3)
+        for x in levels
+    ]
+    events, retained = [], []
+    applicability = matcher._compact_path_applicable
+    compute = matcher._compute_compact_cost
+    tensor_bool, tensor_cpu = torch.Tensor.__bool__, torch.Tensor.cpu
+    calls = 0
+
+    def applicable(level, targets):
+        nonlocal calls
+        calls += 1
+        # Force the bounded pipeline without allocating a large fixture.
+        return calls > 1 and applicability(level, targets)
+
+    def prepare(level, targets):
+        index = next(i for i, item in enumerate(levels) if item is level)
+        events.append(("prepare", index))
+        cost, safe = compute(level, targets)
+        retained.append((cost, safe, index))
+        return cost, safe
+
+    def read_flag(tensor):
+        for _, flag, index in retained:
+            if tensor is flag:
+                events.append(("check", index))
+        return tensor_bool(tensor)
+
+    def transfer(tensor, *args, **kwargs):
+        for cost, _, index in retained:
+            if tensor is cost:
+                events.append(("transfer", index))
+        return tensor_cpu(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(matcher, "_compact_path_applicable", applicable)
+    monkeypatch.setattr(matcher, "_compute_compact_cost", prepare)
+    monkeypatch.setattr(torch.Tensor, "__bool__", read_flag)
+    monkeypatch.setattr(torch.Tensor, "cpu", transfer)
+    actual = matcher.match_many(levels, targets, 3)
+    for index in range(3):
+        assert events.index(("transfer", index)) < events.index(("check", index))
+        if index < 2:
+            assert events.index(("prepare", index + 1)) < events.index(("check", index))
+    for a, b in zip(actual, expected):
+        for x, y in zip(a, b):
+            assert all(torch.equal(i, j) for i, j in zip(x, y))
