@@ -1418,7 +1418,11 @@ def test_only_listed_families_request_graph_passes():
             "resize_1x1_broadcast_add",
             "resize_corner_chain",
         ),
-        "pidnet": ("channel_reduce_to_conv", "broadcast_mul_expand"),
+        "pidnet": (
+            "channel_reduce_to_conv",
+            "broadcast_mul_expand",
+            "resize_1x1_broadcast_add",
+        ),
     }
     requested = {name for names in _AXELERA_GRAPH_PASSES.values() for name in names}
     assert requested <= set(ax.GRAPH_PASSES)

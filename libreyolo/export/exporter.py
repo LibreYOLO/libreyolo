@@ -4077,7 +4077,13 @@ _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
         "resize_1x1_broadcast_add",
         "resize_corner_chain",
     ),
-    "pidnet": ("channel_reduce_to_conv", "broadcast_mul_expand"),
+    # PIDNet: the same attention rewrites; its DAPPM adds a 1x1 pooled branch
+    # upsampled by 16 (a 32x32 depthwise window: too wide, F75).
+    "pidnet": (
+        "channel_reduce_to_conv",
+        "broadcast_mul_expand",
+        "resize_1x1_broadcast_add",
+    ),
     # YOLOv1's [connected] layer (Gemm over 7x7x256 after its [local] layer).
     "yolo1": ("fc_rowconv",),
     # BiFPN weighted fusion and squeeze-excite averages in AIPU-runnable form.
