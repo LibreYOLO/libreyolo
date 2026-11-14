@@ -503,6 +503,7 @@ conflicts = [
     [{ extra = "molmo2" }, { extra = "modus" }],
     [{ extra = "molmo2" }, { extra = "openvocab" }],
     [{ extra = "molmo2" }, { extra = "rfdetr" }],
+    [{ extra = "molmo2" }, { extra = "rfdetr-train" }],
     [{ extra = "molmo2" }, { extra = "sam" }],
     [{ extra = "molmo2" }, { extra = "sensenova" }],
     [{ extra = "molmo2" }, { extra = "siglip2-convert" }],
