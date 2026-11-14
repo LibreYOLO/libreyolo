@@ -2,7 +2,9 @@
 
 `LibreGen` runs generative models behind the same call as every other
 LibreYOLO task: text in and an image out, or an image in and a 3D object
-out. Speridlabs Iris-Z also turns an image into depth. The contracts live in
+out. Speridlabs Iris-Z also turns an image into depth, and Open Vision
+Banana answers perception prompts about an image with an image
+(`docs/open_vision_banana.md`). The contracts live in
 `docs/adr/0030-libregen-contract.md` (images),
 `docs/adr/0031-generate3d-contract.md` (3D objects) and
 `docs/adr/0033-speridlabs-irisz.md` (Iris-Z's two tasks).
@@ -81,6 +83,7 @@ model("a red fox", steps=8, guidance=1.0)
 | `prxpixel-7b` | 7B | `steps` (28), `guidance` (5.0), `negative` ("") | about 18 GB | Apache-2.0 (Qwen3-VL text encoder, no autoencoder) |
 | `speridlabs-iris-z` (`-9b`, `-small`) | 9.1B (plus Qwen3 8B FP8 text encoder) | `steps` (50), `guidance` (4.0) | about 18 GB, plus 9 GB text encoder and 0.2 GB VAE | FLUX Non-Commercial (weights); Apache-2.0 text encoder and VAE |
 | `speridlabs-iris-z-32b` (`-big`) | 32.2B (plus Mistral Small 3.2 24B text encoder) | `steps` (50), `guidance` (3.5) | about 64 GB, plus 48 GB text encoder and 0.2 GB VAE | as above |
+| `open-vision-banana` (`-4b`) | 4B (plus Qwen3 4B text encoder) | `steps` (28), `guidance` (3.5); `source=` image | about 16 GB | FLUX Non-Commercial (weights) |
 
 `flux2-klein` and `sana-sprint` are short aliases; `prx` is `prx-1024-beta`
 and `prxpixel` is `prxpixel-7b`.

@@ -1032,6 +1032,25 @@
     "group": "s",
     "cli_command": "generate"
   },
+  "open_vision_banana": {
+    "class": "libreyolo.models.gen.open_vision_banana.LibreOpenVisionBanana",
+    "tasks": [
+      "generate"
+    ],
+    "default_task": "generate",
+    "sizes": {
+      "4b": 1024
+    },
+    "default_imgsz": {
+      "4b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "fomo": {
     "class": "libreyolo.models.fomo.model.LibreFOMO",
     "tasks": [
