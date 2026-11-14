@@ -207,23 +207,32 @@ class HungarianMatcher(nn.Module):
             return self.compute_cost_matrix(outputs, targets)
 
         sizes = [len(target["boxes"]) for target in targets]
-        if not sum(sizes):
+        total_targets = sum(sizes)
+        if not total_targets:
             return boxes.new_empty((queries, 0), dtype=torch.float32)
+        # On a heavily skewed batch padding approaches the full matrix size.
+        # Retain the original allocation order/path when savings are marginal.
+        if 4 * max(sizes) > 3 * total_targets:
+            return self.compute_cost_matrix(outputs, targets)
 
         # Clamp only for safe speculative gather. Invalid labels still take the
         # original path, including its negative-index and out-of-range behavior.
         ids = torch.nn.utils.rnn.pad_sequence([t["labels"] for t in targets], batch_first=True)
         target_boxes = torch.nn.utils.rnn.pad_sequence([t["boxes"] for t in targets], batch_first=True)
+        # GIoU has the largest temporaries: compute it before class/L1 costs,
+        # matching the full path's allocation order.
+        giou = torch.vmap(generalized_box_iou)(
+            box_cxcywh_to_xyxy(boxes), box_cxcywh_to_xyxy(target_boxes)
+        )
         selected = logits.gather(2, ids.clamp(0, classes - 1)[:, None].expand(batch, queries, -1))
         prob = selected.sigmoid()
         # Preserve the existing alpha/math; changing loss semantics is separate.
         neg = 0.75 * prob.square() * (-F.logsigmoid(-selected))
         pos = 0.25 * (1 - prob).square() * (-F.logsigmoid(selected))
+        class_cost = pos - neg
+        del selected, prob, neg, pos
         l1 = (boxes[:, :, None] - target_boxes[:, None]).abs().sum(-1)
-        giou = torch.vmap(generalized_box_iou)(
-            box_cxcywh_to_xyxy(boxes), box_cxcywh_to_xyxy(target_boxes)
-        )
-        padded = self.cost_bbox * l1 + self.cost_class * (pos - neg) - self.cost_giou * giou
+        padded = self.cost_bbox * l1 + self.cost_class * class_cost - self.cost_giou * giou
         compact = torch.cat([padded[i, :, :size] for i, size in enumerate(sizes)], -1).float()
 
         # Bound coordinates so cross-image arithmetic cannot overflow even

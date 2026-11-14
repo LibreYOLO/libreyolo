@@ -222,7 +222,7 @@ def test_adamw_helper_constructs_and_steps():
     assert param.grad is not None
 
 
-@pytest.mark.parametrize("counts", [(0, 0), (0, 7), (1, 5, 2), (35, 2)])
+@pytest.mark.parametrize("counts", [(0, 0), (0, 7), (0, 7, 7), (1, 5, 2), (35, 2)])
 @pytest.mark.parametrize("groups", [1, 3, 13])
 def test_compact_matching_preserves_costs_and_assignments(counts, groups):
     generator = torch.Generator().manual_seed(101)
@@ -231,8 +231,12 @@ def test_compact_matching_preserves_costs_and_assignments(counts, groups):
     targets = _targets(len(counts), generator, counts)
     full = matcher.compute_cost_matrix(outputs, targets)
     compact = matcher.compute_matching_cost(outputs, targets)
-    assert compact.shape == (6 * groups, sum(counts))
-    expected = torch.cat([block[i] for i, block in enumerate(full.split(counts, -1))], -1)
+    if sum(counts) and 4 * max(counts) > 3 * sum(counts):
+        assert compact.shape == full.shape  # skewed padding uses the full fallback
+        expected = full
+    else:
+        assert compact.shape == (6 * groups, sum(counts))
+        expected = torch.cat([block[i] for i, block in enumerate(full.split(counts, -1))], -1)
     torch.testing.assert_close(compact, expected, rtol=0, atol=0)
     for got, ref in zip(matcher.solve(compact, targets, groups), matcher.solve(full, targets, groups)):
         assert all(torch.equal(a, b) for a, b in zip(got, ref))
