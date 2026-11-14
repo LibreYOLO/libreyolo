@@ -41,11 +41,45 @@ def test_matrix_keys_use_canonical_registry_values():
 
 
 def test_matrix_uses_capability_statuses_only():
-    assert {entry.tier for entry in SUPPORT.values()} == {
-        "validated",
-        "available",
-        "blocked",
-    }
+    from typing import get_args
+
+    from libreyolo.export.support import Tier
+
+    tiers = {entry.tier for entry in SUPPORT.values()}
+    assert tiers <= set(get_args(Tier))
+    assert {"validated", "available", "blocked"} <= tiers
+
+
+def test_hybrid_tier_exports_and_is_documented(monkeypatch, caplog):
+    """A hybrid row is not blocked: preflight logs the split, INT8 stays allowed."""
+    from libreyolo.export import support
+    from libreyolo.export.support import SupportEntry, precision_support
+    from tools import gen_compat_table
+
+    key = ("rtdetr", "detect", "onnx")
+    monkeypatch.setitem(
+        support.SUPPORT,
+        key,
+        SupportEntry(
+            "hybrid",
+            "Backbone on the accelerator, transformer decoder on the host CPU.",
+            constraint="fixed input size",
+        ),
+    )
+    exporter = OnnxExporter(_wrapper("rtdetr"))
+    with caplog.at_level("INFO", logger="libreyolo.export.exporter"):
+        exporter._preflight(half=False, int8=False, data=None)
+    assert "is hybrid: Backbone on the accelerator" in caplog.text
+    assert precision_support("rtdetr", "detect", "onnx")[0] is True
+    assert "onnx" not in support.validated_alternatives("rtdetr", "detect")
+
+    rows, _, _, hybrid, _ = gen_compat_table._rows()
+    assert any(row.startswith("| rtdetr | detect | hybrid |") for row in rows)
+    assert hybrid == [
+        "- `rtdetr` / `detect` / `onnx`: Backbone on the accelerator, transformer "
+        "decoder on the host CPU. Constraint: fixed input size"
+    ]
+    assert "## Hybrid combinations" in gen_compat_table.render_docs()
 
 
 def test_matrix_rejects_duplicate_explicit_keys():
@@ -790,7 +824,7 @@ def test_compat_table_paths_do_not_depend_on_working_directory(tmp_path, monkeyp
 
     monkeypatch.chdir(tmp_path)
     assert gen_compat_table.INVENTORY_PATH.exists()
-    rows, _, _, _ = gen_compat_table._rows()
+    rows, _, _, _, _ = gen_compat_table._rows()
     assert rows
     # The full matrix lives in docs/export_support.md; the README is curated.
     rendered = gen_compat_table.render_docs()

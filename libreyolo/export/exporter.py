@@ -2115,6 +2115,14 @@ class BaseExporter(ABC):
                 f"{family} {task} export to {self.format_name} is blocked: "
                 f"{support.reason}{alternatives_text}"
             )
+        if support.tier == "hybrid":
+            logger.info(
+                "%s %s export to %s is hybrid: %s",
+                family,
+                task,
+                self.format_name,
+                support.reason,
+            )
         size = str(getattr(self.model, "size", "") or "")
         structural = BLOCKED_SIZES.get((family, task, self.format_name), {}).get(size)
         if structural:

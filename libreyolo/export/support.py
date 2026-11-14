@@ -8,7 +8,11 @@ from typing import Literal
 
 from ..tasks import TASKS
 
-Tier = Literal["validated", "available", "blocked"]
+#: ``validated``: parity-checked; ``available``: callable with the recorded
+#: context; ``hybrid``: exports and runs, but only part of the network runs on
+#: the target accelerator and the rest (named in the reason) on the host CPU;
+#: ``blocked``: refused in preflight.
+Tier = Literal["validated", "available", "hybrid", "blocked"]
 EXPORT_FORMATS = (
     "onnx",
     "torchscript",

@@ -4,8 +4,9 @@ This document is generated from `libreyolo/export/support.py`.
 Do not edit the matrix by hand.
 
 `✓` means parity-validated, `available` means the converter path is callable
-with the validation context described below, and an empty cell is blocked
-in preflight.
+with the validation context described below, `hybrid` means the export runs
+with part of the network on the target accelerator and the rest on the host
+CPU (details below), and an empty cell is blocked in preflight.
 
 | Family | Task | onnx | torchscript | executorch | tensorrt | openvino | paddle | mnn | rknn | axelera | ncnn | tflite | coreml | coreai |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -735,6 +736,12 @@ These converter paths are callable with the recorded validation context.
 - `yolox` / `detect` / `tensorrt`: The permissively licensed trained checkpoint exports, reloads, and passes public predict parity, but normalized raw error is 1.6% and image signal is only 2.1 times the conversion error.
 - `yolox` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
 - `zipdepth` / `depth` / `tensorrt`: TensorRT 10.16 FP32 exports, reloads, and predicts, but repeated builds produced raw depth PSNR as low as 30.27 dB, below the 40 dB promotion gate.
+
+## Hybrid combinations
+
+These exports run part of the network on the target accelerator and the
+rest on the host CPU; each entry names the split.
+
 
 ## Blocked combinations
 
