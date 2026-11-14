@@ -4339,7 +4339,11 @@ class BaseBackend(ABC):
                 reading_order=_order_tensor(reading_order),
             )
 
-        if obb is None and not _is_nms_free_family(self.model_family):
+        # RTMDet-Ins outputs come from the native postprocess, which already ran
+        # NMS on the padded canvas; a second pass on the boxes clamped to the
+        # image can drop boxes native predict keeps.
+        native_nms_done = self.model_family == "rtmdet" and self.task == "segment"
+        if obb is None and not native_nms_done and not _is_nms_free_family(self.model_family):
             # YOLO9 needs class-aware NMS so multi-label detections
             # on a shared anchor (same box, different class) survive, matching
             # the native batched_nms path. Class-agnostic NMS would drop the

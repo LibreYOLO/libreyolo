@@ -2029,3 +2029,26 @@ def test_exported_yolonas_backend_validates_with_the_task_geometry(task, expecte
     backend.imgsz = 1024
     assert type(backend._get_val_preprocessor(1024)).__name__ == expected
 
+
+
+@pytest.mark.parametrize("task, kept", [("segment", 2), ("detect", 1)])
+def test_rtmdet_ins_backend_skips_a_second_nms(task, kept):
+    """RTMDet-Ins parses through the native postprocess, which already ran NMS on
+    the padded canvas. Two boxes reaching into the right padding, [0, 0, 100, 50]
+    and [40, 0, 140, 50] (IoU 0.43), clamp to a 100 px wide image as below (IoU
+    0.60): native keeps both at iou=0.45, so the backend must not suppress again.
+    RTMDet detect still parses raw candidates and keeps its NMS."""
+    backend = _DummyBackend("rtmdet", task=task, supported_tasks=("detect", "segment"))
+    boxes = np.array([[0, 0, 100, 50], [40, 0, 100, 50]], dtype=np.float32)
+    result = backend._build_result(
+        boxes,
+        np.array([0.9, 0.8], dtype=np.float32),
+        np.array([0, 0], dtype=np.int64),
+        masks=np.ones((2, 50, 100), dtype=bool) if task == "segment" else None,
+        orig_shape=(50, 100),
+        image_path=None,
+        iou=0.45,
+        classes=None,
+        max_det=300,
+    )
+    assert len(result.boxes) == kept

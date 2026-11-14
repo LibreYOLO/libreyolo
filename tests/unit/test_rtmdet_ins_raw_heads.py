@@ -112,6 +112,22 @@ def test_host_path_matches_native_postprocess(hw):
     # Mask decode is the same code on the same tensors up to the reg*stride float order.
     assert (masks != expected["masks"].numpy()).mean() < 1e-4
 
+    # Through result building too: no second suppression on top of native NMS.
+    class _Backend(BaseBackend):
+        def _run_inference(self, blob):
+            raise NotImplementedError
+
+    backend = _Backend(
+        model_path="dummy", nb_classes=5, device="cpu", imgsz=hw, model_family="rtmdet",
+        names={i: str(i) for i in range(5)}, task="segment", supported_tasks=("detect", "segment"),
+    )
+    result = backend._build_result(
+        boxes, scores, classes, masks=masks, orig_shape=(original[1], original[0]),
+        image_path=None, iou=0.6, classes=None, max_det=100,
+    )
+    assert len(result.boxes) == expected["num_detections"]
+    np.testing.assert_allclose(result.boxes.xyxy.numpy(), expected["boxes"].numpy(), rtol=1e-5, atol=1e-3)
+
     # The val path passes ratio=None: the parser derives the letterbox ratio itself.
     boxes_none, *_ = BaseBackend._parse_rtmdet_segment(
         None, decoded, hw, original[0], original[1], 0.3, None, iou=0.6, max_det=100
