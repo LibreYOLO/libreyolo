@@ -82,7 +82,8 @@ libreyolo val model=runs/train/yolo9_exp/weights/best.pt data=coco8.yaml save_js
 libreyolo export model=runs/train/yolo9_exp/weights/best.pt format=onnx half=true
 ```
 Run `libreyolo formats` for each format's extension and FP16/INT8 support.
-`format=axelera` (INT8 for Axelera Metis AIPUs, YOLO-NAS detect and pose)
+`format=axelera` (INT8 for Axelera Metis AIPUs: 23 families across detect,
+pose, obb, segment, semantic, classify, restore and depth; `docs/axelera.md`)
 needs Axelera's own SDK packages rather than a LibreYOLO extra; see
 `skills/libreyolo-export-axelera/`.
 

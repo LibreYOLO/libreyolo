@@ -65,10 +65,11 @@ find the (X, Y) case in those tests or run it yourself.
   it is the most fragile chain, keep its extra versions synced with
   pyproject comments.
 - **OpenVINO / ncnn**: install their extras to test; ncnn goes through pnnx.
-- **Axelera**: INT8 only, YOLO-NAS detect and pose only. The exporter cuts
-  the graph after the head convolutions (`_YOLONASRawHeadsWrapper`) and the
-  backend decodes the raw heads on the host
-  (`libreyolo/postprocess/yolonas_raw.py`); `metadata.yaml` carries a
+- **Axelera**: INT8 only; the families and sizes are the axelera column of
+  `docs/export_support.md`. For detectors the exporter cuts the graph after
+  the head convolutions (raw-head wrappers such as `_YOLONASRawHeadsWrapper`)
+  and the backend decodes the raw heads on the host
+  (`libreyolo/postprocess/yolonas_raw.py`, ADR 0034); `metadata.yaml` carries a
   versioned `output_layout` and the compiled model's output order
   (`output_names`), which can differ from the graph's. The SDK is not a pip
   extra (Axelera's own index, EULA); unit tests fake it. Details in
