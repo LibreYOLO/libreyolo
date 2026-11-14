@@ -146,10 +146,12 @@ def test_vit_onnx_is_parity_validated():
     assert "test_vit_export.py" in entry.reason
 
 
-def test_ssd_exports_only_through_its_validated_onnx_contract():
+def test_ssd_exports_only_through_its_validated_contracts():
     assert get_support("ssd", "detect", "onnx").tier == "validated"
+    # Axelera: two compiled parts with the L2Norm on the host (docs/axelera.md).
+    assert get_support("ssd", "detect", "axelera").tier == "validated"
     for fmt in EXPORT_FORMATS:
-        if fmt != "onnx":
+        if fmt not in ("onnx", "axelera"):
             assert get_support("ssd", "detect", fmt).tier == "blocked"
 
 

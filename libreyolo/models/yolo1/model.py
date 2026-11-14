@@ -29,6 +29,7 @@ from ...utils.image_loader import ImageInput
 from ..darknet.family import DarknetFamily
 from ..darknet.preprocess import preprocess_image_stretch as _v1_preprocess_image
 from ..darknet.preprocess import preprocess_numpy_stretch as _v1_preprocess_numpy
+from ...validation.preprocessors import YOLO1ValPreprocessor
 
 # Pascal VOC 20-class order, taken verbatim from the Darknet ``data/voc.names``
 # data file (NOT from memory). The index order is load-bearing: it is the order
@@ -107,6 +108,8 @@ class LibreYOLO1(DarknetFamily):
     # The FC head needs a plain square stretch, not the letterbox the shared
     # DarknetFamily (v2/v3/v4) uses. The matching stretch-inverse in
     # post-processing is selected automatically by the "detection" head kind.
+    val_preprocessor_class = YOLO1ValPreprocessor
+
     @staticmethod
     def _get_preprocess_numpy():
         return _v1_preprocess_numpy

@@ -26,6 +26,13 @@ def export_environment() -> dict[str, dict[str, object]]:
             "runnable": onnx and _installed("openvino"),
             "requires": "onnx and openvino",
         },
+        "axelera": {
+            "runnable": sys.platform.startswith("linux")
+            and onnx
+            and _installed("axelera")
+            and _installed("axelera.compiler"),
+            "requires": "Linux, onnx, and Axelera's axelera-devkit (Axelera's package index)",
+        },
         "ncnn": {"runnable": _installed("pnnx"), "requires": "pnnx"},
         "tflite": {
             "runnable": sys.version_info >= (3, 12) and onnx and _installed("onnx2tf"),
