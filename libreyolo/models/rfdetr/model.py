@@ -1349,6 +1349,12 @@ class LibreRFDETR(BaseModel):
             # exist_ok=False asks for a new run.
             exist_ok = True
 
+        early_stopping = train_kwargs.pop("early_stopping", None)
+        if early_stopping is not None and not any(
+            key in train_kwargs for key in ("patience", "early_stopping_patience")
+        ):
+            train_kwargs["patience"] = 10 if early_stopping else 0
+
         resume_path = None
         resume_wd_override = "weight_decay" in train_kwargs
         if resume:
@@ -1517,9 +1523,6 @@ class LibreRFDETR(BaseModel):
         for src, dst in _TRAIN_ARG_ALIASES.items():
             if src in train_kwargs:
                 train_kwargs[dst] = train_kwargs.pop(src)
-        early_stopping = train_kwargs.pop("early_stopping", None)
-        if early_stopping is not None and "patience" not in train_kwargs:
-            train_kwargs["patience"] = 10 if early_stopping else 0
 
         if resume:
             if not train_kwargs.get("single_cls", False):

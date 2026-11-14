@@ -334,3 +334,12 @@ def test_legacy_resume_recipe_defaults(monkeypatch, tmp_path, task, coefficient)
     wrapper.train(data="data.yaml", resume=str(tmp_path / "last.pt"))
     assert captured["kwargs"]["cls_loss_coef"] == coefficient
     assert captured["kwargs"]["matcher_backend"] == "scipy"
+
+
+@pytest.mark.parametrize('enabled,expected',[(True,10),(False,0)])
+def test_explicit_early_stopping_overrides_saved_patience(monkeypatch,tmp_path,enabled,expected):
+    wrapper=_make_wrapper()
+    monkeypatch.setattr(wrapper,'_checkpoint_train_config',lambda _: {'data':'data.yaml','patience':3})
+    captured=_install_dummy_trainer(monkeypatch,{'save_dir':str(tmp_path/'run')})
+    wrapper.train(data='data.yaml',resume=str(tmp_path/'last.pt'),early_stopping=enabled)
+    assert captured['kwargs']['patience']==expected
