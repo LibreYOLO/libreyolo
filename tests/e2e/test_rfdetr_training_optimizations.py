@@ -18,6 +18,9 @@ from libreyolo.models.rfdetr.trainer import RFDETRTrainer
 from tests.e2e.conftest import cuda_cleanup, requires_cuda
 
 pytestmark = [pytest.mark.e2e, pytest.mark.rfdetr]
+requires_nvidia = pytest.mark.skipif(
+    torch.version.hip is not None, reason="CUDA model rewrites target NVIDIA"
+)
 try:
     _HAS_ASSIGNMENT = version("torch-hungarian") == "0.1.0rc0"
 except PackageNotFoundError:
@@ -34,6 +37,7 @@ def cleanup():
 
 
 @requires_cuda
+@requires_nvidia
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 def test_cuda_fast_paths_execute_and_update_parameters(dtype, monkeypatch):
     if dtype == torch.bfloat16 and not torch.cuda.is_bf16_supported():
