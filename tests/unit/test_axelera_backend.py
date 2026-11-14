@@ -1266,3 +1266,65 @@ def test_per_item_parts_run_every_item(sdk, tmp_path, monkeypatch):
     env = {"crops": np.zeros((0, 4, 4, 4), dtype=np.float32)}
     backend._run_per_item(backend._chain[2], backend._chain_models[2], [env], 2)
     assert env["y"].shape == (0, 2, 4, 4)
+
+
+def _toy_boxes(feat, *, boxes):
+    """Crops of ``feat`` at nested ``[y, x, h, w]`` integer boxes, stacked on the channel axis."""
+    return np.concatenate([feat[:, :, y : y + h, x : x + w] for y, x, h, w in boxes], axis=1).astype(np.float32)
+
+
+def test_host_params_may_nest_and_keep_their_integers(sdk, tmp_path, monkeypatch):
+    import torch
+
+    from libreyolo.export.axelera import export_axelera_parts
+
+    monkeypatch.setitem(axrt.HOST_OPS, "toy_boxes", _toy_boxes)
+    torch.manual_seed(2)
+    trunk, tail = torch.nn.Conv2d(3, 4, 3, padding=1), torch.nn.Conv2d(8, 2, 1)
+    trunk_onnx = _onnx(trunk, [torch.rand(1, 3, 8, 8)], ["images"], ["feat"], tmp_path / "trunk.onnx")
+    tail_onnx = _onnx(tail, [torch.rand(1, 8, 4, 4)], ["crops"], ["y"], tmp_path / "tail.onnx")
+    boxes = [[0, 0, 4, 4], [2, 3, 4, 4]]
+    rng = np.random.default_rng(3)
+    artifact = Path(export_axelera_parts(
+        parts=[
+            {"compile": trunk_onnx, "reference": _Named(trunk, ["feat"]), "input": "images"},
+            {"host": "toy_boxes", "input": "feat", "output": "crops", "boxes": boxes},
+            {"compile": tail_onnx, "reference": _Named(tail, ["y"]), "input": "crops"},
+        ],
+        output_path=str(tmp_path / "boxes_axelera_model"), stem="boxes",
+        metadata={"output_layout": "graph_outputs_v1", "graph_outputs": ["y"]},
+        calibration=[rng.random((1, 3, 8, 8), dtype=np.float32) for _ in range(2)], calibration_info={},
+    ))
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["parts"][1]["boxes"] == boxes and all(isinstance(v, int) for box in meta["parts"][1]["boxes"] for v in box)
+    backend = _chain_backend(artifact, ["y"])
+    image = rng.random((1, 3, 8, 8), dtype=np.float32)
+    (y,) = backend._run_chain([image], batch=False)[0]
+    with torch.no_grad():
+        expected = tail(torch.from_numpy(_toy_boxes(trunk(torch.from_numpy(image)).numpy(), boxes=boxes))).numpy()
+    np.testing.assert_allclose(y, expected, rtol=1e-4, atol=1e-5)
+
+
+def test_fp32_chain_stops_at_the_requested_part(monkeypatch):
+    from libreyolo.export.axelera import _run_fp32_chain
+
+    calls = []
+    head = _Named(_identity_module(), ["a"])
+    host_ops = {"count": lambda a: calls.append(1) or a}
+    parts = [
+        {"compile": "unused.onnx", "reference": head, "input": "images"},
+        {"host": "count", "input": "a", "output": "b"},
+        {"compile": "unused.onnx", "reference": _Named(_identity_module(), ["c"]), "input": "b"},
+    ]
+    seen = []
+    image = np.ones((1, 3, 2, 2), dtype=np.float32)
+    _run_fp32_chain(parts, image, host_ops, {}, {}, lambda i, x: seen.append(i), stop=0)
+    assert seen == [0] and calls == []  # nothing after part 0 ran
+    _run_fp32_chain(parts, image, host_ops, {}, {}, lambda i, x: seen.append(i), stop=2)
+    assert seen == [0, 0, 2] and calls == [1]
+
+
+def _identity_module():
+    import torch
+
+    return torch.nn.Identity()

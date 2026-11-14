@@ -1686,16 +1686,30 @@ def _part_names(spec: Mapping[str, Any], single: str, plural: str) -> list[str]:
 
 
 def _host_value(value):
-    """A host-operation parameter as YAML: lists of numbers as floats, of names as strings."""
+    """A host-operation parameter as YAML: names as strings, integers as ints, other numbers as floats.
+
+    Lists may nest (e.g. one ``[y, x, h, w]`` box per pyramid level).
+    """
+    import numpy as np
+
     if isinstance(value, (list, tuple)):
-        if all(isinstance(v, str) for v in value):
-            return [str(v) for v in value]
-        return [float(v) for v in value]
+        return [_host_value(v) for v in value]
+    if isinstance(value, str):
+        return str(value)
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        return float(value)
     return _plain(value)
 
 
-def _run_fp32_chain(parts: list[Mapping[str, Any]], sample, host_ops, host_arrays, onnx_refs, keep):
-    """Run one image through the FP32 chain; ``keep(part_index, array)`` gets each compiled part's input."""
+def _run_fp32_chain(parts: list[Mapping[str, Any]], sample, host_ops, host_arrays, onnx_refs, keep, stop=None):
+    """Run one image through the FP32 chain; ``keep(part_index, array)`` gets each compiled part's input.
+
+    With ``stop`` the chain ends once part ``stop`` has its input (nothing after it runs).
+    """
     import numpy as np
     import torch
 
@@ -1704,6 +1718,8 @@ def _run_fp32_chain(parts: list[Mapping[str, Any]], sample, host_ops, host_array
         if "compile" in spec:
             source = env[spec["input"]]
             keep(index, source)
+            if index == stop:
+                return env
             reference = spec["reference"]
             with torch.no_grad():
                 outputs = reference(torch.from_numpy(np.ascontiguousarray(source, dtype=np.float32)))
@@ -1788,32 +1804,34 @@ def export_axelera_parts(
     stems = {index: stem if k == 0 else f"{stem}_part{k + 1}" for k, index in enumerate(compiled)}
     onnx_refs = {i: OnnxReference(spec["host_onnx"]) for i, spec in enumerate(parts) if "host_onnx" in spec}
 
-    def propagate(images, limit):
-        inputs: dict[int, list] = {i: [] for i in compiled}
+    def part_inputs(images, part):
+        """What compiled part ``part`` sees for each image: the FP32 chain run up to it.
+
+        Computed for one part at a time, right before it compiles, so only that
+        part's inputs are held in memory (a packed 512-channel canvas is tens of
+        MB per image; holding every part's at once does not fit).
+        """
+        inputs: list = []
 
         def keep(index, array):
+            if index != part:
+                return
             if parts[index].get("per_item"):
-                inputs[index].extend(array[i : i + 1] for i in range(min(len(array), limit)))
+                inputs.extend(array[i : i + 1] for i in range(min(len(array), item_limit)))
             else:
-                inputs[index].append(array)
+                inputs.append(array)
 
         for image in images:
-            _run_fp32_chain(parts, image, HOST_OPS, host_arrays, onnx_refs, keep)
+            _run_fp32_chain(parts, image, HOST_OPS, host_arrays, onnx_refs, keep, stop=part)
         return inputs
 
     samples = list(calibration)
     if len(samples) < 2:
         raise ValueError("A multi-part Axelera export needs at least 2 calibration images.")
-    part_samples = propagate(samples, item_limit)
-    for index in compiled:
-        if len(part_samples[index]) < 2:
-            raise ValueError(
-                f"Part {index} of the multi-part export got {len(part_samples[index])} "
-                "calibration inputs from the calibration images; it needs at least 2."
-            )
-    part_verify = propagate(list(verify_samples or []), item_limit) if verify else {}
-    if verify and not any(part_verify.values()):
+    held_out = list(verify_samples or []) if verify else []
+    if verify and not held_out:
         logger.warning("Axelera verify: no held-out images for the multi-part export; run val on the device.")
+    first_inputs: dict[int, Any] = {}
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
@@ -1842,11 +1860,19 @@ def export_axelera_parts(
                     overrides = part_overrides
                 configs.append(config)
                 reference = spec["reference"]
+                calibration_inputs = part_inputs(samples, index)
+                if len(calibration_inputs) < 2:
+                    raise ValueError(
+                        f"Part {index} of the multi-part export got {len(calibration_inputs)} "
+                        "calibration inputs from the calibration images; it needs at least 2."
+                    )
+                first_inputs[index] = calibration_inputs[0]
+                verify_inputs = part_inputs(held_out, index) if held_out else []
 
-                def before_compile(quantized, index=index, reference=reference):
-                    output_names[index] = device_output_order(quantized, reference, part_samples[index][0])
-                    if part_verify.get(index):
-                        collected[index] = collect_quantized_outputs(quantized, reference, part_verify[index])
+                def before_compile(quantized, index=index, reference=reference, verify_inputs=verify_inputs):
+                    output_names[index] = device_output_order(quantized, reference, first_inputs[index])
+                    if verify_inputs:
+                        collected[index] = collect_quantized_outputs(quantized, reference, verify_inputs)
 
                 model_input = str(spec["compile"])
                 if spec.get("merge_pad", k == 0):
@@ -1854,11 +1880,12 @@ def export_axelera_parts(
                 passes = list(spec.get("graph_passes") or ())
                 if passes:
                     model_input = apply_graph_passes(
-                        model_input, part_dir, passes, samples=part_samples[index][:16]
+                        model_input, part_dir, passes, samples=calibration_inputs[:16]
                     )
                 axm, _ = compile_to_axm(
-                    model_input, part_samples[index], config, part_dir, before_compile=before_compile
+                    model_input, calibration_inputs, config, part_dir, before_compile=before_compile
                 )
+                del calibration_inputs, verify_inputs
                 shutil.copy2(axm, staging / f"{stems[index]}.axm")
                 suffix = "" if k == 0 else f".part{k + 1}"
                 (staging / f"compiler_config_final{suffix}.toml").write_text(
@@ -1881,7 +1908,7 @@ def export_axelera_parts(
                         name: [int(d) for d in np.asarray(out).shape[1:]]
                         for name, out in zip(
                             spec["reference"].output_names,
-                            _reference_outputs(spec["reference"], part_samples[index][0]),
+                            _reference_outputs(spec["reference"], first_inputs[index]),
                         )
                         if name in output_names[index]
                     }
