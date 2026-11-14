@@ -66,10 +66,14 @@ find the (X, Y) case in those tests or run it yourself.
   pyproject comments.
 - **OpenVINO / ncnn**: install their extras to test; ncnn goes through pnnx.
 - **Axelera**: INT8 only; the families and sizes are the axelera column of
-  `docs/export_support.md`. For detectors the exporter cuts the graph after
-  the head convolutions (raw-head wrappers such as `_YOLONASRawHeadsWrapper`)
-  and the backend decodes the raw heads on the host
-  (`libreyolo/postprocess/yolonas_raw.py`, ADR 0034); `metadata.yaml` carries a
+  `docs/export_support.md`. For most detectors (YOLO-NAS, YOLO9, YOLOX,
+  YOLOv2-v4, YOLOv7, PP-YOLOE, PicoDet, RTMDet and RTMDet-Ins, RetinaNet,
+  SSD) the exporter cuts the graph after the head convolutions (raw-head
+  wrappers such as `_YOLONASRawHeadsWrapper`) and the backend decodes the raw
+  heads on the host (`libreyolo/postprocess/yolonas_raw.py`, ADR 0034); SSD
+  also compiles as two parts with its L2Norm on the host. EfficientDet is the
+  exception: it runs whole through `_GraphOutputsWrapper`
+  (`graph_outputs_v1`) and only the box decode runs on the host; `metadata.yaml` carries a
   versioned `output_layout` and the compiled model's output order
   (`output_names`), which can differ from the graph's. The SDK is not a pip
   extra (Axelera's own index, EULA); unit tests fake it. Details in
