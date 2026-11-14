@@ -667,22 +667,17 @@ class SetCriterion(nn.Module):
         group_detr = self.group_detr if self.training else 1
         outputs_without_aux = {k: v for k, v in outputs.items() if k != "aux_outputs"}
 
-        # Match the output levels as a depth-2 pipeline: the next level's
-        # cost matrix is enqueued on the GPU before the current one's
-        # ``.cpu()`` drains, so the device never idles across the per-level
-        # transfers (the old flow drained it once per level with nothing
-        # queued behind). Depth 2 rather than enqueue-everything: a cost
-        # matrix is (bs, num_queries, total_targets) fp32 and can reach
-        # hundreds of MB on dense batches, so holding all levels at once
-        # would raise peak VRAM on memory-edge runs.
+        # Keep at most two levels' costs live. Detection uses compact same-image
+        # blocks; extended tasks and exceptional inputs retain the full matrix.
+        # Transfers and SciPy solves remain on the host, as before.
         aux_outputs_list = outputs.get("aux_outputs", [])
         levels = [outputs_without_aux, *aux_outputs_list]
         if "enc_outputs" in outputs:
             levels.append(outputs["enc_outputs"])
         level_indices = []
-        pending_cost = self.matcher.compute_cost_matrix(levels[0], targets)
+        pending_cost = self.matcher.compute_matching_cost(levels[0], targets)
         for next_level in levels[1:]:
-            next_cost = self.matcher.compute_cost_matrix(next_level, targets)
+            next_cost = self.matcher.compute_matching_cost(next_level, targets)
             level_indices.append(
                 self.matcher.solve(pending_cost.cpu(), targets, group_detr=group_detr)
             )

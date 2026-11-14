@@ -12,16 +12,22 @@ Modified from Deformable DETR (https://github.com/fundamentalvision/Deformable-D
 Copyright (c) 2020 SenseTime. All Rights Reserved.
 """
 
+import logging
+
 import numpy as np
 import torch
-import torch.nn.functional as F  # noqa: N812
+import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 from torch import nn
 
+from .box_ops import (
+    batch_dice_loss,
+    batch_sigmoid_ce_loss,
+    box_cxcywh_to_xyxy,
+    generalized_box_iou,
+)
 from .keypoints import compute_keypoint_matching_cost, map_labels_to_keypoint_schema
 from .segmentation import point_sample
-from .box_ops import batch_dice_loss, batch_sigmoid_ce_loss, box_cxcywh_to_xyxy, generalized_box_iou
-import logging
 
 logger = logging.getLogger(__name__)
 _SANITIZED_COST_MARGIN = 1.0
@@ -171,6 +177,80 @@ class HungarianMatcher(nn.Module):
         sanitized_cost_matrix = cost_matrix.clone()
         sanitized_cost_matrix[~finite_mask] = replacement_cost
         return sanitized_cost_matrix
+
+    @torch.no_grad()
+    def compute_matching_cost(self, outputs, targets):
+        """Build compact same-image detection costs, or retain the full fallback.
+
+        Adapted from Roboflow RF-DETR b49df291 (Apache-2.0). The compact
+        representation is [queries, sum(targets)] instead of
+        [batch, queries, sum(targets)]. Keep the original formula/solver and
+        full-matrix sanitizer for exceptional inputs and non-detection tasks.
+        """
+        boxes = outputs["pred_boxes"]
+        logits = outputs["pred_logits"]
+        batch, queries, classes = logits.shape
+        if (
+            batch < 2
+            or boxes.dtype not in (torch.float32, torch.float64)
+            or any(key in outputs for key in ("pred_masks", "pred_keypoints", "pred_angles"))
+            or self.num_keypoints_per_class
+            or any(
+                any(key in target for key in ("masks", "keypoints", "angles", "valid"))
+                or target["boxes"].dtype != boxes.dtype
+                or target["boxes"].device != boxes.device
+                or target["labels"].dtype != torch.int64
+                or target["labels"].device != logits.device
+                for target in targets
+            )
+        ):
+            return self.compute_cost_matrix(outputs, targets)
+
+        sizes = [len(target["boxes"]) for target in targets]
+        total_targets = sum(sizes)
+        if not total_targets:
+            return boxes.new_empty((queries, 0), dtype=torch.float32)
+        # On a heavily skewed batch padding approaches the full matrix size.
+        # Retain the original allocation order/path when savings are marginal.
+        if 4 * max(sizes) > 3 * total_targets:
+            return self.compute_cost_matrix(outputs, targets)
+        # Compact construction adds launches and a safety read. Small CUDA
+        # matrices are launch-bound; retain the original path there.
+        if boxes.is_cuda and batch * queries * total_targets < 250_000:
+            return self.compute_cost_matrix(outputs, targets)
+
+        # Clamp only for safe speculative gather. Invalid labels still take the
+        # original path, including its negative-index and out-of-range behavior.
+        ids = torch.nn.utils.rnn.pad_sequence([t["labels"] for t in targets], batch_first=True)
+        target_boxes = torch.nn.utils.rnn.pad_sequence([t["boxes"] for t in targets], batch_first=True)
+        # GIoU has the largest temporaries: compute it before class/L1 costs,
+        # matching the full path's allocation order.
+        giou = torch.vmap(generalized_box_iou)(
+            box_cxcywh_to_xyxy(boxes), box_cxcywh_to_xyxy(target_boxes)
+        )
+        selected = logits.gather(2, ids.clamp(0, classes - 1)[:, None].expand(batch, queries, -1))
+        prob = selected.sigmoid()
+        # Preserve the existing alpha/math; changing loss semantics is separate.
+        neg = 0.75 * prob.square() * (-F.logsigmoid(-selected))
+        pos = 0.25 * (1 - prob).square() * (-F.logsigmoid(selected))
+        class_cost = pos - neg
+        del selected, prob, neg, pos
+        l1 = (boxes[:, :, None] - target_boxes[:, None]).abs().sum(-1)
+        padded = self.cost_bbox * l1 + self.cost_class * class_cost - self.cost_giou * giou
+        compact = torch.cat([padded[i, :, :size] for i, size in enumerate(sizes)], -1).float()
+
+        # Bound coordinates so cross-image arithmetic cannot overflow even
+        # when every same-image cost is finite. A single read gates fallback.
+        limit = torch.finfo(boxes.dtype).max ** 0.5 / 16
+        safe = torch.stack([
+            (boxes.abs() <= limit).all(),
+            (target_boxes.abs() <= limit).all(),
+            ((ids >= 0) & (ids < classes)).all(),
+            torch.isfinite(compact).all(),
+        ]).all()
+        if not bool(safe):
+            return self.compute_cost_matrix(outputs, targets)
+        return compact
 
     @torch.no_grad()
     def compute_cost_matrix(self, outputs, targets):
@@ -344,7 +424,8 @@ class HungarianMatcher(nn.Module):
 
         Args:
             cost_matrix: [batch_size, num_queries, total_num_targets] float32
-                CPU tensor from :meth:`compute_cost_matrix` (after ``.cpu()``).
+                CPU tensor from :meth:`compute_cost_matrix`, or compact
+                [num_queries, total_num_targets] from :meth:`compute_matching_cost`.
             targets: Same target list the cost matrix was built from.
             group_detr: Number of groups used for matching.
 
@@ -364,14 +445,17 @@ class HungarianMatcher(nn.Module):
                 self._warned_non_finite_costs = True
             cost_matrix = self._sanitize_cost_matrix(cost_matrix)
 
-        num_queries = cost_matrix.shape[1]
+        num_queries = cost_matrix.shape[-2]
         sizes = [len(v["boxes"]) for v in targets]
         indices = []
         g_num_queries = num_queries // group_detr
-        cost_matrix_list = cost_matrix.split(g_num_queries, dim=1)
+        cost_matrix_list = cost_matrix.split(g_num_queries, dim=-2)
         for g_i in range(group_detr):
             grouped_cost_matrix = cost_matrix_list[g_i]
-            indices_g = [linear_sum_assignment(c[i]) for i, c in enumerate(grouped_cost_matrix.split(sizes, -1))]
+            indices_g = [
+                linear_sum_assignment(c if cost_matrix.ndim == 2 else c[i])
+                for i, c in enumerate(grouped_cost_matrix.split(sizes, -1))
+            ]
             if g_i == 0:
                 indices = indices_g
             else:
@@ -404,7 +488,7 @@ class HungarianMatcher(nn.Module):
             For each batch element, it holds:
                 len(index_i) = len(index_j) = min(num_queries, num_target_boxes)
         """
-        cost_matrix = self.compute_cost_matrix(outputs, targets).cpu()
+        cost_matrix = self.compute_matching_cost(outputs, targets).cpu()
         return self.solve(cost_matrix, targets, group_detr=group_detr)
 
 

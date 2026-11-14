@@ -1239,6 +1239,9 @@ RF-DETR (Roboflow)
 Source: https://github.com/roboflow/rf-detr
 License: Apache License 2.0
 Copyright (c) 2024-2025 Roboflow, Inc.
+Compact detection matching in matcher.py is adapted from RF-DETR commit
+b49df291cdd6b8d19fb722ab402e9a018d2edcd4 (Apache-2.0).
+
 Used for: RF-DETR model family (libreyolo/models/rfdetr/), LoRA
           adapter recipe helpers (libreyolo/training/lora.py), and
           COCO evaluation glue (libreyolo/data/yolo_coco_api.py).
