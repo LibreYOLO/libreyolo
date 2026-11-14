@@ -356,7 +356,17 @@ class FasterRCNNValPreprocessor(BaseValPreprocessor):
 
 
 class RetinaNetValPreprocessor(BaseValPreprocessor):
-    """Upstream min/max aspect resize, ImageNet normalization, and P3-P7 pad."""
+    """Upstream min/max aspect resize, ImageNet normalization, and P3-P7 pad.
+
+    ``fixed_canvas`` fits each image into one ``img_size`` square instead
+    (fixed-shape exports such as Axelera).
+    """
+
+    def __init__(
+        self, img_size: Tuple[int, int], max_labels: int = 120, fixed_canvas: bool = False
+    ):
+        super().__init__(img_size, max_labels)
+        self.fixed_canvas = bool(fixed_canvas)
 
     @property
     def normalize(self) -> bool:
@@ -379,7 +389,7 @@ class RetinaNetValPreprocessor(BaseValPreprocessor):
     ) -> Tuple[float, float, float]:
         from ..models.retinanet.utils import resize_scale
 
-        return resize_scale((orig_w, orig_h), int(imgsz)), 0.0, 0.0
+        return resize_scale((orig_w, orig_h), int(imgsz), self.fixed_canvas), 0.0, 0.0
 
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
@@ -390,7 +400,7 @@ class RetinaNetValPreprocessor(BaseValPreprocessor):
         if target_h != target_w:
             raise ValueError("RetinaNet validation requires a scalar min-side size")
         rgb = np.ascontiguousarray(img[:, :, ::-1])
-        processed, ratio = preprocess_numpy(rgb, int(target_h))
+        processed, ratio = preprocess_numpy(rgb, int(target_h), self.fixed_canvas)
 
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
         if len(targets):
@@ -649,6 +659,52 @@ class DarknetValPreprocessor(YOLO9ValPreprocessor):
         self, img_size: Tuple[int, int], max_labels: int = 120, pad_value: int = 128
     ):
         super().__init__(img_size, max_labels, pad_value=pad_value)
+
+
+class YOLO1ValPreprocessor(BaseValPreprocessor):
+    """YOLOv1: square stretch of the source image, RGB, 0-1, no letterbox.
+
+    The fully-connected head was trained on a plain stretch and the Darknet
+    postprocess inverts one, so the v2/v3/v4 letterbox misplaces every box.
+    Same pixels as ``preprocess_numpy_stretch``, which ``predict()`` uses.
+    """
+
+    @property
+    def normalize(self) -> bool:
+        return False
+
+    @property
+    def custom_normalization(self) -> bool:
+        # preprocess_numpy_stretch already divides by 255.
+        return True
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        from ..models.darknet.preprocess import preprocess_numpy_stretch
+
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+        if target_h != target_w:
+            raise ValueError(
+                f"YOLOv1 validation requires a square imgsz, got {input_size}"
+            )
+        chw, _ = preprocess_numpy_stretch(
+            np.ascontiguousarray(img[:, :, ::-1]), int(target_h)
+        )
+
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets):
+            scaled = np.asarray(targets, dtype=np.float32).copy()
+            count = min(len(scaled), self.max_labels)
+            scaled[:count, [0, 2]] *= target_w / orig_w
+            scaled[:count, [1, 3]] *= target_h / orig_h
+            padded_targets[:count] = scaled[:count]
+        return np.ascontiguousarray(chw, dtype=np.float32), padded_targets
 
 
 class YOLONASValPreprocessor(YOLO9ValPreprocessor):

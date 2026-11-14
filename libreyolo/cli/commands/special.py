@@ -298,6 +298,8 @@ def checks_cmd(
         "ncnn",
         "onnx2tf",
         "ai-edge-litert",
+        "axelera-devkit",
+        "axelera-rt",
         "transformers",
         "scipy",
     ):
@@ -308,6 +310,14 @@ def checks_cmd(
         except Exception:
             packages[pkg] = None
 
+    # Axelera Metis devices appear as /dev/metis-<domain>:<bus>:<device>;
+    # `axdevice` (installed with axelera-rt) reports firmware and clocks.
+    metis_devices = (
+        sorted(path.name for path in Path("/dev").glob("metis-*:*"))
+        if sys.platform.startswith("linux")
+        else []
+    )
+
     out = _get_output(json_output, quiet)
     data = {
         "python": python_version,
@@ -317,6 +327,7 @@ def checks_cmd(
         if torch.backends.cudnn.is_available()
         else None,
         "gpu": gpus,
+        "metis": metis_devices,
         "packages": packages,
     }
 
@@ -332,6 +343,7 @@ def checks_cmd(
                 lines.append(f"GPU {g['index']}:   {g['name']} ({g['memory_mb']} MB)")
         else:
             lines.append("GPU:     none detected")
+        lines.append(f"Metis:   {', '.join(metis_devices) or 'none detected'}")
         lines.append("")
         lines.append("Packages:")
         for pkg, ver in packages.items():

@@ -1844,3 +1844,188 @@ def test_backend_rejects_unsupported_explicit_task():
 def test_backend_accepts_fomo_point_task_with_shared_parser():
     backend = _DummyBackend("fomo", task="point", supported_tasks=("point",))
     assert backend.task == "point"
+
+
+def test_exported_retinanet_backend_validates_with_the_retinanet_geometry():
+    """The standard preprocessor resized RetinaNet inputs to a fixed square, so
+    the parser's anchor geometry did not match and val() raised."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "retinanet"
+    backend.task = "detect"
+    backend.imgsz = 800
+    assert type(backend._get_val_preprocessor(800)).__name__ == "RetinaNetValPreprocessor"
+
+
+def test_exported_ssd_backend_validates_with_the_ssd_preprocessing():
+    """The standard preprocessor fed SSD BGR 0-1 pixels instead of its RGB
+    mean-subtracted input: 0.023 vs 0.250 mAP50-95 (ONNX, 100 COCO images)."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "ssd"
+    backend.task = "detect"
+    backend.imgsz = 300
+    assert type(backend._get_val_preprocessor(300)).__name__ == "SSDValPreprocessor"
+
+
+def test_exported_faster_rcnn_backend_validates_with_the_faster_rcnn_geometry():
+    """The standard preprocessor resized Faster R-CNN inputs to a fixed square
+    while the graph returns boxes in input coordinates, so every box was
+    misplaced: mAP50-95 0.0 vs 0.235 (n, ONNX, 100 COCO images)."""
+    import torch
+
+    from libreyolo.models.faster_rcnn.validator import FasterRCNNValidator
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "faster_rcnn"
+    backend.task = "detect"
+    backend.imgsz = 320
+    assert (
+        type(backend._get_val_preprocessor(320)).__name__
+        == "FasterRCNNValPreprocessor"
+    )
+
+    # Exported outputs are (boxes, scores, labels) for the one image of the
+    # batch; the validator must hand them through whole, not slice the boxes.
+    validator = object.__new__(FasterRCNNValidator)
+    outputs = [torch.zeros(3, 4), torch.zeros(3), torch.zeros(3)]
+    assert validator._slice_batch_predictions(outputs, 0) is outputs
+    native = [{"boxes": torch.zeros(1, 4)}, {"boxes": torch.zeros(2, 4)}]
+    assert validator._slice_batch_predictions(native, 1) is native[1]
+
+
+def test_exported_fcos_backend_validates_with_the_fcos_geometry():
+    """The standard preprocessor fed FCOS a fixed BGR 0-1 square while the
+    parser undoes the aspect resize: 0.031 vs 0.438 mAP50-95 (r50,
+    ONNX, 100 COCO images)."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "fcos"
+    backend.task = "detect"
+    backend.imgsz = 800
+    assert type(backend._get_val_preprocessor(800)).__name__ == "FCOSValPreprocessor"
+
+
+def test_exported_mask_rcnn_backend_validates_with_the_mask_rcnn_geometry():
+    """The standard preprocessor resized Mask R-CNN inputs to a fixed square
+    while the graph returns boxes and masks in input coordinates: mask
+    mAP50-95 0.0 vs 0.503 (r50 segment, ONNX, 10 COCO images)."""
+    import torch
+
+    from libreyolo.models.mask_rcnn.validator import MaskRCNNValidator
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "mask_rcnn"
+    backend.task = "segment"
+    backend.imgsz = 800
+    assert (
+        type(backend._get_val_preprocessor(800)).__name__
+        == "FasterRCNNValPreprocessor"
+    )
+
+    validator = object.__new__(MaskRCNNValidator)
+    outputs = [torch.zeros(2, 4), torch.zeros(2), torch.zeros(2), torch.zeros(2, 1, 8, 8)]
+    assert validator._slice_batch_predictions(outputs, 0) is outputs
+
+
+def test_yolo1_validates_with_the_stretch_it_predicts_with():
+    """YOLOv1 validated with the Darknet letterbox (native) or a BGR stretch
+    (exported); its FC head and postprocess expect an RGB stretch."""
+    import numpy as np
+
+    from libreyolo.models.darknet.preprocess import preprocess_numpy_stretch
+    from libreyolo.models.yolo1.model import LibreYOLO1
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "yolo1"
+    backend.task = "detect"
+    backend.imgsz = 448
+    pre = backend._get_val_preprocessor(448)
+    assert type(pre) is LibreYOLO1.val_preprocessor_class
+    assert type(pre).__name__ == "YOLO1ValPreprocessor"
+
+    bgr = np.random.default_rng(0).integers(0, 256, (30, 50, 3), dtype=np.uint8)
+    targets = np.array([[5.0, 6.0, 25.0, 16.0, 3.0]], dtype=np.float32)
+    chw, padded = pre(bgr, targets, (448, 448))
+    expected, _ = preprocess_numpy_stretch(np.ascontiguousarray(bgr[:, :, ::-1]), 448)
+    np.testing.assert_array_equal(chw, expected)
+    np.testing.assert_allclose(
+        padded[0], [5 * 448 / 50, 6 * 448 / 30, 25 * 448 / 50, 16 * 448 / 30, 3]
+    )
+
+
+def test_exported_yolo7_backend_validates_like_the_pytorch_model():
+    """StandardValPreprocessor feeds 0-255 pixels; YOLOv7 expects 0-1."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "yolo7"
+    backend.task = "detect"
+    backend.imgsz = 640
+    backend.letterbox_pad = None
+    assert type(backend._get_val_preprocessor(640)).__name__ == "YOLO9ValPreprocessor"
+
+
+@pytest.mark.parametrize("family", ["yolo2", "yolo3", "yolo4"])
+def test_exported_darknet_backend_validates_with_the_darknet_letterbox(family):
+    """Exported Darknet models validated with the standard preprocessor scored
+    0.031 instead of 0.22 mAP50-95 (yolo4-t ONNX, 100 COCO val images)."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = family
+    backend.task = "detect"
+    backend.imgsz = 416
+    preprocessor = backend._get_val_preprocessor(416)
+    assert type(preprocessor).__name__ == "DarknetValPreprocessor"
+
+
+@pytest.mark.parametrize(
+    ("task", "expected"),
+    [("detect", "YOLONASValPreprocessor"), ("pose", "YOLONASValPreprocessor"),
+     ("obb", "YOLONASOBBValPreprocessor")],
+)
+def test_exported_yolonas_backend_validates_with_the_task_geometry(task, expected):
+    """OBB uses longest-side resize + bottom-right pad; validating an exported
+    OBB model with the detect preprocessor collapsed its mAP to ~0."""
+
+    class StubBackend(BaseBackend):
+        def _run_inference(self, blob):
+            return []
+
+    backend = object.__new__(StubBackend)
+    backend.model_family = "yolonas"
+    backend.task = task
+    backend.imgsz = 1024
+    assert type(backend._get_val_preprocessor(1024)).__name__ == expected
+

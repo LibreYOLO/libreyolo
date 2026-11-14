@@ -879,6 +879,8 @@ class BaseBackend(ABC):
                 image,
                 input_size=input_h,
                 color_format=color_format,
+                # Fixed-shape artifacts (Axelera) take one square canvas.
+                fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,
             )
         elif self.model_family == "ssd":
             from ..models.ssd.utils import preprocess_image as ssd_preprocess_image
@@ -1799,6 +1801,17 @@ class BaseBackend(ABC):
             )
             return boxes, scores, cls, None
         elif self.model_family == "rtmdet":
+            if self.task == "segment":
+                return self._parse_rtmdet_segment(
+                    all_outputs,
+                    effective_imgsz,
+                    orig_w,
+                    orig_h,
+                    conf,
+                    ratio,
+                    iou=iou,
+                    max_det=max_det,
+                )
             boxes, scores, cls = self._parse_rtmdet(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio
             )
@@ -1937,6 +1950,63 @@ class BaseBackend(ABC):
         class_ids = class_ids[valid_boxes]
 
         return boxes, max_scores, class_ids
+
+    def _parse_rtmdet_segment(
+        self,
+        all_outputs,
+        effective_imgsz,
+        orig_w,
+        orig_h,
+        conf,
+        ratio=1.0,
+        *,
+        iou: float = 0.45,
+        max_det: int = 300,
+    ):
+        """Parse RTMDet-Ins head outputs ``[cls x L, bbox x L, kernel x L, mask_feat]``.
+
+        Runs LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS and the
+        dynamic-kernel mask decode) on the rebuilt head outputs, so results
+        match native inference. Masks come back at the original image size.
+        """
+        import torch
+
+        from ..postprocess.rtmdet import postprocess as rtmdet_postprocess
+
+        levels = (len(all_outputs) - 1) // 3
+        if len(all_outputs) != 3 * levels + 1 or levels < 1:
+            raise ValueError(
+                "RTMDet-Ins outputs must be [cls x L, bbox x L, kernel x L, "
+                f"mask_feat]; got {len(all_outputs)} arrays."
+            )
+        tensors = [
+            torch.from_numpy(np.ascontiguousarray(array, dtype=np.float32))
+            for array in all_outputs
+        ]
+        outputs = (
+            tuple(tensors[:levels]),
+            tuple(tensors[levels : 2 * levels]),
+            tuple(tensors[2 * levels : 3 * levels]),
+            tensors[3 * levels],
+        )
+        input_h, input_w = _imgsz_hw(effective_imgsz)
+        if ratio is None or ratio == 1.0:  # as _parse_rtmdet: letterbox ratio from the sizes
+            ratio = min(input_h / orig_h, input_w / orig_w)
+        det = rtmdet_postprocess(
+            outputs,
+            conf_thres=conf,
+            iou_thres=iou,
+            input_size=(input_h, input_w),
+            original_size=(orig_w, orig_h),
+            ratio=ratio,
+            max_det=max_det,
+        )
+        return (
+            det["boxes"].numpy(),
+            det["scores"].numpy(),
+            det["classes"].numpy(),
+            det["masks"].numpy(),
+        )
 
     def _parse_rtmdet(
         self, all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio=1.0
@@ -2244,10 +2314,15 @@ class BaseBackend(ABC):
             raise NotImplementedError(
                 "RetinaNet exported inference requires a scalar or square imgsz."
             )
+        fixed_canvas = getattr(self, "_fixed_input_hw", None) is not None
         resized_h, resized_w, scale_x, scale_y = resize_geometry(
-            (orig_w, orig_h), input_h
+            (orig_w, orig_h), input_h, fixed_canvas
         )
-        counts = level_anchor_counts(resized_h, resized_w)
+        counts = (
+            level_anchor_counts(input_h, input_w)
+            if fixed_canvas
+            else level_anchor_counts(resized_h, resized_w)
+        )
         if sum(counts) != predictions.shape[0]:
             raise ValueError(
                 "RetinaNet anchor count does not match preprocessing geometry: "
@@ -4445,10 +4520,13 @@ class BaseBackend(ABC):
             DEIMv2ValPreprocessor,
             DeformableDETRValPreprocessor,
             CenterNetValPreprocessor,
+            DarknetValPreprocessor,
             DETRValPreprocessor,
             DFINEValPreprocessor,
             ECValPreprocessor,
             EfficientDetValPreprocessor,
+            FCOSValPreprocessor,
+            FasterRCNNValPreprocessor,
             LWDETRValPreprocessor,
             PICODETValPreprocessor,
             PPDocLayoutV3ValPreprocessor,
@@ -4457,10 +4535,14 @@ class BaseBackend(ABC):
             RTDETRValPreprocessor,
             RTDETRv2OBBValPreprocessor,
             RTDETRv2ValPreprocessor,
+            RetinaNetValPreprocessor,
             RTMDetValPreprocessor,
+            SSDValPreprocessor,
             StandardValPreprocessor,
+            YOLO1ValPreprocessor,
             YOLO9E2EValPreprocessor,
             YOLO9ValPreprocessor,
+            YOLONASOBBValPreprocessor,
             YOLONASValPreprocessor,
             YOLOXValPreprocessor,
         )
@@ -4510,9 +4592,42 @@ class BaseBackend(ABC):
             "yolo9": YOLO9ValPreprocessor,
             "yolo9_e2e": YOLO9E2EValPreprocessor,
             "yolo9_p2": YOLO9ValPreprocessor,
-            "yolonas": YOLONASValPreprocessor,
+            # OBB resizes the longest side and pads bottom-right; the detect
+            # recipe would mis-map every box (see LibreYOLONAS._get_val_preprocessor).
+            "yolonas": (
+                YOLONASOBBValPreprocessor
+                if getattr(self, "task", "detect") == "obb"
+                else YOLONASValPreprocessor
+            ),
             "yolox": YOLOXValPreprocessor,
+            # Darknet letterbox (top-left, 128 fill), as the PyTorch models
+            # validate; the standard recipe mis-maps every box.
+            "yolo2": DarknetValPreprocessor,
+            "yolo3": DarknetValPreprocessor,
+            "yolo4": DarknetValPreprocessor,
+            # YOLOv1's FC head takes a plain stretch, not the letterbox.
+            "yolo1": YOLO1ValPreprocessor,
+            # YOLOv7 validates like YOLO9 (letterbox, RGB, 0-1).
+            "yolo7": YOLO9ValPreprocessor,
+            # RetinaNet: upstream min/max aspect resize, ImageNet
+            # normalization, pad to /32; the parser rebuilds its anchors
+            # from that geometry.
+            "retinanet": RetinaNetValPreprocessor,
+            # SSD300: RGB stretch with SSD's own 0-255 mean subtraction.
+            "ssd": SSDValPreprocessor,
+            # Faster R-CNN: source-resolution RGB; the graph resizes in-graph
+            # and returns boxes in the coordinates of the image it was fed.
+            "faster_rcnn": FasterRCNNValPreprocessor,
+            "mask_rcnn": FasterRCNNValPreprocessor,
+            # FCOS: torchvision aspect resize (800/1333), ImageNet
+            # normalization, stride pad; the parser undoes that geometry.
+            "fcos": FCOSValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
+        if preprocessor_cls is RetinaNetValPreprocessor:
+            return preprocessor_cls(
+                img_size=_imgsz_hw(img_size),
+                fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,
+            )
         if preprocessor_cls in (YOLO9ValPreprocessor, YOLO9E2EValPreprocessor):
             return preprocessor_cls(
                 img_size=_imgsz_hw(img_size),
@@ -4799,7 +4914,15 @@ class BaseBackend(ABC):
             verbose=verbose,
             **kwargs,
         )
-        if self.task == "classify":
+        if self.model_family == "mask_rcnn" and self.task in ("detect", "segment"):
+            # Source-resolution Mask R-CNN inputs vary in shape: one per batch.
+            from ..models.mask_rcnn.validator import MaskRCNNValidator
+            from ..models.faster_rcnn.validator import FasterRCNNValidator
+
+            validator_cls = (
+                MaskRCNNValidator if self.task == "segment" else FasterRCNNValidator
+            )
+        elif self.task == "classify":
             validator_cls = ClassifyValidator
         elif self.task == "embed":
             raise NotImplementedError(
@@ -4829,6 +4952,21 @@ class BaseBackend(ABC):
             raise NotImplementedError(
                 "Exported gaze validation requires a gaze-labelled dataset contract."
             )
+        elif self.model_family == "retinanet":
+            # Aspect-resized RetinaNet inputs vary in shape: one per batch.
+            from ..models.retinanet.validator import RetinaNetValidator
+
+            validator_cls = RetinaNetValidator
+        elif self.model_family == "faster_rcnn":
+            # Source-resolution Faster R-CNN inputs vary in shape: one per batch.
+            from ..models.faster_rcnn.validator import FasterRCNNValidator
+
+            validator_cls = FasterRCNNValidator
+        elif self.model_family == "fcos":
+            # Aspect-resized FCOS inputs vary in shape: one per batch.
+            from ..models.fcos.validator import FCOSValidator
+
+            validator_cls = FCOSValidator
         else:
             validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)

@@ -19,15 +19,21 @@ _UPSTREAM_MIN_SIZE = 800
 
 
 def resize_geometry(
-    original_size: Tuple[int, int], input_size: int
+    original_size: Tuple[int, int], input_size: int, fixed_canvas: bool = False
 ) -> tuple[int, int, float, float]:
-    """Return upstream resized H/W and exact x/y inverse-scale factors."""
+    """Return upstream resized H/W and exact x/y inverse-scale factors.
+
+    ``fixed_canvas``: the image was fitted into an ``input_size`` square.
+    """
     original_width, original_height = original_size
-    max_size = round(input_size * _UPSTREAM_MAX_SIZE / _UPSTREAM_MIN_SIZE)
-    scale = min(
-        input_size / min(original_height, original_width),
-        max_size / max(original_height, original_width),
-    )
+    if fixed_canvas:
+        scale = min(input_size / original_height, input_size / original_width)
+    else:
+        max_size = round(input_size * _UPSTREAM_MAX_SIZE / _UPSTREAM_MIN_SIZE)
+        scale = min(
+            input_size / min(original_height, original_width),
+            max_size / max(original_height, original_width),
+        )
     resized_height = int(original_height * scale)
     resized_width = int(original_width * scale)
     scale_x = resized_width / original_width

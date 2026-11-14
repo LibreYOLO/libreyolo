@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import torch
+
 from ...validation.detection_validator import DetectionValidator
 
 logger = logging.getLogger(__name__)
@@ -23,8 +25,15 @@ class FasterRCNNValidator(DetectionValidator):
         return super()._setup_dataloader()
 
     def _slice_batch_predictions(self, preds: Any, batch_idx: int) -> Any:
-        if not isinstance(preds, list):
-            raise TypeError(
-                "Faster R-CNN validation expected a list of detection dicts"
-            )
-        return preds[batch_idx]
+        if isinstance(preds, list) and all(isinstance(p, dict) for p in preds):
+            return preds[batch_idx]
+        if isinstance(preds, (list, tuple)) and all(
+            isinstance(p, torch.Tensor) for p in preds
+        ):
+            # Exported graphs return (boxes, scores, labels) for the single
+            # image of the batch, with no batch axis to slice.
+            return preds
+        raise TypeError(
+            "Faster R-CNN validation expected a list of detection dicts or "
+            "the exported (boxes, scores, labels) outputs"
+        )
