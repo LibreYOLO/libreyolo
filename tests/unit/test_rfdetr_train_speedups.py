@@ -353,3 +353,16 @@ def test_compact_invalid_label_preserves_error():
     targets[0]["labels"][0] = NUM_CLASSES
     with pytest.raises(IndexError):
         matcher.compute_matching_cost(outputs, targets)
+
+
+
+def test_small_cuda_cost_uses_full_path(monkeypatch):
+    # Exercise the metadata-only dispatch gate without requiring a GPU in CI.
+    generator = torch.Generator().manual_seed(137)
+    matcher = _matcher()
+    outputs = _outputs(2, generator)
+    targets = _targets(2, generator, [7, 7])
+    monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda _: True))
+    sentinel = object()
+    monkeypatch.setattr(matcher, "compute_cost_matrix", lambda *_: sentinel)
+    assert matcher.compute_matching_cost(outputs, targets) is sentinel
