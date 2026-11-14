@@ -55,10 +55,12 @@ text-to-image model:
 model("an empty tram at a cobblestone stop on a rainy night", imgsz=1024, seed=0).generated.save("tram.png")
 ```
 
-Use `offload=True` to keep idle parts off the GPU, and
-`LibreGen("open-vision-banana", checkpoint_dir="path/to/folder")` for a local
-copy or another OVB checkpoint (the 9B, the zero-shot ones) saved as a
-diffusers pipeline.
+Use `offload=True` to keep idle parts off the GPU. A downloaded copy of the
+mirror loads by path, `LibreGen("path/to/LibreOpenVisionBanana4b")` (its NOTICE
+identifies it). Another OVB checkpoint saved as a diffusers pipeline (the 9B,
+the zero-shot ones) loads with
+`LibreGen("open-vision-banana", checkpoint_dir="path/to/folder")`; by path
+alone it would load as plain FLUX.2 [klein].
 
 ## Prompts and readouts
 

@@ -44,6 +44,10 @@ from .triposr import LibreTripoSR
 
 # alias -> (family class, size)
 _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
+    # Before flux2-klein: directory matching tries families in this order and
+    # an Open Vision Banana folder is also a Flux2KleinPipeline folder.
+    "open-vision-banana": (LibreOpenVisionBanana, "4b"),
+    "open-vision-banana-4b": (LibreOpenVisionBanana, "4b"),
     "flux2-klein": (LibreFlux2Klein, "4b"),
     "flux2-klein-4b": (LibreFlux2Klein, "4b"),
     "flux.2-klein": (LibreFlux2Klein, "4b"),
@@ -55,8 +59,6 @@ _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
     "prxpixel": (LibrePRXPixel, "7b"),
     "prxpixel-7b": (LibrePRXPixel, "7b"),
     "prx-pixel": (LibrePRXPixel, "7b"),
-    "open-vision-banana": (LibreOpenVisionBanana, "4b"),
-    "open-vision-banana-4b": (LibreOpenVisionBanana, "4b"),
     "speridlabs-idol": (LibreSperidlabsIdol, "0.6b"),
     "speridlabs-idol-0.6b": (LibreSperidlabsIdol, "0.6b"),
     "speridlabs-iris-z": (LibreSperidlabsIrisZ, "9b"),

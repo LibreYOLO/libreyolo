@@ -20,6 +20,7 @@ output colours is shown in ``docs/open_vision_banana.md``.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any, ClassVar
 
 from .diffusers_family import DiffusersGenFamily
@@ -43,6 +44,9 @@ class LibreOpenVisionBanana(DiffusersGenFamily):
     }
     INPUT_SIZES: ClassVar[dict[str, int]] = {"4b": 1024}
     PIPELINE_CLASS = "Flux2KleinPipeline"
+    # The mirror's NOTICE names the model; it tells an OVB folder apart from
+    # a plain FLUX.2 [klein] one, which has the same pipeline class.
+    SNAPSHOT_ALLOW_PATTERNS = (*DiffusersGenFamily.SNAPSHOT_ALLOW_PATTERNS, "NOTICE")
     KNOBS = ("steps", "guidance")
     # The paper's sampling settings.
     DEFAULTS: ClassVar[dict[str, Any]] = {"steps": 28, "guidance": 3.5}
@@ -53,6 +57,16 @@ class LibreOpenVisionBanana(DiffusersGenFamily):
         "(https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/blob/main/LICENSE.md): "
         "no commercial or production use."
     )
+
+    @classmethod
+    def matches_directory(cls, path: Any) -> bool:
+        """A ``Flux2KleinPipeline`` folder whose NOTICE names Open Vision Banana."""
+        if not super().matches_directory(path):
+            return False
+        try:
+            return "Open Vision Banana" in (Path(path) / "NOTICE").read_text("utf-8")
+        except (OSError, UnicodeDecodeError):
+            return False
 
     def generate(
         self,

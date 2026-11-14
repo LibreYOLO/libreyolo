@@ -120,3 +120,20 @@ def test_bad_source_calls_fail_before_loading(model, kwargs, error):
     with pytest.raises(error):
         model(source=Image.new("RGB", (8, 8)), **kwargs)
     assert model._pipeline is None
+
+
+def test_a_mirror_folder_loads_as_open_vision_banana(tmp_path):
+    from libreyolo import LibreFlux2Klein
+
+    (tmp_path / "model_index.json").write_text(
+        json.dumps({"_class_name": "Flux2KleinPipeline"})
+    )
+    # Without the mirror's NOTICE it is a plain FLUX.2 [klein] folder.
+    assert type(LibreGen(str(tmp_path), device="cpu")) is LibreFlux2Klein
+    (tmp_path / "NOTICE").write_text(
+        "Modified FLUX Model. Open Vision Banana 4B is a fine-tune of ..."
+    )
+    model = LibreGen(str(tmp_path), device="cpu")
+    assert type(model) is LibreOpenVisionBanana
+    assert model.DEFAULTS == {"steps": 28, "guidance": 3.5}
+    assert "NOTICE" in LibreOpenVisionBanana.SNAPSHOT_ALLOW_PATTERNS
