@@ -214,9 +214,9 @@ class HungarianMatcher(nn.Module):
         # Retain the original allocation order/path when savings are marginal.
         if 4 * max(sizes) > 3 * total_targets:
             return self.compute_cost_matrix(outputs, targets)
-        # Compact construction adds launches and a safety read. Small CUDA
+        # Compact construction adds launches and a safety read. Small accelerator
         # matrices are launch-bound; retain the original path there.
-        if boxes.is_cuda and batch * queries * total_targets < 250_000:
+        if (boxes.is_cuda or boxes.device.type == "mps") and batch * queries * total_targets < 250_000:
             return self.compute_cost_matrix(outputs, targets)
 
         # Clamp only for safe speculative gather. Invalid labels still take the

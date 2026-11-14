@@ -356,13 +356,15 @@ def test_compact_invalid_label_preserves_error():
 
 
 
-def test_small_cuda_cost_uses_full_path(monkeypatch):
+@pytest.mark.parametrize("device_type", ["cuda", "mps"])
+def test_small_accelerator_cost_uses_full_path(monkeypatch, device_type):
     # Exercise the metadata-only dispatch gate without requiring a GPU in CI.
     generator = torch.Generator().manual_seed(137)
     matcher = _matcher()
     outputs = _outputs(2, generator)
     targets = _targets(2, generator, [7, 7])
-    monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda _: True))
+    monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda _: device_type == "cuda"))
+    monkeypatch.setattr(torch.Tensor, "device", property(lambda _: torch.device(device_type)))
     sentinel = object()
     monkeypatch.setattr(matcher, "compute_cost_matrix", lambda *_: sentinel)
     assert matcher.compute_matching_cost(outputs, targets) is sentinel
