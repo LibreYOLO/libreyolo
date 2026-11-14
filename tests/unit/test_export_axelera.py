@@ -2028,6 +2028,9 @@ def test_segmentation_passes_are_exact(tmp_path):
         ((4, 4), (32, 16), False, True),
         ((3, 5), (24, 80), False, True),
         ((4, 4), (64, 64), False, True),
+        ((2, 2), (24, 48), False, True),  # PP-LiteSeg t75/b75: factors 12 and 24
+        ((4, 4), (24, 48), False, True),  # factors 6 and 12
+        ((2, 2), (20, 40), False, False),  # factor 20 has a 5: no 2/3 steps
         ((4, 4), (8, 8), False, False),  # equal factor 2: compiles as it is
         ((3, 3), (9, 18), False, False),  # odd factor: not exact this way
         ((2, 2), (16, 32), True, False),  # a graph-output upsample stays on the host

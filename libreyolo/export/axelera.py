@@ -1440,6 +1440,16 @@ def _resize_1x1_broadcast_add(model) -> int:
 _RESIZE_MAX_FACTOR = 4
 
 
+def _factor_steps(factor: int) -> list[int] | None:
+    """``factor`` as resize steps of 3 and 2 (largest first), or None."""
+    steps, rest = [], int(factor)
+    for prime in (3, 2):
+        while rest % prime == 0 and rest > 1:
+            steps.append(prime)
+            rest //= prime
+    return steps if rest == 1 and steps else None
+
+
 def _resize_corner_chain(model) -> int:
     """Bilinear upsampling with a large or unequal factor becomes factor-2 steps.
 
@@ -1451,10 +1461,11 @@ def _resize_corner_chain(model) -> int:
 
     - the source is padded by one replicated pixel per side (a Concat of
       three distinct tensors per axis);
-    - align-corners factor-2 resizes (n -> 2n - 1) build the corner-aligned
-      factor-F samples: piecewise-linear interpolation through every source
-      pixel, which factor-2 steps reproduce exactly, and constant across the
-      replicated border;
+    - align-corners factor-2 and factor-3 resizes (n -> 2n - 1, n -> 3n - 2;
+      ``F`` must be a product of 2s and 3s) build the corner-aligned factor-F
+      samples: piecewise-linear interpolation through every source pixel,
+      which such steps reproduce exactly, and constant across the replicated
+      border;
     - a crop keeps the samples from half a source pixel before the first
       centre to half a pixel after the last;
     - a 2x2 average with stride 1 gives the half-pixel factor-F samples (each
@@ -1490,7 +1501,8 @@ def _resize_corner_chain(model) -> int:
             continue
         factor_h, factor_w = out_h // height, out_w // width
         large, small = max(factor_h, factor_w), min(factor_h, factor_w)
-        if large % small or small % 2 or large & (large - 1):
+        steps = _factor_steps(large)
+        if large % small or small % 2 or steps is None:
             continue
         if factor_h == factor_w and large <= _RESIZE_MAX_FACTOR:
             continue
@@ -1524,12 +1536,12 @@ def _resize_corner_chain(model) -> int:
                 )
             )
             current = padded
-        rows, cols, step = height + 2, width + 2, 0
-        while rows - 1 < (height + 1) * large:
-            rows, cols = 2 * rows - 1, 2 * cols - 1
+        rows, cols = height + 2, width + 2
+        for step, factor in enumerate(steps):
+            rows, cols = factor * (rows - 1) + 1, factor * (cols - 1) + 1
             sizes = f"{tag}_sizes{step}"
             constants[sizes] = np.array([source[0], source[1], rows, cols], np.int64)
-            out = f"{tag}_x2_{step}"
+            out = f"{tag}_x{factor}_{step}"
             nodes.append(
                 helper.make_node(
                     "Resize",
@@ -1540,7 +1552,7 @@ def _resize_corner_chain(model) -> int:
                     coordinate_transformation_mode="align_corners",
                 )
             )
-            current, step = out, step + 1
+            current = out
         first = large - large // 2
         crop = f"{tag}_crop"
         constants[f"{crop}_start"] = np.array([first, first], np.int64)
