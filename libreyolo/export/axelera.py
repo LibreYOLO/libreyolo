@@ -1459,7 +1459,8 @@ def _resize_corner_chain(model) -> int:
       centre to half a pixel after the last;
     - a 2x2 average with stride 1 gives the half-pixel factor-F samples (each
       is the midpoint of two corner samples on one linear piece);
-    - an ``r x 1`` average gives the smaller factor on its axis.
+    - an ``r x 1`` average gives the smaller factor on its axis;
+    - a 1x1 identity convolution ends the chain (see the comment there).
 
     Exact up to float rounding. A resize that is a graph output (the final
     upsampling the host runs) is left alone. Returns the number of rewrites.
@@ -1556,7 +1557,7 @@ def _resize_corner_chain(model) -> int:
             )
         )
         ratio = large // small
-        averaged = f"{tag}_average" if ratio > 1 else node.output[0]
+        averaged = f"{tag}_average"
         nodes.append(
             helper.make_node(
                 "AveragePool",
@@ -1573,12 +1574,30 @@ def _resize_corner_chain(model) -> int:
                 helper.make_node(
                     "AveragePool",
                     [averaged],
-                    list(node.output),
+                    [f"{tag}_ratio"],
                     name=f"{tag}_ratio",
                     kernel_shape=kernel,
                     strides=kernel,
                 )
             )
+            averaged = f"{tag}_ratio"
+        # A 1x1 identity convolution ends the chain: two pooled chains merging
+        # into an Add that feeds a convolution (PP-LiteSeg's pyramid pooling)
+        # otherwise stop lowering ("Expecting all blocks to have the same
+        # iter_values"). Exact.
+        channels = int(source[1])
+        constants[f"{tag}_identity"] = np.eye(channels, dtype=np.float32).reshape(
+            channels, channels, 1, 1
+        )
+        nodes.append(
+            helper.make_node(
+                "Conv",
+                [averaged, f"{tag}_identity"],
+                list(node.output),
+                name=f"{tag}_identity",
+                kernel_shape=[1, 1],
+            )
+        )
         graph.initializer.extend(
             numpy_helper.from_array(v, k) for k, v in constants.items()
         )

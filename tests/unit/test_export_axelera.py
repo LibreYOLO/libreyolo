@@ -2069,6 +2069,8 @@ def test_resize_corner_chain_is_exact(
 
     assert (out != str(source)) is rewritten
     if rewritten:
+        convs = [n for n in onnx.load(out).graph.node if n.op_type == "Conv"]
+        assert len(convs) == 1 and convs[0].name.endswith("_identity")
         for node in onnx.load(out).graph.node:
             if node.op_type == "Resize":
                 assert (
