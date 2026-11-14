@@ -1364,6 +1364,12 @@ class LibreRFDETR(BaseModel):
             # must not silently change their assignment backend on resume.
             if "matcher_backend" not in saved:
                 train_kwargs.setdefault("matcher_backend", "scipy")
+                if getattr(self, "task", "detect") in ("detect", "segment", "obb"):
+                    # These fields existed but were ignored by the old generic
+                    # loader. Retain its effective defaults on legacy resume;
+                    # explicit caller overrides still win below.
+                    for key in ("pin_memory", "prefetch_factor", "persistent_workers"):
+                        saved[key] = None
             if "cls_loss_coef" not in saved:
                 # Old segmentation runs used 5; old detection/pose runs used 1.
                 legacy_cls = (

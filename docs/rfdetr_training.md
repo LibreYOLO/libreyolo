@@ -88,6 +88,7 @@ and the resolved run configuration records AdamW.
   pinning, prefetch 2 and non-persistent workers; pose uses no pinning, prefetch 1
   and persistent workers. Worker-only options are omitted when `workers=0`.
   Detection workers limit OpenCV threading without changing PyTorch's RNG seeding.
+  Legacy resumes preserve the old effective loader defaults unless overridden.
 
 ## Scope of the upstream comparison
 
