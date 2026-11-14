@@ -679,6 +679,7 @@ Not measured on a Metis yet (nothing is known to fail; the export raises until a
 - EfficientDet-d2 to -d4 (d2 and d3 do not compile at their native size; a 512 canvas is being measured), Real-ESRGAN-x4 and -x2 (their compiles did not finish within 4 h and 3.5 h; no error seen; ledger `realesrgan/restore/x4/2026-11-13`, `realesrgan/restore/x2/2026-11-13`).
 - YOLO9-E2E and YOLO9-P2.
 - PIDNet-s: the compile did not finish within 90 minutes at 1024x1024 or 512x512 (ledgers `pidnet/semantic/s/2026-11-12`, `pidnet/semantic/s/2026-11-13`).
+- DEKR-w32 (pose, 640x640): the whole-graph compile (raw heatmap logits and offsets) did not finish within 3 hours; no error seen, 4.6 GB peak RSS (ledger `dekr/pose/w32/2026-11-14`). DEKR also has no Axelera export contract yet.
 - UNet-s: the compile at 512x1024 did not finish within 3 hours (ledger `unet/semantic/s/2026-11-13`); UNet also has no ONNX semantic export contract yet. At 1024x2048 lowering finds no L1 tiling.
 - Other families.
 
