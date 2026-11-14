@@ -175,3 +175,15 @@ def test_dense_nested_tensor_shares_storage_but_padding_does_not():
     padded = nested_tensor_from_tensor_list(x.detach()[:, :, :31, :31], block_size=32)
     assert not padded.no_padding and padded.tensors.shape == x.shape
     assert padded.mask[:, 31, :].all() and padded.mask[:, :, 31].all()
+
+
+def test_observed_transformer_retains_legacy_output_contract():
+    from libreyolo.models.rfdetr.nn import LibreRFDETRModel
+
+    model = LibreRFDETRModel(config="n", nb_classes=2).train()
+    observed = []
+    handle = model.model.transformer.register_forward_hook(lambda _m, _args, result: observed.append(len(result)))
+    with torch.no_grad():
+        model(torch.randn(1, 3, 64, 64))
+    handle.remove()
+    assert observed == [4]

@@ -39,7 +39,12 @@ from .matcher import build_matcher
 from .math import MLP
 from .segmentation import SegmentationHead
 from .tensors import NestedTensor, nested_tensor_from_tensor_list
-from .transformer import build_transformer
+from .transformer import (
+    Transformer,
+    _eager_cuda,
+    _module_call_is_plain,
+    build_transformer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -720,14 +725,26 @@ class LWDETR(nn.Module):
                 cross_src, _ = feature.decompose()
                 cross_attn_srcs.append(cross_src)
 
+        # Reusing encoder logits is internal to the unobserved stock CUDA
+        # path. Hooks and custom transformers keep their original tuple/API.
+        reuse_encoder_classes = (
+            self.two_stage
+            and self.training
+            and self.group_detr > 1
+            and _eager_cuda(srcs[0])
+            and type(self.transformer) is Transformer
+            and _module_call_is_plain(self.transformer)
+        )
+        transformer_kwargs = {"cross_attn_srcs": cross_attn_srcs}
+        if reuse_encoder_classes:
+            transformer_kwargs["return_encoder_class"] = True
         transformer_outputs = self.transformer(
             srcs,
             masks,
             poss,
             refpoint_embed_weight,
             query_feat_weight,
-            cross_attn_srcs=cross_attn_srcs,
-            return_encoder_class=True,
+            **transformer_kwargs,
         )
         if self.use_grouppose_keypoints:
             hs, ref_unsigmoid, hs_enc, ref_enc, keypoint_hs, enc_kp_predictions, _ = (
@@ -806,7 +823,7 @@ class LWDETR(nn.Module):
 
         if self.two_stage:
             group_detr = self.group_detr if self.training else 1
-            cls_enc = transformer_outputs[-1]
+            cls_enc = transformer_outputs[-1] if reuse_encoder_classes else None
             if cls_enc is None:
                 hs_enc_list = hs_enc.chunk(group_detr, dim=1)
                 cls_enc = []
