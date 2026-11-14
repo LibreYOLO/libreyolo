@@ -235,4 +235,7 @@ def test_proposal_fallback_preserves_full_rows_and_boxes(training, reparam, kind
                        torch.zeros(3 * groups, 4, dtype=torch.float64),
                        torch.randn(3 * groups, 16, dtype=torch.float64))
     assert seen == [9]
-    torch.testing.assert_close(actual[3][:, :3], expected, rtol=0, atol=0)
+    # The reference applies sigmoid to one group; forward applies it to all
+    # groups together. CPU vector kernels can differ by an FP64 rounding bit.
+    # Keep the full-row contract exact, while allowing that numerical noise.
+    torch.testing.assert_close(actual[3][:, :3], expected, rtol=1e-14, atol=0)
