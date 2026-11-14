@@ -116,9 +116,15 @@ majority. On Cityscapes it adds about 8 mIoU (65.6 to 73.9 for 9B zero-shot,
 20 passes). It costs one full generation per pass.
 
 ```python
+import colorsys
+
+def palette(n):
+    """n saturated colours with evenly spaced hues."""
+    return [[round(255 * c) for c in colorsys.hsv_to_rgb(i / n, 1.0, 1.0)] for i in range(n)]
+
 def segment(model, photo, names, passes=5, seed=0):
     rng = np.random.default_rng(seed)
-    colours = [list(map(int, c)) for c in legend.values()]   # any distinct saturated colours
+    colours = palette(len(names))
     votes = None
     for p in range(passes):
         order = rng.permutation(len(names))
