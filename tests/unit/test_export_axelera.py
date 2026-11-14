@@ -886,6 +886,7 @@ def test_non_linux_export_fails_before_tracing(exporter_sdk, tmp_path, monkeypat
 def test_missing_devkit_fails_before_tracing(fake_sdk, tmp_path, monkeypatch):
     monkeypatch.delenv(ax.AUTOINSTALL_ENV, raising=False)
     monkeypatch.setattr(axrt, "_module_available", lambda module: False)
+    monkeypatch.setattr(ax.sys, "platform", "linux")  # the platform check runs first
     with pytest.raises(ImportError, match="axelera-devkit==1.9.0"):
         _model().export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
     assert fake_sdk.calls == []

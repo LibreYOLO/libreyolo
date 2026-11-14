@@ -165,9 +165,12 @@ def _export(tmp_path, task="detect"):
     torch.manual_seed(0)
     if task == "yolo9":
         model = LibreYOLO9(None, size="t", nb_classes=3, device="cpu")
-        with torch.no_grad():  # class bias starts at -10; lift it so boxes pass conf
+        generator = torch.Generator().manual_seed(1)
+        with torch.no_grad():  # class bias starts at -10 and its tower outputs zeros; randomize it so scores pass conf without ties
             for tower in model.model.head.class_convs:
-                tower[-1].bias.fill_(0.0)
+                for param in tower.parameters():
+                    param.copy_(torch.randn(param.shape, generator=generator) * 0.5)
+                tower[-1].bias.copy_(torch.linspace(1.0, -1.0, tower[-1].bias.numel()))
     elif task == "yolo4":
         model = LibreYOLO4(None, size="t", nb_classes=3, device="cpu")
         generator = torch.Generator().manual_seed(1)
