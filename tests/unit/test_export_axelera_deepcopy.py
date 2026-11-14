@@ -38,6 +38,7 @@ CASES = {
     "alexnet": ("LibreAlexNet", dict(size='b', nb_classes=3)),
     "yolo2": ("LibreYOLO2", dict(size='b', nb_classes=3)),
     "ssd": ("LibreSSD", dict(size='300', nb_classes=3)),
+    "deeplabv3_r50": ("LibreDeepLabv3", dict(size='r50', nb_classes=3)),
     "efficientdet_d1": ("LibreEfficientDet", dict(size='d1', nb_classes=3)),
 }
 
@@ -68,6 +69,7 @@ SUPPORT_KEYS = {
     "alexnet": ('alexnet', 'classify'),
     "yolo2": ('yolo2', 'detect'),
     "ssd": ('ssd', 'detect'),
+    "deeplabv3_r50": ('deeplabv3', 'semantic'),
     "efficientdet_d1": ('efficientdet', 'detect'),
 }
 

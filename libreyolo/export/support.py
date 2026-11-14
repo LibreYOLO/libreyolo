@@ -4821,7 +4821,9 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
         "r101": (
             "measured mIoU drop 20.93 points vs FP32 (0.3795 vs 0.5888 on 300 "
             "COCO val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
-            "through the same path; ASPP as per-tap 1x1 convolutions plus shifts)"
+            "through the same path; ASPP as per-tap 1x1 convolutions plus shifts). "
+            "The loss happens on the device (device vs CPU-quantized output "
+            "cosine 0.895): check accuracy on your data, or use r50 or mv3"
         ),
     },
     ("rtmdet", "detect", "axelera"): {

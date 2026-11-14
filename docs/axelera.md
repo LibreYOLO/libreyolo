@@ -402,6 +402,15 @@ device only:
 | FCN-ResNet50 | 520 | 0.6515 | 0.6492 | -0.23 | 26 min |
 | FCN-ResNet101 | 520 | 0.6798 | 0.6779 | -0.19 | 51 min |
 
+DeepLabV3-ResNet50 and -ResNet101 run their dilated ASPP convolutions as
+per-tap 1x1 convolutions plus zero-filled shifts (an exact rewrite; as dilated
+convolutions they find no L1 tiling at output stride 8). R50 keeps mIoU 5.08
+points below FP32 (0.4735 vs 0.5243 on the 300 images). R101 loses 20.93
+points (0.3795 vs 0.5888), and that loss happens on the device: the device
+output agrees with the CPU-quantized model only to a cosine of 0.895. R101 is
+listed as supported because it runs, but check its accuracy on your own data
+before relying on it, or use R50 or MobileNetV3.
+
 Values are mAP50-95 (box, rotated box for obb, keypoint OKS for pose). On
 mAP50 the obb deltas are -1.36 (s), -0.11 (m) and -0.43 (l).
 
