@@ -8,7 +8,9 @@ last from FLUX.2). See ``NOTICE``. Randomness follows upstream: a
 Iris-Z denoises a sequence of two latent grids on the same positions, RGB
 first and depth second, each token tagged with its modality. Image -> depth
 keeps the RGB grid clean (``GIVEN_RGB``, noise level 0) and denoises depth;
-prompt -> image denoises RGB and leaves depth as pure noise (level 1).
+prompt -> image denoises RGB and leaves depth as pure noise (level 1);
+depth -> image keeps the depth grid clean (``GIVEN_DEPTH``) and denoises RGB;
+prompt -> image + depth denoises both grids together at one noise level.
 """
 
 from __future__ import annotations
@@ -159,6 +161,77 @@ def sample_rgb(model, context, height: int, width: int, seed: int, guidance: flo
 
 
 @torch.no_grad()
+def sample_joint(
+    model, context, height: int, width: int, seed: int, guidance: float, num_steps: int
+) -> Tuple[Tensor, Tensor]:
+    """Prompt -> ``(rgb_latent, depth_latent)``, both grids denoised together at one noise level."""
+    ctx, ctx_ids = context
+    device = ctx.device
+    dtype = next(model.parameters()).dtype
+    generator = torch.Generator(device=device).manual_seed(seed)
+    grid_h, grid_w = height // 16, width // 16
+    shape = (1, LATENT_CHANNELS, grid_h, grid_w)
+    rgb_noise = torch.randn(shape, generator=generator, device=device, dtype=dtype)
+    depth_noise = torch.randn(shape, generator=generator, device=device, dtype=dtype)
+    tokens, ids, modality, rgb_length = rgbd_sequence(rgb_noise, depth_noise)
+    rows = ctx.shape[0]
+    tokens = torch.cat([tokens] * rows)
+    ids = torch.cat([ids] * rows)
+    modality = torch.cat([modality] * rows)
+    timesteps = get_schedule(num_steps, rgb_length)
+    for t_current, t_previous in zip(timesteps[:-1], timesteps[1:]):
+        t_vector = torch.full((rows,), t_current, dtype=dtype, device=device)
+        prediction = model(
+            x=tokens, x_ids=ids, timesteps=t_vector, ctx=ctx, ctx_ids=ctx_ids, guidance=None, modality_ids=modality
+        )
+        velocity = guided_velocity(prediction, guidance)
+        tokens = tokens + (t_previous - t_current) * torch.cat([velocity] * rows)
+    tokens = tokens[:1]
+    return (
+        tokens_to_grid(tokens[:, :rgb_length], grid_h, grid_w),
+        tokens_to_grid(tokens[:, rgb_length:], grid_h, grid_w),
+    )
+
+
+@torch.no_grad()
+def sample_rgb_from_depth(
+    model, context, depth_latent: Tensor, seed: int, guidance: float, num_steps: int
+) -> Tensor:
+    """Depth latent -> image latent; the depth grid stays clean (``GIVEN_DEPTH``, level 0)."""
+    ctx, ctx_ids = context
+    device = ctx.device
+    dtype = next(model.parameters()).dtype
+    rows = ctx.shape[0]
+    grid_h, grid_w = depth_latent.shape[-2:]
+    depth_latent = depth_latent.to(device=device, dtype=dtype)
+    clean, ids, modality, rgb_length = rgbd_sequence(torch.zeros_like(depth_latent), depth_latent)
+    tokens = initial_noise(clean.shape, seed, device, dtype)
+    tokens[:, rgb_length:] = clean[:, rgb_length:]
+    modality[:, rgb_length:] = GIVEN_DEPTH
+    batch_ids = torch.cat([ids] * rows)
+    batch_modality = torch.cat([modality] * rows)
+    depth_level = torch.zeros((rows,), dtype=dtype, device=device)
+    timesteps = get_schedule(num_steps, rgb_length)
+    for t_current, t_previous in zip(timesteps[:-1], timesteps[1:]):
+        t_vector = torch.full((rows,), t_current, dtype=dtype, device=device)
+        prediction = model(
+            x=torch.cat([tokens] * rows),
+            x_ids=batch_ids,
+            timesteps=t_vector,
+            ctx=ctx,
+            ctx_ids=ctx_ids,
+            guidance=None,
+            modality_ids=batch_modality,
+            rgb_timesteps=t_vector,
+            depth_timesteps=depth_level,
+            depth_start=rgb_length,
+        )
+        velocity = guided_velocity(prediction, guidance)
+        tokens[:, :rgb_length] = tokens[:, :rgb_length] + (t_previous - t_current) * velocity[:, :rgb_length]
+    return tokens_to_grid(tokens[:, :rgb_length], grid_h, grid_w)
+
+
+@torch.no_grad()
 def sample_depth(
     model,
     context,
@@ -251,6 +324,52 @@ def unsqueeze_from_ceiling(encoded: np.ndarray, sky_ceiling: float) -> np.ndarra
     return np.where(encoded > (sky_ceiling + 1.0) / 2.0, 1.0, real)
 
 
+def encode_log_depth(
+    log_depth: np.ndarray, sky_mask: Optional[np.ndarray] = None, sky_ceiling: float = 1.0
+) -> np.ndarray:
+    """The 2nd to 98th percentile of the non-sky pixels spans ``[-1, sky_ceiling]``; sky is +1."""
+    log_depth = np.asarray(log_depth, dtype=np.float64)
+    if sky_mask is None:
+        sky_mask = np.zeros(log_depth.shape, dtype=bool)
+    real = log_depth[~sky_mask] if (~sky_mask).any() else log_depth.ravel()
+    low, high = np.percentile(real, [2, 98])
+    encoded = np.clip(2.0 * (log_depth - low) / max(high - low, 1e-6) - 1.0, -1.0, 1.0)
+    encoded = -1.0 + (encoded + 1.0) * (sky_ceiling + 1.0) / 2.0
+    encoded[sky_mask] = 1.0
+    return encoded.astype(np.float32)
+
+
+DEPTH_MAP_FORMATS = ("depth", "disparity")
+
+
+def read_depth_map(image, depth_format: str, target_side: int, sky_ceiling: float = 1.0) -> np.ndarray:
+    """A grayscale depth map image (``"depth"``: bright = far, ``"disparity"``: bright = near), encoded."""
+    from PIL import Image
+
+    values = np.asarray(image, dtype=np.float64)
+    if values.ndim == 3:
+        values = np.asarray(image.convert("L"), dtype=np.float64)
+    gray = values / (65535.0 if values.max() > 255 else 255.0)
+    width, height = enlarged_size(gray.shape[1], gray.shape[0], target_side)
+    gray = np.asarray(Image.fromarray(gray.astype(np.float32)).resize((width, height), Image.BILINEAR), np.float64)
+    log_gray = np.log(np.maximum(gray, 1e-3))
+    return encode_log_depth(-log_gray if depth_format == "disparity" else log_gray, sky_ceiling=sky_ceiling)
+
+
+def fit_encoded_depth(encoded: np.ndarray, target_side: int) -> np.ndarray:
+    """Upstream's depth -> image input size: kept when it fits ``target_side``, else resized."""
+    from PIL import Image
+
+    height, width = encoded.shape
+    if (width * height) ** 0.5 > target_side * 1.1 or width % 16 or height % 16:
+        new_width, new_height = enlarged_size(width, height, target_side)
+        encoded = np.asarray(
+            Image.fromarray(encoded.astype(np.float32)).resize((new_width, new_height), Image.BILINEAR),
+            dtype=np.float32,
+        )
+    return encoded
+
+
 def choose_resolution(
     source_width: int, source_height: int, target_side: int, multiple: int = 16, area_tolerance: float = 0.2
 ) -> Tuple[int, int]:
@@ -322,6 +441,12 @@ class Flux2Latents:
         latent = latent.reshape(batch, channels * 4, height // 2, width // 2)
         mean, std = self._stats(latent)
         return (latent - mean) / std
+
+    @torch.no_grad()
+    def encode_depth(self, encoded: np.ndarray) -> Tensor:
+        """An encoded ``(H, W)`` depth in ``[-1, 1]``, as a 3-channel image, to its latent."""
+        pixels = torch.from_numpy(np.array(encoded, dtype=np.float32))[None, None].expand(-1, 3, -1, -1)
+        return self.encode(pixels.to(self.vae.device))
 
     @torch.no_grad()
     def decode(self, latent: Tensor) -> Tensor:

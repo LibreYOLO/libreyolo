@@ -914,8 +914,9 @@ Speridlabs Iris-Z (Apache License 2.0)
              Copyright 2026 SperidLabs.
 
     The Iris-Z transformer forward pass (FLUX.2 with a modality embedding
-    and per-grid noise levels), the text-to-image and image-to-depth
-    samplers, the schedule, the depth decoding and the prompt embedders are
+    and per-grid noise levels), the text-to-image, image-to-depth,
+    depth-to-image and joint image-plus-depth samplers, the schedule, the
+    depth encoding and decoding and the prompt embedders are
     ported from the Apache-2.0 Iris-Z SDK, whose model code is from FLUX.2 by
     Black Forest Labs (Apache-2.0, https://github.com/black-forest-labs/flux2).
     The FLUX.2 VAE runs through diffusers. Weights are not redistributed:

@@ -79,8 +79,8 @@ model("a red fox", steps=8, guidance=1.0)
 | `prx-512-dc-ae-sft`, `prx-512-dc-ae` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 16 GB | as above; DC-AE autoencoder MIT |
 | `prx-256-sft`, `prx-256` | 1.3B | `steps` (28), `guidance` (5.0), `negative` ("") | about 16 GB | as above |
 | `prxpixel-7b` | 7B | `steps` (28), `guidance` (5.0), `negative` ("") | about 18 GB | Apache-2.0 (Qwen3-VL text encoder, no autoencoder) |
-| `speridlabs-iris-z` (`-9b`, `-small`) | 9.1B (plus Qwen3 8B FP8 text encoder) | `steps` (50), `guidance` (4.0) | about 18 GB, plus 9 GB text encoder and 0.2 GB VAE | FLUX Non-Commercial (weights); Apache-2.0 text encoder and VAE |
-| `speridlabs-iris-z-32b` (`-big`) | 32.2B (plus Mistral Small 3.2 24B text encoder) | `steps` (50), `guidance` (3.5) | about 64 GB, plus 48 GB text encoder and 0.2 GB VAE | as above |
+| `speridlabs-iris-z` (`-9b`, `-small`) | 9.1B (plus Qwen3 8B FP8 text encoder) | `steps` (50), `guidance` (4.0), `depth` (False) | about 18 GB, plus 9 GB text encoder and 0.2 GB VAE | FLUX Non-Commercial (weights); Apache-2.0 text encoder and VAE |
+| `speridlabs-iris-z-32b` (`-big`) | 32.2B (plus Mistral Small 3.2 24B text encoder) | `steps` (50), `guidance` (3.5), `depth` (False) | about 64 GB, plus 48 GB text encoder and 0.2 GB VAE | as above |
 
 `flux2-klein` and `sana-sprint` are short aliases; `prx` is `prx-1024-beta`
 and `prxpixel` is `prxpixel-7b`.
@@ -155,6 +155,29 @@ Sources are what predict takes. `imgsz` defaults to 512 for images under
 half a megapixel and 1024 above. The default seed is 0, so depth repeats;
 `ensemble=k` takes the per-pixel median over seeds `seed .. seed+k-1`, each
 affinely aligned to the first. Knobs: `steps` (4) and `ensemble` (1).
+
+### Depth to image, and image plus depth
+
+The same `generate` model paints a prompt onto a given depth, keeping the
+scene's geometry, or returns an image together with its depth:
+
+```python
+model = LibreGen("speridlabs-iris-z")
+model("a sunken ruin under the sea", source="colosseum.jpg")    # the photo's depth, a new scene
+model(["a neon city in the rain", "lost in the jungle"], source="colosseum.jpg", seed=0)
+model("a sandcastle at sunset", source=depth_result)            # a Results/DepthMap from any depth model
+model("a sandcastle at sunset", source="depth.png", depth_format="disparity")  # bright = near
+result = model("a grand old library, a spiral staircase", depth=True)
+result.generated, result.depth_map                              # image and its log depth
+```
+
+A photo as `source` has its depth estimated first (4 steps, seed 0, at
+`imgsz` 512 or 1024; default 1024). An image is only read as a depth map when
+`depth_format` says so (`"depth"`: bright = far, `"disparity"`: bright =
+near). With `source=`, `imgsz` is one side and the output keeps the depth's
+aspect ratio; `Results.depth_map` is the depth the image was painted on.
+`depth=True` samples the image and depth jointly, then re-estimates the depth
+from the finished image, as upstream does by default.
 
 Depth loads no text encoder. Measured peak GPU memory on an H200: depth 21
 GB (`9b`) and 64 GB (`32b`) at `imgsz=1024`; generation 34 GB and 107 GB

@@ -25,6 +25,10 @@ compare step reads both:
 4. ``text``: the prompt embeddings of ["", prompt].
 5. ``generate``: prompt -> image end to end, and the port's sampler fed the
    SDK's prompt embedding (isolates the text encoder).
+6. ``depth_to_image``: the small Guggenheim photo -> its depth -> a prompt
+   painted on it, end to end at 512; plus the port's sampler fed the SDK's
+   encoded depth and prompt embedding.
+7. ``rgbd``: prompt -> image + depth (``depth=True``) end to end.
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ import torch
 from PIL import Image
 
 PROMPTS = ["a lighthouse at dusk", "a red fox sleeping in fresh snow, photo"]
+DEPTH_PROMPTS = ["a sunken ruin under the sea, schools of fish", "a neon city in the rain"]
 GEN_SIZE = 512
 GEN_SEED = 7
 DEPTH_SEEDS = (0, 1, 2)
@@ -110,6 +115,23 @@ def run_sdk(args):
         image = pipe.text_to_image(prompt, width=GEN_SIZE, height=GEN_SIZE, seed=GEN_SEED)
         dump["generate"][prompt] = np.asarray(image)
         print("sdk generate", prompt, flush=True)
+    from iris_z import depth as depth_tools
+
+    small = _images()["guggenheim_small"]
+    depth = pipe.image_to_depth(small, seeds=(0,))
+    dump["source_depth"] = depth_tools.encode_log_depth(
+        depth.log_depth_internal, depth.sky_mask_internal(), pipe.sky_ceiling
+    )
+    dump["depth_to_image"], dump["rgbd"] = {}, {}
+    for prompt in DEPTH_PROMPTS:
+        dump["text"][prompt] = pipe.encode_prompt(prompt).embedding.float().cpu()
+        image = pipe.depth_to_image(depth, prompt=prompt, resolution=GEN_SIZE, seed=GEN_SEED)
+        dump["depth_to_image"][prompt] = np.asarray(image)
+        print("sdk depth_to_image", prompt, flush=True)
+    for prompt in PROMPTS[:1]:
+        out = pipe.text_to_rgbd(prompt, width=GEN_SIZE, height=GEN_SIZE, seed=GEN_SEED)
+        dump["rgbd"][prompt] = {"image": np.asarray(out.image), "log_depth": out.depth.log_depth}
+        print("sdk rgbd", prompt, flush=True)
     torch.save(dump, args.out)
 
 
@@ -170,6 +192,27 @@ def run_libre(args):
             (127.5 * (rgb[0] + 1.0)).round().clamp(0, 255).byte().permute(1, 2, 0).cpu().numpy()
         )
         print("libre generate", prompt, flush=True)
+    small = _images()["guggenheim_small"]
+    dump["depth_to_image"], dump["depth_to_image_from_sdk"], dump["rgbd"], dump["source_depth"] = {}, {}, {}, None
+    for prompt in DEPTH_PROMPTS:
+        with torch.no_grad():
+            dump["text"][prompt] = nets.text_encoder(["", prompt]).float().cpu()
+        result = model(prompt, source=small, imgsz=GEN_SIZE, seed=GEN_SEED)
+        dump["depth_to_image"][prompt] = np.asarray(result.generated.data)
+        if dump["source_depth"] is None:
+            # The encoded depth the port painted on, recomputed for the compare step.
+            dump["source_depth"] = model._encoded_source_depth(small, None, GEN_SIZE)[0]
+        # The port's sampler on the SDK's encoded depth and prompt embedding.
+        context = P.text_context(sdk["text"][prompt].to(torch.bfloat16).cuda())
+        with torch.no_grad(), model._autocast():
+            latent = nets.latents.encode_depth(sdk["source_depth"])
+            latent = P.sample_rgb_from_depth(nets.transformer, context, latent, GEN_SEED, model.DEFAULTS["guidance"], 50)
+            dump["depth_to_image_from_sdk"][prompt] = model._decode_rgb(latent)
+        print("libre depth_to_image", prompt, flush=True)
+    for prompt in PROMPTS[:1]:
+        result = model(prompt, imgsz=GEN_SIZE, seed=GEN_SEED, depth=True)
+        dump["rgbd"][prompt] = {"image": np.asarray(result.generated.data), "log_depth": np.asarray(result.depth_map.data)}
+        print("libre rgbd", prompt, flush=True)
     torch.save(dump, args.out)
 
 
@@ -214,9 +257,20 @@ def run_compare(args):
         print("ensemble", name, _diff(s["log_depth"], l["log_depth"]), "rel", round(_depth_rel(l["log_depth"], s["log_depth"]), 6))
     for prompt in sdk["text"]:
         print("text", repr(prompt), _diff(sdk["text"][prompt], lib["text"][prompt]))
-        print("generate", repr(prompt), "psnr", round(_psnr(sdk["generate"][prompt], lib["generate"][prompt]), 2))
-        print("generate_from_sdk_text", repr(prompt), "psnr",
-              round(_psnr(sdk["generate"][prompt], lib["generate_from_sdk_text"][prompt]), 2))
+        if prompt in sdk["generate"]:
+            print("generate", repr(prompt), "psnr", round(_psnr(sdk["generate"][prompt], lib["generate"][prompt]), 2))
+            print("generate_from_sdk_text", repr(prompt), "psnr",
+                  round(_psnr(sdk["generate"][prompt], lib["generate_from_sdk_text"][prompt]), 2))
+    print("source_depth (encoded)", _diff(sdk["source_depth"], lib["source_depth"]))
+    for prompt in sdk["depth_to_image"]:
+        s = sdk["depth_to_image"][prompt]
+        print("depth_to_image", repr(prompt), "psnr", round(_psnr(s, lib["depth_to_image"][prompt]), 2)
+              if s.shape == lib["depth_to_image"][prompt].shape else ("shape", s.shape, lib["depth_to_image"][prompt].shape))
+        print("depth_to_image_from_sdk", repr(prompt), "psnr", round(_psnr(s, lib["depth_to_image_from_sdk"][prompt]), 2))
+    for prompt in sdk["rgbd"]:
+        s, l = sdk["rgbd"][prompt], lib["rgbd"][prompt]
+        print("rgbd image", repr(prompt), "psnr", round(_psnr(s["image"], l["image"]), 2),
+              "depth rel", round(_depth_rel(l["log_depth"], s["log_depth"]), 6))
 
 
 def main():
