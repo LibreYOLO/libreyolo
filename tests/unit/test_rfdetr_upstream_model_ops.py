@@ -187,3 +187,52 @@ def test_observed_transformer_retains_legacy_output_contract():
         model(torch.randn(1, 3, 64, 64))
     handle.remove()
     assert observed == [4]
+
+
+@pytest.mark.parametrize("training", [False, True])
+@pytest.mark.parametrize("reparam", [False, True])
+@pytest.mark.parametrize("kind", ["custom", "hook", "child_hook"])
+def test_proposal_fallback_preserves_full_rows_and_boxes(training, reparam, kind):
+    model = tiny_transformer(reparam).train(training)
+    model.decoder.bbox_embed = MLP(16, 16, 4, 3).double()
+    model.decoder.return_intermediate = True
+    seen = []
+
+    class AcrossRows(nn.Module):
+        def forward(self, x):
+            seen.append(x.shape[1])
+            return x[..., :4] + x.mean(1, keepdim=True)[..., :4]
+
+    def observe_and_modify(_module, args, output):
+        seen.append(args[0].shape[1])
+        return output + args[0].mean(1, keepdim=True)[..., :output.shape[-1]]
+
+    if kind == "custom":
+        model.enc_out_bbox_embed[0] = AcrossRows()
+    elif kind == "hook":
+        model.enc_out_bbox_embed[0].register_forward_hook(observe_and_modify)
+    else:
+        model.enc_out_bbox_embed[0].layers[0].register_forward_hook(observe_and_modify)
+    assert not model._two_stage_batching_eligible()
+    src = torch.randn(2, 16, 3, 3, dtype=torch.float64)
+    groups = 3 if training else 1
+    with torch.no_grad():
+        memory, proposals = tr.gen_encoder_output_proposals(
+            src.flatten(2).transpose(1, 2), None, [(3, 3)], unsigmoid=not reparam
+        )
+        features = model.enc_output_norm[0](model.enc_output[0](memory))
+        logits = model.enc_out_class_embed[0](features)
+        delta = model.enc_out_bbox_embed[0](features)
+        coords = (torch.cat([delta[..., :2] * proposals[..., 2:] + proposals[..., :2],
+                             delta[..., 2:].exp() * proposals[..., 2:]], -1)
+                  if reparam else delta + proposals)
+        ids = logits.max(-1)[0].topk(3, dim=1).indices.unsqueeze(-1)
+        expected = coords.gather(1, ids.expand(-1, -1, 4))
+        if not reparam:
+            expected = expected.sigmoid()
+        seen.clear()
+        actual = model([src], [torch.zeros(2, 3, 3, dtype=torch.bool)], [torch.zeros_like(src)],
+                       torch.zeros(3 * groups, 4, dtype=torch.float64),
+                       torch.randn(3 * groups, 16, dtype=torch.float64))
+    assert seen == [9]
+    torch.testing.assert_close(actual[3][:, :3], expected, rtol=0, atol=0)

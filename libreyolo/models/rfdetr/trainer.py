@@ -703,6 +703,28 @@ class RFDETRTrainer(BaseTrainer):
             int(self.config.num_classes),
         )
 
+    def on_mosaic_disable(self):
+        """Stock detection-style RF-DETR wrappers have no mosaic to disable.
+
+        Keep the base mutation guard for custom datasets/transforms and real
+        strong-augmentation hooks, including classification and semantic tasks.
+        """
+        loader = self.train_loader
+        dataset = getattr(loader, "dataset", None)
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        stock_wrapper = type(dataset) in (DFINEPassThroughDataset, RFDETRSegPassThroughDataset)
+        stock_transform = type(getattr(dataset, "preproc", None)) in (RFDETRDetTransform, RFDETRSegTransform)
+        if (
+            task in ("detect", "segment", "obb")
+            and stock_wrapper
+            and stock_transform
+            and "close_mosaic" not in getattr(dataset, "__dict__", {})
+            and not callable(getattr(dataset, "close_strong_aug", None))
+            and not callable(getattr(getattr(loader, "collate_fn", None), "close_strong_aug", None))
+        ):
+            return
+        return super().on_mosaic_disable()
+
     def _dataloader_options(self):
         return {
             "pin_memory": self.device.type == "cuda"

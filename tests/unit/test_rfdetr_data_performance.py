@@ -79,3 +79,45 @@ def test_combined_loss_logging_preserves_raw_values():
         == trainer.get_loss_components(outputs)
         == {"ce": 3.5, "bbox": 0.5, "giou": 2.0}
     )
+
+
+@pytest.mark.parametrize("task", ["detect", "segment", "obb"])
+def test_stock_no_aug_callback_allows_persistent_workers(task):
+    from types import SimpleNamespace
+
+    from libreyolo.models.dfine.transforms import DFINEPassThroughDataset
+    from libreyolo.models.rfdetr.config import RFDETRConfig
+    from libreyolo.models.rfdetr.seg_transforms import (
+        RFDETRDetTransform,
+        RFDETRSegPassThroughDataset,
+        RFDETRSegTransform,
+    )
+    from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+    transform_cls = RFDETRSegTransform if task == "segment" else RFDETRDetTransform
+    wrapper_cls = RFDETRSegPassThroughDataset if task == "segment" else DFINEPassThroughDataset
+    transform = transform_cls(imgsz=64, multi_scale=False, patch_size=16, num_windows=2)
+    dataset = wrapper_cls(TensorDataset(torch.zeros(2, 3)), (64, 64), preproc=transform)
+    trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+    trainer.wrapper_model = SimpleNamespace(task=task)
+    trainer.config = RFDETRConfig(workers=2, persistent_workers=True, epochs=4, no_aug_epochs=2)
+    trainer.train_loader = SimpleNamespace(dataset=dataset, num_workers=2, persistent_workers=True, collate_fn=None)
+    # Both the epoch boundary and a resumed run call this same hook.
+    trainer.on_mosaic_disable()
+    trainer.on_mosaic_disable()
+    assert dataset.preproc is transform
+
+
+def test_custom_dataset_mutation_still_rejected_for_persistent_workers():
+    from types import SimpleNamespace
+
+    from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+    called = []
+    trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+    trainer.wrapper_model = SimpleNamespace(task="detect")
+    dataset = SimpleNamespace(close_mosaic=lambda: called.append(True))
+    trainer.train_loader = SimpleNamespace(dataset=dataset, num_workers=2, persistent_workers=True, collate_fn=None)
+    with pytest.raises(RuntimeError, match="persistent_workers"):
+        trainer.on_mosaic_disable()
+    assert not called

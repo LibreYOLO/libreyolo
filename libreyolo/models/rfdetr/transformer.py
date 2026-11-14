@@ -899,6 +899,30 @@ class Transformer(nn.Module):
             self._spatial_shapes_cache = (key, tensor)
         return self._spatial_shapes_cache[1]
 
+    @staticmethod
+    def _box_head_is_pointwise(head):
+        """Only an unobserved stock MLP may run after row selection."""
+        return (
+            type(head) is MLP
+            and type(head.layers) is nn.ModuleList
+            and all(
+                type(layer) is nn.Linear
+                and type(layer.weight) is nn.Parameter
+                and (layer.bias is None or type(layer.bias) is nn.Parameter)
+                for layer in head.layers
+            )
+            and _module_call_is_plain(head, *head.layers)
+        )
+
+    def _encoder_box_predictions(self, head, features, proposals):
+        delta = head(features)
+        if self.bbox_reparam:
+            return torch.concat([
+                delta[..., :2] * proposals[..., 2:] + proposals[..., :2],
+                delta[..., 2:].exp() * proposals[..., 2:],
+            ], dim=-1)
+        return delta + proposals
+
     def _two_stage_batching_eligible(self) -> bool:
         """Return whether the per-group modules can safely share stacked operations.
 
@@ -1267,6 +1291,14 @@ class Transformer(nn.Module):
                     enc_outputs_class_unselected_gidx = self.enc_out_class_embed[g_idx](
                         output_memory_gidx
                     )
+                    box_head = self.enc_out_bbox_embed[g_idx]
+                    gather_first = self._box_head_is_pointwise(box_head)
+                    if not gather_first:
+                        # Preserve both full-row inputs and original call order
+                        # for custom/stateful heads and observed module calls.
+                        full_boxes = self._encoder_box_predictions(
+                            box_head, output_memory_gidx, output_proposals
+                        )
                     topk = min(
                         self.num_queries, enc_outputs_class_unselected_gidx.shape[-2]
                     )
@@ -1277,23 +1309,17 @@ class Transformer(nn.Module):
                     tgt_undetach_gidx = output_memory_gidx.gather(
                         1, gather_indices.expand(-1, -1, self.d_model)
                     )
-                    proposals_gidx = output_proposals.gather(
-                        1, gather_indices.expand(-1, -1, 4)
-                    )
-                    # The box MLP is token-pointwise. Only selected rows contribute
-                    # to the decoder/encoder losses, so do not evaluate discarded rows.
-                    delta = self.enc_out_bbox_embed[g_idx](tgt_undetach_gidx)
-                    if self.bbox_reparam:
-                        refpoint_embed_gidx_undetach = torch.cat(
-                            [
-                                delta[..., :2] * proposals_gidx[..., 2:]
-                                + proposals_gidx[..., :2],
-                                delta[..., 2:].exp() * proposals_gidx[..., 2:],
-                            ],
-                            dim=-1,
+                    if gather_first:
+                        proposals_gidx = output_proposals.gather(
+                            1, gather_indices.expand(-1, -1, 4)
+                        )
+                        refpoint_embed_gidx_undetach = self._encoder_box_predictions(
+                            box_head, tgt_undetach_gidx, proposals_gidx
                         )
                     else:
-                        refpoint_embed_gidx_undetach = delta + proposals_gidx
+                        refpoint_embed_gidx_undetach = full_boxes.gather(
+                            1, gather_indices.expand(-1, -1, 4)
+                        )
                     refpoint_embed_gidx = refpoint_embed_gidx_undetach.detach()
 
                     refpoint_embed_ts.append(refpoint_embed_gidx)
