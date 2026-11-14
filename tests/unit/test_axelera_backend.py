@@ -334,13 +334,16 @@ def test_yolo9_backend_matches_the_exported_graph(exports, tmp_path):
         reference = model.model.eval()(torch.from_numpy(blob))["predictions"].numpy()
     (decoded,) = backend._run_inference(blob)
     assert decoded.shape == reference.shape  # (1, 4 + nc, N)
-    # Export fuses conv+BN: float rounding through the whole net, in pixels on a 96 px canvas.
-    np.testing.assert_allclose(decoded[:, :4], reference[:, :4], atol=2e-2)
+    # Export fuses conv+BN: float rounding through the whole net. Boxes are bin
+    # expectations times the stride (up to 32 px), so 0.1 px is 0.003 of a bin;
+    # measured up to 0.03 px across CI platforms.
+    np.testing.assert_allclose(decoded[:, :4], reference[:, :4], atol=1e-1)
     np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=1e-3)
 
     # Predictions can only be compared if no score sits near conf, no same-class
-    # pair near the NMS IoU and no overlapping pair on a score tie, each with a
-    # margin of at least 5x the tolerances above.
+    # pair near the NMS IoU and no overlapping pair on a score tie, with margins
+    # well above what the tolerances above can move (a 0.1 px shift moves the
+    # IoU of these 20+ px boxes by under 0.01).
     conf, iou = 0.5, 0.5
     boxes, scores = np.clip(reference[0, :4].T, 0, 96), reference[0, 4:].T
     assert np.abs(scores - conf).min() > 5e-3
