@@ -4245,6 +4245,10 @@ class AxeleraExporter(BaseExporter):
         imgsz, device, output_path = super()._resolve_params(
             output_path, imgsz, device, half, int8
         )
+        # Graph preparation, calibration, output matching and verification all
+        # feed host (CPU) tensors, and the Axelera toolchain runs on the host:
+        # export on CPU. _model_context moves the model back afterwards.
+        device = torch.device("cpu")
         if hasattr(self, "_source_model"):
             # The caller's model, not the canvas copy, reports what was exported.
             self._source_model._last_export_imgsz = imgsz

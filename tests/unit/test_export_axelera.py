@@ -399,6 +399,53 @@ def test_mobilenetv4_export_equalizes_streams_and_uses_histogram_ranges(exporter
     assert all(torch.equal(live[k], after[k]) for k in live)
 
 
+def test_export_always_runs_on_cpu(monkeypatch):
+    """Preparation, calibration and output matching feed CPU tensors, so the
+    exporter resolves the export device to CPU whatever the model or caller uses."""
+    import torch
+
+    from libreyolo.export.exporter import AxeleraExporter, BaseExporter
+
+    monkeypatch.setattr(
+        BaseExporter, "_resolve_params", lambda self, output_path, imgsz, device, half, int8: ((64, 64), device, output_path)
+    )
+    exporter = AxeleraExporter.__new__(AxeleraExporter)
+    exporter.model = _model()
+    _, device, _ = exporter._resolve_params("out", 64, "cuda:0", False, True)
+    assert device == torch.device("cpu")
+
+
+def _accelerator():
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+        return "mps"
+    return None
+
+
+@pytest.mark.skipif(_accelerator() is None, reason="needs a CUDA or MPS device")
+@pytest.mark.parametrize("family", ["yolonas", "mobilenetv4"])
+def test_export_of_an_accelerator_resident_model(exporter_sdk, tmp_path, family):
+    """A model living on the GPU exports (verify on) and stays on the GPU."""
+    import torch
+
+    from libreyolo import LibreMobileNetV4, LibreYOLONAS
+
+    torch.manual_seed(0)
+    device = _accelerator()
+    if family == "yolonas":
+        model = LibreYOLONAS(None, size="s", nb_classes=3, device=device)
+    else:
+        model = LibreMobileNetV4(size="m", nb_classes=5, device=device)
+    model.export(
+        format="axelera", data=str(_dataset(tmp_path)), imgsz=64,
+        output_path=str(tmp_path / f"{family}_axelera_model"),
+    )
+    assert next(model.model.parameters()).device.type == device
+
+
 def test_default_quantization_scheme_per_model():
     assert ax.default_quantization_scheme("mobilenetv4", "classify") == "hybrid_per_tensor_per_channel"
     assert ax.default_quantization_scheme("resnet", "classify") == "per_tensor_min_max"
