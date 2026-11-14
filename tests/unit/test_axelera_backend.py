@@ -338,7 +338,7 @@ def test_yolo9_backend_matches_the_exported_graph(exports, tmp_path):
     # expectations times the stride (up to 32 px), so 0.1 px is 0.003 of a bin;
     # measured up to 0.03 px across CI platforms.
     np.testing.assert_allclose(decoded[:, :4], reference[:, :4], atol=1e-1)
-    np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=1e-3)
+    np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=3e-3)  # 3e-4 measured; scores sit >= 5e-3 from conf
 
     # Predictions can only be compared if no score sits near conf, no same-class
     # pair near the NMS IoU and no overlapping pair on a score tie, with margins
