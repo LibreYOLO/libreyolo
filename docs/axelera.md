@@ -83,6 +83,8 @@ a separate size:
 | Real-ESRGAN | x4t | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.00 | -0.49 | supported | `realesrgan/restore/x4t/2026-11-12` |
 | MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported | `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
+| DeepLabV3 | r50 | semantic (mIoU; ASPP as 1x1 + shifts) | COCO val2017 VOC-21, 300 | 0.5243 | 0.4735 | -5.08 | supported | `deeplabv3/semantic/r50/2026-11-14/3` |
+| DeepLabV3 | r101 | semantic (mIoU; ASPP as 1x1 + shifts) | COCO val2017 VOC-21, 300 | 0.5888 | 0.3795 | -20.93 | supported | `deeplabv3/semantic/r101/2026-11-14` |
 
 Detection and pose report mAP50-95; ImageNetV2 is used locally under its
 licence terms and not redistributed. Evidence is the id of the run's line in
@@ -110,7 +112,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-11/7` |
 | Real-ESRGAN | restore | x4t (supported with a measured drop; bar 0.3 dB; x4 and x2 not measured yet: their compiles did not finish within 4 h) | see `docs/export_support.md` | x4t `realesrgan/restore/x4t/2026-11-12` |
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
-| DeepLabV3 | semantic | mv3 (supported with a measured drop; r50 and r101 blocked: do not compile) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 blocked `deeplabv3/semantic/r50/2026-11-11/2`; r101 blocked `deeplabv3/semantic/r101/2026-11-11` |
+| DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops; r50/r101 run their ASPP as per-tap 1x1 convolutions plus shifts) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-14/3`; r101 `deeplabv3/semantic/r101/2026-11-14` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
 | YOLOv2 | detect | t, b | see `docs/export_support.md` | t `yolo2/detect/t/2026-11-13/2`; b `yolo2/detect/b/2026-11-13/2` |
 | YOLOv3 | detect | t, b, spp | see `docs/export_support.md` | t `yolo3/detect/t/2026-11-11/6`; b `yolo3/detect/b/2026-11-11/6`; spp `yolo3/detect/spp/2026-11-11/3` |
@@ -668,7 +670,6 @@ Blocked for structural reasons (accuracy never blocks an export):
 - EfficientDet-d3: lowering finds no L1 tiling at its native 896 (2.52 MB needed, 2.15 MB available) nor at a 512 canvas (2.58 vs 2.14 MB); its 160-channel BiFPN and heads set the need (ledgers `efficientdet/detect/d3/2026-11-13/2`, `efficientdet/detect/d3/2026-11-14`). Use d2.
 - HRNet (pose): compiles, but the device output drifts from the quantized model stage by stage (keypoint mAP 0.000 on device vs a working CPU-quantized model).
 - ZipDepth: after an exact ReduceMean-to-pooling rewrite, quantization fails on the GCNet context MatMul.
-- DeepLabV3-ResNet50/101: quantize, but at output stride 8 the ASPP convolutions need the whole 64x64 feature map and lowering finds no L1 tiling.
 - FCOS: the head normalizes every convolution with GroupNorm (per-image statistics), which the 1.9 INT8 toolchain has no form for: quantization stops on the head's 40 InstanceNormalization ops at opset 17 (on Resize at opset 18; ledger `fcos/detect/r50/2026-11-11/3`). It needs a head retrained with batch norm or no norm.
 - RetinaNet-r50v2: like FCOS, the head normalizes every convolution with GroupNorm (per-image statistics); quantization stops on the head's InstanceNormalization ops (fixed 800x800 canvas, 14.9 min, 5.1 GB peak RSS; ledger `retinanet/detect/r50v2/2026-11-12`). Use RetinaNet-r50.
 - RTMDet-Ins-x: at 640x640 lowering fails in AssignTilingFactors (ScheduleMemory, LowerTIR): no tiling factor fits L1 (3.99 MB needed, 3.32 MB available; 2 h 08 min, 8.1 GB peak RSS; ledger `rtmdet/segment/x/2026-11-12`). Use RTMDet-Ins-l.

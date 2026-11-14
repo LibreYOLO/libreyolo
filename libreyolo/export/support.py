@@ -4180,17 +4180,19 @@ _add(
     ("axelera",),
     reason=(
         "INT8 export compiled with Axelera's toolchain; the whole DeepLabV3 graph "
-        "runs on the Metis AIPU after two exact graph rewrites (the ASPP "
+        "runs on the Metis AIPU after exact graph rewrites (the ASPP "
         "image-pooling branch becomes a broadcast add, oversized ASPP "
-        "convolutions are split by channels), and the host upsamples the class "
-        "logits. Supported, not validated: DeepLabV3-MobileNetV3 keeps mIoU 3.77 "
-        "points below FP32 on a paired 300-image COCO val2017 set with VOC-21 "
-        "masks (docs/axelera.md)."
+        "convolutions are split by channels, and for R50/R101 each dilated ASPP "
+        "convolution runs as per-tap 1x1 convolutions plus zero-filled shifts), "
+        "and the host upsamples the class logits. Supported, not validated: on a "
+        "paired 300-image COCO val2017 set with VOC-21 masks mIoU stays below "
+        "FP32 by 3.77 points (MobileNetV3), 5.08 (R50) and 20.93 (R101; "
+        "docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: mv3 (measured drop, SIZE_ACCURACY_NOTES); r50 and r101 "
-        "do not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux "
+        "supported sizes: mv3, r50, r101 (measured drops, SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux "
         "x86_64 compile, INT8, batch 1, fixed 520x520 input"
     ),
 )
@@ -4811,6 +4813,16 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
             "through the same path)"
         ),
+        "r50": (
+            "measured mIoU drop 5.08 points vs FP32 (0.4735 vs 0.5243 on 300 COCO "
+            "val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
+            "through the same path; ASPP as per-tap 1x1 convolutions plus shifts)"
+        ),
+        "r101": (
+            "measured mIoU drop 20.93 points vs FP32 (0.3795 vs 0.5888 on 300 "
+            "COCO val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
+            "through the same path; ASPP as per-tap 1x1 convolutions plus shifts)"
+        ),
     },
     ("rtmdet", "detect", "axelera"): {
         "t": (
@@ -4974,15 +4986,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "does not compile with Axelera's SDK 1.9.0: at its native 300 px and "
             "at 224 px the compiled model has two output buffers for its one output"
         ),
-    },
-    ("deeplabv3", "semantic", "axelera"): {
-        size: (
-            f"does not compile for Metis with the 1.9 SDK: it quantizes, but at "
-            "output stride 8 its ASPP convolutions (dilation up to 36) need the "
-            "whole 64x64 feature map at once and lowering finds no L1 tiling that "
-            "fits"
-        )
-        for size in ("r50", "r101")
     },
     ("retinanet", "detect", "axelera"): {
         "r50v2": (

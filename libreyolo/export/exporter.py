@@ -3904,6 +3904,62 @@ _AXELERA_GRAPH_OUTPUTS = {
 }
 
 
+class _ShiftedDilatedConv(torch.nn.Module):
+    """A dilated 3x3 convolution as per-tap 1x1 convolutions plus zero-filled shifts (exact).
+
+    Tap ``(a, b)`` of a 3x3 kernel with dilation ``d`` reads the input shifted
+    by ``((a - 1) d, (b - 1) d)``; a 1x1 convolution commutes with that shift,
+    so the convolution is the sum over taps of ``shift(conv1x1(x, w[:, :, a, b]))``
+    with zeros shifted in. Taps that only read padding are dropped. DeepLabV3's
+    ASPP convolutions (dilation up to 36 at output stride 8) find no L1 tiling
+    on the Metis AIPU as dilated convolutions; as 1x1 convolutions and shifts
+    they compile.
+    """
+
+    def __init__(self, conv: torch.nn.Conv2d):
+        super().__init__()
+        out_channels, in_channels, kh, kw = conv.weight.shape
+        if (kh, kw) != (3, 3) or conv.groups != 1 or tuple(conv.stride) != (1, 1):
+            raise ValueError("Only stride-1, ungrouped 3x3 convolutions are rewritten.")
+        if tuple(conv.dilation) != (conv.dilation[0],) * 2 or tuple(conv.padding) != tuple(conv.dilation):
+            raise ValueError("Only 'same'-padded convolutions with equal dilations are rewritten.")
+        self.dilation = int(conv.dilation[0])
+        self.out_channels = int(out_channels)
+        weight = conv.weight.detach().permute(2, 3, 0, 1).reshape(9 * out_channels, in_channels, 1, 1)
+        self.weight = torch.nn.Parameter(weight.clone(), requires_grad=False)
+        self.bias = (
+            torch.nn.Parameter(conv.bias.detach().clone(), requires_grad=False)
+            if conv.bias is not None
+            else None
+        )
+
+    def forward(self, x):
+        h, w, d = x.shape[-2], x.shape[-1], self.dilation
+        out = None
+        for k in range(9):
+            dy, dx = (k // 3 - 1) * d, (k % 3 - 1) * d
+            if abs(dy) >= h or abs(dx) >= w:
+                continue  # this tap reads only zero padding
+            tap = torch.nn.functional.conv2d(x, self.weight[k * self.out_channels : (k + 1) * self.out_channels])
+            shifted = torch.nn.functional.pad(tap, (d, d, d, d))[:, :, d + dy : d + dy + h, d + dx : d + dx + w]
+            out = shifted if out is None else out + shifted
+        if self.bias is not None:
+            out = out + self.bias.reshape(1, -1, 1, 1)
+        return out
+
+
+def _aspp_shift(model: torch.nn.Module) -> int:
+    """Rewrite every DeepLabV3 ASPP dilated convolution in ``model`` in place; returns the count."""
+    from ..models.deeplabv3.nn import ASPPConv
+
+    count = 0
+    for module in model.modules():
+        if isinstance(module, ASPPConv):
+            module[0] = _ShiftedDilatedConv(module[0])
+            count += 1
+    return count
+
+
 class _GraphOutputsWrapper(torch.nn.Module):
     """A dense model's full graph ending at its ONNX outputs (``graph_outputs_v1``).
 
@@ -4453,6 +4509,13 @@ class AxeleraExporter(BaseExporter):
             if self.model._get_model_name() == "quicksrnet":
                 nn_model = copy.deepcopy(nn_model).eval()
                 self._prepare_quicksrnet(nn_model)
+            if self._size_recipe().get("aspp_shift"):
+                nn_model = copy.deepcopy(nn_model).eval()
+                logger.info(
+                    "Axelera: %d ASPP dilated convolutions run as per-tap 1x1 "
+                    "convolutions plus zero-filled shifts (exact; docs/axelera.md).",
+                    _aspp_shift(nn_model),
+                )
             self._raw_wrapper = _GraphOutputsWrapper(nn_model, graph_outputs).eval()
             logger.info("Step 1/2: Exporting %s ONNX (%s)", self._task(), onnx_output)
             return _export_onnx_graph(

@@ -1162,6 +1162,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("efficientdet", "detect", "d1"),
         ("efficientdet", "detect", "d2"),
         ("retinanet", "detect", "r50"),
+        ("deeplabv3", "semantic", "r50"), ("deeplabv3", "semantic", "r101"),
     }
     assert recipes == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
@@ -1582,6 +1583,45 @@ def test_graph_passes_are_exact(tmp_path, graph, name, shape, gone):
     after = ort.InferenceSession(rewritten).run(None, {"x": x})[0]
     np.testing.assert_allclose(after, before, rtol=1e-5, atol=1e-5)
 
+
+
+@pytest.mark.parametrize(("dilation", "bias"), [(2, False), (12, False), (24, False), (3, True)])
+def test_aspp_shift_matches_the_dilated_convolution(dilation, bias):
+    import torch
+
+    from libreyolo.export.exporter import _ShiftedDilatedConv
+
+    torch.manual_seed(dilation)
+    conv = torch.nn.Conv2d(16, 8, 3, padding=dilation, dilation=dilation, bias=bias).eval()
+    x = torch.randn(1, 16, 20, 20)  # dilation 24 >= 20: the off-centre taps read only padding
+    with torch.no_grad():
+        torch.testing.assert_close(_ShiftedDilatedConv(conv)(x), conv(x), atol=1e-5, rtol=1e-5)
+
+
+def test_deeplabv3_resnet_sizes_run_their_aspp_as_shifted_1x1():
+    import torch
+
+    from libreyolo.export.exporter import _aspp_shift, _ShiftedDilatedConv
+    from libreyolo.export.support import BLOCKED_SIZES, SIZE_ACCURACY_NOTES
+    from libreyolo.models.deeplabv3.nn import ASPPConv, LibreDeepLabv3Net
+
+    for size in ("r50", "r101"):
+        assert ax.size_recipe("deeplabv3", "semantic", size) == {"aspp_shift": True}
+        assert "1x1 convolutions plus shifts" in SIZE_ACCURACY_NOTES[("deeplabv3", "semantic", "axelera")][size]
+    assert ax.size_recipe("deeplabv3", "semantic", "mv3") == {}
+    assert ("deeplabv3", "semantic", "axelera") not in BLOCKED_SIZES
+    torch.manual_seed(0)
+    net = LibreDeepLabv3Net("r50").eval()
+    import copy
+
+    clone = copy.deepcopy(net)
+    assert _aspp_shift(clone) == 3
+    aspp = [m for m in net.modules() if isinstance(m, ASPPConv)]
+    assert all(isinstance(m[0], torch.nn.Conv2d) for m in aspp)  # the original is left alone
+    assert all(isinstance(m[0], _ShiftedDilatedConv) for m in clone.modules() if isinstance(m, ASPPConv))
+    x = torch.randn(1, 3, 128, 128)
+    with torch.no_grad():
+        torch.testing.assert_close(clone(x), net(x), atol=1e-4, rtol=1e-4)
 
 
 def test_deeplabv3_graph_passes_leave_other_graphs_alone(tmp_path):

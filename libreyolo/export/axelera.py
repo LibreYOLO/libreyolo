@@ -89,6 +89,12 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # A 1024x1024 canvas costs 1.64x the compute and recovers most of it
     # (-1.11); imgsz=800 stays available for speed.
     ("retinanet", "detect", "r50"): {"canvas": 1024},
+    # DeepLabV3 r50/r101 at output stride 8: the ASPP convolutions (dilation up
+    # to 36 on a 65x65 map) find no L1 tiling; per-tap 1x1 convolutions plus
+    # zero-filled shifts are the same function and compile (the backbone alone
+    # compiles; one 1x1 with all nine taps stacked does not).
+    ("deeplabv3", "semantic", "r50"): {"aspp_shift": True},
+    ("deeplabv3", "semantic", "r101"): {"aspp_shift": True},
     # Histogram ranges recover most of the Mish backbone's loss (-6.8 -> -1.4);
     # the box-output window takes the rest of the way to -1.52 on 1000 images.
     ("yolo4", "detect", "b"): {
