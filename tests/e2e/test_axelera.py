@@ -168,13 +168,24 @@ def test_cli_round_trip(tmp_path, sample_image):
     run("val", f"model={artifact}", "data=coco128.yaml")
 
 
-def test_pose_s_export_is_refused(tmp_path):
-    """YOLO-NAS-pose-s misses the 1.0-point bar on Metis (m and l pass)."""
+def test_pose_s_exports_with_its_measured_drop(tmp_path):
+    """YOLO-NAS-pose-s misses the 1.0-point bar on Metis (m and l pass), so it
+    exports as "supported" and warns once with the measured drop."""
+    from unittest import mock
+
+    import yaml
+
     from libreyolo import LibreYOLO
+    from libreyolo.export import exporter
 
     model = LibreYOLO("LibreYOLONASs-pose.pt")
-    with pytest.raises(NotImplementedError, match="use m or l"):
-        model.export(format="axelera", data="coco128.yaml", output_path=str(tmp_path / "pose_axelera_model"))
+    with mock.patch.object(exporter.logger, "warning", wraps=exporter.logger.warning) as warning:
+        path = Path(
+            model.export(format="axelera", data="coco128.yaml", output_path=str(tmp_path / "pose_axelera_model"))
+        )
+    assert any("supported but not validated" in str(call.args[0]) for call in warning.call_args_list)
+    meta = yaml.safe_load((path / "metadata.yaml").read_text())
+    assert meta["task"] == "pose"
 
 
 def test_yolo9_smoke(tmp_path, sample_image):
