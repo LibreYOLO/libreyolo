@@ -249,6 +249,8 @@ class HungarianMatcher(nn.Module):
             torch.isfinite(compact).all(),
         ]).all()
         if not bool(safe):
+            # Do not allocate the full fallback on top of compact temporaries.
+            del ids, target_boxes, giou, class_cost, l1, padded, compact
             return self.compute_cost_matrix(outputs, targets)
         return compact
 

@@ -368,3 +368,35 @@ def test_small_accelerator_cost_uses_full_path(monkeypatch, device_type):
     sentinel = object()
     monkeypatch.setattr(matcher, "compute_cost_matrix", lambda *_: sentinel)
     assert matcher.compute_matching_cost(outputs, targets) is sentinel
+
+
+def test_unsafe_compact_cost_releases_buffers_before_full_fallback(monkeypatch):
+    import weakref
+
+    generator = torch.Generator().manual_seed(139)
+    matcher = _matcher()
+    outputs = _outputs(2, generator)
+    outputs["pred_boxes"][0, 0, 0] = float("nan")
+    targets = _targets(2, generator, [7, 7])
+    tracked = []
+    real_vmap = torch.vmap
+
+    def track_vmap(fn):
+        mapped = real_vmap(fn)
+
+        def run(*args):
+            result = mapped(*args)
+            tracked.append(weakref.ref(result))
+            return result
+
+        return run
+
+    sentinel = object()
+
+    def full_fallback(*_):
+        assert tracked and all(ref() is None for ref in tracked)
+        return sentinel
+
+    monkeypatch.setattr(torch, "vmap", track_vmap)
+    monkeypatch.setattr(matcher, "compute_cost_matrix", full_fallback)
+    assert matcher.compute_matching_cost(outputs, targets) is sentinel
