@@ -9,7 +9,9 @@
 > Results are from one Metis M.2 Max with axelera-devkit / axelera-rt 1.9.0.
 
 Measured on device, paired INT8 vs FP32 on the same images, each size with the
-recipe LibreYOLO applies to it (section 7 has calibration details):
+recipe LibreYOLO applies to it (section 7 has calibration details). A row
+labelled "option" is an alternative setting for a size listed above it, not
+a separate size:
 
 | Family | Size | Task | Dataset (paired) | FP32 | Metis INT8 | Delta | Label | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -53,7 +55,7 @@ recipe LibreYOLO applies to it (section 7 has calibration details):
 | RTMDet | m | detect | COCO val2017, 1000 | 0.4727 | 0.4461 | -2.66 | supported | `rtmdet/detect/m/2026-11-12/2` |
 | RTMDet | l | detect | COCO val2017, 1000 | 0.4805 | 0.4618 | -1.87 | supported | `rtmdet/detect/l/2026-11-12/2` |
 | RetinaNet | r50 | detect (1024x1024 canvas, default) | COCO val2017, 1000 | 0.3472 | 0.3410 | -0.62 (canvas -0.49 more; -1.11 vs own resize) | supported | `retinanet/detect/r50/2026-11-14/4` |
-| RetinaNet | r50 | detect (800x800 canvas, imgsz=800) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas -2.03 more; -2.25 vs own resize) | supported | `retinanet/detect/r50/2026-11-14/3` |
+| RetinaNet | r50 | detect (800x800 canvas, imgsz=800) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas -2.03 more; -2.25 vs own resize) | option (imgsz=800) | `retinanet/detect/r50/2026-11-14/3` |
 | SSD | 300 | detect (two parts, L2Norm on the host) | COCO val2017, 1000 | 0.2408 | 0.2403 | -0.05 | validated | `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
