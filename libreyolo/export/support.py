@@ -4401,6 +4401,19 @@ _add(
     ),
 )
 _add(
+    "blocked",
+    ("l2cs",),
+    ("gaze",),
+    ("axelera",),
+    reason=(
+        "L2CS's published checkpoint is trained on Gaze360, whose licence forbids "
+        "redistributing models trained on it: LibreYOLO cannot mirror it, only "
+        "fetch it from the authors, so no Axelera export is measured or shipped "
+        "for it (non-redistributable weights; non-commercial ones would be "
+        "fine)."
+    ),
+)
+_add(
     "validated",
     ("ssd",),
     ("detect",),

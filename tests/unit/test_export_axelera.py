@@ -1905,3 +1905,10 @@ def test_yolo9_e2e_axelera_is_validated():
     assert entry.tier == "validated"
     assert "validated sizes: t, s, m, c" in entry.constraint
     assert precision_support("yolo9_e2e", "detect", "axelera") == (True, True)
+
+
+def test_l2cs_axelera_is_blocked_by_the_weights_licence():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("l2cs", "gaze", "axelera")
+    assert entry.tier == "blocked" and "Gaze360" in entry.reason

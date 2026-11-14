@@ -1450,7 +1450,7 @@ rest on the host CPU; each entry names the split.
 - `l2cs` / `gaze` / `paddle`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `mnn`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `rknn`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
-- `l2cs` / `gaze` / `axelera`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
+- `l2cs` / `gaze` / `axelera`: L2CS's published checkpoint is trained on Gaze360, whose licence forbids redistributing models trained on it: LibreYOLO cannot mirror it, only fetch it from the authors, so no Axelera export is measured or shipped for it (non-redistributable weights; non-commercial ones would be fine).
 - `l2cs` / `gaze` / `ncnn`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `tflite`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `coreml`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
