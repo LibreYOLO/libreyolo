@@ -2024,6 +2024,11 @@ class BaseExporter(ABC):
         finally:
             if onnx_path and Path(onnx_path).exists():
                 Path(onnx_path).unlink()
+            # Intermediate graphs a subclass registers before writing them, so
+            # they go even when their export fails before onnx_path is set.
+            for extra in getattr(self, "_intermediate_paths", ()):
+                if Path(extra).exists():
+                    Path(extra).unlink()
 
         self._print_summary(result, precision, imgsz)
         return result
@@ -4426,6 +4431,8 @@ class AxeleraExporter(BaseExporter):
         imgsz = (int(dummy.shape[-2]), int(dummy.shape[-1]))
         out = Path(output_path)
         onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        part2_output = str(out.with_name(f"{out.name}.export_intermediate.part2.onnx"))
+        self._intermediate_paths = [onnx_output, part2_output]
         if self._shuffle_skip_restore():
             self._raw_wrapper = _RestoreBodyWrapper(nn_model).eval()
             logger.info("Step 1/2: Exporting restore trunk ONNX (%s)", onnx_output)
@@ -4580,7 +4587,7 @@ class AxeleraExporter(BaseExporter):
             self._chain_tail_onnx = _export_onnx_graph(
                 self._chain_tail,
                 tail_input,
-                output_path=str(out.with_name(f"{out.name}.export_intermediate.part2.onnx")),
+                output_path=part2_output,
                 opset=opset,
                 simplify=simplify,
                 half=False,

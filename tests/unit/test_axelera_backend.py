@@ -732,6 +732,41 @@ def ssd_export(sdk, tmp_path_factory):
     return model, artifact
 
 
+def test_ssd_export_leaves_no_intermediate_graphs(ssd_export):
+    _, artifact = ssd_export
+    assert not list(artifact.parent.glob("*.export_intermediate*"))
+
+
+def test_ssd_export_cleans_up_when_part2_fails(sdk, tmp_path, monkeypatch):
+    """Part 1 is on disk when part 2's export fails; both intermediates go."""
+    import torch
+
+    from libreyolo import LibreSSD
+    from libreyolo.export import exporter, onnx
+    from libreyolo.export.support import INT8_EXPORTS, SupportEntry
+
+    original = exporter.get_support
+    monkeypatch.setattr(
+        exporter, "get_support",
+        lambda f, t, fmt: SupportEntry("available", "unit test") if fmt == "axelera" else original(f, t, fmt),
+    )
+    monkeypatch.setitem(INT8_EXPORTS, "axelera", INT8_EXPORTS["axelera"] | {("ssd", "detect")})
+    real_export = onnx._export_onnx_graph
+
+    def failing_part2(*args, output_path, **kwargs):
+        if output_path.endswith(".part2.onnx"):
+            Path(output_path).write_bytes(b"partial")
+            raise RuntimeError("part 2 failed")
+        return real_export(*args, output_path=output_path, **kwargs)
+
+    monkeypatch.setattr(onnx, "_export_onnx_graph", failing_part2)
+    torch.manual_seed(0)
+    model = LibreSSD(None, device="cpu")
+    with pytest.raises(RuntimeError, match="part 2 failed"):
+        model.export(format="axelera", data=str(_dataset(tmp_path)), output_path=str(tmp_path / "ssd_axelera_model"))
+    assert not list(tmp_path.glob("*.export_intermediate*"))
+
+
 def test_ssd_exports_two_parts_with_the_l2norm_on_the_host(ssd_export):
     import yaml
 
