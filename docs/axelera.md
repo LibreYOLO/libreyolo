@@ -722,6 +722,15 @@ Not measured on a Metis yet (nothing is known to fail; the export raises until a
 - UNet-s: the compile at 512x1024 did not finish within 3 hours (ledger `unet/semantic/s/2026-11-13`); UNet also has no ONNX semantic export contract yet. At 1024x2048 lowering finds no L1 tiling.
 - Other families.
 
+Out of scope (not attempted): models whose backbone is itself a transformer.
+A hybrid export runs a convolutional backbone on the Metis and the attention
+layers on the host CPU; with an attention backbone almost nothing would be
+left on the Metis. This covers ViT, DeiT, Swin, DINOv2, CLIP, SigLIP2, PE,
+SegFormer, EoMT, Depth Anything (1, 3 and video), the SAM family (SAM,
+MobileSAM), the detectors built on such backbones (RF-DETR and LW-DETR on
+DINOv2/ViT, Grounding DINO on Swin, OWLv2 on ViT), vision-language models,
+generative models and 3D models.
+
 Other known limits:
 
 - YOLO-NAS-R (obb): validated on 300 DOTA-v2.0 tiles (the paired set prepared for this work), not on a 1000-image set.
