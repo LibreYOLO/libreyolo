@@ -777,7 +777,17 @@ class Backbone(BackboneBase):
         for feat in feats:
             m = tensor_list.mask
             assert m is not None
-            mask = F.interpolate(m[None].float(), size=feat.shape[-2:]).to(torch.bool)[0]
+            mask = (
+                torch.zeros(
+                    (feat.shape[0], *feat.shape[-2:]),
+                    dtype=torch.bool,
+                    device=feat.device,
+                )
+                if getattr(tensor_list, "no_padding", False)
+                else F.interpolate(m[None].float(), size=feat.shape[-2:]).to(
+                    torch.bool
+                )[0]
+            )
             out.append(NestedTensor(feat, mask))
 
         # Dual-projector addition ported from RF-DETR v1.8.0. When the second
@@ -792,7 +802,17 @@ class Backbone(BackboneBase):
         for feat in cross_attn_feats:
             m = tensor_list.mask
             assert m is not None
-            mask = F.interpolate(m[None].float(), size=feat.shape[-2:]).to(torch.bool)[0]
+            mask = (
+                torch.zeros(
+                    (feat.shape[0], *feat.shape[-2:]),
+                    dtype=torch.bool,
+                    device=feat.device,
+                )
+                if getattr(tensor_list, "no_padding", False)
+                else F.interpolate(m[None].float(), size=feat.shape[-2:]).to(
+                    torch.bool
+                )[0]
+            )
             cross_attn_out.append(NestedTensor(feat, mask))
         return out, cross_attn_out
 

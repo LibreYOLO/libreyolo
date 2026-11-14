@@ -1239,6 +1239,13 @@ RF-DETR (Roboflow)
 Source: https://github.com/roboflow/rf-detr
 License: Apache License 2.0
 Copyright (c) 2024-2025 Roboflow, Inc.
+Compact/batched matching, the optional GPU assignment adapter, grouped
+optimizer migration, transformer training rewrites, and numerical fixes in
+libreyolo/models/rfdetr/ are adapted from RF-DETR commit
+b49df291cdd6b8d19fb722ab402e9a018d2edcd4 (Apache-2.0).
+The optional torch-hungarian 0.1.0rc0 runtime (Apache-2.0) is installed from
+PyPI through the rfdetr-train extra; its solver source is not vendored here.
+
 Used for: RF-DETR model family (libreyolo/models/rfdetr/), LoRA
           adapter recipe helpers (libreyolo/training/lora.py), and
           COCO evaluation glue (libreyolo/data/yolo_coco_api.py).

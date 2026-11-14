@@ -18,13 +18,13 @@ import torch
 import torch.nn.functional as F  # noqa: N812
 from torch import nn
 
+from . import box_ops
 from .keypoints import compute_l1_keypoint_loss, map_labels_to_keypoint_schema
 from .segmentation import (
     calculate_uncertainty,
     get_uncertain_point_coords_with_randomness,
     point_sample,
 )
-from . import box_ops
 
 logger = logging.getLogger(__name__)
 
@@ -259,7 +259,16 @@ class SetCriterion(nn.Module):
         self.num_keypoints_per_class = list(num_keypoints_per_class) if num_keypoints_per_class else []
         self.distributed_normalize = distributed_normalize
 
-    def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
+    def loss_labels(
+        self,
+        outputs,
+        targets,
+        indices,
+        num_boxes,
+        log=True,
+        target_classes_o=None,
+        target_boxes=None,
+    ):
         """Classification loss (Binary focal loss)
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
@@ -267,7 +276,10 @@ class SetCriterion(nn.Module):
         src_logits = outputs["pred_logits"]
 
         idx = self._get_src_permutation_idx(indices)
-        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
+        if target_classes_o is None:
+            target_classes_o = torch.cat(
+                [t["labels"][J] for t, (_, J) in zip(targets, indices)]
+            )
 
         # --- GroupPose keypoint additions (adapted from RF-DETR v1.8.0). ---
         # The GroupPose detection head carries one logit column per keypoint-schema
@@ -287,7 +299,10 @@ class SetCriterion(nn.Module):
             alpha = self.focal_alpha
             gamma = 2
             src_boxes = outputs["pred_boxes"][idx]
-            target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
+            if target_boxes is None:
+                target_boxes = torch.cat(
+                    [t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0
+                )
 
             iou_targets = box_ops.paired_box_iou(
                 box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
@@ -314,7 +329,10 @@ class SetCriterion(nn.Module):
 
         elif self.use_position_supervised_loss:
             src_boxes = outputs["pred_boxes"][idx]
-            target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
+            if target_boxes is None:
+                target_boxes = torch.cat(
+                    [t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0
+                )
 
             iou_targets = box_ops.paired_box_iou(
                 box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
@@ -350,7 +368,10 @@ class SetCriterion(nn.Module):
 
         elif self.use_varifocal_loss:
             src_boxes = outputs["pred_boxes"][idx]
-            target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
+            if target_boxes is None:
+                target_boxes = torch.cat(
+                    [t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0
+                )
 
             iou_targets = box_ops.paired_box_iou(
                 box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
@@ -420,13 +441,13 @@ class SetCriterion(nn.Module):
         pred_logits = outputs["pred_logits"]
         device = pred_logits.device
         tgt_lengths = torch.as_tensor([len(v["labels"]) for v in targets], device=device)
-        # Count the number of predictions that are NOT "no-object" (which is the last class)
-        card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
+        # RF-DETR uses independent sigmoid classes, not a softmax background.
+        card_pred = (pred_logits.sigmoid().amax(-1) > 0.5).sum(1)
         card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
         losses = {"cardinality_error": card_err}
         return losses
 
-    def loss_boxes(self, outputs, targets, indices, num_boxes):
+    def loss_boxes(self, outputs, targets, indices, num_boxes, target_boxes=None):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
         targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
         The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
@@ -434,7 +455,10 @@ class SetCriterion(nn.Module):
         assert "pred_boxes" in outputs
         idx = self._get_src_permutation_idx(indices)
         src_boxes = outputs["pred_boxes"][idx]
-        target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
+        if target_boxes is None:
+            target_boxes = torch.cat(
+                [t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0
+            )
 
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction="none")
 
@@ -639,6 +663,31 @@ class SetCriterion(nn.Module):
         assert loss in loss_map, f"do you really want to compute {loss} loss?"
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
 
+    def _losses_for_level(self, outputs, targets, indices, num_boxes, *, log):
+        # Reuse matched target gathers across classification and box losses.
+        matched = {}
+        if "labels" in self.losses:
+            matched["target_classes_o"] = torch.cat(
+                [t["labels"][j] for t, (_, j) in zip(targets, indices)]
+            )
+        if "labels" in self.losses or "boxes" in self.losses:
+            matched["target_boxes"] = torch.cat(
+                [t["boxes"][j] for t, (_, j) in zip(targets, indices)]
+            )
+        result = {}
+        for loss in self.losses:
+            kwargs = (
+                {"log": log, **matched}
+                if loss == "labels"
+                else (
+                    {"target_boxes": matched["target_boxes"]} if loss == "boxes" else {}
+                )
+            )
+            result.update(
+                self.get_loss(loss, outputs, targets, indices, num_boxes, **kwargs)
+            )
+        return result
+
     def _box_count_normalizer(self, outputs, targets, group_detr):
         """Return the box-count divisor for training or rank-local validation."""
         num_boxes = sum(len(target["labels"]) for target in targets)
@@ -667,29 +716,11 @@ class SetCriterion(nn.Module):
         group_detr = self.group_detr if self.training else 1
         outputs_without_aux = {k: v for k, v in outputs.items() if k != "aux_outputs"}
 
-        # Match the output levels as a depth-2 pipeline: the next level's
-        # cost matrix is enqueued on the GPU before the current one's
-        # ``.cpu()`` drains, so the device never idles across the per-level
-        # transfers (the old flow drained it once per level with nothing
-        # queued behind). Depth 2 rather than enqueue-everything: a cost
-        # matrix is (bs, num_queries, total_targets) fp32 and can reach
-        # hundreds of MB on dense batches, so holding all levels at once
-        # would raise peak VRAM on memory-edge runs.
         aux_outputs_list = outputs.get("aux_outputs", [])
         levels = [outputs_without_aux, *aux_outputs_list]
         if "enc_outputs" in outputs:
             levels.append(outputs["enc_outputs"])
-        level_indices = []
-        pending_cost = self.matcher.compute_cost_matrix(levels[0], targets)
-        for next_level in levels[1:]:
-            next_cost = self.matcher.compute_cost_matrix(next_level, targets)
-            level_indices.append(
-                self.matcher.solve(pending_cost.cpu(), targets, group_detr=group_detr)
-            )
-            pending_cost = next_cost
-        level_indices.append(
-            self.matcher.solve(pending_cost.cpu(), targets, group_detr=group_detr)
-        )
+        level_indices = self.matcher.match_many(levels, targets, group_detr)
         indices = level_indices[0]
 
         # Training uses the global average box count. Rank-0-only validation
@@ -697,33 +728,15 @@ class SetCriterion(nn.Module):
         # ranks wait at the validation barrier.
         num_boxes = self._box_count_normalizer(outputs, targets, group_detr)
 
-        # Compute all the requested losses
-        losses = {}
-        for loss in self.losses:
-            losses.update(self.get_loss(loss, outputs, targets, indices, num_boxes))
-
-        # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
+        losses = self._losses_for_level(outputs, targets, indices, num_boxes, log=True)
         for i, aux_outputs in enumerate(aux_outputs_list):
-            indices = level_indices[1 + i]
-            for loss in self.losses:
-                kwargs = {}
-                if loss == "labels":
-                    # Logging is enabled only for the last layer
-                    kwargs = {"log": False}
-                l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, **kwargs)
-                l_dict = {k + f"_{i}": v for k, v in l_dict.items()}
-                losses.update(l_dict)
-
+            layer_losses = self._losses_for_level(
+                aux_outputs, targets, level_indices[1 + i], num_boxes, log=False
+            )
+            losses.update({key + f"_{i}": value for key, value in layer_losses.items()})
         if "enc_outputs" in outputs:
-            enc_outputs = outputs["enc_outputs"]
-            indices = level_indices[-1]
-            for loss in self.losses:
-                kwargs = {}
-                if loss == "labels":
-                    # Logging is enabled only for the last layer
-                    kwargs["log"] = False
-                l_dict = self.get_loss(loss, enc_outputs, targets, indices, num_boxes, **kwargs)
-                l_dict = {k + "_enc": v for k, v in l_dict.items()}
-                losses.update(l_dict)
-
+            layer_losses = self._losses_for_level(
+                outputs["enc_outputs"], targets, level_indices[-1], num_boxes, log=False
+            )
+            losses.update({key + "_enc": value for key, value in layer_losses.items()})
         return losses

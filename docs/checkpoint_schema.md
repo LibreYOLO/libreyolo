@@ -559,3 +559,13 @@ schema v1. Canonical mirror names are `Libre3DMOODt.pt` and
 verified against a pinned SHA-256. The sibling API requires an explicit size
 when a local upstream filename is supplied and never routes the raw checkpoint
 through `LibreYOLO(...)` or metadata conversion.
+
+### RF-DETR optimizer group migration
+
+RF-DETR merges equivalent AdamW parameter groups. New training checkpoints may
+include `_rfdetr_param_indices` inside optimizer `param_groups`; these are original
+parameter positions used to restore moments when group layouts change. They do
+not change model weight keys or the required checkpoint metadata. Legacy
+single-parameter optimizer groups remain supported. An ambiguous migration is a
+fatal resume error, rather than an implicit optimizer reset. See
+[RF-DETR training](rfdetr_training.md).

@@ -129,6 +129,11 @@ coreai = [
 rfdetr = [
     "transformers>=5.1.0",
 ]
+rfdetr-train = [
+    "transformers>=5.1.0",
+    # Optional batched GPU matching, Apache-2.0; same release as upstream.
+    "torch-hungarian==0.1.0rc0",
+]
 eomt = [
     "transformers>=5.1.0",
 ]
@@ -498,6 +503,7 @@ conflicts = [
     [{ extra = "molmo2" }, { extra = "modus" }],
     [{ extra = "molmo2" }, { extra = "openvocab" }],
     [{ extra = "molmo2" }, { extra = "rfdetr" }],
+    [{ extra = "molmo2" }, { extra = "rfdetr-train" }],
     [{ extra = "molmo2" }, { extra = "sam" }],
     [{ extra = "molmo2" }, { extra = "sensenova" }],
     [{ extra = "molmo2" }, { extra = "siglip2-convert" }],

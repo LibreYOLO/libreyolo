@@ -1,8 +1,8 @@
 """Unit tests for segmentation support: Masks class, Results with masks, factory detection."""
 
+import numpy as np
 import pytest
 import torch
-import numpy as np
 from PIL import Image
 
 from libreyolo.data.utils import polygon_to_cxcywh
@@ -242,8 +242,8 @@ class TestFactorySegDetection:
         )
 
     def test_other_families_unaffected(self):
-        from libreyolo.models.yolox.model import LibreYOLOX
         from libreyolo.models.yolo9.model import LibreYOLO9
+        from libreyolo.models.yolox.model import LibreYOLOX
 
         assert LibreYOLOX.detect_size_from_filename("LibreYOLOXs.pt") == "s"
         assert LibreYOLOX.detect_task_from_filename("LibreYOLOXs.pt") is None
@@ -327,6 +327,7 @@ class TestPolygonLabelParsing:
         from pathlib import Path
 
         from PIL import Image
+
         from libreyolo.data.dataset import YOLODataset
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -796,6 +797,7 @@ class TestPolygonLabelParsing:
         import json
 
         from PIL import Image
+
         from libreyolo.data.dataset import COCODataset
 
         images_dir = tmp_path / "train2017"
@@ -1430,8 +1432,9 @@ class TestRFDETRSegTrainer:
 
         optimizer = trainer._setup_optimizer()
         groups_by_param = {
-            id(group["params"][0]): group
+            id(param): group
             for group in optimizer.param_groups
+            for param in group["params"]
         }
         core = trainer.model.model
         backbone_group = groups_by_param[id(core.backbone[0].encoder_weight)]

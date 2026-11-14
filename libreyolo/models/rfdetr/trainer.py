@@ -30,11 +30,15 @@ from ...training.config import TrainConfig
 from ...training.distributed import is_main_process, unwrap_model
 from ...training.freezing import FreezeGroup
 from ...training.optim import build_optimizer
-from ...training.scheduler import BaseScheduler, CosineAnnealingScheduler, FlatCosineScheduler
+from ...training.scheduler import (
+    BaseScheduler,
+    CosineAnnealingScheduler,
+    FlatCosineScheduler,
+)
 from ...training.trainer import BaseTrainer
+from ..dfine.transforms import DFINEPassThroughDataset
 from .config import RFDETRConfig
 from .imgsz import resolve_patch_window, validate_imgsz
-from ..dfine.transforms import DFINEPassThroughDataset
 from .pose_transforms import RFDETRPoseTransform
 from .seg_transforms import (
     RFDETRDetTransform,
@@ -92,6 +96,22 @@ def pretrained_class_rows(
     return rows + [empty_column]
 
 
+def _pack_valid_rfdetr_targets(targets):
+    """Stable packing with one count read instead of per-image nonzero reads."""
+    valid = (targets[..., 3] > 0) & (targets[..., 4] > 0)
+    order = valid.to(torch.int8).argsort(dim=1, descending=True, stable=True)
+    packed = targets.gather(1, order.unsqueeze(-1).expand_as(targets))
+    counts = valid.sum(1).cpu().tolist()
+    return packed, counts
+
+
+def _limit_rfdetr_worker_threads(_worker_id):
+    # Keep PyTorch's worker RNG seeding; only prevent OpenCV oversubscription.
+    import cv2
+
+    cv2.setNumThreads(1)
+
+
 def _pose_worker_init_fn(worker_id: int) -> None:
     cv2.setNumThreads(0)
     torch.set_num_threads(1)
@@ -135,6 +155,7 @@ class RFDETRTrainer(BaseTrainer):
         return RFDETRConfig
 
     def __init__(self, *args, **kwargs):
+        self._resume_weight_decay_override = "weight_decay" in kwargs
         super().__init__(*args, **kwargs)
         self._class_names = None
         self._keypoints_per_class: list[int] | None = None
@@ -594,8 +615,12 @@ class RFDETRTrainer(BaseTrainer):
         if self.config.workers > 0:
             loader_kwargs.update(
                 worker_init_fn=_pose_worker_init_fn,
-                persistent_workers=self.config.persistent_workers,
-                prefetch_factor=self.config.prefetch_factor,
+                persistent_workers=True
+                if self.config.persistent_workers is None
+                else self.config.persistent_workers,
+                prefetch_factor=1
+                if self.config.prefetch_factor is None
+                else self.config.prefetch_factor,
             )
 
         self.train_loader = DataLoader(
@@ -604,7 +629,7 @@ class RFDETRTrainer(BaseTrainer):
             shuffle=sampler is None,
             sampler=sampler,
             num_workers=self.config.workers,
-            pin_memory=self.config.pin_memory,
+            pin_memory=bool(self.config.pin_memory),
             drop_last=len(train_ds) >= per_rank_batch,
             collate_fn=pose_collate_fn,
             **loader_kwargs,
@@ -636,7 +661,7 @@ class RFDETRTrainer(BaseTrainer):
                 batch_size=per_rank_batch,
                 shuffle=False,
                 num_workers=self.config.workers,
-                pin_memory=self.config.pin_memory,
+                pin_memory=bool(self.config.pin_memory),
                 drop_last=False,
                 collate_fn=pose_collate_fn,
                 **loader_kwargs,
@@ -677,6 +702,38 @@ class RFDETRTrainer(BaseTrainer):
             self._class_names,
             int(self.config.num_classes),
         )
+
+    def on_mosaic_disable(self):
+        """Stock detection-style RF-DETR wrappers have no mosaic to disable.
+
+        Keep the base mutation guard for custom datasets/transforms and real
+        strong-augmentation hooks, including classification and semantic tasks.
+        """
+        loader = self.train_loader
+        dataset = getattr(loader, "dataset", None)
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        stock_wrapper = type(dataset) in (DFINEPassThroughDataset, RFDETRSegPassThroughDataset)
+        stock_transform = type(getattr(dataset, "preproc", None)) in (RFDETRDetTransform, RFDETRSegTransform)
+        if (
+            task in ("detect", "segment", "obb")
+            and stock_wrapper
+            and stock_transform
+            and "close_mosaic" not in getattr(dataset, "__dict__", {})
+            and not callable(getattr(dataset, "close_strong_aug", None))
+            and not callable(getattr(getattr(loader, "collate_fn", None), "close_strong_aug", None))
+        ):
+            return
+        return super().on_mosaic_disable()
+
+    def _dataloader_options(self):
+        return {
+            "pin_memory": self.device.type == "cuda"
+            if self.config.pin_memory is None
+            else self.config.pin_memory,
+            "persistent_workers": bool(self.config.persistent_workers),
+            "prefetch_factor": self.config.prefetch_factor,
+            "worker_init_fn": _limit_rfdetr_worker_threads,
+        }
 
     def on_setup(self):
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
@@ -796,6 +853,20 @@ class RFDETRTrainer(BaseTrainer):
             core_model = getattr(self.model, "model", self.model)
             apply_lora_to_rfdetr(core_model)
 
+        defaults = {
+            "lr_encoder": 1.5e-4,
+            "lr_vit_layer_decay": 0.8,
+            "lr_component_decay": 0.7,
+            "focal_alpha": 0.25,
+            "cls_loss_coef": 2.0 if task == "pose" else 1.0,
+        }
+        for key, default in defaults.items():
+            value = getattr(self.config, key)
+            if value is None:
+                value = getattr(self.model.args, key, default)
+                setattr(self.config, key, value)
+            setattr(self.model.args, key, value)
+        self.model.args.matcher_backend = self.config.matcher_backend
         self.criterion, _ = self.model.build_criterion_and_postprocess()
         self.criterion.to(self.device)
 
@@ -830,6 +901,14 @@ class RFDETRTrainer(BaseTrainer):
         return build_optimizer(torch.optim.AdamW, groups, **kwargs)
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
+        if str(getattr(self.config, "optimizer", "adamw")).lower() not in (
+            "adamw",
+            "auto",
+        ):
+            logger.warning(
+                "RF-DETR uses AdamW; optimizer=%r is ignored", self.config.optimizer
+            )
+        self.config.optimizer = "adamw"
         if getattr(getattr(self, "wrapper_model", None), "task", "detect") in (
             "classify",
             "semantic",
@@ -854,11 +933,18 @@ class RFDETRTrainer(BaseTrainer):
             return self._adamw(groups, lr=self.effective_lr, betas=(0.9, 0.999))
         upstream_groups = self._setup_upstream_optimizer_groups()
         if upstream_groups:
-            return self._adamw(
-                upstream_groups,
-                lr=self.effective_lr,
-                weight_decay=self.config.weight_decay,
-                betas=(0.9, 0.999),
+            from .optim import merge_adamw_groups
+
+            return merge_adamw_groups(
+                self._adamw(
+                    upstream_groups,
+                    lr=self.effective_lr,
+                    weight_decay=self.config.weight_decay,
+                    betas=(0.9, 0.999),
+                ),
+                override_weight_decay=getattr(
+                    self, "_resume_weight_decay_override", False
+                ),
             )
 
         backbone_wd, backbone_no_wd, head_wd, head_no_wd = [], [], [], []
@@ -895,6 +981,22 @@ class RFDETRTrainer(BaseTrainer):
             )
         return self._adamw(groups, betas=(0.9, 0.999))
 
+    def _gradient_clip_parameters(self):
+        order = getattr(self.optimizer, "_rfdetr_parameter_order", None)
+        if order is None:
+            return super()._gradient_clip_parameters()
+        # Keep the pre-merge norm reduction order. Extra adapter parameters are
+        # appended in optimizer order, as they were before grouping.
+        params = [p for p in order if p.grad is not None]
+        seen = {id(p) for p in order}
+        for group in self.optimizer.param_groups:
+            for param in group["params"]:
+                if id(param) not in seen:
+                    seen.add(id(param))
+                    if param.grad is not None:
+                        params.append(param)
+        return params
+
     def _setup_upstream_optimizer_groups(self) -> list[dict]:
         core_model = getattr(self.model, "model", self.model)
         backbone = getattr(core_model, "backbone", None)
@@ -913,6 +1015,10 @@ class RFDETRTrainer(BaseTrainer):
         args = SimpleNamespace(**vars(model_args))
         args.lr = self.effective_lr
         args.weight_decay = self.config.weight_decay
+        for key in ("lr_encoder", "lr_vit_layer_decay", "lr_component_decay"):
+            value = getattr(self.config, key, None)
+            if value is not None:
+                setattr(args, key, value)
 
         backbone_param_by_name = backbone_encoder.get_named_param_lr_pairs(
             args,
@@ -966,10 +1072,21 @@ class RFDETRTrainer(BaseTrainer):
         is_pose = task == "pose"
         is_obb = task == "obb"
         target_list = []
+        packed = counts = None
+        if (
+            targets.is_cuda
+            and batch_size >= 4
+            and masks_batch is None
+            and task in ("detect", "obb")
+        ):
+            packed, counts = _pack_valid_rfdetr_targets(targets)
         for batch_idx in range(batch_size):
             t = targets[batch_idx]
-            valid = (t[:, 3] > 0) & (t[:, 4] > 0)
-            t_valid = t[valid]
+            if packed is not None:
+                t_valid = packed[batch_idx, : counts[batch_idx]]
+            else:
+                valid = (t[:, 3] > 0) & (t[:, 4] > 0)
+                t_valid = t[valid]
             if t_valid.numel() == 0:
                 entry = {
                     "labels": torch.zeros(0, dtype=torch.int64, device=self.device),
@@ -1182,6 +1299,7 @@ class RFDETRTrainer(BaseTrainer):
             CudaGraphTrainSpec,
             GraphableNetwork,
         )
+
         from .nn import LibreRFDETRModel
 
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
@@ -1220,7 +1338,24 @@ class RFDETRTrainer(BaseTrainer):
 
         return CudaGraphTrainSpec(network=network, assemble=assemble)
 
+    def _progress_refresh_interval(self):
+        return max(1, int(self.config.log_interval))
+
+    def _training_loss_values(self, outputs, total_loss):
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task in ("classify", "semantic"):
+            return super()._training_loss_values(outputs, total_loss)
+        values = self._collect_loss_components(
+            {**outputs, "_rfdetr_total": total_loss}, include_total=True
+        )
+        return values.pop("_total"), values
+
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
+        return self._collect_loss_components(outputs)
+
+    def _collect_loss_components(
+        self, outputs: Dict, *, include_total=False
+    ) -> Dict[str, float]:
         loss_task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         if loss_task == "classify":
             value = outputs.get("cls", 0)
@@ -1230,6 +1365,8 @@ class RFDETRTrainer(BaseTrainer):
             return {"sem": value.item() if isinstance(value, torch.Tensor) else float(value)}
 
         prefixes = {"ce": "loss_ce", "bbox": "loss_bbox", "giou": "loss_giou"}
+        if include_total:
+            prefixes["_total"] = "_rfdetr_total"
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         if task == "segment":
             prefixes["mask_ce"] = "loss_mask_ce"

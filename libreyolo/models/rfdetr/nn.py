@@ -12,7 +12,13 @@ import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
 
 from .backbone import build_backbone
-from .lwdetr import LWDETR, MLP, PostProcess, build_criterion_and_postprocessors, build_model
+from .lwdetr import (
+    LWDETR,
+    MLP,
+    PostProcess,
+    build_criterion_and_postprocessors,
+    build_model,
+)
 from .tensors import NestedTensor
 
 
@@ -229,7 +235,7 @@ def _make_args(
         backbone_only=False,
         bbox_loss_coef=5.0,
         bbox_reparam=True,
-        cls_loss_coef=5.0 if segmentation else 1.0,
+        cls_loss_coef=2.0 if pose else 1.0,
         decoder_norm="LN",
         # Dual-projector flags ported from RF-DETR v1.8.0 (keypoint preview).
         # Default False so detection/seg/obb args namespaces are unchanged; the

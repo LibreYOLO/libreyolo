@@ -1,5 +1,6 @@
 """Training configuration for native LibreRFDETR."""
 
+import math
 from dataclasses import dataclass
 from typing import List
 
@@ -32,6 +33,13 @@ class RFDETRConfig(TrainConfig):
 
     patience: int = 0
     optimizer: str = "adamw"
+    matcher_backend: str = "auto"
+    # None resolves from model arguments, then is recorded in the run config.
+    lr_encoder: float | None = None
+    lr_vit_layer_decay: float | None = None
+    lr_component_decay: float | None = None
+    focal_alpha: float | None = None
+    cls_loss_coef: float | None = None
     scheduler: str = "step"
     mosaic_prob: float = 0.0
     mixup_prob: float = 0.0
@@ -62,9 +70,28 @@ class RFDETRConfig(TrainConfig):
     keypoint_findable_loss_coef: float = 1.0
     keypoint_visible_loss_coef: float = 1.0
     keypoint_nll_loss_coef: float = 1.0
-    pin_memory: bool = False
-    prefetch_factor: int = 1
-    persistent_workers: bool = True
+    # None retains each existing task's effective loader defaults.
+    pin_memory: bool | None = None
+    prefetch_factor: int | None = None
+    persistent_workers: bool | None = None
     decode_scale: int = 1
 
     name: str = "rfdetr_exp"
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.matcher_backend not in ("auto", "scipy"):
+            raise ValueError("matcher_backend must be 'auto' or 'scipy'")
+        if self.focal_alpha is not None and not 0 <= self.focal_alpha <= 1:
+            raise ValueError("focal_alpha must be between 0 and 1")
+        for name in (
+            "lr_encoder",
+            "lr_vit_layer_decay",
+            "lr_component_decay",
+            "cls_loss_coef",
+        ):
+            value = getattr(self, name)
+            if value is not None and (not math.isfinite(value) or value < 0):
+                raise ValueError(f"{name} must be nonnegative")
+        if self.prefetch_factor is not None and self.prefetch_factor < 1:
+            raise ValueError("prefetch_factor must be positive")

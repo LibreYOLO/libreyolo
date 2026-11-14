@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 import torch
-import torch.nn.functional as F  # noqa: N812
+import torch.nn.functional as F
 
 from libreyolo.models.rfdetr.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
 from libreyolo.models.rfdetr.loss import SetCriterion
@@ -220,3 +220,310 @@ def test_adamw_helper_constructs_and_steps():
     (param.sum() ** 2).backward()
     opt.step()
     assert param.grad is not None
+
+
+@pytest.mark.parametrize("counts", [(0, 0), (0, 7), (0, 7, 7), (1, 5, 2), (35, 2)])
+@pytest.mark.parametrize("groups", [1, 3, 13])
+def test_compact_matching_preserves_costs_and_assignments(counts, groups):
+    generator = torch.Generator().manual_seed(101)
+    matcher = _matcher()
+    outputs = _outputs(len(counts), generator, num_queries=6 * groups)
+    targets = _targets(len(counts), generator, counts)
+    full = matcher.compute_cost_matrix(outputs, targets)
+    compact = matcher.compute_matching_cost(outputs, targets)
+    if sum(counts) and 4 * max(counts) > 3 * sum(counts):
+        assert compact.shape == full.shape  # skewed padding uses the full fallback
+        expected = full
+    else:
+        assert compact.shape == (6 * groups, sum(counts))
+        expected = torch.cat([block[i] for i, block in enumerate(full.split(counts, -1))], -1)
+    torch.testing.assert_close(compact, expected, rtol=0, atol=0)
+    for got, ref in zip(matcher.solve(compact, targets, groups), matcher.solve(full, targets, groups)):
+        assert all(torch.equal(a, b) for a, b in zip(got, ref))
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64])
+def test_compact_matching_logit_dtypes(dtype):
+    generator = torch.Generator().manual_seed(103)
+    matcher = _matcher()
+    outputs = _outputs(3, generator)
+    outputs["pred_logits"] = outputs["pred_logits"].to(dtype)
+    targets = _targets(3, generator, [3, 7, 0])
+    full = matcher.compute_cost_matrix(outputs, targets)
+    compact = matcher.compute_matching_cost(outputs, targets)
+    expected = torch.cat([block[i] for i, block in enumerate(full.split([3, 7, 0], -1))], -1)
+    torch.testing.assert_close(compact, expected, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("kind", ["nan", "inf", "huge", "negative_label", "mixed_dtype", "half_boxes", "single"])
+def test_compact_matching_preserves_full_fallback(kind):
+    generator = torch.Generator().manual_seed(107)
+    matcher = _matcher()
+    batch = 1 if kind == "single" else 2
+    outputs = _outputs(batch, generator)
+    targets = _targets(batch, generator, [3] * batch)
+    if kind in ("nan", "inf", "huge"):
+        outputs["pred_boxes"][0, 0, 0] = {"nan": float("nan"), "inf": float("inf"), "huge": 1e30}[kind]
+    elif kind == "negative_label":
+        targets[0]["labels"][0] = -1
+    elif kind == "mixed_dtype":
+        targets[0]["boxes"] = targets[0]["boxes"].double()
+    elif kind == "half_boxes":
+        outputs["pred_boxes"] = outputs["pred_boxes"].half()
+        for t in targets:
+            t["boxes"] = t["boxes"].half()
+    full = matcher.compute_cost_matrix(outputs, targets)
+    got = matcher.compute_matching_cost(outputs, targets)
+    assert got.ndim == 3
+    torch.testing.assert_close(got, full, rtol=0, atol=0, equal_nan=True)
+
+
+@pytest.mark.parametrize("key", ["pred_angles", "pred_masks", "pred_keypoints"])
+def test_compact_matching_excludes_extended_tasks(key, monkeypatch):
+    generator = torch.Generator().manual_seed(109)
+    matcher = _matcher()
+    outputs = _outputs(2, generator)
+    outputs[key] = torch.empty(0)
+    targets = _targets(2, generator)
+    sentinel = object()
+    monkeypatch.setattr(matcher, "compute_cost_matrix", lambda *_: sentinel)
+    assert matcher.compute_matching_cost(outputs, targets) is sentinel
+
+
+def test_compact_criterion_loss_and_gradient_parity(monkeypatch):
+    import copy
+    generator = torch.Generator().manual_seed(113)
+    outputs = _criterion_outputs(3, generator)
+    targets = _targets(3, generator, [0, 7, 3])
+    reference = copy.deepcopy(outputs)
+    for data in (outputs, reference):
+        for level in [data, *data["aux_outputs"], data["enc_outputs"]]:
+            level["pred_logits"].requires_grad_()
+            level["pred_boxes"].requires_grad_()
+    criterion = _criterion()
+    got = criterion(outputs, targets)
+    monkeypatch.setattr(
+        criterion.matcher,
+        "match_many",
+        lambda levels, targets, groups: [
+            criterion.matcher.solve(
+                criterion.matcher.compute_cost_matrix(level, targets), targets, groups
+            )
+            for level in levels
+        ],
+    )
+    expected = criterion(reference, targets)
+    for name in expected:
+        torch.testing.assert_close(got[name], expected[name], rtol=0, atol=0)
+    sum(v for k, v in got.items() if k.startswith("loss_")).backward()
+    sum(v for k, v in expected.items() if k.startswith("loss_")).backward()
+    for a, b in zip([outputs, *outputs["aux_outputs"], outputs["enc_outputs"]],
+                    [reference, *reference["aux_outputs"], reference["enc_outputs"]]):
+        for key in ("pred_logits", "pred_boxes"):
+            torch.testing.assert_close(a[key].grad, b[key].grad, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("kind", ["nan_logit", "overflow_weight"])
+def test_compact_nonfinite_cost_uses_original_sanitizer(kind):
+    generator = torch.Generator().manual_seed(127)
+    matcher = _matcher()
+    outputs = _outputs(2, generator)
+    targets = _targets(2, generator, [3, 5])
+    if kind == "nan_logit":
+        outputs["pred_logits"][0, 0, targets[0]["labels"][0]] = float("nan")
+    elif kind == "zero_area":
+        outputs["pred_boxes"][0, 0] = 0
+        targets[0]["boxes"][0] = 0
+    else:
+        matcher.cost_bbox = 1e39
+    got = matcher.compute_matching_cost(outputs, targets)
+    ref = matcher.compute_cost_matrix(outputs, targets)
+    assert got.ndim == 3
+    torch.testing.assert_close(got, ref, rtol=0, atol=0, equal_nan=True)
+    for a, b in zip(matcher.solve(got, targets), matcher.solve(ref, targets)):
+        assert all(torch.equal(x, y) for x, y in zip(a, b))
+
+
+def test_compact_exact_ties_keep_scipy_assignment():
+    matcher = _matcher()
+    outputs = {"pred_logits": torch.zeros(2, 26, 7), "pred_boxes": torch.full((2, 26, 4), .5)}
+    targets = [{"labels": torch.zeros(3, dtype=torch.long), "boxes": torch.full((3, 4), .5)} for _ in range(2)]
+    got = matcher(outputs, targets, group_detr=13)
+    ref = matcher.solve(matcher.compute_cost_matrix(outputs, targets), targets, 13)
+    for a, b in zip(got, ref):
+        assert all(torch.equal(x, y) for x, y in zip(a, b))
+
+
+def test_compact_invalid_label_preserves_error():
+    generator = torch.Generator().manual_seed(131)
+    matcher = _matcher()
+    outputs = _outputs(2, generator)
+    targets = _targets(2, generator)
+    targets[0]["labels"][0] = NUM_CLASSES
+    with pytest.raises(IndexError):
+        matcher.compute_matching_cost(outputs, targets)
+
+
+
+@pytest.mark.parametrize("device_type", ["cuda", "mps"])
+def test_small_accelerator_cost_uses_full_path(monkeypatch, device_type):
+    # Exercise the metadata-only dispatch gate without requiring a GPU in CI.
+    generator = torch.Generator().manual_seed(137)
+    matcher = _matcher()
+    outputs = _outputs(2, generator)
+    targets = _targets(2, generator, [7, 7])
+    monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda _: device_type == "cuda"))
+    monkeypatch.setattr(torch.Tensor, "device", property(lambda _: torch.device(device_type)))
+    sentinel = object()
+    monkeypatch.setattr(matcher, "compute_cost_matrix", lambda *_: sentinel)
+    assert matcher.compute_matching_cost(outputs, targets) is sentinel
+
+
+def test_unsafe_compact_cost_releases_buffers_before_full_fallback(monkeypatch):
+    import weakref
+
+    generator = torch.Generator().manual_seed(139)
+    matcher = _matcher()
+    outputs = _outputs(2, generator)
+    outputs["pred_boxes"][0, 0, 0] = float("nan")
+    targets = _targets(2, generator, [7, 7])
+    tracked = []
+    real_vmap = torch.vmap
+
+    def track_vmap(fn):
+        mapped = real_vmap(fn)
+
+        def run(*args):
+            result = mapped(*args)
+            tracked.append(weakref.ref(result))
+            return result
+
+        return run
+
+    sentinel = object()
+
+    def full_fallback(*_):
+        assert tracked and all(ref() is None for ref in tracked)
+        return sentinel
+
+    monkeypatch.setattr(torch, "vmap", track_vmap)
+    monkeypatch.setattr(matcher, "compute_cost_matrix", full_fallback)
+    assert matcher.compute_matching_cost(outputs, targets) is sentinel
+
+
+@pytest.mark.parametrize("alpha", [0.1, 0.75])
+def test_nondefault_focal_alpha_changes_both_cost_paths(alpha):
+    generator = torch.Generator().manual_seed(149)
+    outputs = _outputs(3, generator)
+    targets = _targets(3, generator, [3, 4, 5])
+    matcher = HungarianMatcher(
+        cost_class=2, cost_bbox=5, cost_giou=2, focal_alpha=alpha
+    )
+    full = matcher.compute_cost_matrix(outputs, targets)
+    compact = matcher.compute_matching_cost(outputs, targets)
+    expected = torch.cat(
+        [block[i] for i, block in enumerate(full.split([3, 4, 5], -1))], -1
+    )
+    torch.testing.assert_close(compact, expected, rtol=0, atol=0)
+    assert not torch.equal(full, _matcher().compute_cost_matrix(outputs, targets))
+
+
+def test_degenerate_boxes_have_finite_loss_and_gradients():
+    criterion = _criterion()
+    outputs = {
+        "pred_logits": torch.zeros(2, NUM_QUERIES, NUM_CLASSES, requires_grad=True),
+        "pred_boxes": torch.zeros(2, NUM_QUERIES, 4, requires_grad=True),
+    }
+    targets = [
+        {"labels": torch.zeros(1, dtype=torch.long), "boxes": torch.zeros(1, 4)}
+        for _ in range(2)
+    ]
+    values = criterion(outputs, targets)
+    total = sum(v for k, v in values.items() if k.startswith("loss_"))
+    assert torch.isfinite(total)
+    total.backward()
+    assert torch.isfinite(outputs["pred_logits"].grad).all()
+    assert torch.isfinite(outputs["pred_boxes"].grad).all()
+
+
+def test_cardinality_uses_sigmoid_confidence():
+    criterion = _criterion()
+    logits = torch.tensor([[[-10.0, -9.0, -8.0], [1.0, -2.0, -3.0], [-1.0, -2.0, 2.0]]])
+    targets = [{"labels": torch.ones(2, dtype=torch.long)}]
+    value = criterion.loss_cardinality({"pred_logits": logits}, targets, None, None)
+    assert value["cardinality_error"] == 0
+
+
+def test_match_many_variable_query_counts_and_unsafe_fallback():
+    generator = torch.Generator().manual_seed(151)
+    matcher = _matcher()
+    targets = _targets(3, generator, [2, 4, 3])
+    levels = [_outputs(3, generator, num_queries=q) for q in (12, 18, 9)]
+    for unsafe in (False, True):
+        if unsafe:
+            levels[1]["pred_logits"][0, 0, targets[0]["labels"][0]] = float("nan")
+        actual = matcher.match_many(levels, targets, 3)
+        expected = [
+            matcher.solve(matcher.compute_cost_matrix(level, targets), targets, 3)
+            for level in levels
+        ]
+        for a, b in zip(actual, expected):
+            for x, y in zip(a, b):
+                assert all(torch.equal(i, j) for i, j in zip(x, y))
+
+
+@pytest.mark.parametrize("unsafe", [False, True])
+def test_bounded_match_pipeline_queues_next_before_safety_read(monkeypatch, unsafe):
+    generator = torch.Generator().manual_seed(153)
+    matcher = _matcher()
+    targets = _targets(3, generator, [2, 4, 3])
+    levels = [_outputs(3, generator, num_queries=q) for q in (12, 18, 9)]
+    if unsafe:
+        levels[1]["pred_logits"][0, 0, targets[0]["labels"][0]] = float("nan")
+    expected = [
+        matcher.solve(matcher.compute_cost_matrix(x, targets), targets, 3)
+        for x in levels
+    ]
+    events, retained = [], []
+    applicability = matcher._compact_path_applicable
+    compute = matcher._compute_compact_cost
+    tensor_bool, tensor_cpu = torch.Tensor.__bool__, torch.Tensor.cpu
+    calls = 0
+
+    def applicable(level, targets):
+        nonlocal calls
+        calls += 1
+        # Force the bounded pipeline without allocating a large fixture.
+        return calls > 1 and applicability(level, targets)
+
+    def prepare(level, targets):
+        index = next(i for i, item in enumerate(levels) if item is level)
+        events.append(("prepare", index))
+        cost, safe = compute(level, targets)
+        retained.append((cost, safe, index))
+        return cost, safe
+
+    def read_flag(tensor):
+        for _, flag, index in retained:
+            if tensor is flag:
+                events.append(("check", index))
+        return tensor_bool(tensor)
+
+    def transfer(tensor, *args, **kwargs):
+        for cost, _, index in retained:
+            if tensor is cost:
+                events.append(("transfer", index))
+        return tensor_cpu(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(matcher, "_compact_path_applicable", applicable)
+    monkeypatch.setattr(matcher, "_compute_compact_cost", prepare)
+    monkeypatch.setattr(torch.Tensor, "__bool__", read_flag)
+    monkeypatch.setattr(torch.Tensor, "cpu", transfer)
+    actual = matcher.match_many(levels, targets, 3)
+    for index in range(3):
+        assert events.index(("transfer", index)) < events.index(("check", index))
+        if index < 2:
+            assert events.index(("prepare", index + 1)) < events.index(("check", index))
+    for a, b in zip(actual, expected):
+        for x, y in zip(a, b):
+            assert all(torch.equal(i, j) for i, j in zip(x, y))
