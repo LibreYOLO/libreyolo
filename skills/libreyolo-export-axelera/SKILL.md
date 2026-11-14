@@ -27,19 +27,33 @@ Support is per (family, task), and only what the matrix says is runnable:
 libreyolo formats --family yolonas     # look at the axelera column
 ```
 
-- YOLO-NAS detect (s/m/l): validated (tier in `docs/export_support.md`).
-- YOLO-NAS-pose: validated for m and l (within 1.0 keypoint mAP of FP32);
-  n and s are refused with their measured loss (docs/axelera.md sec 7).
-- YOLO-NAS-R (obb): validated s/m/l (300 DOTA-v2.0 tiles, within 1.0 mAP50-95 of FP32). Pass `data=` (no default calibration set).
-- ResNet (classify, 18/34/50/101): validated. Calibrate with `data=` pointing at a dataset YAML of 100-400 in-domain images; the coco128 fallback costs top-1 accuracy.
-- MobileNetV4 (classify): blocked; INT8 costs 1.7-6.2 top-1 points on Metis (docs/axelera.md section 11).
-- YOLO9: blocked for now (planned next, same approach).
-- RF-DETR and every transformer family: blocked. They need attention,
-  data-dependent TopK/Gather and grid sampling, which the compiler does not
-  place on the AIPU, and the host can only run work before or after the
-  accelerated graph.
+The axelera column of `docs/export_support.md` (generated from
+`libreyolo/export/support.py`) is the source of truth; the per-size table at
+the top of `docs/axelera.md` gives each size's measured INT8 vs FP32 delta.
+In 1.8.0:
+
+- Detect: YOLO-NAS s/m/l, YOLO9 t/s/m/c, YOLOX n-x, YOLOv2 t/b, YOLOv3
+  t/b/spp, YOLOv4 t/b, YOLOv7 b, PP-YOLOE s-x, PicoDet s/m/l, RTMDet t-l,
+  RetinaNet r50 (1024 canvas; imgsz=800 for speed), SSD300 (two parts),
+  EfficientDet d0-d2 (d1/d2 at a 512 canvas).
+- Pose: YOLO-NAS-pose n/s/m/l. OBB: YOLO-NAS-R s/m/l (pass `data=`).
+- Segment: RTMDet-Ins t-l. Semantic: FCN r50/r101, DeepLabV3 mv3.
+- Classify: ResNet 18-101, MobileNetV4 s/m/l, EfficientNetV2 b0, VGG
+  16/19/16bn/19bn, AlexNet. Restore: QuickSRNet m2, Real-ESRGAN x4t.
+  Depth: MiDaS s.
+- "validated" means within 1.0 point of FP32 on the paired set; "supported"
+  sizes export too and log one warning with their measured drop. Accuracy
+  never blocks an export.
+- Blocked (structural: does not compile, quantize or run): RTMDet x and
+  RTMDet-Ins x, EfficientDet d3, EfficientNetV2 b1-b3, MiDaS l, DeepLabV3
+  r50/r101, RetinaNet r50v2, and RF-DETR and every transformer family (they
+  need attention, data-dependent TopK/Gather and grid sampling, which the
+  compiler does not place on the AIPU). Real-ESRGAN x2/x4 and EfficientDet d4
+  are not measured yet.
 - Anything else: blocked; export raises `NotImplementedError` with the reason
   before doing any work. Do not try to force it.
+- Export runs on CPU whatever device the model is on; compiling needs Linux
+  (or WSL2).
 
 ## 2. Prerequisites
 

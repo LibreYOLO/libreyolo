@@ -385,7 +385,7 @@ def test_mobilenetv4_export_equalizes_streams_and_uses_histogram_ranges(exporter
     from libreyolo import LibreMobileNetV4
 
     torch.manual_seed(0)
-    model = LibreMobileNetV4(size="m", nb_classes=5, device="cpu")  # s and l are refused
+    model = LibreMobileNetV4(size="m", nb_classes=5, device="cpu")  # m: the validated size
     live = {k: v.clone() for k, v in model.model.state_dict().items()}
     destination = tmp_path / "mnv4_axelera_model"
     with caplog.at_level(logging.INFO, logger="libreyolo.export.exporter"):
