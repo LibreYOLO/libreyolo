@@ -4417,17 +4417,20 @@ _add(
     ("axelera",),
     reason=(
         "INT8 export compiled with Axelera's toolchain on one fixed square "
-        "canvas (the image fitted inside, padded bottom-right); the graph stops "
-        "after the box-delta and class convolutions and LibreYOLO rebuilds the "
-        "anchors on the host. Supported, not validated: on a Metis M.2 Max "
-        "RetinaNet-R50 scores 2.25 mAP50-95 below the PyTorch model's own "
-        "val() on 1000 COCO val2017 images (0.3521 vs 0.3296): 2.03 from the "
-        "fixed 800x800 canvas and 0.22 from INT8 (docs/axelera.md)."
+        "canvas (the image fitted inside, padded bottom-right; 1024x1024 by "
+        "default for R50); the graph stops after the box-delta and class "
+        "convolutions and LibreYOLO rebuilds the anchors on the host. Supported, "
+        "not validated: on a Metis M.2 Max RetinaNet-R50 scores 1.11 mAP50-95 "
+        "below the PyTorch model's own val() on 1000 COCO val2017 images (0.3410 "
+        "vs 0.3521): 0.49 from the canvas (FP32 0.3472) and 0.62 from INT8. "
+        "The 1024 canvas is about 1.64x the device compute of 800; imgsz=800 "
+        "is faster and scores 2.25 below (0.3296; docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed 800x800 "
-        "canvas; r50v2 is blocked (GroupNorm head, BLOCKED_SIZES). "
+        "supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed "
+        "1024x1024 canvas by default (imgsz=800 for speed); r50v2 is blocked "
+        "(GroupNorm head, BLOCKED_SIZES). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1"
     ),
 )
@@ -4842,10 +4845,12 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("retinanet", "detect", "axelera"): {
         "r50": (
-            "measured mAP50-95 drop 0.22 points vs FP32 on the same 800x800 canvas "
-            "(0.3296 vs 0.3318 on 1000 COCO val2017 images); the fixed canvas "
-            "itself costs 2.03 against RetinaNet's own resize (0.3318 vs "
-            "0.3521 on the same 1000 images), 2.25 end to end"
+            "measured mAP50-95 drop 1.11 points vs FP32 PyTorch val() with "
+            "RetinaNet's own resize at the default 1024x1024 canvas (0.3410 vs "
+            "0.3521 on 1000 COCO val2017 images; FP32 on the same canvas 0.3472, "
+            "so the canvas costs 0.49 and INT8 0.62); the 1024 canvas is about "
+            "1.64x the device compute of 800, and imgsz=800 scores 0.3296 (-2.25: "
+            "2.03 canvas, 0.22 INT8)"
         ),
     },
     ("rtmdet", "segment", "axelera"): {

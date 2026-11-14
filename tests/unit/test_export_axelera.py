@@ -1109,7 +1109,9 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     from libreyolo.export.axelera import AXELERA_SIZE_RECIPES, size_recipe
 
     assert size_recipe("yolo4", "detect", "t") == {}
-    recipes = set(AXELERA_SIZE_RECIPES) - {("efficientdet", "detect", "d1")}
+    recipes = set(AXELERA_SIZE_RECIPES) - {
+        ("efficientdet", "detect", "d1"), ("retinanet", "detect", "r50"),
+    }
     assert recipes == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
         ("mobilenetv4", "classify", "l"), ("yolonas", "pose", "s"),
@@ -1750,6 +1752,30 @@ def test_efficientdet_d1_axelera_recipe_is_the_512_canvas():
     notes = SIZE_ACCURACY_NOTES[("efficientdet", "detect", "axelera")]
     assert "512x512 canvas" in notes["d1"] and "INT8" in notes["d1"]
     assert "d1" not in UNMEASURED_SIZES[("efficientdet", "detect", "axelera")]
+
+
+def test_axelera_canvas_recipe_sets_only_the_default_imgsz(monkeypatch):
+    from libreyolo.export.exporter import AxeleraExporter
+
+    model = _model("detect")
+    monkeypatch.setitem(ax.AXELERA_SIZE_RECIPES, ("yolonas", "detect", "s"), {"canvas": 320})
+    assert tuple(AxeleraExporter(model)._resolve_params(None, None, "cpu", False, True)[0]) == (320, 320)
+    # An explicit imgsz= still wins over the recipe's canvas.
+    assert tuple(AxeleraExporter(model)._resolve_params(None, 640, "cpu", False, True)[0]) == (640, 640)
+
+
+def test_retinanet_r50_axelera_default_is_the_1024_canvas():
+    from libreyolo import LibreRetinaNet
+    from libreyolo.export.exporter import AxeleraExporter
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, get_support
+
+    assert ax.size_recipe("retinanet", "detect", "r50") == {"canvas": 1024}
+    model = LibreRetinaNet(None, size="r50", device="cpu")
+    assert tuple(AxeleraExporter(model)._resolve_params(None, None, "cpu", False, True)[0]) == (1024, 1024)
+    assert tuple(AxeleraExporter(model)._resolve_params(None, 800, "cpu", False, True)[0]) == (800, 800)
+    note = SIZE_ACCURACY_NOTES[("retinanet", "detect", "axelera")]["r50"]
+    assert "1024x1024 canvas" in note and "imgsz=800" in note and "1.64x" in note
+    assert "1024x1024 canvas by default" in get_support("retinanet", "detect", "axelera").constraint
 
 
 def test_efficientdet_canvas_recipe_exports_the_smaller_canvas(

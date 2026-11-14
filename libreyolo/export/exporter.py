@@ -4225,6 +4225,19 @@ class AxeleraExporter(BaseExporter):
         return str(Path("weights") / f"{self._auto_output_stem()}{self.suffix}")
 
     def _resolve_params(self, output_path, imgsz, device, half, int8):
+        canvas = self._size_recipe().get("canvas")
+        if imgsz is None and canvas:
+            # The measured per-size canvas (e.g. RetinaNet-R50 at 1024x1024);
+            # an explicit imgsz= still wins.
+            imgsz = int(canvas)
+            logger.info(
+                "Axelera: %s-%s exports at its measured %dx%d canvas; pass imgsz= "
+                "to choose another (docs/axelera.md).",
+                self.model._get_model_name(),
+                getattr(self.model, "size", ""),
+                imgsz,
+                imgsz,
+            )
         imgsz, device, output_path = super()._resolve_params(
             output_path, imgsz, device, half, int8
         )

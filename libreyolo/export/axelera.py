@@ -81,6 +81,12 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # one-row tiles, 2.82 MB available); at d0's 512 canvas it compiles. The
     # exporter rebuilds the BiFPN for the canvas (same weights).
     ("efficientdet", "detect", "d1"): {"canvas": 512},
+    # RetinaNet-R50 resizes each image to a shorter side of 800 (longer up to
+    # 1333); the fixed canvas fits the whole image inside, so at 800x800 most
+    # images reach the network smaller (-2.25 end to end on 1000 COCO images).
+    # A 1024x1024 canvas costs 1.64x the compute and recovers most of it
+    # (-1.11); imgsz=800 stays available for speed.
+    ("retinanet", "detect", "r50"): {"canvas": 1024},
     # Histogram ranges recover most of the Mish backbone's loss (-6.8 -> -1.4);
     # the box-output window takes the rest of the way to -1.52 on 1000 images.
     ("yolo4", "detect", "b"): {
