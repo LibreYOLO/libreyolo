@@ -159,62 +159,62 @@ variants. For example, `LibreYOLO9t` is task detection, model YOLO9 and
 variant `t`, which means tiny. Click a model to open its documentation page.
 
 ```mermaid
-%%{init: {"flowchart": {"htmlLabels": true, "wrappingWidth": 240, "nodeSpacing": 14, "rankSpacing": 10, "padding": 10, "diagramPadding": 6, "curve": "basis"}}}%%
+%%{init: {"flowchart": {"htmlLabels": true, "wrappingWidth": 270, "nodeSpacing": 14, "rankSpacing": 10, "padding": 10, "diagramPadding": 6, "curve": "basis"}}}%%
 flowchart TB
-  ROOT(["<b>LibreYOLO</b><br/>150 model families · 23 tasks"])
+  ROOT(["<big><big><b>LibreYOLO</b></big></big><br/><small>150 model families, 23 tasks</small>"])
   subgraph C0[" "]
     direction TB
-    H0(["<b>👁️ SEE</b> · 76 families"])
-    T0_0_0["<b>⚡ YOLO-style detectors · 12</b><br/><b>YOLOv9</b> · <b>YOLOX</b> · <b>YOLO-⁠NAS</b> · YOLOv7 · YOLOv4 · YOLOv3 · YOLOv2 · YOLOv1 · RTMDet · PicoDet · PP-⁠YOLOE · EfficientDet"]:::c0
-    T0_0_1["<b>🔭 DETR-style detectors · 13</b><br/><b>RF-⁠DETR</b> · <b>D-⁠FINE</b> · <b>DEIM</b> · DEIMv2 · RT-⁠DETR · RT-⁠DETRv2 · RT-⁠DETRv4 · LW-⁠DETR · DETR · Deformable DETR · DINO-⁠DETR · EdgeCrafter · GTR"]:::c0
-    T0_0_2["<b>🏛️ Classic CNN detectors · 6</b><br/><b>Faster R-⁠CNN</b> · Mask R-⁠CNN · RetinaNet · SSD · FCOS · CenterNet"]:::c0
-    T0_0_3["<b>💬 Open-vocabulary detectors · 6</b><br/><b>Grounding DINO</b> · <b>OWLv2</b> · OMDet-⁠Turbo · OV-⁠DEIM · LocateAnything · LibreMODUS"]:::c0
-    T0_0_4["<b>🗣️ VLM detectors · 12</b><br/><b>Qwen3-⁠VL</b> · <b>Florence-⁠2</b> · Gemma 4 · Moondream · InternVL3 · Kosmos-⁠2 · LFM2-⁠VL · North Micro Vision · SmolVLM2 · WeVisOne-⁠VL · SenseNova-⁠Vision · Falcon Perception"]:::c0
-    T0_0_5["<b>🔬 Specialised detectors · 3</b><br/><b>TinyFormer</b> · Dome-⁠DETR · PP-⁠DocLayoutV3"]:::c0
+    H0(["<b>👁️ SEE</b> (76)"])
+    T0_0_0["<big><b>⚡ YOLO-style detectors</b></big> <small>(12)</small><br/><b>YOLOv9</b>, <b>YOLOX</b>, <b>YOLO-⁠NAS</b>, YOLOv7, YOLOv4, YOLOv3, YOLOv2, YOLOv1, RTMDet, PicoDet, PP-⁠YOLOE, EfficientDet"]:::c0
+    T0_0_1["<big><b>🔭 DETR-style detectors</b></big> <small>(13)</small><br/><b>RF-⁠DETR</b>, <b>D-⁠FINE</b>, <b>DEIM</b>, DEIMv2, RT-⁠DETR, RT-⁠DETRv2, RT-⁠DETRv4, LW-⁠DETR, DETR, Deformable DETR, DINO-⁠DETR, EdgeCrafter, GTR"]:::c0
+    T0_0_2["<big><b>🏛️ Classic CNN detectors</b></big> <small>(6)</small><br/><b>Faster R-⁠CNN</b>, Mask R-⁠CNN, RetinaNet, SSD, FCOS, CenterNet"]:::c0
+    T0_0_3["<big><b>💬 Open-vocabulary detectors</b></big> <small>(6)</small><br/><b>Grounding DINO</b>, <b>OWLv2</b>, OMDet-⁠Turbo, OV-⁠DEIM, LocateAnything, LibreMODUS"]:::c0
+    T0_0_4["<big><b>🗣️ VLM detectors</b></big> <small>(12)</small><br/><b>Qwen3-⁠VL</b>, <b>Florence-⁠2</b>, Gemma 4, Moondream, InternVL3, Kosmos-⁠2, LFM2-⁠VL, North Micro Vision, SmolVLM2, WeVisOne-⁠VL, SenseNova-⁠Vision, Falcon Perception"]:::c0
+    T0_0_5["<big><b>🔬 Specialised detectors</b></big> <small>(3)</small><br/><b>TinyFormer</b>, Dome-⁠DETR, PP-⁠DocLayoutV3"]:::c0
     H0 ~~~ T0_0_0 ~~~ T0_0_1 ~~~ T0_0_2 ~~~ T0_0_3 ~~~ T0_0_4 ~~~ T0_0_5
-    T0_1_0["<b>🧩 Instance segmentation · 17</b><br/><b>RF-⁠DETR</b> · <b>SAM 3</b> · <b>SAM 2</b> · <b>EoMT</b> · D-⁠FINE · EdgeCrafter · EdgeTAM · Falcon Perception · GTR · Mask R-⁠CNN · MobileSAM · PicoSAM3 · RTMDet · SAM · SAM 3.1 · SenseNova-⁠Vision · WeVisOne-⁠VL"]:::c0
-    T0_1_1["<b>🗺️ Semantic segmentation · 10</b><br/><b>SegFormer</b> · <b>EoMT</b> · <b>DeepLabv3</b> · DINOv2 · FCN · GTR · LingBot-⁠Vision · PIDNet · PP-⁠LiteSeg · U-⁠Net"]:::c0
-    T0_1_2["<b>🌈 Panoptic segmentation · 2</b><br/>EoMT · SenseNova-⁠Vision"]:::c0
-    T0_1_3["<b>📐 Oriented boxes · 5</b><br/><b>RF-⁠DETR</b> · <b>RiO-⁠DETRv2</b> · GTR · RT-⁠DETRv2 · YOLO-⁠NAS"]:::c0
-    T0_1_4["<b>🤸 Pose · 7</b><br/><b>RF-⁠DETR</b> · <b>HRNet</b> · <b>YOLO-⁠NAS</b> · DEKR · EdgeCrafter · GTR · SenseNova-⁠Vision"]:::c0
-    T0_1_5["<b>📍 Pointing · 9</b><br/><b>Molmo2</b> · <b>Qwen3-⁠VL grounding</b> · <b>Moondream</b> · Florence-⁠2 grounding · FOMO · LocateAnything · SenseNova-⁠Vision · ShowUI · WeVisOne-⁠VL"]:::c0
+    T0_1_0["<big><b>🧩 Instance segmentation</b></big> <small>(17)</small><br/><b>RF-⁠DETR</b>, <b>SAM 3</b>, <b>SAM 2</b>, <b>EoMT</b>, D-⁠FINE, EdgeCrafter, EdgeTAM, Falcon Perception, GTR, Mask R-⁠CNN, MobileSAM, PicoSAM3, RTMDet, SAM, SAM 3.1, SenseNova-⁠Vision, WeVisOne-⁠VL"]:::c0
+    T0_1_1["<big><b>🗺️ Semantic segmentation</b></big> <small>(10)</small><br/><b>SegFormer</b>, <b>EoMT</b>, <b>DeepLabv3</b>, DINOv2, FCN, GTR, LingBot-⁠Vision, PIDNet, PP-⁠LiteSeg, U-⁠Net"]:::c0
+    T0_1_2["<big><b>🌈 Panoptic segmentation</b></big> <small>(2)</small><br/>EoMT, SenseNova-⁠Vision"]:::c0
+    T0_1_3["<big><b>📐 Oriented boxes</b></big> <small>(5)</small><br/><b>RF-⁠DETR</b>, <b>RiO-⁠DETRv2</b>, GTR, RT-⁠DETRv2, YOLO-⁠NAS"]:::c0
+    T0_1_4["<big><b>🤸 Pose</b></big> <small>(7)</small><br/><b>RF-⁠DETR</b>, <b>HRNet</b>, <b>YOLO-⁠NAS</b>, DEKR, EdgeCrafter, GTR, SenseNova-⁠Vision"]:::c0
+    T0_1_5["<big><b>📍 Pointing</b></big> <small>(9)</small><br/><b>Molmo2</b>, <b>Qwen3-⁠VL grounding</b>, <b>Moondream</b>, Florence-⁠2 grounding, FOMO, LocateAnything, SenseNova-⁠Vision, ShowUI, WeVisOne-⁠VL"]:::c0
     H0 ~~~ T0_1_0 ~~~ T0_1_1 ~~~ T0_1_2 ~~~ T0_1_3 ~~~ T0_1_4 ~~~ T0_1_5
   end
   subgraph C1[" "]
     direction TB
-    H1(["<b>🧠 UNDERSTAND</b> · 25 families"])
-    T1_0_0["<b>🏷️ Classification · 15</b><br/><b>DINOv2</b> · <b>ConvNeXt V2</b> · <b>SigLIP2</b> · <b>ViT</b> · AlexNet · CLIP · ConvNeXt · DeiT · EfficientNetV2 · MobileNetV4 · Perception Encoder · ResNet · Swin Transformer · V-⁠JEPA 2 · VGG"]:::c1
-    T1_0_1["<b>🧬 Embeddings · 7</b><br/><b>DINOv2</b> · <b>SigLIP2</b> · <b>CLIP</b> · LeVJEPA · Perception Encoder · Qwen3-⁠VL-⁠Embedding · V-⁠JEPA 2"]:::c1
-    T1_0_2["<b>🔤 OCR · 7</b><br/><b>PP-⁠OCRv5</b> · <b>GLM-⁠OCR</b> · <b>DeepSeek-⁠OCR</b> · Falcon OCR · PaddleOCR-⁠VL · SenseNova-⁠Vision · WeVisOne-⁠VL"]:::c1
-    T1_0_3["<b>👀 Gaze · 1</b><br/>L2CS-⁠Net"]:::c1
+    H1(["<b>🧠 UNDERSTAND</b> (25)"])
+    T1_0_0["<big><b>🏷️ Classification</b></big> <small>(15)</small><br/><b>DINOv2</b>, <b>ConvNeXt V2</b>, <b>SigLIP2</b>, <b>ViT</b>, AlexNet, CLIP, ConvNeXt, DeiT, EfficientNetV2, MobileNetV4, Perception Encoder, ResNet, Swin Transformer, V-⁠JEPA 2, VGG"]:::c1
+    T1_0_1["<big><b>🧬 Embeddings</b></big> <small>(7)</small><br/><b>DINOv2</b>, <b>SigLIP2</b>, <b>CLIP</b>, LeVJEPA, Perception Encoder, Qwen3-⁠VL-⁠Embedding, V-⁠JEPA 2"]:::c1
+    T1_0_2["<big><b>🔤 OCR</b></big> <small>(7)</small><br/><b>PP-⁠OCRv5</b>, <b>GLM-⁠OCR</b>, <b>DeepSeek-⁠OCR</b>, Falcon OCR, PaddleOCR-⁠VL, SenseNova-⁠Vision, WeVisOne-⁠VL"]:::c1
+    T1_0_3["<big><b>👀 Gaze</b></big> <small>(1)</small><br/>L2CS-⁠Net"]:::c1
     H1 ~~~ T1_0_0 ~~~ T1_0_1 ~~~ T1_0_2 ~~~ T1_0_3
   end
   subgraph C2[" "]
     direction TB
-    H2(["<b>🌐 GEOMETRY</b> · 28 families"])
-    T2_0_0["<b>🏔️ Depth · 11</b><br/><b>Depth Anything 3</b> · <b>MoGe-⁠3</b> · <b>Video Depth Anything</b> · Depth Anything V2 · GTR · LibreMODUS · Marigold V2 · MiDaS · SenseNova-⁠Vision · Speridlabs Iris-⁠Z · ZipDepth"]:::c2
-    T2_0_1["<b>🧭 Surface normals · 4</b><br/>LibreMODUS · Marigold V2 · MoGe-⁠2 · MoGe-⁠3"]:::c2
-    T2_0_2["<b>🖍️ Albedo · 1</b><br/>Marigold V2"]:::c2
-    T2_0_3["<b>✏️ Edges · 3</b><br/>DexiNed · LibreMODUS · TEED"]:::c2
+    H2(["<b>🌐 GEOMETRY</b> (28)"])
+    T2_0_0["<big><b>🏔️ Depth</b></big> <small>(11)</small><br/><b>Depth Anything 3</b>, <b>MoGe-⁠3</b>, <b>Video Depth Anything</b>, Depth Anything V2, GTR, LibreMODUS, Marigold V2, MiDaS, SenseNova-⁠Vision, Speridlabs Iris-⁠Z, ZipDepth"]:::c2
+    T2_0_1["<big><b>🧭 Surface normals</b></big> <small>(4)</small><br/>LibreMODUS, Marigold V2, MoGe-⁠2, MoGe-⁠3"]:::c2
+    T2_0_2["<big><b>🖍️ Albedo</b></big> <small>(1)</small><br/>Marigold V2"]:::c2
+    T2_0_3["<big><b>✏️ Edges</b></big> <small>(3)</small><br/>DexiNed, LibreMODUS, TEED"]:::c2
     H2 ~~~ T2_0_0 ~~~ T2_0_1 ~~~ T2_0_2 ~~~ T2_0_3
-    T2_1_0["<b>💨 Optical flow · 8</b><br/><b>SEA-⁠RAFT</b> · <b>WAFT</b> · <b>RAFT</b> · DPFlow · FlowSeek · MEMFOF · NeuFlow v2 · UniMatch"]:::c2
-    T2_1_1["<b>📦 3D detection · 4</b><br/>3D-⁠MOOD · DetAny3D · FCOS3D · WildDet3D"]:::c2
-    T2_1_2["<b>🧍 Body mesh · 2</b><br/>InstantHMR · SAM 3D Body"]:::c2
+    T2_1_0["<big><b>💨 Optical flow</b></big> <small>(8)</small><br/><b>SEA-⁠RAFT</b>, <b>WAFT</b>, <b>RAFT</b>, DPFlow, FlowSeek, MEMFOF, NeuFlow v2, UniMatch"]:::c2
+    T2_1_1["<big><b>📦 3D detection</b></big> <small>(4)</small><br/>3D-⁠MOOD, DetAny3D, FCOS3D, WildDet3D"]:::c2
+    T2_1_2["<big><b>🧍 Body mesh</b></big> <small>(2)</small><br/>InstantHMR, SAM 3D Body"]:::c2
     H2 ~~~ T2_1_0 ~~~ T2_1_1 ~~~ T2_1_2
   end
   subgraph C3[" "]
     direction TB
-    H3(["<b>🎨 RESTORE AND CREATE</b> · 26 families"])
-    T3_0_0["<b>🪄 Restoration · 7</b><br/><b>Real-⁠ESRGAN</b> · <b>SwinIR</b> · <b>LaMa</b> · DDColor · HVI-⁠CIDNet · NAFNet · QuickSRNet"]:::c3
-    T3_0_1["<b>✂️ Background removal · 5</b><br/><b>BiRefNet</b> · <b>BEN2</b> · <b>ViTMatte</b> · FeyNobg · WeVisOne-⁠VL"]:::c3
-    T3_0_2["<b>🖼️ Image generation · 6</b><br/><b>FLUX.2 klein</b> · <b>Speridlabs Iris-⁠Z</b> · <b>SANA-⁠Sprint</b> · Open Vision Banana · PRX · PRXPixel"]:::c3
-    T3_0_3["<b>🗿 3D generation · 8</b><br/><b>TRELLIS.2</b> · <b>Speridlabs Idol</b> · <b>TripoSR</b> · CRM · Direct3D-⁠S2 · LGM · TRELLIS · TripoSplat"]:::c3
+    H3(["<b>🎨 RESTORE AND CREATE</b> (26)"])
+    T3_0_0["<big><b>🪄 Restoration</b></big> <small>(7)</small><br/><b>Real-⁠ESRGAN</b>, <b>SwinIR</b>, <b>LaMa</b>, DDColor, HVI-⁠CIDNet, NAFNet, QuickSRNet"]:::c3
+    T3_0_1["<big><b>✂️ Background removal</b></big> <small>(5)</small><br/><b>BiRefNet</b>, <b>BEN2</b>, <b>ViTMatte</b>, FeyNobg, WeVisOne-⁠VL"]:::c3
+    T3_0_2["<big><b>🖼️ Image generation</b></big> <small>(6)</small><br/><b>FLUX.2 klein</b>, <b>Speridlabs Iris-⁠Z</b>, <b>SANA-⁠Sprint</b>, Open Vision Banana, PRX, PRXPixel"]:::c3
+    T3_0_3["<big><b>🗿 3D generation</b></big> <small>(8)</small><br/><b>TRELLIS.2</b>, <b>Speridlabs Idol</b>, <b>TripoSR</b>, CRM, Direct3D-⁠S2, LGM, TRELLIS, TripoSplat"]:::c3
     H3 ~~~ T3_0_0 ~~~ T3_0_1 ~~~ T3_0_2 ~~~ T3_0_3
   end
   subgraph C4[" "]
     direction TB
-    H4(["<b>🤖 ROBOTICS</b> · 3 families"])
-    T4_0_0["<b>🦾 Robot policies · 3</b><br/>ACT · Diffusion Policy · LibreVLA"]:::c4
+    H4(["<b>🤖 ROBOTICS</b> (3)"])
+    T4_0_0["<big><b>🦾 Robot policies</b></big> <small>(3)</small><br/>ACT, Diffusion Policy, LibreVLA"]:::c4
     H4 ~~~ T4_0_0
   end
   ROOT --> H0
@@ -222,22 +222,22 @@ flowchart TB
   ROOT --> H2
   ROOT --> H3
   ROOT --> H4
-  style ROOT fill:#1f2328,stroke:#8b949e,stroke-width:1px,color:#ffffff,font-size:16px
+  style ROOT fill:#1f2328,stroke:#8b949e,stroke-width:1px,color:#ffffff,font-size:20px
   classDef c0 fill:#fff8c5,stroke:#bf8700,stroke-width:1px,color:#1f2328,font-size:15px,text-align:left,rx:10,ry:10
   style C0 fill:transparent,stroke:#bf8700,stroke-width:2px,rx:14,ry:14
-  style H0 fill:#bf8700,stroke:#bf8700,color:#ffffff,font-size:13px
+  style H0 fill:#bf8700,stroke:#bf8700,color:#ffffff,font-size:17px
   classDef c1 fill:#dafbe1,stroke:#1a7f37,stroke-width:1px,color:#1f2328,font-size:15px,text-align:left,rx:10,ry:10
   style C1 fill:transparent,stroke:#1a7f37,stroke-width:2px,rx:14,ry:14
-  style H1 fill:#1a7f37,stroke:#1a7f37,color:#ffffff,font-size:13px
+  style H1 fill:#1a7f37,stroke:#1a7f37,color:#ffffff,font-size:17px
   classDef c2 fill:#fbefff,stroke:#8250df,stroke-width:1px,color:#1f2328,font-size:15px,text-align:left,rx:10,ry:10
   style C2 fill:transparent,stroke:#8250df,stroke-width:2px,rx:14,ry:14
-  style H2 fill:#8250df,stroke:#8250df,color:#ffffff,font-size:13px
+  style H2 fill:#8250df,stroke:#8250df,color:#ffffff,font-size:17px
   classDef c3 fill:#ffeff7,stroke:#bf3989,stroke-width:1px,color:#1f2328,font-size:15px,text-align:left,rx:10,ry:10
   style C3 fill:transparent,stroke:#bf3989,stroke-width:2px,rx:14,ry:14
-  style H3 fill:#bf3989,stroke:#bf3989,color:#ffffff,font-size:13px
+  style H3 fill:#bf3989,stroke:#bf3989,color:#ffffff,font-size:17px
   classDef c4 fill:#ddf4ff,stroke:#0969da,stroke-width:1px,color:#1f2328,font-size:15px,text-align:left,rx:10,ry:10
   style C4 fill:transparent,stroke:#0969da,stroke-width:2px,rx:14,ry:14
-  style H4 fill:#0969da,stroke:#0969da,color:#ffffff,font-size:13px
+  style H4 fill:#0969da,stroke:#0969da,color:#ffffff,font-size:17px
 ```
 
 <details>
