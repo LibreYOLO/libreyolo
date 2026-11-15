@@ -1199,6 +1199,17 @@ folder of the pinned `speridlabs/iris-z` snapshot downloads into
 `FLUX.2-klein-4B` and the text encoders from their publishers, all at pinned
 revisions. Coverage group `s`. See ADR 0033.
 
+`LibreOpenVisionBanana` (`open_vision_banana`, sizes `4b` and `9b`, aliases
+`open-vision-banana` (`4b`), `open-vision-banana-4b` and
+`open-vision-banana-9b`) is FunAILab's Open Vision Banana, a FLUX.2 [klein]
+Base fine-tune. It keeps the `generate` task: the prompt names the
+perception task and an optional `source=` image is the photo it answers
+about. The name is upstream's; FunAILab publishes it without a maker
+prefix. Weights are LibreYOLO's complete-pipeline mirrors
+`LibreYOLO/LibreOpenVisionBanana<size>` in
+`weights/LibreOpenVisionBanana<size>/`. Coverage group `s`. See
+`docs/open_vision_banana.md`.
+
 `LibreTripoSplat` (`triposplat`, size `0.6b`, aliases `triposplat` and
 `triposplat-0.6b`) is the second image-to-3D family, the TripoAI model Idol
 builds on; the name is upstream's and already carries its maker. Same task,
