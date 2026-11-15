@@ -108,6 +108,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: PIDNet-s is blocked with its measured cause.** It now compiles (10.3 h) after exact rewrites of its DAPPM pools, but INT8 collapses the output (cosine about 0 vs FP32 on the device and on the CPU-quantized model, min-max and hybrid alike).
+
 - **Axelera Metis: EfficientDet-d4 is blocked with its measured cause.** It finds no L1 tiling at 1024 or at a 512 canvas; prefix cuts place the overflow in the EfficientNet-B4 backbone's 272-channel stage (3.12 MB of L1 needed, 2.47 MB available). Use d2.
 
 - **Axelera Metis: the EfficientNetV2-b1/b2 block names its measured cause.** The compiled model's extra output buffer is the channel-padded input; the classifier as a 1x1 convolution and four public compiler options leave it in place.

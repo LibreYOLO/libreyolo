@@ -1887,7 +1887,7 @@ rest on the host CPU; each entry names the split.
 - `pidnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `pidnet` / `semantic` / `axelera`: Not available yet: the SDK 1.9 compile of PIDNet-s did not finish within 90 minutes at 1024x1024 or at 512x512 (both stopped in the compiler's first lowering step, midend_to_tir); no structural error was seen. Its spatial attention needs exact graph rewrites (channel reductions as 1x1 convolutions, broadcast gating), which quantize.
+- `pidnet` / `semantic` / `axelera`: PIDNet-s compiles for Metis with SDK 1.9 (whole graph at 1024x1024, 10.3 hours, after exact rewrites of its spatial attention and of the DAPPM pooling: a 17x17 average as two 1-D pools, the global average in 2x2 steps), but INT8 collapses its output: cosine vs FP32 about 0 (-0.16 to 0.13) on the device and on the SDK's CPU-quantized model, with per-tensor min-max and with hybrid per-channel ranges alike. A per-stage quantization tap screen is the next step if PIDNet is revisited.
 - `pidnet` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
 - `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.

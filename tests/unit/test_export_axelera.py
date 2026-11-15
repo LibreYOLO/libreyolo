@@ -1899,7 +1899,15 @@ def test_ppliteseg_is_not_available_yet_with_its_measured_loss():
     assert "pixels" in entry.reason and "backbone" in entry.reason
 
 
-@pytest.mark.parametrize("family", ["pidnet", "unet"])
+def test_pidnet_is_blocked_by_its_int8_collapse():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("pidnet", "semantic", "axelera")
+    assert entry.tier == "blocked" and not entry.reason.startswith("Not available yet")
+    assert "compiles" in entry.reason and "INT8 collapses" in entry.reason
+
+
+@pytest.mark.parametrize("family", ["unet"])
 def test_long_compiles_are_not_available_yet(family):
     from libreyolo.export.support import get_support
 
