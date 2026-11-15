@@ -240,3 +240,32 @@ def test_rtdetrv2_is_hybrid_and_its_parts_reproduce_the_native_model():
     _assert_same_queries(
         [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
     )
+
+
+def test_detr_hybrid_is_backbone_only_and_reproduces_the_native_model(sdk, tmp_path, monkeypatch):
+    from libreyolo.export import axelera
+    from libreyolo.export.exporter import (
+        AxeleraExporter,
+        _VanillaDETRBackboneWrapper,
+        _VanillaDETRHostTailWrapper,
+        _unfrozen_batchnorms,
+    )
+    from libreyolo.export.support import get_support
+    from libreyolo.models.detr.model import LibreDETR
+
+    assert get_support("detr", "detect", "axelera").tier == "hybrid"
+    model = LibreDETR._from_scratch(size="r50", device="cpu", seed=0)
+    net = model.model.eval()
+    x = torch.rand(1, 3, IMGSZ, IMGSZ)
+    with torch.no_grad():
+        expected = net(x)
+        copy_ = _unfrozen_batchnorms(copy.deepcopy(net).eval())
+        assert not any(type(m).__name__ == "FrozenBatchNorm2d" for m in copy_.modules())
+        features = _VanillaDETRBackboneWrapper(copy_).eval()(x)
+        actual = _VanillaDETRHostTailWrapper(copy_, OUTPUTS).eval()(*features)
+    for name, value in zip(OUTPUTS, actual):
+        torch.testing.assert_close(value, expected[name], atol=1e-4, rtol=1e-4)
+    assert AxeleraExporter(model)._hybrid_split() == "backbone"
+    monkeypatch.setitem(axelera.AXELERA_SIZE_RECIPES, ("detr", "detect", "r50"), {"hybrid_split": "neck"})
+    with pytest.raises(ValueError, match="no convolutional neck"):
+        AxeleraExporter(model)._hybrid_split()

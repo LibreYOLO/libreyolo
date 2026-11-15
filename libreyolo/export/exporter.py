@@ -4243,7 +4243,11 @@ _HYBRID_NECK_QUANTIZATION_SCHEME = "per_tensor_min_max"
 _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("rtdetr", "detect"): ("pred_logits", "pred_boxes"),
     ("rtdetrv2", "detect"): ("pred_logits", "pred_boxes"),
+    ("detr", "detect"): ("pred_logits", "pred_boxes"),
 }
+
+#: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
+_HYBRID_BACKBONE_ONLY = frozenset({"detr"})
 
 
 def _unfrozen_batchnorms(module: torch.nn.Module) -> torch.nn.Module:
@@ -4255,7 +4259,10 @@ def _unfrozen_batchnorms(module: torch.nn.Module) -> torch.nn.Module:
     """
     for name, child in list(module.named_children()):
         if type(child).__name__ == "FrozenBatchNorm2d":
-            norm = torch.nn.BatchNorm2d(int(child.weight.numel()), eps=float(child.eps))
+            # DETR's FrozenBatchNorm2d hard-codes eps 1e-5 and has no ``eps`` attribute.
+            norm = torch.nn.BatchNorm2d(
+                int(child.weight.numel()), eps=float(getattr(child, "eps", 1e-5))
+            )
             with torch.no_grad():
                 norm.weight.copy_(child.weight)
                 norm.bias.copy_(child.bias)
@@ -4288,6 +4295,51 @@ class _DETRBackboneWrapper(torch.nn.Module):
         features = self.model.backbone(x)
         projections = self.model.encoder.input_proj
         return tuple(projections[i](feature) for i, feature in enumerate(features))
+
+
+class _VanillaDETRBackboneWrapper(torch.nn.Module):
+    """Part 1 of a hybrid export of vanilla DETR: the ResNet backbone and the input projection."""
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("feat",)
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        feature = self.model.backbone[0].body(x)["0"]
+        return (self.model.input_proj(feature),)
+
+
+class _VanillaDETRHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid export of vanilla DETR: positions, transformer and heads.
+
+    LibreYOLO feeds DETR one fixed square without padding, so the padding mask
+    is all False and the sine positions depend only on the feature size.
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+
+    def forward(self, feature):
+        from ..models.detr.nn import NestedTensor
+
+        mask = torch.zeros(
+            (feature.shape[0], feature.shape[-2], feature.shape[-1]),
+            dtype=torch.bool,
+            device=feature.device,
+        )
+        positions = self.model.backbone[1](NestedTensor(feature, mask)).to(feature.dtype)
+        hidden = self.model.transformer(
+            feature, mask, self.model.query_embed.weight, positions
+        )[0]
+        logits = self.model.class_embed(hidden)[-1]
+        boxes = self.model.bbox_embed(hidden).sigmoid()[-1]
+        return logits, boxes
 
 
 class _DETRHostTailWrapper(torch.nn.Module):
@@ -5131,9 +5183,13 @@ class AxeleraExporter(BaseExporter):
 
     def _hybrid_split(self) -> str:
         """Where a hybrid export stops running on Metis: ``"neck"`` (default) or ``"backbone"``."""
-        split = self._size_recipe().get("hybrid_split", "neck")
+        family = self.model._get_model_name()
+        default = "backbone" if family in _HYBRID_BACKBONE_ONLY else "neck"
+        split = self._size_recipe().get("hybrid_split", default)
         if split not in ("neck", "backbone"):
             raise ValueError(f"Unknown hybrid split {split!r}; use 'neck' or 'backbone'.")
+        if split == "neck" and family in _HYBRID_BACKBONE_ONLY:
+            raise ValueError(f"{family} has no convolutional neck: its hybrid split is 'backbone'.")
         return split
 
     def _export_hybrid_onnx(self, dummy, out: Path, opset, simplify, imgsz, outputs):
@@ -5148,7 +5204,8 @@ class AxeleraExporter(BaseExporter):
         from .onnx import _export_onnx_graph
 
         net = _unfrozen_batchnorms(copy.deepcopy(self.model.model).eval())
-        self._raw_wrapper = _DETRBackboneWrapper(net).eval()
+        vanilla = self.model._get_model_name() in _HYBRID_BACKBONE_ONLY
+        self._raw_wrapper = (_VanillaDETRBackboneWrapper if vanilla else _DETRBackboneWrapper)(net).eval()
         split = self._hybrid_split()
         features = list(self._raw_wrapper.output_names)
         onnx_meta = self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz)
@@ -5178,7 +5235,7 @@ class AxeleraExporter(BaseExporter):
         with torch.no_grad():
             sample = tuple(self._raw_wrapper(dummy))
         if split == "backbone":
-            tail = _DETRHostTailWrapper(net, outputs).eval()
+            tail = (_VanillaDETRHostTailWrapper if vanilla else _DETRHostTailWrapper)(net, outputs).eval()
             host = export(tail, sample, str(out.with_name(f"{out.name}.export_intermediate.host.onnx")), features, outputs)
             self._hybrid_parts = [
                 {"host_onnx": host, "inputs": features, "outputs": list(outputs)},
@@ -5244,8 +5301,9 @@ class AxeleraExporter(BaseExporter):
                 }
             )
             return meta
-        if isinstance(wrapper, _DETRBackboneWrapper):
+        if isinstance(wrapper, (_DETRBackboneWrapper, _VanillaDETRBackboneWrapper)):
             outputs = list(self._hybrid_outputs())
+            vanilla_detr = isinstance(wrapper, _VanillaDETRBackboneWrapper)
             meta.update(
                 {
                     "format": "axelera",
@@ -5258,8 +5316,12 @@ class AxeleraExporter(BaseExporter):
                     "hybrid": (
                         {
                             "split": "backbone",
-                            "aipu": "backbone and encoder input projections",
-                            "host": "attention encoder, fusion neck and decoder (FP32 ONNX)",
+                            "aipu": "backbone and encoder input projections"
+                            if not vanilla_detr
+                            else "ResNet backbone and input projection",
+                            "host": "attention encoder, fusion neck and decoder (FP32 ONNX)"
+                            if not vanilla_detr
+                            else "positions, transformer encoder and decoder, heads (FP32 ONNX)",
                         }
                         if self._hybrid_split() == "backbone"
                         else {
