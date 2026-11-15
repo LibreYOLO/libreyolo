@@ -2345,7 +2345,7 @@ def export_axelera_parts(
                 config, part_overrides = build_compiler_config(
                     stems[index],
                     build_dir=part_dir / "build",
-                    quantization_scheme=quantization_scheme,
+                    quantization_scheme=spec.get("quantization_scheme", quantization_scheme),
                     resources_used=resources_used,
                     overrides=compiler_overrides,
                 )

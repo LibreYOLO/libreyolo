@@ -4195,6 +4195,9 @@ class _SSDPartBWrapper(torch.nn.Module):
 #: AIPU, and the transformer encoder and decoder run as an FP32 ONNX graph on
 #: the host CPU. The artifact ends in the family's ONNX outputs
 #: (``graph_outputs_v1``), which the shared backend parser decodes.
+#: Quantization scheme of a hybrid export's compiled neck part (see _export_hybrid_onnx).
+_HYBRID_NECK_QUANTIZATION_SCHEME = "per_tensor_min_max"
+
 _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("rtdetr", "detect"): ("pred_logits", "pred_boxes"),
 }
@@ -5093,7 +5096,17 @@ class AxeleraExporter(BaseExporter):
         host2 = export(decoder, memory, str(out.with_name(f"{out.name}.export_intermediate.host2.onnx")), neck.output_names, outputs)
         self._hybrid_parts = [
             {"host_onnx": host1, "inputs": features, "outputs": ["canvas"]},
-            {"compile": part2, "reference": neck, "input": "canvas", "merge_pad": False},
+            # The neck part compiles per tensor whatever the backbone's scheme: its graph
+            # input feeds a depthwise identity conv, and per-channel depthwise input ranges
+            # (the depthwise scheme of HGNetv2 backbones) at a part's graph input fail the
+            # compiler's input-quantization pass. The neck itself has no depthwise convs.
+            {
+                "compile": part2,
+                "reference": neck,
+                "input": "canvas",
+                "merge_pad": False,
+                "quantization_scheme": _HYBRID_NECK_QUANTIZATION_SCHEME,
+            },
             {"host_onnx": host2, "inputs": list(neck.output_names), "outputs": list(outputs)},
         ]
         return exported
@@ -5141,6 +5154,7 @@ class AxeleraExporter(BaseExporter):
                                 round(float(v), 6)
                                 for v in getattr(self, "_hybrid_canvas_scales", ())
                             ],
+                            "neck_quantization_scheme": _HYBRID_NECK_QUANTIZATION_SCHEME,
                         }
                     ),
                 }

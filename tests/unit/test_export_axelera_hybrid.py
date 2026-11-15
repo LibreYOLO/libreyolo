@@ -199,3 +199,23 @@ def test_unmeasured_rtdetr_sizes_are_not_available_yet():
     unmeasured = UNMEASURED_SIZES.get(("rtdetr", "detect", "axelera"), {})
     assert "r18" not in unmeasured
     assert not set(unmeasured) & set(BLOCKED_SIZES.get(("rtdetr", "detect", "axelera"), {}))
+
+
+def test_hybrid_neck_part_compiles_per_tensor(sdk, tmp_path, monkeypatch):
+    """Depthwise backbones compile per channel; the neck part (graph input into a depthwise conv) stays per tensor."""
+    import yaml
+
+    from libreyolo.export import axelera
+
+    monkeypatch.setitem(
+        axelera.AXELERA_SIZE_RECIPES,
+        ("rtdetr", "detect", "r18"),
+        {"quantization_scheme": "hybrid_per_tensor_per_channel"},
+    )
+    artifact = _export(_rtdetr(), tmp_path, "rtdetr_dw")
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["hybrid"]["neck_quantization_scheme"] == "per_tensor_min_max"
+    first = (artifact / "compiler_config_final.toml").read_text()
+    second = (artifact / "compiler_config_final.part2.toml").read_text()
+    assert "hybrid_per_tensor_per_channel" in first
+    assert "per_tensor_min_max" in second and "hybrid_per_tensor_per_channel" not in second
