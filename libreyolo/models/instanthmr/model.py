@@ -315,6 +315,8 @@ class LibreInstantHMR(BaseModel):
             )
         val = bool(kwargs.pop("val", True))
         eval_interval = kwargs.pop("eval_interval", 1)
+        if isinstance(eval_interval, bool) or not isinstance(eval_interval, int) or eval_interval < 0:
+            raise ValueError(f"eval_interval must be a non-negative integer, got {eval_interval!r}.")
         validate = val and eval_interval != 0
         val_loss = bool(kwargs.pop("val_loss", False))
         allowed = {"weight_decay", "backbone_lr_ratio", "w_2d", "w_reproj", "w_prior"}
@@ -343,6 +345,7 @@ class LibreInstantHMR(BaseModel):
             freeze_backbone=freeze_backbone,
             freeze_bn=freeze_bn,
             validate=validate,
+            eval_interval=max(int(eval_interval), 1),
             val_loss=val_loss,
             **kwargs,
         )
