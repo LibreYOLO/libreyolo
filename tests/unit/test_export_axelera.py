@@ -1417,6 +1417,7 @@ def test_only_listed_families_request_graph_passes():
             "conv_reduction_split",
             "resize_1x1_broadcast_add",
             "resize_corner_chain",
+            "avgpool_staged",
         ),
         "pidnet": (
             "channel_reduce_to_conv",
@@ -1761,6 +1762,54 @@ def test_bifpn_passes_are_exact(tmp_path):
     before = ort.InferenceSession(str(source)).run(None, feeds)[0]
     after = ort.InferenceSession(rewritten).run(None, feeds)[0]
     np.testing.assert_allclose(after, before, rtol=1e-5, atol=1e-5)
+
+
+def _pyramid_pool_graph(height, width):
+    from onnx import helper
+
+    nodes = [
+        helper.make_node(
+            "AveragePool", ["x"], [f"bin{n}"], kernel_shape=[height // n, width // n], strides=[height // n, width // n]
+        )
+        for n in (1, 2, 4)
+    ]
+    nodes.append(helper.make_node("AveragePool", ["x"], ["ovl"], kernel_shape=[3, 3], strides=[2, 2], pads=[1, 1, 1, 1]))
+    outs = [("bin1", [1, 3, 1, 1]), ("bin2", [1, 3, 2, 2]), ("bin4", [1, 3, 4, 4])]
+    outs.append(("ovl", [1, 3, (height + 1) // 2, (width + 1) // 2]))
+    return _onnx_model(nodes, [("x", [1, 3, height, width])], outs, [])
+
+
+def test_avgpool_staged_is_exact_on_wide_pyramid_bins(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    source = tmp_path / "model.onnx"
+    onnx.save(_pyramid_pool_graph(24, 48), str(source))  # PP-LiteSeg-t75's stride-32 map
+
+    rewritten = ax.apply_graph_passes(str(source), tmp_path, ["avgpool_staged"])
+
+    pools = [n for n in onnx.load(rewritten).graph.node if n.op_type == "AveragePool"]
+    windows = sorted(
+        tuple(next(a.ints for a in n.attribute if a.name == "kernel_shape")) for n in pools
+    )
+    # 12x24 bin (288) -> 2x2 then 6x12; the 24x48 whole-map bin -> 2x2 then 12x24 (288 <= 512);
+    # the 6x12 bin and the overlapping 3x3/2 pool stay as they are.
+    assert windows == [(2, 2), (2, 2), (3, 3), (6, 12), (6, 12), (12, 24)]
+    x = np.random.default_rng(9).normal(size=(1, 3, 24, 48)).astype(np.float32)
+    before = ort.InferenceSession(str(source)).run(None, {"x": x})
+    after = ort.InferenceSession(rewritten).run(None, {"x": x})
+    for a, b in zip(after, before):
+        np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-6)
+
+
+def test_avgpool_staged_leaves_the_512x1024_pyramid_alone(tmp_path):
+    onnx = pytest.importorskip("onnx")
+    source = tmp_path / "model.onnx"
+    onnx.save(_pyramid_pool_graph(16, 32), str(source))  # t50/b50: bins 16x32 (whole map), 8x16, 4x8
+    before = source.read_bytes()
+
+    assert ax.apply_graph_passes(str(source), tmp_path, ["avgpool_staged"]) == str(source)
+    assert source.read_bytes() == before
 
 
 def test_float_div_to_mul_leaves_integer_division_alone(tmp_path):

@@ -1216,6 +1216,86 @@ def _gap_staged(model) -> int:
         _topological_sort(graph)
     return count
 
+#: Largest averaging window (kh * kw) the compiler takes for a pooling window
+#: that does not cover the whole map; PP-LiteSeg-t75's 12x24 window (288) fails.
+_AVGPOOL_MAX_WINDOW = 255
+#: Largest whole-map window measured to compile (PP-LiteSeg-t50's 16x32 pyramid bin).
+_AVGPOOL_MAX_GLOBAL_WINDOW = 512
+
+
+def _avgpool_staged(model) -> int:
+    """Split wide non-overlapping average pools into a 2x2 step chain.
+
+    PP-LiteSeg's pyramid pooling averages its stride-32 map over 2x2 bins; at
+    768x1536 one bin is a 12x24 window, more than the compiler's averaging
+    unit takes ("Input should be less than 256"). An ``AveragePool`` with
+    ``kernel == stride``, no padding and no ceil mode averages equal windows,
+    so first averaging 2x2 (or 2x1 / 1x2) blocks and then the remaining
+    window gives the same mean. Steps are added until the window is below
+    :data:`_AVGPOOL_MAX_WINDOW` (or, for a window that covers the whole map,
+    at most :data:`_AVGPOOL_MAX_GLOBAL_WINDOW`). Exact up to summation order.
+    Returns the number of rewritten pools.
+    """
+    from onnx import helper
+
+    shapes, _, _, _ = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "AveragePool"]:
+        attrs = _attributes(node)
+        shape = shapes.get(node.input[0])
+        kernel = list(attrs.get("kernel_shape", []))
+        if (
+            not shape
+            or len(shape) != 4
+            or len(kernel) != 2
+            or list(attrs.get("strides", [1, 1])) != kernel
+            or any(attrs.get("pads", [0, 0, 0, 0]))
+            or attrs.get("ceil_mode", 0)
+            or attrs.get("auto_pad", b"NOTSET") not in (b"NOTSET", "NOTSET")
+            or list(attrs.get("dilations", [1, 1])) != [1, 1]
+        ):
+            continue
+        height, width = shape[2], shape[3]
+        kh, kw = kernel
+        limit = (
+            _AVGPOOL_MAX_GLOBAL_WINDOW
+            if (kh, kw) == (height, width)
+            else _AVGPOOL_MAX_WINDOW
+        )
+        nodes, current = [], node.input[0]
+        while kh * kw > limit and (kh % 2 == 0 or kw % 2 == 0):
+            step = [2 if kh % 2 == 0 else 1, 2 if kw % 2 == 0 else 1]
+            out = f"{node.input[0]}_avgstep_{count}_{len(nodes)}"
+            nodes.append(
+                helper.make_node(
+                    "AveragePool",
+                    [current],
+                    [out],
+                    name=out,
+                    kernel_shape=step,
+                    strides=step,
+                )
+            )
+            current, kh, kw = out, kh // step[0], kw // step[1]
+        if not nodes:
+            continue
+        node.input[0] = current
+        for attr in [a for a in node.attribute if a.name in ("kernel_shape", "strides")]:
+            node.attribute.remove(attr)
+        node.attribute.extend(
+            [
+                helper.make_attribute("kernel_shape", [kh, kw]),
+                helper.make_attribute("strides", [kh, kw]),
+            ]
+        )
+        graph.node.extend(nodes)
+        count += 1
+    if count:
+        _topological_sort(graph)
+    return count
+
+
 def _channel_reduce_to_conv(model) -> int:
     """``ReduceSum`` / ``ReduceMean`` over channels (keepdims) becomes a 1x1 conv.
 
@@ -1642,6 +1722,7 @@ GRAPH_PASSES = {
     "broadcast_mul_expand": _broadcast_mul_expand,
     "resize_1x1_broadcast_add": _resize_1x1_broadcast_add,
     "resize_corner_chain": _resize_corner_chain,
+    "avgpool_staged": _avgpool_staged,
 }
 
 

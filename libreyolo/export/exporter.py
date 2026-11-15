@@ -4076,6 +4076,7 @@ _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
         "conv_reduction_split",
         "resize_1x1_broadcast_add",
         "resize_corner_chain",
+        "avgpool_staged",
     ),
     # PIDNet: the same attention rewrites; its DAPPM adds a 1x1 pooled branch
     # upsampled by 16 (a 32x32 depthwise window: too wide, F75).
