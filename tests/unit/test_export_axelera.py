@@ -940,9 +940,11 @@ def test_missing_devkit_fails_before_tracing(fake_sdk, tmp_path, monkeypatch):
 
 
 def test_other_families_are_blocked(exporter_sdk):
-    from libreyolo import LibreDFINE
+    # ViT has a transformer backbone, out of scope for Metis (docs/axelera.md), so it
+    # stays blocked as porters add families.
+    from libreyolo import LibreViT
 
-    model = LibreDFINE(None, size="l", device="cpu")
+    model = LibreViT(None, size="ti", nb_classes=3, device="cpu")
     with pytest.raises(NotImplementedError, match="blocked"):
         model.export(format="axelera")
 
@@ -1113,7 +1115,7 @@ def test_support_matrix_rows_for_axelera():
     assert "supported sizes: r50 " in fcos.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("fcos", "detect", "axelera")]) == ["r50"]
     assert ("fcos", "detect") in INT8_EXPORTS["axelera"]
-    other = get_support("dfine", "detect", "axelera")
+    other = get_support("vit", "classify", "axelera")  # out of scope: transformer backbone
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
     assert mnv4.tier == "validated" and "validated sizes: m;" in mnv4.constraint
