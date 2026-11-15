@@ -200,7 +200,7 @@ mindmap
         InstantHMR · SAM 3D Body
       Edges · 3
         DexiNed · LibreMODUS · TEED
-    🎨 Edit & create
+    🎨 Restore and create
       Restoration · 7
         Real-ESRGAN · SwinIR · LaMa +4
       Background removal · 5
