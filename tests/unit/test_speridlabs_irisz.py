@@ -354,6 +354,10 @@ def test_depth_encoding_matches_upstream():
     assert far_right[:, -1].mean() > far_right[:, 0].mean()
     assert near_right[:, -1].mean() < near_right[:, 0].mean()
     assert far_right.shape[0] % 16 == 0 and far_right.shape[1] % 16 == 0
+    # A normalized float map keeps its shape (not divided by 255 into the clamp).
+    small = Image.fromarray(np.tile(np.linspace(0.01, 0.2, 64, dtype=np.float32), (32, 1)))
+    from_float = irisz_pipeline.read_depth_map(small, "depth", 32)
+    assert from_float[:, -1].mean() - from_float[:, 0].mean() > 1.0
     # Upstream keeps a depth that fits the target side and resizes one that does not.
     fits = np.zeros((32, 48), dtype=np.float32)
     assert irisz_pipeline.fit_encoded_depth(fits, 48).shape == (32, 48)

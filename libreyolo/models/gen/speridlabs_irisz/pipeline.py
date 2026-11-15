@@ -346,10 +346,16 @@ def read_depth_map(image, depth_format: str, target_side: int, sky_ceiling: floa
     """A grayscale depth map image (``"depth"``: bright = far, ``"disparity"``: bright = near), encoded."""
     from PIL import Image
 
-    values = np.asarray(image, dtype=np.float64)
-    if values.ndim == 3:
-        values = np.asarray(image.convert("L"), dtype=np.float64)
-    gray = values / (65535.0 if values.max() > 255 else 255.0)
+    raw = np.asarray(image)
+    if raw.ndim == 3:
+        raw = np.asarray(image.convert("L"))
+    values = raw.astype(np.float64)
+    if np.issubdtype(raw.dtype, np.floating):
+        # Float maps keep their own range; only values above 1 are rescaled.
+        peak = float(values.max())
+        gray = values / peak if peak > 1.0 else values
+    else:
+        gray = values / (65535.0 if values.max() > 255 else 255.0)
     width, height = enlarged_size(gray.shape[1], gray.shape[0], target_side)
     gray = np.asarray(Image.fromarray(gray.astype(np.float32)).resize((width, height), Image.BILINEAR), np.float64)
     log_gray = np.log(np.maximum(gray, 1e-3))

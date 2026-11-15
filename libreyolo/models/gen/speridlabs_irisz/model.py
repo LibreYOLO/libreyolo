@@ -700,7 +700,7 @@ def _load_depth_map_image(source: Any):
     if isinstance(source, np.ndarray) and source.ndim == 2:
         return Image.fromarray(source), None
     if isinstance(source, (str, Path)) and str(source).startswith(("http://", "https://")):
-        with urllib.request.urlopen(str(source)) as response:  # noqa: S310 - http(s) only
+        with urllib.request.urlopen(str(source), timeout=30) as response:  # noqa: S310 - http(s) only
             image = Image.open(io.BytesIO(response.read()))
             image.load()
         return image, str(source)
