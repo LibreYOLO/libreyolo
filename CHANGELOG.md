@@ -7,7 +7,7 @@ before 1.4.0 are documented in the
 
 ## [1.8.0] - 2026-11-15
 
-This release adds Axelera Metis export for 23 families, a new optical flow task with eight families, document OCR and layout parsing (DeepSeek-OCR, PaddleOCR-VL, GLM-OCR, Falcon OCR, PP-DocLayoutV3), eleven LibreGen families (image-to-mesh, image-to-Gaussians, text-to-image, image-to-depth), InstantHMR body meshes, RiO-DETRv2 oriented boxes, grayscale training, tracking on exported models and Ultralytics-style result indexing. 52 merged pull requests (#993 to #1053). Some calls return different numbers or shapes than in 1.7.4: `results[0]` and iteration over a single-image `Results`, `val()` on several exported families, relative dataset YAML paths, `SAMPLE_IMAGE` and RF-DETR training defaults. Read **Changed** before upgrading.
+This release adds Axelera Metis export for 23 families, a new optical flow task with eight families, document OCR and layout parsing (DeepSeek-OCR, PaddleOCR-VL, GLM-OCR, Falcon OCR, PP-DocLayoutV3), eleven LibreGen families (image-to-mesh, image-to-Gaussians, text-to-image, image-to-depth), InstantHMR body meshes, RiO-DETRv2 oriented boxes, grayscale training, tracking on exported models and Ultralytics-style result indexing. 53 merged pull requests (#993 to #1055). Some calls return different numbers or shapes than in 1.7.4: `results[0]` and iteration over a single-image `Results`, `val()` on several exported families, relative dataset YAML paths, `SAMPLE_IMAGE` and RF-DETR training defaults. Read **Changed** before upgrading.
 
 ### Highlights
 
@@ -185,6 +185,8 @@ Errors and messages:
 
 - **InstantHMR fine-tuning honours `eval_interval`. (#1051)**
 
+- **Grayscale and RGB runs on different threads of one process no longer mix their dataset channel count. (#1055)**
+
 - **RF-DETR training falls back to SciPy matching when torch-hungarian cannot build. (#1052)**
   With `libreyolo[rfdetr-train]` on a host without Python headers, Triton's first compile failed and stopped training. `matcher_backend="auto"` now probes the GPU solver once and logs a warning before using SciPy.
 
@@ -279,7 +281,7 @@ Errors and messages:
 
 ### Stats
 
-403 commits, 610 files changed, +98,445 / -1,696 lines, 52 merged pull requests (#993-#1053), 2 issues closed as completed (#943, #1029). 82 new test modules (608 to 690). 9 new documentation pages.
+403 commits, 610 files changed, +98,445 / -1,696 lines, 53 merged pull requests (#993-#1055), 2 issues closed as completed (#943, #1029). 82 new test modules (608 to 690). 9 new documentation pages.
 
 ```
 pip install --upgrade libreyolo
