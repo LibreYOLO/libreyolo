@@ -159,59 +159,82 @@ variants. For example, `LibreYOLO9t` is task detection, model YOLO9 and
 variant `t`, which means tiny. Click a model to open its documentation page.
 
 ```mermaid
-mindmap
-  root((LibreYOLO))
-    👁️ See
-      Object detection · 52
-        YOLOv9 · RF-DETR · D-FINE · DEIM · YOLOX +47
-      Instance segmentation · 17
-        RF-DETR · SAM 3 · SAM 2 +14
-      Semantic segmentation · 10
-        SegFormer · EoMT · DeepLabv3 +7
-      Panoptic segmentation · 2
-        EoMT · SenseNova-Vision
-      Oriented boxes · 5
-        RF-DETR · RiO-DETRv2 +3
-      Pose · 7
-        RF-DETR · HRNet · YOLO-NAS +4
-      Pointing · 9
-        Molmo2 · Qwen3-VL grounding · Moondream +6
-    🧠 Understand
-      Classification · 15
-        DINOv2 · ConvNeXt V2 · SigLIP2 +12
-      Embeddings · 7
-        DINOv2 · SigLIP2 · CLIP +4
-      OCR · 7
-        PP-OCRv5 · GLM-OCR · DeepSeek-OCR +4
-      Gaze
-        L2CS-Net
-    🌐 Geometry
-      Depth · 11
-        Depth Anything 3 · MoGe-3 · Video Depth Anything +8
-      Surface normals · 4
-        LibreMODUS · Marigold V2 · MoGe-2 +1
-      Albedo
-        Marigold V2
-      Optical flow · 8
-        SEA-RAFT · WAFT · RAFT +5
-      3D detection · 4
-        3D-MOOD · DetAny3D · FCOS3D +1
-      Body mesh · 2
-        InstantHMR · SAM 3D Body
-      Edges · 3
-        DexiNed · LibreMODUS · TEED
-    🎨 Restore and create
-      Restoration · 7
-        Real-ESRGAN · SwinIR · LaMa +4
-      Background removal · 5
-        BiRefNet · BEN2 · ViTMatte +2
-      Image generation · 6
-        FLUX.2 klein · Speridlabs Iris-Z · SANA-Sprint +3
-      3D generation · 8
-        TRELLIS.2 · Speridlabs Idol · TripoSR +5
-    🤖 Act
-      Robot policies · 3
-        ACT · Diffusion Policy · LibreVLA
+%%{init: {"flowchart": {"htmlLabels": true, "wrappingWidth": 400, "nodeSpacing": 12, "rankSpacing": 8, "padding": 6, "diagramPadding": 4}}}%%
+flowchart TB
+  ROOT(["<b>LibreYOLO</b> · 150 model families · 23 tasks"])
+  subgraph C4[" "]
+    direction TB
+    H4{{"<b>🤖 ROBOTICS</b><br/>3 families"}}
+    T4_0["<b>🦾 Robot policies</b>  <small>3</small><br/>ACT · Diffusion Policy · LibreVLA"]:::c4
+    H4 ~~~ T4_0
+  end
+  subgraph C3[" "]
+    direction TB
+    H3{{"<b>🎨 RESTORE AND CREATE</b><br/>26 families"}}
+    T3_0["<b>🪄 Restoration</b>  <small>7</small><br/><b>Real-ESRGAN</b> · <b>SwinIR</b> · <b>LaMa</b><br/>DDColor · HVI-CIDNet · NAFNet<br/>QuickSRNet"]:::c3
+    T3_1["<b>✂️ Background removal</b>  <small>5</small><br/><b>BiRefNet</b> · <b>BEN2</b> · <b>ViTMatte</b><br/>FeyNobg · WeVisOne-VL"]:::c3
+    T3_2["<b>🖼️ Image generation</b>  <small>6</small><br/><b>FLUX.2 klein</b> · <b>Speridlabs Iris-Z</b> · <b>SANA-Sprint</b><br/>Open Vision Banana · PRX · PRXPixel"]:::c3
+    T3_3["<b>🗿 3D generation</b>  <small>8</small><br/><b>TRELLIS.2</b> · <b>Speridlabs Idol</b> · <b>TripoSR</b><br/>CRM · Direct3D-S2 · LGM<br/>TRELLIS · TripoSplat"]:::c3
+    H3 ~~~ T3_0 ~~~ T3_1 ~~~ T3_2 ~~~ T3_3
+  end
+  subgraph C2[" "]
+    direction TB
+    H2{{"<b>🌐 GEOMETRY</b><br/>28 families"}}
+    T2_0["<b>🏔️ Depth</b>  <small>11</small><br/><b>Depth Anything 3</b> · <b>MoGe-3</b> · <b>Video Depth Anything</b><br/>Depth Anything V2 · GTR · LibreMODUS<br/>Marigold V2 · MiDaS · SenseNova-Vision<br/>Speridlabs Iris-Z · ZipDepth"]:::c2
+    T2_1["<b>🧭 Surface normals</b>  <small>4</small><br/>LibreMODUS · Marigold V2 · MoGe-2<br/>MoGe-3"]:::c2
+    T2_2["<b>🖍️ Albedo</b>  <small>1</small><br/>Marigold V2"]:::c2
+    T2_3["<b>💨 Optical flow</b>  <small>8</small><br/><b>SEA-RAFT</b> · <b>WAFT</b> · <b>RAFT</b><br/>DPFlow · FlowSeek · MEMFOF<br/>NeuFlow v2 · UniMatch"]:::c2
+    T2_4["<b>📦 3D detection</b>  <small>4</small><br/>3D-MOOD · DetAny3D · FCOS3D<br/>WildDet3D"]:::c2
+    T2_5["<b>🧍 Body mesh</b>  <small>2</small><br/>InstantHMR · SAM 3D Body"]:::c2
+    T2_6["<b>✏️ Edges</b>  <small>3</small><br/>DexiNed · LibreMODUS · TEED"]:::c2
+    H2 ~~~ T2_0 ~~~ T2_1 ~~~ T2_2 ~~~ T2_3 ~~~ T2_4 ~~~ T2_5 ~~~ T2_6
+  end
+  subgraph C1[" "]
+    direction TB
+    H1{{"<b>🧠 UNDERSTAND</b><br/>25 families"}}
+    T1_0["<b>🏷️ Classification</b>  <small>15</small><br/><b>DINOv2</b> · <b>ConvNeXt V2</b> · <b>SigLIP2</b><br/><b>ViT</b> · AlexNet · CLIP<br/>ConvNeXt · DeiT · EfficientNetV2<br/>MobileNetV4 · Perception Encoder · ResNet<br/>Swin Transformer · V-JEPA 2 · VGG"]:::c1
+    T1_1["<b>🧬 Embeddings</b>  <small>7</small><br/><b>DINOv2</b> · <b>SigLIP2</b> · <b>CLIP</b><br/>LeVJEPA · Perception Encoder · Qwen3-VL-Embedding<br/>V-JEPA 2"]:::c1
+    T1_2["<b>🔤 OCR</b>  <small>7</small><br/><b>PP-OCRv5</b> · <b>GLM-OCR</b> · <b>DeepSeek-OCR</b><br/>Falcon OCR · PaddleOCR-VL · SenseNova-Vision<br/>WeVisOne-VL"]:::c1
+    T1_3["<b>👀 Gaze</b>  <small>1</small><br/>L2CS-Net"]:::c1
+    H1 ~~~ T1_0 ~~~ T1_1 ~~~ T1_2 ~~~ T1_3
+  end
+  subgraph C0[" "]
+    direction TB
+    H0{{"<b>👁️ SEE</b><br/>76 families"}}
+    T0_0["<b>⚡ Detection: YOLO-style</b>  <small>12</small><br/><b>YOLOv9</b> · <b>YOLOX</b> · <b>YOLO-NAS</b><br/>YOLOv7 · YOLOv4 · YOLOv3<br/>YOLOv2 · YOLOv1 · RTMDet<br/>PicoDet · PP-YOLOE · EfficientDet"]:::c0
+    T0_1["<b>🔭 Detection: DETR-style</b>  <small>13</small><br/><b>RF-DETR</b> · <b>D-FINE</b> · <b>DEIM</b><br/>DEIMv2 · RT-DETR · RT-DETRv2<br/>RT-DETRv4 · LW-DETR · DETR<br/>Deformable DETR · DINO-DETR · EdgeCrafter<br/>GTR"]:::c0
+    T0_2["<b>🏛️ Detection: classic CNNs</b>  <small>6</small><br/><b>Faster R-CNN</b> · Mask R-CNN · RetinaNet<br/>SSD · FCOS · CenterNet"]:::c0
+    T0_3["<b>💬 Detection: open vocabulary and VLMs</b>  <small>18</small><br/><b>Grounding DINO</b> · OWLv2 · OMDet-Turbo<br/>OV-DEIM · <b>Florence-2</b> · Kosmos-2<br/><b>Qwen3-VL</b> · InternVL3 · LFM2-VL<br/>North Micro Vision · SmolVLM2 · Gemma 4<br/>Moondream · WeVisOne-VL · SenseNova-Vision<br/>LocateAnything · Falcon Perception · LibreMODUS"]:::c0
+    T0_4["<b>🔬 Detection: specialised</b>  <small>3</small><br/>TinyFormer · Dome-DETR · PP-DocLayoutV3"]:::c0
+    T0_5["<b>🧩 Instance segmentation</b>  <small>17</small><br/><b>RF-DETR</b> · <b>SAM 3</b> · <b>SAM 2</b><br/><b>EoMT</b> · D-FINE · EdgeCrafter<br/>EdgeTAM · Falcon Perception · GTR<br/>Mask R-CNN · MobileSAM · PicoSAM3<br/>RTMDet · SAM · SAM 3.1<br/>SenseNova-Vision · WeVisOne-VL"]:::c0
+    T0_6["<b>🗺️ Semantic segmentation</b>  <small>10</small><br/><b>SegFormer</b> · <b>EoMT</b> · <b>DeepLabv3</b><br/>DINOv2 · FCN · GTR<br/>LingBot-Vision · PIDNet · PP-LiteSeg<br/>U-Net"]:::c0
+    T0_7["<b>🌈 Panoptic segmentation</b>  <small>2</small><br/>EoMT · SenseNova-Vision"]:::c0
+    T0_8["<b>📐 Oriented boxes</b>  <small>5</small><br/><b>RF-DETR</b> · <b>RiO-DETRv2</b> · GTR<br/>RT-DETRv2 · YOLO-NAS"]:::c0
+    T0_9["<b>🤸 Pose</b>  <small>7</small><br/><b>RF-DETR</b> · <b>HRNet</b> · <b>YOLO-NAS</b><br/>DEKR · EdgeCrafter · GTR<br/>SenseNova-Vision"]:::c0
+    T0_10["<b>📍 Pointing</b>  <small>9</small><br/><b>Molmo2</b> · <b>Qwen3-VL grounding</b> · <b>Moondream</b><br/>Florence-2 grounding · FOMO · LocateAnything<br/>SenseNova-Vision · ShowUI · WeVisOne-VL"]:::c0
+    H0 ~~~ T0_0 ~~~ T0_1 ~~~ T0_2 ~~~ T0_3 ~~~ T0_4 ~~~ T0_5 ~~~ T0_6 ~~~ T0_7 ~~~ T0_8 ~~~ T0_9 ~~~ T0_10
+  end
+  ROOT --> H0
+  ROOT --> H1
+  ROOT --> H2
+  ROOT --> H3
+  ROOT --> H4
+  style ROOT fill:#1f2328,stroke:#1f2328,color:#ffffff
+  classDef c0 fill:#fff8c5,stroke:#bf8700,color:#1f2328,text-align:left
+  style C0 fill:#ffffff,stroke:#bf8700,stroke-width:2px
+  style H0 fill:#bf8700,stroke:#bf8700,color:#ffffff
+  classDef c1 fill:#dafbe1,stroke:#1a7f37,color:#1f2328,text-align:left
+  style C1 fill:#ffffff,stroke:#1a7f37,stroke-width:2px
+  style H1 fill:#1a7f37,stroke:#1a7f37,color:#ffffff
+  classDef c2 fill:#fbefff,stroke:#8250df,color:#1f2328,text-align:left
+  style C2 fill:#ffffff,stroke:#8250df,stroke-width:2px
+  style H2 fill:#8250df,stroke:#8250df,color:#ffffff
+  classDef c3 fill:#ffeff7,stroke:#bf3989,color:#1f2328,text-align:left
+  style C3 fill:#ffffff,stroke:#bf3989,stroke-width:2px
+  style H3 fill:#bf3989,stroke:#bf3989,color:#ffffff
+  classDef c4 fill:#ddf4ff,stroke:#0969da,color:#1f2328,text-align:left
+  style C4 fill:#ffffff,stroke:#0969da,stroke-width:2px
+  style H4 fill:#0969da,stroke:#0969da,color:#ffffff
 ```
 
 <details>
