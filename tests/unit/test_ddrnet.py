@@ -244,6 +244,17 @@ def test_save_keeps_weight_terms(tmp_path):
     assert reopened.weight_dataset == "Cityscapes"
 
 
+def test_saved_canvas_survives_reload(tmp_path):
+    model = LibreDDRNet(size="s", device="cpu")
+    model.input_size = (512, 1024)
+    path = tmp_path / "canvas.pt"
+    model.save(str(path))
+    reopened = LibreDDRNet(str(path), device="cpu")
+    assert tuple(reopened._get_input_size()) == (512, 1024)
+    default = LibreDDRNet(size="s", device="cpu")
+    assert tuple(default._get_input_size()) == (1024, 2048)
+
+
 def test_grayscale_checkpoint_reopens(tmp_path):
     from libreyolo.utils.input_channels import configure_channels, model_channels
 

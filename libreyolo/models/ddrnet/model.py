@@ -505,6 +505,7 @@ class LibreDDRNet(BaseModel):
         self.weight_dataset = loaded.get("weight_dataset")
         commercial = loaded.get("weight_commercial_use")
         self.weight_commercial_use = None if commercial is None else bool(commercial)
+        self._restore_checkpoint_input_size(loaded)
         self._cache_checkpoint_train_config(loaded)
         if isinstance(model_path, str):
             self.model_path = model_path
