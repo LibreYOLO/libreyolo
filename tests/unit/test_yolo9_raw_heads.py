@@ -180,3 +180,30 @@ def test_e2e_cut_decodes_the_one_to_one_branch(hw):
     np.testing.assert_allclose(decoded[:, :4], expected[:, :4], rtol=1e-6, atol=5e-4)
     np.testing.assert_allclose(decoded[:, 4:], expected[:, 4:], atol=1e-5)
     assert not np.allclose(decoded_dense[:, 4:], expected[:, 4:], atol=1e-3)
+
+
+def test_p2_cut_has_four_levels_and_decodes_like_the_model():
+    from libreyolo import LibreYOLO9P2
+
+    torch.manual_seed(0)
+    net = LibreYOLO9P2(None, size="s", nb_classes=4, device="cpu").model.eval()
+    generator = torch.Generator().manual_seed(1)
+    with torch.no_grad():
+        for tower in (*net.head.anchor_convs, *net.head.class_convs):
+            conv = tower[-1]
+            conv.weight.copy_(torch.randn(conv.weight.shape, generator=generator) * 0.05)
+            conv.bias.copy_(torch.randn(conv.bias.shape, generator=generator))
+    wrapper = _YOLO9RawHeadsWrapper(net, output_windows={}).eval()
+    sample = torch.rand(1, 3, 128, 160, generator=torch.Generator().manual_seed(7))
+    with torch.no_grad():
+        output = net(sample)
+        expected = (output["predictions"] if isinstance(output, dict) else output[0]).numpy()
+        raw = [t.numpy() for t in wrapper(sample)]
+
+    assert wrapper.strides == (4, 8, 16, 32)
+    assert wrapper.output_names[:2] == ["p2_reg", "p2_cls"]
+    (decoded,) = decode_raw_heads(
+        _LAYOUT, raw, strides=wrapper.strides, reg_max=wrapper.reg_max, output_windows={}
+    )
+    np.testing.assert_allclose(decoded[:, :4], expected[:, :4], rtol=1e-6, atol=5e-4)
+    np.testing.assert_allclose(decoded[:, 4:], expected[:, 4:], atol=1e-5)

@@ -4597,9 +4597,10 @@ class AxeleraExporter(BaseExporter):
                 )
             self._pose_bounds = {}
             self._raw_wrapper = _PicoDetRawHeadsWrapper(live).eval()
-        elif self.model._get_model_name() in ("yolo9", "yolo9_e2e"):
+        elif self.model._get_model_name() in ("yolo9", "yolo9_e2e", "yolo9_p2"):
             # No reparameterization step; BatchNorm folds into the convs
-            # during the ONNX export. YOLO9-E2E decodes its one-to-one branch.
+            # during the ONNX export. YOLO9-E2E decodes its one-to-one branch;
+            # YOLO9-P2 adds a stride-4 level (the strides travel in metadata).
             self._pose_bounds = {}
             towers = (
                 ("one_to_one_anchor_convs", "one_to_one_class_convs")
