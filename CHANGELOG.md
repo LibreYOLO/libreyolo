@@ -10,6 +10,7 @@ before 1.4.0 are documented in the
 ### Added
 
 - **Speridlabs Iris-Z: depth to image and image plus depth.** `LibreGen("speridlabs-iris-z")("a neon city in the rain", source="photo.jpg")` paints a new scene on the photo's depth; `source=` also takes a depth `Results`/`DepthMap` or a grayscale depth map with `depth_format="depth"` or `"disparity"`. `depth=True` returns the generated image and its depth together (`Results.generated` and `Results.depth_map`). Ported from the Apache-2.0 Iris-Z SDK's `depth_to_image` and `text_to_rgbd`. See the ADR 0033 amendment.
+
 - **Open Vision Banana: segmentation, depth, normals and editing from one prompt, `LibreGen("open-vision-banana")`.**
   FunAILab's FLUX.2 [klein] Base fine-tune answers a perception prompt about a photo with an image: segmentation as flat colours, relative inverse depth as grey, surface normals as RGB. `model(prompt, source="photo.jpg")` returns `Results.generated`; without `source` it generates from text. Sizes `4b` (default) and `9b`, the paper's non-zero-shot checkpoints, 28 steps at guidance 3.5. Weights are mirrored as complete diffusers pipelines at `LibreYOLO/LibreOpenVisionBanana4b` and `9b` (transformer cast to bf16, outputs bit-identical to upstream's quickstart; FLUX Non-Commercial License). No network code: it runs through diffusers' `Flux2KleinPipeline`. Prompts and NumPy readouts in `docs/open_vision_banana.md`. Install `libreyolo[gen]`.
 
