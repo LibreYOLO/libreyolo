@@ -2,8 +2,8 @@
 
 Iris-Z (https://speridlabs.com/research/iris-z) by Speridlabs is FLUX.2
 fine-tuned to denoise an RGB grid and a depth grid together. The same weights
-estimate depth from a photo in 4 steps and generate images from a prompt.
-LibreYOLO exposes both:
+estimate depth from a photo in 4 steps, generate images from a prompt, paint
+a prompt over a given depth, and generate an image together with its depth:
 
     from libreyolo import LibreGen
 
@@ -12,6 +12,8 @@ LibreYOLO exposes both:
 
     model = LibreGen("speridlabs-iris-z")
     model("a lighthouse at dusk").save("lighthouse.png")
+    model("a sunken ruin under the sea", source="photo.jpg")   # the photo's depth, new scene
+    model("a grand old library", depth=True)                   # Results.generated + depth_map
 
 Two sizes: ``9b`` (Iris-Z-small, from FLUX.2 [klein] Base 9B, Qwen3 8B text
 encoder) and ``32b`` (Iris-Z-big, from FLUX.2 [dev], Mistral Small 3.2 24B text
@@ -35,7 +37,7 @@ import logging
 import time
 from numbers import Integral
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Generator, List, Optional, Sequence, Tuple, Union
+from typing import Any, ClassVar, Dict, Generator, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -101,7 +103,7 @@ class _IrisZNetworks:
 
 
 class LibreSperidlabsIrisZ(LibreGenModel):
-    """Speridlabs Iris-Z behind LibreGen: text-to-image (``generate``) and image-to-depth (``depth``)."""
+    """Speridlabs Iris-Z behind LibreGen: ``generate`` (text or depth -> image, image + depth) and ``depth``."""
 
     FAMILY = "speridlabs_irisz"
     FILENAME_PREFIX = "LibreSperidlabsIrisZ"
@@ -156,8 +158,8 @@ class LibreSperidlabsIrisZ(LibreGenModel):
             self.KNOBS = tuple(_DEPTH_DEFAULTS)
             self.DEFAULTS = dict(_DEPTH_DEFAULTS)
         else:
-            self.KNOBS = ("steps", "guidance")
-            self.DEFAULTS = dict(_GENERATE_DEFAULTS[self.size])
+            self.KNOBS = ("steps", "guidance", "depth")
+            self.DEFAULTS = {**_GENERATE_DEFAULTS[self.size], "depth": False}
 
     @property
     def model_name(self) -> str:
@@ -305,29 +307,200 @@ class LibreSperidlabsIrisZ(LibreGenModel):
         import torch
         from PIL import Image
 
-        from .pipeline import sample_rgb
+        from .pipeline import sample_joint, sample_rgb
 
         if self.task != "generate":
             raise RuntimeError("This model was loaded for depth; load it with task='generate' to generate images.")
         steps, guidance = _check_steps(knobs["steps"]), _check_guidance(knobs["guidance"])
+        with_depth = _check_depth_flag(knobs["depth"])
         networks = self._pipeline
-        images = []
+        images: List[Any] = []
         with torch.no_grad():
             context = self._prompt_context(prompt)
             for seed in seeds:
                 with self._autocast():
-                    latent = sample_rgb(networks.transformer, context, height, width, seed, guidance, steps)
-                    rgb = networks.latents.decode(latent).float().clamp(-1, 1)
-                pixels = (127.5 * (rgb[0] + 1.0)).round().clamp(0, 255).byte().permute(1, 2, 0).cpu().numpy()
-                images.append(Image.fromarray(pixels))
+                    if with_depth:
+                        latent, _ = sample_joint(networks.transformer, context, height, width, seed, guidance, steps)
+                    else:
+                        latent = sample_rgb(networks.transformer, context, height, width, seed, guidance, steps)
+                    pixels = self._decode_rgb(latent)
+                if with_depth:
+                    # As upstream's text_to_rgbd: the depth is estimated again
+                    # from the finished image, which is sharper than the joint one.
+                    log_depth, sky = self._depth_of_rgb(pixels, _DEPTH_DEFAULTS["steps"], [seed])
+                    images.append(_ImageAndDepth(Image.fromarray(pixels), log_depth, sky))
+                else:
+                    images.append(Image.fromarray(pixels))
         return images
+
+    def _decode_rgb(self, latent) -> np.ndarray:
+        rgb = self._pipeline.latents.decode(latent).float().clamp(-1, 1)
+        return (127.5 * (rgb[0] + 1.0)).round().clamp(0, 255).byte().permute(1, 2, 0).cpu().numpy()
+
+    def _result(self, image: Any, prompt: str, seed: int, settings: Dict[str, Any], elapsed_ms: float) -> Results:
+        depth = image if isinstance(image, _ImageAndDepth) else None
+        result = super()._result(depth.image if depth else image, prompt, seed, settings, elapsed_ms)
+        if depth is not None:
+            result.depth_map = DepthMap(
+                depth.log_depth, result.orig_shape, encoding="log_depth", valid_mask=~depth.sky
+            )
+        return result
+
+    # ------------------------------------------------------------------
+    # Depth -> image
+    # ------------------------------------------------------------------
+
+    def _encoded_source_depth(self, source: Any, depth_format: Optional[str], side: int):
+        """``(encoded depth, path)``: the source's depth at about ``side**2`` pixels, encoded as upstream."""
+        from PIL import Image
+
+        from ..base3d import LibreGen3DModel
+        from .pipeline import (
+            DEPTH_MAP_FORMATS,
+            encode_log_depth,
+            fit_encoded_depth,
+            read_depth_map,
+            working_size,
+        )
+
+        sky_ceiling = float(self._pipeline.config.get("sky_ceiling", 1.0))
+        if isinstance(source, Results):
+            if source.depth_map is None:
+                raise ValueError("source= is a Results without a depth_map; pass a photo or a depth result.")
+            source = source.depth_map
+        if isinstance(source, DepthMap):
+            if depth_format is not None:
+                raise TypeError("depth_format= is for depth map images; a DepthMap carries its own encoding.")
+            values = np.asarray(source.data.cpu() if hasattr(source.data, "cpu") else source.data, dtype=np.float64)
+            valid = np.ones(values.shape, dtype=bool)
+            if source.valid_mask is not None:
+                mask = source.valid_mask
+                valid = np.asarray(mask.cpu() if hasattr(mask, "cpu") else mask, dtype=bool)
+            if source.encoding == "log_depth":
+                log_depth = values
+            else:
+                span = values[valid] if valid.any() else values.ravel()
+                low, high = float(span.min()), float(span.max())
+                scaled = np.maximum((values - low) / max(high - low, 1e-6), 1e-3)
+                log_depth = np.log(scaled) if source.encoding == "depth" else -np.log(scaled)
+            return fit_encoded_depth(encode_log_depth(log_depth, ~valid, sky_ceiling), side), None
+        if isinstance(source, (list, tuple)):
+            raise TypeError("source= takes one image or depth result, not a list.")
+        if depth_format is not None:
+            if depth_format not in DEPTH_MAP_FORMATS:
+                raise ValueError(f"depth_format must be one of {DEPTH_MAP_FORMATS}, got {depth_format!r}.")
+            image, path = _load_depth_map_image(source)
+            return read_depth_map(image, depth_format, side, sky_ceiling), path
+        image, path = LibreGen3DModel._load_source(source)
+        if side not in _DEPTH_SIZES:
+            raise ValueError(f"imgsz with a photo as source must be 512 or 1024, got {side!r}.")
+        image = image.convert("RGB")
+        width, height = working_size(image.width, image.height, side)
+        rgb = np.asarray(image.resize((width, height), Image.LANCZOS))
+        log_depth, sky = self._depth_of_rgb(rgb, _DEPTH_DEFAULTS["steps"], [0])
+        return fit_encoded_depth(encode_log_depth(log_depth, sky, sky_ceiling), side), path
+
+    def _generate_from_depth(
+        self,
+        prompt: Any,
+        source: Any,
+        depth_format: Optional[str],
+        imgsz: Any,
+        seed: Optional[int],
+        n: int,
+        stream: bool,
+        save: bool,
+        output_path: Optional[str],
+        knobs: Dict[str, Any],
+    ):
+        import torch
+        from PIL import Image
+
+        from .pipeline import sample_rgb_from_depth, unsqueeze_from_ceiling
+
+        if prompt is None:
+            raise ValueError('generate() needs a prompt, e.g. model("a neon city in the rain", source="photo.jpg").')
+        prompts, single = self._coerce_prompts(prompt)
+        if isinstance(n, bool) or not isinstance(n, Integral) or n < 1:
+            raise ValueError(f"n must be a positive integer, got {n!r}.")
+        if seed is not None and (isinstance(seed, bool) or not isinstance(seed, Integral) or not 0 <= seed < _SEED_RANGE):
+            raise ValueError(f"seed must be an integer in [0, 2**32), got {seed!r}.")
+        if imgsz is None:
+            imgsz = self.input_size
+        if isinstance(imgsz, bool) or not isinstance(imgsz, Integral) or imgsz <= 0:
+            raise ValueError(f"imgsz with source= is one side (the output keeps the depth's aspect), got {imgsz!r}.")
+        settings = self._resolve_knobs(knobs)
+        if _check_depth_flag(settings.pop("depth")):
+            raise ValueError("depth=True generates its own depth; with source= the depth is given.")
+        steps, guidance = _check_steps(settings["steps"]), _check_guidance(settings["guidance"])
+        one_image = single and n == 1
+        if output_path is not None and not save:
+            raise ValueError("output_path requires save=True.")
+        if output_path is not None and not one_image:
+            raise ValueError("output_path names one file; it needs one prompt and n=1.")
+        if output_path is not None and Path(output_path).suffix.lower() not in Image.registered_extensions():
+            raise ValueError(f"output_path needs an image extension such as .png, got {output_path!r}.")
+
+        def run() -> Generator[Results, None, None]:
+            self._ensure_loaded()
+            networks = self._pipeline
+            sky_ceiling = float(networks.config.get("sky_ceiling", 1.0))
+            encoded, path = self._encoded_source_depth(source, depth_format, int(imgsz))
+            log_depth = unsqueeze_from_ceiling(encoded, sky_ceiling).astype(np.float32)
+            if sky_ceiling < 1.0:
+                sky = encoded > (sky_ceiling + 1.0) / 2.0
+            else:
+                sky = np.zeros(encoded.shape, dtype=bool)
+            with torch.no_grad(), self._autocast():
+                depth_latent = networks.latents.encode_depth(encoded)
+            params = {**settings, "source": str(path) if path else type(source).__name__}
+            if depth_format is not None:
+                params["depth_format"] = depth_format
+            index = 0
+            save_dir: Optional[Path] = None
+            for text in prompts:
+                with torch.no_grad():
+                    context = self._prompt_context(text)
+                for image_seed in self._seeds(seed, int(n)):
+                    started = time.perf_counter()
+                    with torch.no_grad(), self._autocast():
+                        latent = sample_rgb_from_depth(
+                            networks.transformer, context, depth_latent, image_seed, guidance, steps
+                        )
+                        pixels = self._decode_rgb(latent)
+                    elapsed_ms = (time.perf_counter() - started) * 1000.0
+                    result = self._result(
+                        _ImageAndDepth(Image.fromarray(pixels), log_depth, sky), text, image_seed, params, elapsed_ms
+                    )
+                    if save:
+                        save_dir = self._save_image(result, index, output_path, save_dir)
+                    index += 1
+                    yield result
+
+        if stream:
+            return run()
+        results = list(run())
+        return results[0] if one_image else results
 
     # ------------------------------------------------------------------
     # Image -> depth
     # ------------------------------------------------------------------
 
-    def generate(self, prompt: Any = None, *, source: Any = None, **kwargs):
-        """Text -> image with ``task="generate"``; image -> depth with ``task="depth"``.
+    def generate(self, prompt: Any = None, *, source: Any = None, depth_format: Optional[str] = None, **kwargs):
+        """Generate with ``task="generate"``; image -> depth with ``task="depth"``.
+
+        With ``task="generate"``:
+
+        - ``model(prompt)``: text -> image. ``depth=True`` also returns the
+          image's depth in ``Results.depth_map``.
+        - ``model(prompt, source=...)``: depth -> image, a new image on the
+          source's geometry. ``source`` is a photo (its depth is estimated
+          first, at ``imgsz`` 512 or 1024), a ``Results`` or ``DepthMap``
+          from a depth model, or a depth map image read with
+          ``depth_format="depth"`` (bright = far) or ``"disparity"``
+          (bright = near). ``imgsz`` is one side (default 1024); the output
+          keeps the depth's aspect ratio. ``Results.depth_map`` is the
+          depth the image was painted on.
 
         With ``task="depth"`` the first argument is the image source; see
         :meth:`predict_depth`.
@@ -335,12 +508,26 @@ class LibreSperidlabsIrisZ(LibreGenModel):
         if self.task == "depth":
             if prompt is not None and source is not None:
                 raise TypeError("Pass the image once, as the first argument or as source=.")
+            if depth_format is not None:
+                raise TypeError("depth_format= is for generate(source=...), not for task='depth'.")
             return self.predict_depth(source if source is not None else prompt, **kwargs)
         if source is not None:
-            raise NotImplementedError(
-                f"{type(self).__name__} generates from a text prompt with task='generate'; "
-                "for depth from an image, load it with task='depth'."
+            known = ("imgsz", "seed", "n", "stream", "save", "output_path")
+            options = {name: kwargs.pop(name) for name in known if name in kwargs}
+            return self._generate_from_depth(
+                prompt,
+                source,
+                depth_format,
+                options.get("imgsz"),
+                options.get("seed"),
+                options.get("n", 1),
+                options.get("stream", False),
+                options.get("save", False),
+                options.get("output_path"),
+                kwargs,
             )
+        if depth_format is not None:
+            raise TypeError("depth_format= describes a depth map passed as source=.")
         return super().generate(prompt, **kwargs)
 
     predict = generate
@@ -444,24 +631,35 @@ class LibreSperidlabsIrisZ(LibreGenModel):
 
     def _depth(self, image, imgsz: Optional[int], steps: int, seeds: Sequence[int]):
         """``(log_depth, sky)`` at the image's size, as upstream's ``image_to_depth``."""
-        import torch
         from PIL import Image
 
-        from .pipeline import (
-            SKY_VALUE,
-            SMALL_IMAGE_PIXELS,
-            working_size,
-            ensemble,
-            sample_depth,
-            unsqueeze_from_ceiling,
-        )
+        from .pipeline import SMALL_IMAGE_PIXELS, working_size
 
-        networks = self._pipeline
-        sky_ceiling = float(networks.config.get("sky_ceiling", 1.0))
         if imgsz is None:
             imgsz = 512 if image.width * image.height < SMALL_IMAGE_PIXELS else 1024
         width, height = working_size(image.width, image.height, imgsz)
         rgb = np.asarray(image.resize((width, height), Image.LANCZOS))
+        log_depth, sky = self._depth_of_rgb(rgb, steps, seeds)
+        if (image.width, image.height) != (width, height):
+            log_depth = np.asarray(
+                Image.fromarray(log_depth).resize((image.width, image.height), Image.BILINEAR)
+            )
+            sky = (
+                np.asarray(
+                    Image.fromarray(sky.astype(np.uint8) * 255).resize((image.width, image.height), Image.NEAREST)
+                )
+                > 127
+            )
+        return np.ascontiguousarray(log_depth, dtype=np.float32), np.ascontiguousarray(sky)
+
+    def _depth_of_rgb(self, rgb: np.ndarray, steps: int, seeds: Sequence[int]):
+        """``(log_depth, sky)`` of a ``(H, W, 3)`` uint8 image at its own size, as upstream's ``depth_from_rgb``."""
+        import torch
+
+        from .pipeline import SKY_VALUE, ensemble, sample_depth, unsqueeze_from_ceiling
+
+        networks = self._pipeline
+        sky_ceiling = float(networks.config.get("sky_ceiling", 1.0))
 
         def decode(latent):
             encoded = networks.latents.decode(latent).float().mean(dim=1).clamp(-1, 1)[0].cpu().numpy()
@@ -481,17 +679,46 @@ class LibreSperidlabsIrisZ(LibreGenModel):
             )
         log_depth = (members[0] if len(members) == 1 else ensemble(members)).astype(np.float32)
         sky = log_depth >= SKY_VALUE if sky_ceiling < 1.0 else np.zeros(log_depth.shape, dtype=bool)
-        if (image.width, image.height) != (width, height):
-            log_depth = np.asarray(
-                Image.fromarray(log_depth).resize((image.width, image.height), Image.BILINEAR)
-            )
-            sky = (
-                np.asarray(
-                    Image.fromarray(sky.astype(np.uint8) * 255).resize((image.width, image.height), Image.NEAREST)
-                )
-                > 127
-            )
         return np.ascontiguousarray(log_depth, dtype=np.float32), np.ascontiguousarray(sky)
+
+
+def _load_depth_map_image(source: Any):
+    """``(PIL image, path or None)`` for a depth map, keeping 16-bit and float values.
+
+    The photo loader converts to 8-bit RGB, which would clip a 16-bit depth map;
+    files, URLs, PIL images and 2D arrays are read as they are instead.
+    """
+    import io
+    import urllib.request
+
+    from PIL import Image
+
+    from ..base3d import LibreGen3DModel
+
+    if isinstance(source, Image.Image):
+        return source, None
+    if isinstance(source, np.ndarray) and source.ndim == 2:
+        return Image.fromarray(source), None
+    if isinstance(source, (str, Path)) and str(source).startswith(("http://", "https://")):
+        with urllib.request.urlopen(str(source), timeout=30) as response:  # noqa: S310 - http(s) only
+            image = Image.open(io.BytesIO(response.read()))
+            image.load()
+        return image, str(source)
+    return LibreGen3DModel._load_source(source)
+
+
+class _ImageAndDepth(NamedTuple):
+    """A generated image with the depth it was generated with or estimated from."""
+
+    image: Any
+    log_depth: np.ndarray
+    sky: np.ndarray
+
+
+def _check_depth_flag(value: Any) -> bool:
+    if not isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"depth must be True or False, got {value!r}.")
+    return bool(value)
 
 
 def _check_steps(steps: Any) -> int:

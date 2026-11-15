@@ -190,8 +190,8 @@ def test_weights_point_to_speridlabs_at_a_pinned_revision():
 def test_tasks_and_knobs_per_task():
     generate = LibreSperidlabsIrisZ("9b", device="cpu")
     assert generate.task == "generate"
-    assert generate.DEFAULTS == {"steps": 50, "guidance": 4.0}
-    assert LibreSperidlabsIrisZ("32b", device="cpu").DEFAULTS == {"steps": 50, "guidance": 3.5}
+    assert generate.DEFAULTS == {"steps": 50, "guidance": 4.0, "depth": False}
+    assert LibreSperidlabsIrisZ("32b", device="cpu").DEFAULTS == {"steps": 50, "guidance": 3.5, "depth": False}
     depth = LibreSperidlabsIrisZ("9b", device="cpu", task="depth-estimation")
     assert depth.task == "depth"
     assert depth.DEFAULTS == {"steps": 4, "ensemble": 1}
@@ -324,6 +324,44 @@ def test_samplers_shapes_and_seeds():
     depths = irisz_pipeline.sample_depth(network, single, torch.randn(1, 128, 3, 2), [0, 1], 3)
     assert [tuple(d.shape) for d in depths] == [(1, 128, 3, 2)] * 2
     assert not torch.equal(depths[0], depths[1])
+    joint_rgb, joint_depth = irisz_pipeline.sample_joint(network, context, 48, 32, seed=3, guidance=4.0, num_steps=2)
+    assert joint_rgb.shape == joint_depth.shape == (1, 128, 3, 2)
+    given = torch.randn(1, 128, 3, 2)
+    painted = irisz_pipeline.sample_rgb_from_depth(network, context, given, seed=3, guidance=4.0, num_steps=2)
+    assert painted.shape == (1, 128, 3, 2)
+    other = irisz_pipeline.sample_rgb_from_depth(network, context, -given, seed=3, guidance=4.0, num_steps=2)
+    assert not torch.equal(painted, other), "the given depth must condition the image"
+
+
+def test_depth_encoding_matches_upstream():
+    rng = np.random.default_rng(0)
+    log_depth = rng.normal(size=(20, 30))
+    sky = np.zeros((20, 30), dtype=bool)
+    sky[:4] = True
+    encoded = irisz_pipeline.encode_log_depth(log_depth, sky, sky_ceiling=0.8)
+    assert encoded.dtype == np.float32
+    assert (encoded[sky] == 1.0).all()
+    real = encoded[~sky]
+    assert real.min() == pytest.approx(-1.0) and real.max() == pytest.approx(0.8)
+    # The 2nd and 98th percentiles land on the ends of [-1, sky_ceiling].
+    assert np.mean(real <= -1.0 + 1e-6) == pytest.approx(0.02, abs=0.01)
+    decoded = irisz_pipeline.unsqueeze_from_ceiling(encoded, 0.8)
+    assert (decoded[sky] == 1.0).all() and decoded[~sky].max() <= 1.0
+    # Grayscale depth maps: bright = far for "depth", bright = near for "disparity".
+    ramp = Image.fromarray(np.tile(np.linspace(10, 250, 64, dtype=np.uint8), (32, 1)))
+    far_right = irisz_pipeline.read_depth_map(ramp, "depth", 32)
+    near_right = irisz_pipeline.read_depth_map(ramp, "disparity", 32)
+    assert far_right[:, -1].mean() > far_right[:, 0].mean()
+    assert near_right[:, -1].mean() < near_right[:, 0].mean()
+    assert far_right.shape[0] % 16 == 0 and far_right.shape[1] % 16 == 0
+    # A normalized float map keeps its shape (not divided by 255 into the clamp).
+    small = Image.fromarray(np.tile(np.linspace(0.01, 0.2, 64, dtype=np.float32), (32, 1)))
+    from_float = irisz_pipeline.read_depth_map(small, "depth", 32)
+    assert from_float[:, -1].mean() - from_float[:, 0].mean() > 1.0
+    # Upstream keeps a depth that fits the target side and resizes one that does not.
+    fits = np.zeros((32, 48), dtype=np.float32)
+    assert irisz_pipeline.fit_encoded_depth(fits, 48).shape == (32, 48)
+    assert irisz_pipeline.fit_encoded_depth(np.zeros((40, 60), dtype=np.float32), 32).shape != (40, 60)
 
 
 # ---------------------------------------------------------------------------
@@ -393,12 +431,94 @@ def test_text_to_image_end_to_end(tiny_runtime, snapshot, tmp_path):
     first = np.asarray(results[0].generated.data)
     repeat = model("a lighthouse at dusk", imgsz=(64, 48), seed=5, steps=2)
     np.testing.assert_array_equal(np.asarray(repeat.generated.data), first)
-    with pytest.raises(NotImplementedError, match="task='depth'"):
+    with pytest.raises(ValueError, match="needs a prompt"):
         model(source="photo.jpg")
+    with pytest.raises(TypeError, match="depth_format"):
+        model("x", depth_format="depth")
     with pytest.raises(TypeError, match="ensemble"):
         model("x", ensemble=2)
     with pytest.raises(ValueError, match="guidance"):
         model("x", guidance=-1.0, imgsz=32, steps=1)
+
+
+def test_image_and_depth_from_a_prompt(tiny_runtime, snapshot):
+    model = LibreSperidlabsIrisZ(device="cpu", checkpoint_dir=str(snapshot))
+    result = model("a grand old library", imgsz=(64, 48), seed=2, steps=2, depth=True)
+    assert result.generated.data.shape == (64, 48, 3)
+    assert result.generated.params["depth"] is True
+    depth = result.depth_map
+    assert depth.encoding == "log_depth" and tuple(depth.data.shape) == (64, 48)
+    assert np.isfinite(np.asarray(depth.data)).all()
+    repeat = model("a grand old library", imgsz=(64, 48), seed=2, steps=2, depth=True)
+    np.testing.assert_array_equal(np.asarray(repeat.depth_map.data), np.asarray(depth.data))
+    assert model("a grand old library", imgsz=(64, 48), seed=2, steps=2).depth_map is None
+    with pytest.raises(ValueError, match="True or False"):
+        model("x", depth="yes", imgsz=32, steps=1)
+
+
+def test_depth_to_image_from_every_source(tiny_runtime, snapshot, photo, tmp_path, monkeypatch):
+    model = LibreSperidlabsIrisZ(device="cpu", checkpoint_dir=str(snapshot))
+    # A photo: its depth is estimated first, then the prompt is painted on it.
+    result = model("a neon city in the rain", source=str(photo), imgsz=512, seed=1, steps=2)
+    image = np.asarray(result.generated.data)
+    assert image.shape[2] == 3 and image.shape[0] % 16 == 0 and image.shape[1] % 16 == 0
+    assert result.depth_map.data.shape == image.shape[:2]
+    assert result.generated.params["source"] == str(photo)
+    assert model.pipeline.text_encoder.calls[-1] == ["", "a neon city in the rain"]
+    repeat = model("a neon city in the rain", source=str(photo), imgsz=512, seed=1, steps=2)
+    np.testing.assert_array_equal(np.asarray(repeat.generated.data), image)
+    # A depth result, a DepthMap of another encoding, and a depth map image.
+    depth_model = LibreSperidlabsIrisZ(device="cpu", task="depth", checkpoint_dir=str(snapshot))
+    estimated = depth_model(str(photo), steps=3)
+    from_result = model("a sandcastle", source=estimated, imgsz=64, seed=1, steps=2)
+    assert from_result.generated.params["source"] == "Results"
+    inverse = type(estimated.depth_map)(-np.asarray(estimated.depth_map.data), (64, 88))
+    model("a sandcastle", source=inverse, imgsz=64, seed=1, steps=2)
+    depth_png = tmp_path / "depth.png"
+    Image.fromarray(np.tile(np.linspace(0, 255, 88, dtype=np.uint8), (64, 1))).save(depth_png)
+    monkeypatch.chdir(tmp_path)
+    many = model(["jungle", "sandcastle"], source=str(depth_png), depth_format="disparity", imgsz=64, n=2, steps=2,
+                 seed=4, save=True)
+    assert [r.generated.seed for r in many] == [4, 5, 4, 5]
+    assert len(list((tmp_path / "runs" / "generate" / "predict").glob("*.png"))) == 4
+    with pytest.raises(ValueError, match="512 or 1024"):
+        model("x", source=str(photo), imgsz=640)
+    with pytest.raises(ValueError, match="depth_format"):
+        model("x", source=str(depth_png), depth_format="colours", imgsz=64, steps=1)
+    with pytest.raises(ValueError, match="depth is given"):
+        model("x", source=str(photo), depth=True)
+    with pytest.raises(ValueError, match="one side"):
+        model("x", source=str(photo), imgsz=(64, 48))
+    with pytest.raises(TypeError, match="not a list"):
+        model("x", source=[str(photo)], steps=1)
+    with pytest.raises(TypeError, match="DepthMap"):
+        model("x", source=estimated, depth_format="depth", steps=1)
+    with pytest.raises(TypeError, match="task='depth'"):
+        depth_model(str(photo), depth_format="depth")
+
+
+def test_depth_map_sources_keep_their_values(tiny_runtime, snapshot, tmp_path):
+    from libreyolo.models.gen.speridlabs_irisz.model import _load_depth_map_image
+
+    # A 16-bit depth map as a NumPy array is not clipped to 8 bits.
+    ramp = np.tile(np.linspace(1000, 60000, 88).astype(np.uint16), (64, 1))
+    image, path = _load_depth_map_image(ramp)
+    assert path is None and np.asarray(image).max() == 60000
+    model = LibreSperidlabsIrisZ(device="cpu", checkpoint_dir=str(snapshot))
+    from_array = model("x", source=ramp, depth_format="depth", imgsz=64, seed=1, steps=1)
+    png = tmp_path / "depth16.png"
+    Image.fromarray(ramp).save(png)
+    from_file = model("x", source=str(png), depth_format="depth", imgsz=64, seed=1, steps=1)
+    np.testing.assert_array_equal(np.asarray(from_array.generated.data), np.asarray(from_file.generated.data))
+    assert from_file.generated.params["depth_format"] == "depth"
+    assert "depth_format" not in model("x", source=from_file, imgsz=64, seed=1, steps=1).generated.params
+
+
+def test_bad_output_path_fails_before_loading(tiny_runtime, snapshot, photo):
+    model = LibreSperidlabsIrisZ(device="cpu", checkpoint_dir=str(snapshot))
+    with pytest.raises(ValueError, match="image extension"):
+        model("x", source=str(photo), save=True, output_path="out.pngg")
+    assert model._pipeline is None and tiny_runtime == []
 
 
 def test_big_variant_loads_with_its_guidance_mode(tiny_runtime, tmp_path):
