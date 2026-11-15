@@ -49,7 +49,7 @@ Libre<FAMILY><size>[-<task>].pt
 
 The model families registered into the model factory (the VLM tier is a
 separate category, covered in the note below). Most are detectors; `hrnet` is
-pose-only; `deeplabv3`, `fcn`, `pidnet`, `segformer`, and `lingbotvision` are
+pose-only; `deeplabv3`, `fcn`, `pidnet`, `ddrnet`, `segformer`, and `lingbotvision` are
 semantic-only; `eomt` supports semantic, instance, and panoptic segmentation;
 the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 `resnet` / `swin` / `vgg` / `vit` families are classify-only:
@@ -96,6 +96,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `eomt`      | `LibreEoMT`     | Mixed-case upstream brand preserved (`EoMT`) - semantic + instance + panoptic segmentation transformer family |
 | `pidnet`    | `LibrePIDNet`   | All-caps acronym + `Net` brand casing - semantic-only real-time family |
 | `ppliteseg` | `LibrePPLiteSeg` | Upstream brand casing preserved (`PP-LiteSeg`, hyphen dropped) - semantic-only real-time family; rectangular canvases; weights are non-commercial |
+| `ddrnet`    | `LibreDDRNet`   | All-caps acronym + `Net` brand casing - semantic-only real-time two-branch CNN; whole-frame 1024x2048 canvas (1024x1024 is the train crop) |
 | `unet`      | `LibreUNet`     | Mixed-case brand (`U-Net` hyphen dropped) - semantic-only encoder-decoder; modern same-padded S5-D16 + FCN head, not the 2015 Caffe graph; whole-frame 1024x2048 canvas (512x1024 is the train crop) |
 | `segformer` | `LibreSegformer` | CamelCase preserved (upstream brand casing) — semantic-only transformer family; weights are non-commercial |
 | `lingbotvision` | `LibreLingBotVision` | Upstream brand casing preserved (`LingBot-Vision`, hyphen dropped) — semantic-only ViT family; Apache-2.0 backbone weights |
@@ -258,6 +259,7 @@ ships:
 | `eomt`      | `s`, `b`, `l` — semantic: ADE20K 150-class at 512 (l only); segment: COCO 80-class at 640 (l only, also 1280); panoptic: COCO 133-class at 640 (s/b/l) |
 | `pidnet`    | `s`, `m`, `l` (PIDNet Small/Medium/Large, Cityscapes checkpoints at 1024) |
 | `ppliteseg` | `t50`, `b50`, `t75`, `b75` (`t`/`b` is the STDC1/STDC2 backbone; `50`/`75` is the source validation scale against Cityscapes' 1024x2048, giving native canvases of 512x1024 and 768x1536 - not a width multiplier) |
+| `ddrnet`    | `s`, `m`, `l` (DDRNet-23-slim / DDRNet-23 / DDRNet-39; evaluate whole Cityscapes frames at 1024x2048, train on 1024x1024 crops) |
 | `unet`      | `s` (UNet-S5-D16, base 64 channels; evaluates whole Cityscapes frames at 1024x2048, trains on 512x1024 crops) |
 | `segformer` | `b0`, `b1`, `b2`, `b3`, `b4`, `b5` (MiT-b0..b5 encoder depth/width tiers; ADE20K at 512, b5 at 640) |
 | `lingbotvision` | `s`, `b`, `l`, `g` (ViT-S/B/L distilled from the ViT-g teacher; g is the 1.1B teacher, loadable but no hosted weights; all at 512) |
@@ -623,6 +625,7 @@ Detector-factory family support follows:
 | `eomt`      | `("semantic", "segment", "panoptic")` | semantic | DINOv2 backbone; sizes s/b/l. Semantic: ADE20K 150-class at 512. Instance segment: COCO 80-class at 640 (l also at 1280). Panoptic: COCO 133-class at 640. Upstream ships no COCO instance checkpoint at s/b. DINOv3 variants excluded |
 | `pidnet`    | `("semantic",)`                     | semantic | real-time PIDNet semantic segmentation; s/m/l at 1024; Cityscapes 19-class checkpoints; inference + `val`; not trainable in LibreYOLO |
 | `ppliteseg` | `("semantic",)`                     | semantic | real-time PP-LiteSeg (STDC backbone + SPPM + UAFM decoder); t50/b50 at 512x1024 and t75/b75 at 768x1536, Cityscapes 19-class. Pretrained weights are NON-COMMERCIAL (Cityscapes dataset terms); trainable, and weights trained from scratch carry no such restriction. The 75 recipe trains on a 768x768 crop and validates on 768x1536 |
+| `ddrnet`    | `("semantic",)`                     | semantic | official DDRNet port; s/m ship Cityscapes 19-class checkpoints (MIT implied, trained on non-commercial Cityscapes), l has no released Cityscapes checkpoint; fresh models train from the official ImageNet backbone; trainable |
 | `unet`      | `("semantic",)`                     | semantic | UNet-S5-D16 + FCN head (mmseg same-padded 2D graph, not the 2015 Caffe valid-convolution U-Net); size `s` evaluates at 1024x2048 and trains on 512x1024 crops, Cityscapes 19-class, Apache-2.0 weights; trainable |
 | `segformer` | `("semantic",)`                     | semantic | SegFormer MiT-b0..b5 encoder + all-MLP decode head; ADE20K 150-class at 512 (b5 at 640). Pretrained weights are NON-COMMERCIAL (NVIDIA Source Code License, research/evaluation only); also trainable from scratch via `model.train(...)` for unrestricted use |
 | `lingbotvision` | `("semantic",)`                 | semantic | LingBot-Vision self-supervised ViT (Apache-2.0, arXiv:2607.05247) + 1x1 dense head (the report's linear probe); s/b/l/g at 512; ADE20K 150-class hosted weights for s/b/l; head-only training by default (`freeze_backbone=False` for full fine-tune) |
@@ -786,6 +789,10 @@ LibreGTRs-sem.pt           # GTR-S, Cityscapes 19-class semantic
 LibreGTRm-sem.pt           # GTR-M, Cityscapes 19-class semantic
 LibreGTRl-sem.pt           # GTR-L, Cityscapes 19-class semantic
 LibreGTRx-sem.pt           # GTR-X, Cityscapes 19-class semantic
+
+# ddrnet - real-time two-branch semantic segmentation on a native 1024x2048 canvas
+LibreDDRNets-sem.pt        # DDRNet-23-slim, Cityscapes 19-class, 1024x2048
+LibreDDRNetm-sem.pt        # DDRNet-23, Cityscapes 19-class, 1024x2048
 
 # unet - encoder-decoder semantic segmentation on a native 1024x2048 canvas
 LibreUNets-sem.pt          # UNet-S5-D16 + FCN head, Cityscapes 19-class, 1024x2048

@@ -45,6 +45,7 @@ MODEL_GROUPS: dict[str, str] = {
     "fomo": "g2",
     "ppliteseg": "g2",
     "unet": "g2",
+    "ddrnet": "g2",
     "segformer": "g2",
     "lingbotvision": "g2",
     "dinov2": "g2",

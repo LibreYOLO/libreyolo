@@ -98,6 +98,7 @@ file = name + ".pt"
 | PPDocLayoutV3 | `LibrePPDocLayoutV3` | `LibrePPDocLayoutV3l.pt` (document layout + reading order; size `l`; Apache-2.0) |
 | PIDNet | `LibrePIDNet` | `LibrePIDNets-sem.pt` (semantic-only) |
 | PPLiteSeg | `LibrePPLiteSeg` | `LibrePPLiteSegt50-sem.pt` (semantic-only; sizes `t50`/`b50`/`t75`/`b75`, natively rectangular. Weights are **non-commercial** — Cityscapes dataset terms, see below) |
+| DDRNet | `LibreDDRNet` | `LibreDDRNets-sem.pt`, `LibreDDRNetm-sem.pt` (semantic-only; no `l` Cityscapes checkpoint upstream. MIT on the implied basis, Cityscapes-trained: non-commercial dataset notice on the card. Training-init ImageNet backbones are raw upstream mirrors, see below) |
 | UNet | `LibreUNet` | `LibreUNets-sem.pt` (semantic-only; size `s`, evaluates at 1024x2048. Apache-2.0 weights, as mmsegmentation declares) |
 | LingBotVision | `LibreLingBotVision` | `LibreLingBotVisions-sem.pt` (semantic-only; Apache-2.0 backbone + LibreYOLO-trained ADE20K head) |
 | SegFormer | `LibreSegformer` | `LibreSegformerb0-sem.pt` (semantic-only; ADE20K. Weights are **non-commercial** — NVIDIA Source Code License, see below) |
@@ -341,6 +342,8 @@ LibreFeyNobgl-matte-fp8.pt,
 
 LibrePIDNets-sem.pt, LibrePIDNetm-sem.pt, LibrePIDNetl-sem.pt,
 
+LibreDDRNets-sem.pt, LibreDDRNetm-sem.pt,
+
 LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
 LibreGTRs-sem.pt, LibreGTRm-sem.pt, LibreGTRl-sem.pt, LibreGTRx-sem.pt,
 
@@ -429,6 +432,17 @@ terms). **LibreUNets-sem is Apache-2.0**: mmsegmentation's official
 UNet-S5-D16 Cityscapes checkpoint keeps the license upstream declares for it,
 like PIDNet's MIT Cityscapes weights; the card carries a Cityscapes dataset
 note, not a non-commercial banner.
+**LibreDDRNet{s,m}-sem** are the official DDRNet Cityscapes checkpoints,
+hosted under the upstream repository's MIT license on the implied basis (the
+README links them with no separate terms): card YAML `license: mit`, the
+implied-grant disclosure in the card and NOTICE, and a Cityscapes
+non-commercial dataset notice. `LibreYOLO/LibreDDRNet{s,m,l}-imagenet` mirror
+the official ImageNet-1K classifiers byte-for-byte under their upstream
+filenames (`DDRNet23s_imagenet.pth`, `DDRNet23_imagenet.pth`,
+`DDRNet39_imagenet.pth`), which `LibreDDRNet` downloads to initialize a fresh
+training run and verifies against the SHA-256 pinned in
+`libreyolo/models/ddrnet/convert.py`; like the `detect3d` raw mirrors they are
+outside the canonical whitelist.
 Faster R-CNN's four torchvision checkpoints and FCOS's torchvision checkpoint
 have no per-object license file; the maintainer approved BSD-3-Clause rehosting
 on the releasing-project **implied** basis. Every card and NOTICE must say that

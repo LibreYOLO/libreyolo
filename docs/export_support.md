@@ -120,6 +120,7 @@ in preflight.
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | available | ✓ |  |  | ✓ |
 | picosam3 | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
+| ddrnet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -1891,6 +1892,19 @@ These converter paths are callable with the recorded validation context.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `axelera`: Not available yet: the SDK 1.9 compile of PIDNet-s did not finish within 90 minutes at 1024x1024 or at 512x512 (both stopped in the compiler's first lowering step, midend_to_tir); no structural error was seen. Its spatial attention needs exact graph rewrites (channel reductions as 1x1 convolutions, broadcast gating), which quantize.
 - `pidnet` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
+- `ddrnet` / `semantic` / `onnx`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `tensorrt`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `openvino`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `axelera`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ppdoclayoutv3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.

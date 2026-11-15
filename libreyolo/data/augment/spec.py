@@ -106,6 +106,7 @@ FAMILY_DISPLAY_NAMES: Dict[str, str] = {
     "dinov2": "DINOv2",
     "segformer": "SegFormer",
     "unet": "U-Net",
+    "ddrnet": "DDRNet",
     "lingbotvision": "LingBot-Vision",
     "nafnet": "NAFNet",
 }
@@ -341,6 +342,7 @@ FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
     # knobs; horizontal flip is a fixed 0.5.
     "segformer": dict(_SEMANTIC_STYLE),
     "unet": dict(_SEMANTIC_STYLE),
+    "ddrnet": dict(_SEMANTIC_STYLE),
     "lingbotvision": dict(_SEMANTIC_STYLE),
     # --- Restoration: coupled crop/flip/rot90 with fixed probabilities --
     "nafnet": {

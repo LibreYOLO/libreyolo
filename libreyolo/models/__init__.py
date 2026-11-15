@@ -142,6 +142,7 @@ from .swinir.model import LibreSwinIR  # noqa: E402,F401  (restore/super-resolut
 from .fcn.model import LibreFCN  # noqa: E402,F401  (semantic-only; FCN head + embedded ResNet fingerprint)
 from .eomt.model import LibreEoMT  # noqa: E402,F401  (semantic-only; EoMT query/mask keys are unique)
 from .deeplabv3.model import LibreDeepLabv3  # noqa: E402,F401  (semantic-only; ASPP branch/project keys are unique)
+from .ddrnet.model import LibreDDRNet  # noqa: E402,F401  (semantic-only; can_load needs down3/down4 + DAPPM + layer5_ and vetoes PIDNet's pag/diff/dfm modules)
 from .pidnet.model import LibrePIDNet  # noqa: E402,F401  (semantic-only; can_load uses PIDNet fusion keys)
 from .ppliteseg.model import LibrePPLiteSeg  # noqa: E402,F401  (semantic-only; can_load needs SPPM branches + UAFM 4->2->1 attention + PP-LiteSeg proj convs together)
 from .unet.model import LibreUNet  # noqa: E402,F401  (semantic-only; can_load needs encoder.4.1.convs + decoder interp_upsample + FCN heads together)
@@ -1004,6 +1005,7 @@ __all__ = [
     "LibrePIDNet",
     "LibreRAFT",
     "LibreUNet",
+    "LibreDDRNet",
     "LibreSegformer",
     "LibreLingBotVision",
     "LibreViT",

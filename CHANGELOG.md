@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **DDRNet semantic segmentation, `LibreDDRNet` (sizes `s`, `m`, `l` = DDRNet-23-slim, DDRNet-23, DDRNet-39).** Ported from the MIT official implementation (ydhongHIT/DDRNet); `weights/parity_ddrnet.py` matches it bit for bit. `LibreDDRNets-sem.pt` and `LibreDDRNetm-sem.pt` are the official Cityscapes checkpoints (77.8 and 79.5 val mIoU upstream), whole 1024x2048 frames. Predict, val and train: OHEM cross-entropy plus 0.4x auxiliary head, SGD and poly decay on 1024x1024 crops; a fresh model starts from the official ImageNet backbone (`pretrained=False` for random init). Upstream released no Cityscapes DDRNet-39, so `l` trains from its ImageNet backbone. The Cityscapes checkpoints are trained on non-commercial Cityscapes data. Proposed in #637.
+
 - **Speridlabs Iris-Z: depth to image and image plus depth.** `LibreGen("speridlabs-iris-z")("a neon city in the rain", source="photo.jpg")` paints a new scene on the photo's depth; `source=` also takes a depth `Results`/`DepthMap` or a grayscale depth map with `depth_format="depth"` or `"disparity"`. `depth=True` returns the generated image and its depth together (`Results.generated` and `Results.depth_map`). Ported from the Apache-2.0 Iris-Z SDK's `depth_to_image` and `text_to_rgbd`. See the ADR 0033 amendment.
 
 - **Open Vision Banana: segmentation, depth, normals and editing from one prompt, `LibreGen("open-vision-banana")`.**
