@@ -77,3 +77,45 @@ def test_padding_budget_uses_exact_size_buckets(scipy_batch_backend, monkeypatch
     actual = assign_many_bucketed(costs, [1, 2, 3], 3)
     for a, b in zip(actual[0], expected[0]):
         assert all(torch.equal(x, y) for x, y in zip(a, b))
+
+
+def _gpu_host(monkeypatch, batch_linear_assignment):
+    """Pretend to be a Linux Ampere host with torch-hungarian 0.1.0rc0 installed."""
+    import importlib.metadata
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(torch.version, "hip", None)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (8, 6))
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "0.1.0rc0")
+    monkeypatch.setitem(
+        sys.modules,
+        "torch_linear_assignment",
+        SimpleNamespace(batch_linear_assignment=batch_linear_assignment),
+    )
+    # A CPU tensor standing in for a CUDA cost matrix.
+    return SimpleNamespace(is_cuda=True, device="cpu")
+
+
+def test_gpu_matcher_falls_back_to_scipy_when_torch_hungarian_cannot_build(monkeypatch):
+    """A host without Python headers makes Triton's build fail; training must not crash."""
+    import subprocess
+
+    from libreyolo.models.rfdetr.matcher import HungarianMatcher
+
+    def broken(costs):
+        raise subprocess.CalledProcessError(1, ["gcc", "cuda_utils.c"])
+
+    cost = _gpu_host(monkeypatch, broken)
+    matcher = HungarianMatcher()
+    assert matcher._use_gpu_assignment(cost) is False
+    assert matcher._use_gpu_assignment(cost) is False  # decided once
+
+
+def test_gpu_matcher_uses_torch_hungarian_when_it_works(monkeypatch):
+    from libreyolo.models.rfdetr.matcher import HungarianMatcher
+
+    def working(costs):
+        return torch.zeros(costs.shape[:2], dtype=torch.long)
+
+    cost = _gpu_host(monkeypatch, working)
+    assert HungarianMatcher()._use_gpu_assignment(cost) is True
