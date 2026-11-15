@@ -137,10 +137,12 @@ def test_export_support_is_explicit_for_every_format() -> None:
     assert entries["onnx"].tier == "validated"
     assert entries["torchscript"].tier == "validated"
     assert entries["openvino"].tier == "available"
+    # Axelera: six compiled parts with the GroupNorm head on the host (docs/axelera.md).
+    assert entries["axelera"].tier == "available"
     assert all(
         entry.tier == "blocked"
         for fmt, entry in entries.items()
-        if fmt not in {"onnx", "torchscript", "openvino"}
+        if fmt not in {"onnx", "torchscript", "openvino", "axelera"}
     )
 
 
