@@ -198,7 +198,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | yolo7 | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo9 | detect | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ |
 | yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ |
-| yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  | available |  |  | ✓ |
+| yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ | available |  |  | ✓ |
 | yolonas | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ |
 | yolonas | pose | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  | ✓ | ✓ |  |  |  |
 | yolonas | obb | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
@@ -548,6 +548,7 @@ A check mark applies only under any constraint listed here.
 - `yolo9_p2` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
 - `yolo9_p2` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolo9_p2` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
+- `yolo9_p2` / `detect` / `axelera`: validated sizes: s (t has no published checkpoint). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolo9_p2` / `detect` / `coreai`: fixed 640x640 export canvas; a deterministic YOLO9-P2-T model initialized from the SHA-256-pinned, permissively licensed trained LibreYOLO9t checkpoint is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; this validates conversion, not P2 task accuracy, and does not depend on the restricted VisDrone research-preview checkpoint
 - `yolonas` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolonas` / `detect` / `openvino`: fixed export canvas
@@ -2665,7 +2666,6 @@ rest on the host CPU; each entry names the split.
 - `yolo7` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo9_e2e` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo9_p2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo9_p2` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `yolo9_p2` / `detect` / `tflite`: onnx2tf 2.6.9 exports a runnable artifact, but public top-k class membership changes after LiteRT 2.1.2 conversion.
 - `yolo9_p2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolonas` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.

@@ -207,3 +207,12 @@ def test_p2_cut_has_four_levels_and_decodes_like_the_model():
     )
     np.testing.assert_allclose(decoded[:, :4], expected[:, :4], rtol=1e-6, atol=5e-4)
     np.testing.assert_allclose(decoded[:, 4:], expected[:, 4:], atol=1e-5)
+
+
+def test_yolo9_p2_axelera_tier_is_validated_for_s_only():
+    from libreyolo.export.support import INT8_EXPORTS, UNMEASURED_SIZES, get_support
+
+    entry = get_support("yolo9_p2", "detect", "axelera")
+    assert entry.tier == "validated" and "validated sizes: s " in entry.constraint
+    assert ("yolo9_p2", "detect") in INT8_EXPORTS["axelera"]
+    assert sorted(UNMEASURED_SIZES[("yolo9_p2", "detect", "axelera")]) == ["t"]

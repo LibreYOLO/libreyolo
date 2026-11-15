@@ -4534,6 +4534,26 @@ _add(
 )
 _add(
     "validated",
+    ("yolo9_p2",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; YOLO9-P2 keeps YOLO9's "
+        "head towers and adds a stride-4 level, so the graph is cut after the "
+        "four levels' head convolutions with the YOLO9 output windows and "
+        "LibreYOLO decodes on the host. YOLO9-P2-s (the VisDrone research "
+        "preview, non-commercial) on a Metis M.2 Max is within 0.3 mAP50-95 "
+        "of FP32 on 448 VisDrone2019-DET val images, calibrated on 100 other "
+        "val images (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: s (t has no published checkpoint). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
+    ),
+)
+_add(
+    "validated",
     ("yolo9_e2e",),
     ("detect",),
     ("axelera",),
@@ -5055,6 +5075,12 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("yolo9_p2", "detect", "axelera"): {
+        "t": (
+            "has not been measured on a Metis yet: no trained YOLO9-P2-t "
+            "checkpoint is published"
+        ),
+    },
     ("efficientdet", "detect", "axelera"): {
         "d4": "has not been measured on a Metis yet"
     },
@@ -5082,6 +5108,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("yolonas", "pose"),
             ("yolonas", "obb"),
             ("yolo9", "detect"),
+            ("yolo9_p2", "detect"),
             ("yolo9_e2e", "detect"),
             ("resnet", "classify"),
             ("mobilenetv4", "classify"),

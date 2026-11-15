@@ -1064,7 +1064,9 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("yolonas", "pose", "axelera")]) == ["n", "s"]
     assert get_support("yolo9", "detect", "axelera").tier in {"available", "validated"}
     assert precision_support("yolo9", "detect", "axelera") == (True, True)
-    assert get_support("yolo9_p2", "detect", "axelera").tier == "blocked"
+    p2 = get_support("yolo9_p2", "detect", "axelera")
+    assert p2.tier == "validated" and "validated sizes: s " in p2.constraint
+    assert sorted(UNMEASURED_SIZES[("yolo9_p2", "detect", "axelera")]) == ["t"]
     rfdetr = get_support("rfdetr", "detect", "axelera")
     assert rfdetr.tier == "blocked" and "attention" in rfdetr.reason
     yolox = get_support("yolox", "detect", "axelera")
