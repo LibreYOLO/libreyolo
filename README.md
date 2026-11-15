@@ -156,9 +156,91 @@ format. Support varies by family and task, see the
 LibreYOLO is organized by task, such as detection, segmentation or
 classification. Each task has several models, and each model comes in several
 variants. For example, `LibreYOLO9t` is task detection, model YOLO9 and
-variant `t`, which means tiny. Click a model to open its documentation page.
+variant `t`, which means tiny.
 
-<details>
+```mermaid
+%%{init: {"flowchart": {"htmlLabels": true, "wrappingWidth": 270, "nodeSpacing": 14, "rankSpacing": 10, "padding": 10, "diagramPadding": 6, "curve": "basis"}}}%%
+flowchart TB
+  ROOT(["<big><big><b>LibreYOLO</b></big></big><br/><small>151 model families, 23 tasks</small>"])
+  subgraph C0[" "]
+    direction TB
+    H0(["<b>SEE</b> (76)"])
+    T0_0_0["<big><b>YOLO-style detectors</b></big> <small>(12)</small><br/><b>YOLOv9</b>, <b>YOLOX</b>, <b>YOLO-#8288;NAS</b>, YOLOv7, YOLOv4, YOLOv3, YOLOv2, YOLOv1, RTMDet, PicoDet, PP-#8288;YOLOE, EfficientDet"]:::c0
+    T0_0_1["<big><b>DETR-style detectors</b></big> <small>(13)</small><br/><b>RF-#8288;DETR</b>, <b>D-#8288;FINE</b>, <b>DEIM</b>, DEIMv2, RT-#8288;DETR, RT-#8288;DETRv2, RT-#8288;DETRv4, LW-#8288;DETR, DETR, Deformable#nbsp;DETR, DINO-#8288;DETR, EdgeCrafter, GTR"]:::c0
+    T0_0_2["<big><b>Classic CNN detectors</b></big> <small>(6)</small><br/><b>Faster#nbsp;R-#8288;CNN</b>, Mask#nbsp;R-#8288;CNN, RetinaNet, SSD, FCOS, CenterNet"]:::c0
+    T0_0_3["<big><b>Open-vocabulary detectors</b></big> <small>(6)</small><br/><b>Grounding#nbsp;DINO</b>, <b>OWLv2</b>, OMDet-#8288;Turbo, OV-#8288;DEIM, LocateAnything, LibreMODUS"]:::c0
+    T0_0_4["<big><b>VLM detectors</b></big> <small>(12)</small><br/><b>Qwen3-#8288;VL</b>, <b>Florence-#8288;2</b>, Gemma#nbsp;4, Moondream, InternVL3, Kosmos-#8288;2, LFM2-#8288;VL, North#nbsp;Micro#nbsp;Vision, SmolVLM2, WeVisOne-#8288;VL, SenseNova-#8288;Vision, Falcon#nbsp;Perception"]:::c0
+    T0_0_5["<big><b>Specialised detectors</b></big> <small>(3)</small><br/><b>TinyFormer</b>, Dome-#8288;DETR, PP-#8288;DocLayoutV3"]:::c0
+    H0 ~~~ T0_0_0 ~~~ T0_0_1 ~~~ T0_0_2 ~~~ T0_0_3 ~~~ T0_0_4 ~~~ T0_0_5
+    T0_1_0["<big><b>Instance segmentation</b></big> <small>(17)</small><br/><b>RF-#8288;DETR</b>, <b>SAM#nbsp;3</b>, <b>SAM#nbsp;2</b>, <b>EoMT</b>, D-#8288;FINE, EdgeCrafter, EdgeTAM, Falcon#nbsp;Perception, GTR, Mask#nbsp;R-#8288;CNN, MobileSAM, PicoSAM3, RTMDet, SAM, SAM#nbsp;3.1, SenseNova-#8288;Vision, WeVisOne-#8288;VL"]:::c0
+    T0_1_1["<big><b>Semantic segmentation</b></big> <small>(10)</small><br/><b>SegFormer</b>, <b>EoMT</b>, <b>DeepLabv3</b>, DINOv2, FCN, GTR, LingBot-#8288;Vision, PIDNet, PP-#8288;LiteSeg, U-#8288;Net"]:::c0
+    T0_1_2["<big><b>Panoptic segmentation</b></big> <small>(2)</small><br/>EoMT, SenseNova-#8288;Vision"]:::c0
+    T0_1_3["<big><b>Oriented boxes</b></big> <small>(5)</small><br/><b>RF-#8288;DETR</b>, <b>RiO-#8288;DETRv2</b>, GTR, RT-#8288;DETRv2, YOLO-#8288;NAS"]:::c0
+    T0_1_4["<big><b>Pose</b></big> <small>(7)</small><br/><b>RF-#8288;DETR</b>, <b>HRNet</b>, <b>YOLO-#8288;NAS</b>, DEKR, EdgeCrafter, GTR, SenseNova-#8288;Vision"]:::c0
+    T0_1_5["<big><b>Pointing</b></big> <small>(9)</small><br/><b>Molmo2</b>, <b>Qwen3-#8288;VL#nbsp;grounding</b>, <b>Moondream</b>, Florence-#8288;2#nbsp;grounding, FOMO, LocateAnything, SenseNova-#8288;Vision, ShowUI, WeVisOne-#8288;VL"]:::c0
+    H0 ~~~ T0_1_0 ~~~ T0_1_1 ~~~ T0_1_2 ~~~ T0_1_3 ~~~ T0_1_4 ~~~ T0_1_5
+  end
+  subgraph C1[" "]
+    direction TB
+    H1(["<b>UNDERSTAND</b> (26)"])
+    T1_0_0["<big><b>Classification</b></big> <small>(15)</small><br/><b>DINOv2</b>, <b>ConvNeXt#nbsp;V2</b>, <b>SigLIP2</b>, <b>ViT</b>, AlexNet, CLIP, ConvNeXt, DeiT, EfficientNetV2, MobileNetV4, Perception#nbsp;Encoder, ResNet, Swin#nbsp;Transformer, V-#8288;JEPA#nbsp;2, VGG"]:::c1
+    T1_0_1["<big><b>Embeddings</b></big> <small>(8)</small><br/><b>DINOv2</b>, <b>SigLIP2</b>, <b>CLIP</b>, LeVJEPA, LibreFaceEmbedder, Perception#nbsp;Encoder, Qwen3-#8288;VL-#8288;Embedding, V-#8288;JEPA#nbsp;2"]:::c1
+    T1_0_2["<big><b>OCR</b></big> <small>(7)</small><br/><b>PP-#8288;OCRv5</b>, <b>GLM-#8288;OCR</b>, <b>DeepSeek-#8288;OCR</b>, Falcon#nbsp;OCR, PaddleOCR-#8288;VL, SenseNova-#8288;Vision, WeVisOne-#8288;VL"]:::c1
+    T1_0_3["<big><b>Gaze</b></big> <small>(1)</small><br/>L2CS-#8288;Net"]:::c1
+    H1 ~~~ T1_0_0 ~~~ T1_0_1 ~~~ T1_0_2 ~~~ T1_0_3
+  end
+  subgraph C2[" "]
+    direction TB
+    H2(["<b>GEOMETRY</b> (28)"])
+    T2_0_0["<big><b>Depth</b></big> <small>(11)</small><br/><b>Depth#nbsp;Anything#nbsp;3</b>, <b>MoGe-#8288;3</b>, <b>Video#nbsp;Depth#nbsp;Anything</b>, Depth#nbsp;Anything#nbsp;V2, GTR, LibreMODUS, Marigold#nbsp;V2, MiDaS, SenseNova-#8288;Vision, Speridlabs#nbsp;Iris-#8288;Z, ZipDepth"]:::c2
+    T2_0_1["<big><b>Surface normals</b></big> <small>(4)</small><br/>LibreMODUS, Marigold#nbsp;V2, MoGe-#8288;2, MoGe-#8288;3"]:::c2
+    T2_0_2["<big><b>Albedo</b></big> <small>(1)</small><br/>Marigold#nbsp;V2"]:::c2
+    T2_0_3["<big><b>Edges</b></big> <small>(3)</small><br/>DexiNed, LibreMODUS, TEED"]:::c2
+    H2 ~~~ T2_0_0 ~~~ T2_0_1 ~~~ T2_0_2 ~~~ T2_0_3
+    T2_1_0["<big><b>Optical flow</b></big> <small>(8)</small><br/><b>SEA-#8288;RAFT</b>, <b>WAFT</b>, <b>RAFT</b>, DPFlow, FlowSeek, MEMFOF, NeuFlow#nbsp;v2, UniMatch"]:::c2
+    T2_1_1["<big><b>3D detection</b></big> <small>(4)</small><br/>3D-#8288;MOOD, DetAny3D, FCOS3D, WildDet3D"]:::c2
+    T2_1_2["<big><b>Body mesh</b></big> <small>(2)</small><br/>InstantHMR, SAM#nbsp;3D#nbsp;Body"]:::c2
+    H2 ~~~ T2_1_0 ~~~ T2_1_1 ~~~ T2_1_2
+  end
+  subgraph C3[" "]
+    direction TB
+    H3(["<b>RESTORE AND CREATE</b> (26)"])
+    T3_0_0["<big><b>Restoration</b></big> <small>(7)</small><br/><b>Real-#8288;ESRGAN</b>, <b>SwinIR</b>, <b>LaMa</b>, DDColor, HVI-#8288;CIDNet, NAFNet, QuickSRNet"]:::c3
+    T3_0_1["<big><b>Background removal</b></big> <small>(5)</small><br/><b>BiRefNet</b>, <b>BEN2</b>, <b>ViTMatte</b>, FeyNobg, WeVisOne-#8288;VL"]:::c3
+    T3_0_2["<big><b>Image generation</b></big> <small>(6)</small><br/><b>FLUX.2#nbsp;klein</b>, <b>Speridlabs#nbsp;Iris-#8288;Z</b>, <b>SANA-#8288;Sprint</b>, Open#nbsp;Vision#nbsp;Banana, PRX, PRXPixel"]:::c3
+    T3_0_3["<big><b>3D generation</b></big> <small>(8)</small><br/><b>TRELLIS.2</b>, <b>Speridlabs#nbsp;Idol</b>, <b>TripoSR</b>, CRM, Direct3D-#8288;S2, LGM, TRELLIS, TripoSplat"]:::c3
+    H3 ~~~ T3_0_0 ~~~ T3_0_1 ~~~ T3_0_2 ~~~ T3_0_3
+  end
+  subgraph C4[" "]
+    direction TB
+    H4(["<b>ROBOTICS</b> (3)"])
+    T4_0_0["<big><b>Robot policies</b></big> <small>(3)</small><br/>ACT, Diffusion#nbsp;Policy, SmolVLA"]:::c4
+    H4 ~~~ T4_0_0
+  end
+  ROOT --> H0
+  ROOT --> H1
+  ROOT --> H2
+  ROOT --> H3
+  ROOT --> H4
+  style ROOT fill:#1f2328,stroke:#8b949e,stroke-width:1px,color:#ffffff,font-size:20px
+  classDef c0 fill:#fff8c5,stroke:#bf8700,stroke-width:1px,color:#1f2328,font-size:15px,text-align:left,rx:10,ry:10
+  style C0 fill:transparent,stroke:#bf8700,stroke-width:2px,rx:14,ry:14
+  style H0 fill:#bf8700,stroke:#bf8700,color:#ffffff,font-size:17px
+  classDef c1 fill:#dafbe1,stroke:#1a7f37,stroke-width:1px,color:#1f2328,font-size:15px,text-align:left,rx:10,ry:10
+  style C1 fill:transparent,stroke:#1a7f37,stroke-width:2px,rx:14,ry:14
+  style H1 fill:#1a7f37,stroke:#1a7f37,color:#ffffff,font-size:17px
+  classDef c2 fill:#fbefff,stroke:#8250df,stroke-width:1px,color:#1f2328,font-size:15px,text-align:left,rx:10,ry:10
+  style C2 fill:transparent,stroke:#8250df,stroke-width:2px,rx:14,ry:14
+  style H2 fill:#8250df,stroke:#8250df,color:#ffffff,font-size:17px
+  classDef c3 fill:#ffeff7,stroke:#bf3989,stroke-width:1px,color:#1f2328,font-size:15px,text-align:left,rx:10,ry:10
+  style C3 fill:transparent,stroke:#bf3989,stroke-width:2px,rx:14,ry:14
+  style H3 fill:#bf3989,stroke:#bf3989,color:#ffffff,font-size:17px
+  classDef c4 fill:#ddf4ff,stroke:#0969da,stroke-width:1px,color:#1f2328,font-size:15px,text-align:left,rx:10,ry:10
+  style C4 fill:transparent,stroke:#0969da,stroke-width:2px,rx:14,ry:14
+  style H4 fill:#0969da,stroke:#0969da,color:#ffffff,font-size:17px
+```
+
+<details open>
 <summary><b>All tasks and models</b></summary>
 
 <br>
