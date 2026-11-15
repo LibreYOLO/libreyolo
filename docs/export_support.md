@@ -62,6 +62,7 @@ in preflight.
 | florence2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | flowseek | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | flux2_klein | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| open_vision_banana | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | fomo | point | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  | ✓ |
 | gemma4 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | glmocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -1242,6 +1243,19 @@ These converter paths are callable with the recorded validation context.
 - `flux2_klein` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `tensorrt`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `openvino`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `paddle`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `mnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `rknn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `axelera`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `ncnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `fomo` / `point` / `paddle`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `mnn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `rknn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.

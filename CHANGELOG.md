@@ -9,6 +9,9 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Open Vision Banana: segmentation, depth, normals and editing from one prompt, `LibreGen("open-vision-banana")`.**
+  FunAILab's FLUX.2 [klein] Base fine-tune answers a perception prompt about a photo with an image: segmentation as flat colours, relative inverse depth as grey, surface normals as RGB. `model(prompt, source="photo.jpg")` returns `Results.generated`; without `source` it generates from text. Sizes `4b` (default) and `9b`, the paper's non-zero-shot checkpoints, 28 steps at guidance 3.5. Weights are mirrored as complete diffusers pipelines at `LibreYOLO/LibreOpenVisionBanana4b` and `9b` (transformer cast to bf16, outputs bit-identical to upstream's quickstart; FLUX Non-Commercial License). No network code: it runs through diffusers' `Flux2KleinPipeline`. Prompts and NumPy readouts in `docs/open_vision_banana.md`. Install `libreyolo[gen]`.
+
 - **Speridlabs Iris-Z: text to image and image to depth from one model, `LibreGen("speridlabs-iris-z")`.**
   Speridlabs' FLUX.2 fine-tune that denoises an image and its depth together. `LibreGen("speridlabs-iris-z")("a lighthouse at dusk")` generates images (50 steps); `LibreGen("speridlabs-iris-z", task="depth")("street.jpg")` returns `Results.depth_map` as relative log depth at the photo's size, with sky masked, in 4 steps (`ensemble=10` for the multi-seed median of the paper's benchmarks). Sizes `9b` (Iris-Z-small, default) and `32b` (Iris-Z-big). CLI: `libreyolo generate source=street.jpg task=depth`. The transformer, samplers and prompt embedders are ported from the Apache-2.0 Iris-Z SDK; weights are not mirrored and download from `speridlabs/iris-z` at a pinned revision (FLUX Non-Commercial License), the FLUX.2 VAE from FLUX.2 klein and the text encoders from Mistral AI and Qwen (Apache-2.0). Nothing is gated. Install `libreyolo[gen]`. See ADR 0033 and `docs/libregen.md`.
 

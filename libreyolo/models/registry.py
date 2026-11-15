@@ -160,6 +160,7 @@ MODEL_GROUPS: dict[str, str] = {
     "sana_sprint": "s",
     "prx": "s",
     "prxpixel": "s",
+    "open_vision_banana": "s",
     "speridlabs_idol": "s",
     "speridlabs_irisz": "s",
     "triposplat": "s",
