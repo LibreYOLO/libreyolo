@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 import numpy as np
@@ -31,7 +32,9 @@ SUPPORTED_CHANNELS = (GRAY, RGB)
 
 # Read by datasets at construction. Datasets are pickled into DataLoader
 # workers with the value they captured, so a module global is safe here.
-_dataset_channels = RGB
+# Per thread and per context, so concurrent train()/val() calls in one process
+# cannot hand each other's channel count to the datasets they build.
+_dataset_channels: ContextVar[int] = ContextVar("libreyolo_dataset_channels", default=RGB)
 
 
 def validate_channels(value: Any) -> int:
@@ -73,17 +76,15 @@ def model_channels(model: Any) -> int:
 @contextmanager
 def dataset_input_channels(channels: int) -> Iterator[None]:
     """Datasets constructed inside this block convert images to ``channels``."""
-    global _dataset_channels
-    previous = _dataset_channels
-    _dataset_channels = validate_channels(channels)
+    token = _dataset_channels.set(validate_channels(channels))
     try:
         yield
     finally:
-        _dataset_channels = previous
+        _dataset_channels.reset(token)
 
 
 def active_dataset_channels() -> int:
-    return _dataset_channels
+    return _dataset_channels.get()
 
 
 def to_gray3(img: np.ndarray) -> np.ndarray:

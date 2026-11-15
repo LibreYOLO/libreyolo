@@ -385,3 +385,29 @@ def test_tflite_backend_feeds_nhwc_gray():
     with contextlib.suppress(Exception):  # only the input layout matters here
         backend._run_inference(np.zeros((1, 1, 8, 8), dtype=np.float32))
     assert backend.interpreter.value.shape == (1, 8, 8, 1)
+
+
+def test_dataset_channels_do_not_leak_between_threads():
+    """A grayscale run on one thread must not change what an RGB run on another builds."""
+    import threading
+
+    from libreyolo.utils.input_channels import active_dataset_channels, dataset_input_channels
+
+    inside, release = threading.Event(), threading.Event()
+    seen = {}
+
+    def gray_run():
+        with dataset_input_channels(1):
+            inside.set()
+            release.wait(5)
+            seen["gray"] = active_dataset_channels()
+
+    thread = threading.Thread(target=gray_run)
+    thread.start()
+    assert inside.wait(5)
+    seen["rgb"] = active_dataset_channels()  # read while the gray block is open
+    release.set()
+    thread.join(5)
+
+    assert seen == {"gray": 1, "rgb": 3}
+    assert active_dataset_channels() == 3
