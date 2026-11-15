@@ -4242,6 +4242,7 @@ _HYBRID_NECK_QUANTIZATION_SCHEME = "per_tensor_min_max"
 
 _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("rtdetr", "detect"): ("pred_logits", "pred_boxes"),
+    ("rtdetrv2", "detect"): ("pred_logits", "pred_boxes"),
 }
 
 

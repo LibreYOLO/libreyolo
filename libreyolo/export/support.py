@@ -4733,7 +4733,7 @@ _add(
 )
 _add(
     "hybrid",
-    ("rtdetr",),
+    ("rtdetr", "rtdetrv2"),
     ("detect",),
     ("axelera",),
     reason=(
@@ -5149,6 +5149,9 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "has not been measured on a Metis yet: no trained YOLO9-P2-t "
             "checkpoint is published"
         ),
+    },
+    ("rtdetrv2", "detect", "axelera"): {
+        size: "has not been measured on a Metis yet" for size in ("r34", "r50", "r50m", "r101")
     },
     ("realesrgan", "restore", "axelera"): {
         "x2": (

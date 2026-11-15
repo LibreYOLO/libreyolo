@@ -139,7 +139,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | rfdetr | obb | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |  |
 | riodetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | rtdetr | detect | ✓ | ✓ | ✓ | available | ✓ |  | ✓ |  | hybrid |  |  | available | ✓ |
-| rtdetrv2 | detect | ✓ | ✓ | ✓ | available | available |  | ✓ |  |  |  |  |  | ✓ |
+| rtdetrv2 | detect | ✓ | ✓ | ✓ | available | available |  | ✓ |  | hybrid |  |  |  | ✓ |
 | rtdetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | rtdetrv4 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |
 | rtmdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  | ✓ |
@@ -746,6 +746,7 @@ These exports run part of the network on the target accelerator and the
 rest on the host CPU; each entry names the split.
 
 - `rtdetr` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
+- `rtdetrv2` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
 
 ## Blocked combinations
 
@@ -2057,7 +2058,6 @@ rest on the host CPU; each entry names the split.
 - `rtdetr` / `detect` / `tflite`: LiteRT 2.1.2 rejects the onnx2tf 2.6.7 graph because a CONCATENATION receives incompatible 256 and 1 dimensions.
 - `rtdetrv2` / `detect` / `paddle`: The trained graphs require ONNX GridSample at opset 16 or newer, while X2Paddle 1.6.0 accepts opset 15 or lower.
 - `rtdetrv2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtdetrv2` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `rtdetrv2` / `detect` / `ncnn`: NCNN export is not supported for RT-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv2` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rtdetrv2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.

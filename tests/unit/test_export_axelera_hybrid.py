@@ -219,3 +219,24 @@ def test_hybrid_neck_part_compiles_per_tensor(sdk, tmp_path, monkeypatch):
     second = (artifact / "compiler_config_final.part2.toml").read_text()
     assert "hybrid_per_tensor_per_channel" in first
     assert "per_tensor_min_max" in second and "hybrid_per_tensor_per_channel" not in second
+
+
+def test_rtdetrv2_is_hybrid_and_its_parts_reproduce_the_native_model():
+    from libreyolo.export.exporter import _AXELERA_HYBRID_OUTPUTS, _DETRBackboneWrapper, _detr_neck_parts
+    from libreyolo.export.exporter import _unfrozen_batchnorms
+    from libreyolo.export.support import get_support
+    from libreyolo.models.rtdetrv2.model import LibreRTDETRv2
+
+    assert get_support("rtdetrv2", "detect", "axelera").tier == "hybrid"
+    assert _AXELERA_HYBRID_OUTPUTS[("rtdetrv2", "detect")] == OUTPUTS
+    net = LibreRTDETRv2._from_scratch(size="r18", device="cpu", seed=0).model.eval()
+    x = torch.rand(1, 3, IMGSZ, IMGSZ)
+    with torch.no_grad():
+        expected = net(x)
+        copy_ = _unfrozen_batchnorms(copy.deepcopy(net).eval())
+        features = _DETRBackboneWrapper(copy_).eval()(x)
+        pack, neck, decoder = _detr_neck_parts(copy_, OUTPUTS, [torch.rand(1, 3, IMGSZ, IMGSZ)])
+        actual = decoder(*neck(pack(*features)[0]))
+    _assert_same_queries(
+        [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
+    )
