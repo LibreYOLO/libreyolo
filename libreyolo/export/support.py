@@ -5150,10 +5150,6 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "checkpoint is published"
         ),
     },
-    ("rtdetr", "detect", "axelera"): {
-        size: "has not been measured on a Metis yet"
-        for size in ("x",)
-    },
     ("realesrgan", "restore", "axelera"): {
         "x2": (
             "has not been measured on a Metis yet: its whole-graph compile at 128 px "

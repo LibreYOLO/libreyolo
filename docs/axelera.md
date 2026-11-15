@@ -71,6 +71,7 @@ a separate size:
 | RT-DETR | r50m | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5139 | 0.5072 | -0.67 | hybrid | `rtdetr/detect/r50m/2026-11-15` |
 | RT-DETR | r101 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5518 | 0.5502 | -0.16 | hybrid | `rtdetr/detect/r101/2026-11-15` |
 | RT-DETR | l | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5402 | 0.5376 | -0.26 | hybrid | `rtdetr/detect/l/2026-11-15` |
+| RT-DETR | x | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5587 | 0.5573 | -0.14 | hybrid | `rtdetr/detect/x/2026-11-15` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
 | EfficientDet | d2 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3744 | 0.3606 | -1.38 (canvas -5.31 more) | supported | `efficientdet/detect/d2/2026-11-14` |
@@ -144,7 +145,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 and d4 blocked: do not compile) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 blocked `efficientdet/detect/d3/2026-11-14` |
 | Other families | all | all | not measured yet (section 11) | - |
-| RT-DETR | detect | r18, r34, r50, r50m, r101, l (hybrid: CNN backbone and fusion neck on the Metis, attention encoder layer and decoder on the host; x not measured yet) | see `docs/export_support.md` | r18 `rtdetr/detect/r18/2026-11-15/2` (300: `rtdetr/detect/r18/2026-11-15`); r34 `rtdetr/detect/r34/2026-11-15`; r50 `rtdetr/detect/r50/2026-11-15`; r50m `rtdetr/detect/r50m/2026-11-15`; r101 `rtdetr/detect/r101/2026-11-15`; l `rtdetr/detect/l/2026-11-15` |
+| RT-DETR | detect | r18, r34, r50, r50m, r101, l, x (hybrid: CNN backbone and fusion neck on the Metis, attention encoder layer and decoder on the host) | see `docs/export_support.md` | r18 `rtdetr/detect/r18/2026-11-15/2` (300: `rtdetr/detect/r18/2026-11-15`); r34 `rtdetr/detect/r34/2026-11-15`; r50 `rtdetr/detect/r50/2026-11-15`; r50m `rtdetr/detect/r50m/2026-11-15`; r101 `rtdetr/detect/r101/2026-11-15`; l `rtdetr/detect/l/2026-11-15`; x `rtdetr/detect/x/2026-11-15` |
 | RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
 
 The tiers in `docs/export_support.md` are generated from
@@ -362,6 +363,7 @@ table at the top of this page.
 | RT-DETR-r50m (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5139 | 0.5072 | -0.67 (hybrid) |
 | RT-DETR-r101 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5518 | 0.5502 | -0.16 (hybrid) |
 | RT-DETR-l (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5402 | 0.5376 | -0.26 (hybrid; HGNetv2 backbone part per channel, neck part per tensor) |
+| RT-DETR-x (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5587 | 0.5573 | -0.14 (hybrid; HGNetv2 backbone part per channel, neck part per tensor) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
 | EfficientDet-d2 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3744 | 0.3606 | -1.38 (supported; canvas -5.31 more) |
@@ -563,7 +565,8 @@ runs 87% of its MACs on the Metis (40.8 of 46.8 G) at 2.8 and 4.6 img/s
 68.9 G) at 1.5 and 1.7 img/s (AIPU 102 ms, host 567 ms); RT-DETR-r50m 90% (45.2 of
 50.3 G) at 2.0 and 2.3 img/s (AIPU 102 ms, host 395 ms); RT-DETR-r101 93% (121.7
 of 130.3 G) at 1.4 and 1.5 img/s (AIPU 138 ms, host 578 ms); RT-DETR-l (HGNetv2) 86%
-(47.9 of 55.8 G) at 2.2 and 2.2 img/s (AIPU 89 ms, host 363 ms). Those were
+(47.9 of 55.8 G) at 2.2 and 2.2 img/s (AIPU 89 ms, host 363 ms); RT-DETR-x 93%
+(109.4 of 118.0 G) at 1.5 and 2.4 img/s (AIPU 149 ms, host 485 ms). Those were
 measured with 4 host threads on a busy 18-core NUC (load average about 20),
 so they are a floor; the host share depends on the CPU.
 
