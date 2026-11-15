@@ -14,9 +14,10 @@ This page has both.
 | Size | Alias | Mirror | Peak VRAM | One image, 28 steps |
 | --- | --- | --- | --- | --- |
 | 4b | `open-vision-banana` | `LibreYOLO/LibreOpenVisionBanana4b` | 31 GB | 49 s |
+| 9b | `open-vision-banana-9b` | `LibreYOLO/LibreOpenVisionBanana9b` | 35 GB | 98 s |
 
-Measured on one RTX 6000 Ada (48 GB), 1 megapixel, bf16. The mirror holds
-the paper's non-zero-shot 4B checkpoint (trained with the benchmarks' training
+Measured on one RTX 6000 Ada (48 GB), 1 megapixel, bf16. Both mirrors hold
+the paper's non-zero-shot checkpoints (trained with the benchmarks' training
 splits). Weights are under the FLUX Non-Commercial License: no commercial or
 production use.
 
@@ -31,7 +32,7 @@ pip install "libreyolo[gen]"
 ```python
 from libreyolo import LibreGen, SAMPLE_IMAGE
 
-model = LibreGen("open-vision-banana")      # 4b; downloads the mirror once
+model = LibreGen("open-vision-banana")      # 4b; "open-vision-banana-9b" for 9b. Downloads once
 DEPTH = (
     "Estimate a dense relative inverse-depth map for the input image. Produce exactly one output value "
     "for every input pixel at the same pixel location, with closer points brighter and farther points "
@@ -57,8 +58,8 @@ model("an empty tram at a cobblestone stop on a rainy night", imgsz=1024, seed=0
 
 Use `offload=True` to keep idle parts off the GPU. A downloaded copy of the
 mirror loads by path, `LibreGen("path/to/LibreOpenVisionBanana4b")` (its NOTICE
-identifies it). Another OVB checkpoint saved as a diffusers pipeline (the 9B,
-the zero-shot ones) loads with
+identifies it). Another OVB checkpoint saved as a diffusers pipeline (the
+zero-shot ones) loads with
 `LibreGen("open-vision-banana", checkpoint_dir="path/to/folder")`; by path
 alone it would load as plain FLUX.2 [klein].
 
@@ -236,7 +237,7 @@ model("[TASK: IMAGE_EDITING] Make it a snowy winter evening with warm street lig
 
 ## What to expect
 
-Paper numbers, non-zero-shot checkpoints (the 4B is mirrored here):
+Paper numbers, non-zero-shot checkpoints (the ones mirrored here):
 
 | | 4B | 9B |
 | --- | --- | --- |
@@ -255,11 +256,11 @@ Paper numbers, non-zero-shot checkpoints (the 4B is mirrored here):
 
 ## Where the weights come from
 
-The mirror is a complete diffusers pipeline. The transformer is FunAILab's
+The mirrors are complete diffusers pipelines. The transformer is FunAILab's
 non-zero-shot checkpoint from `FunAILab/Open-Vision-Banana` cast from float32
 to bfloat16, the precision it runs in; the rest is BFL's FLUX.2 [klein] Base
 pipeline, byte-identical. Outputs match FunAILab's own quickstart (their fp32
-transformer loaded in bf16) bit for bit on the same seed. The 9B, the zero-shot
+transformer loaded in bf16) bit for bit on the same seed. The zero-shot
 checkpoints and the LoRA adapters stay on FunAILab's repo; save one as a full
 pipeline and pass it with `checkpoint_dir=`.
 

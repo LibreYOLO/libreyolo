@@ -48,6 +48,7 @@ _ALIASES: Dict[str, Tuple[Type[LibreGenModel], str]] = {
     # an Open Vision Banana folder is also a Flux2KleinPipeline folder.
     "open-vision-banana": (LibreOpenVisionBanana, "4b"),
     "open-vision-banana-4b": (LibreOpenVisionBanana, "4b"),
+    "open-vision-banana-9b": (LibreOpenVisionBanana, "9b"),
     "flux2-klein": (LibreFlux2Klein, "4b"),
     "flux2-klein-4b": (LibreFlux2Klein, "4b"),
     "flux.2-klein": (LibreFlux2Klein, "4b"),
@@ -102,7 +103,7 @@ def LibreGen(model: str = _DEFAULT_MODEL, **kwargs) -> LibreGenModel:
     Args:
         model: Alias (``"flux2-klein-4b"``, ``"sana-sprint-0.6b"``,
             ``"prx-1024-beta"`` and the other ``prx-*`` checkpoints,
-            ``"prxpixel-7b"``, ``"speridlabs-iris-z"`` (also ``-9b``/``-32b``), ``"open-vision-banana"`` (also ``-4b``), ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``, ``"crm"``, ``"trellis2"``, ``"direct3d-s2"``) or a path to a local model directory in a
+            ``"prxpixel-7b"``, ``"speridlabs-iris-z"`` (also ``-9b``/``-32b``), ``"open-vision-banana"`` (also ``-4b``/``-9b``), ``"speridlabs-idol"``, ``"triposplat"``, ``"trellis"``, ``"triposr"``, ``"crm"``, ``"trellis2"``, ``"direct3d-s2"``) or a path to a local model directory in a
             supported family's upstream format, such as a fine-tune or an
             offline copy.
         **kwargs: Forwarded to the family constructor: ``device``, ``dtype``

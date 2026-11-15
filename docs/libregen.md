@@ -84,6 +84,7 @@ model("a red fox", steps=8, guidance=1.0)
 | `speridlabs-iris-z` (`-9b`, `-small`) | 9.1B (plus Qwen3 8B FP8 text encoder) | `steps` (50), `guidance` (4.0) | about 18 GB, plus 9 GB text encoder and 0.2 GB VAE | FLUX Non-Commercial (weights); Apache-2.0 text encoder and VAE |
 | `speridlabs-iris-z-32b` (`-big`) | 32.2B (plus Mistral Small 3.2 24B text encoder) | `steps` (50), `guidance` (3.5) | about 64 GB, plus 48 GB text encoder and 0.2 GB VAE | as above |
 | `open-vision-banana` (`-4b`) | 4B (plus Qwen3 4B text encoder) | `steps` (28), `guidance` (3.5); `source=` image | about 16 GB | FLUX Non-Commercial (weights) |
+| `open-vision-banana-9b` | 9B (plus Qwen3 8B text encoder) | `steps` (28), `guidance` (3.5); `source=` image | about 34 GB | FLUX Non-Commercial |
 
 `flux2-klein` and `sana-sprint` are short aliases; `prx` is `prx-1024-beta`
 and `prxpixel` is `prxpixel-7b`.

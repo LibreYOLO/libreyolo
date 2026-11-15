@@ -1192,7 +1192,7 @@ mistralai/Mistral-Small-3.1-24B-Instruct-2503 @
 libreyolo/models/gen/speridlabs_irisz/NOTICE.
 
 
-Open Vision Banana (LibreOpenVisionBanana 4b)           FLUX Non-Commercial
+Open Vision Banana (LibreOpenVisionBanana 4b, 9b)       FLUX Non-Commercial
 Perception as images: segmentation, depth, normals, editing, text-to-image
 --------------------------------------------------------------------------
 
@@ -1200,19 +1200,22 @@ Upstream: FunAILab, https://huggingface.co/FunAILab/Open-Vision-Banana
 (code: https://github.com/OpenVisionBanana/OpenVisionBanana, Apache-2.0)
 License: FLUX Non-Commercial License,
 https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/blob/main/LICENSE.md
-(the weights are a fine-tune of FLUX.2 [klein] Base 4B).
+(the weights are fine-tunes of FLUX.2 [klein] Base 4B and 9B).
 
-Redistributed by LibreYOLO as a complete diffusers pipeline:
+Redistributed by LibreYOLO as complete diffusers pipelines:
 
 LibreYOLO/LibreOpenVisionBanana4b @ f279d483b6b7bab1ed9e9e503436e8d25e630496
+LibreYOLO/LibreOpenVisionBanana9b @ 7a01bb2c1e9dd72678032beb126d2670cb724dd6
 
 The transformer is FunAILab's non-zero-shot paper checkpoint from
 FunAILab/Open-Vision-Banana @ be5da66250cc385ff9c75ebbe4114e13ec305848
-(final_models/4B/nonzeroshot/checkpoint-avg90000-92500-97500-100000_uniform),
+(4b: final_models/4B/nonzeroshot/checkpoint-avg90000-92500-97500-100000_uniform,
+9b: final_models/9B/nonzeroshot/checkpoint-avg82500-85000-87500-92500-97500_uniform),
 cast from float32 to bfloat16 and otherwise unchanged. Scheduler, Qwen3 text
 encoder, tokenizer and VAE are byte-identical copies of
 black-forest-labs/FLUX.2-klein-base-4B @ a3b4f4849157f664bdbc776fd7453c2783562f4d
-(Apache-2.0).
+(Apache-2.0) and black-forest-labs/FLUX.2-klein-base-9B @
+32773329fbe7e81a90ef971740e8ba4b0364ecf3 (FLUX Non-Commercial License).
 Non-commercial use only. Section 2(e) of the license asks for content
 filtering or review of generated images before they are shared.
 

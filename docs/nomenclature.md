@@ -1199,8 +1199,9 @@ folder of the pinned `speridlabs/iris-z` snapshot downloads into
 `FLUX.2-klein-4B` and the text encoders from their publishers, all at pinned
 revisions. Coverage group `s`. See ADR 0033.
 
-`LibreOpenVisionBanana` (`open_vision_banana`, size `4b`, aliases
-`open-vision-banana` and `open-vision-banana-4b`) is FunAILab's Open Vision Banana, a FLUX.2 [klein]
+`LibreOpenVisionBanana` (`open_vision_banana`, sizes `4b` and `9b`, aliases
+`open-vision-banana` (`4b`), `open-vision-banana-4b` and
+`open-vision-banana-9b`) is FunAILab's Open Vision Banana, a FLUX.2 [klein]
 Base fine-tune. It keeps the `generate` task: the prompt names the
 perception task and an optional `source=` image is the photo it answers
 about. The name is upstream's; FunAILab publishes it without a maker

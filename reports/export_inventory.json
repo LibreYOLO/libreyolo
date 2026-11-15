@@ -1039,10 +1039,12 @@
     ],
     "default_task": "generate",
     "sizes": {
-      "4b": 1024
+      "4b": 1024,
+      "9b": 1024
     },
     "default_imgsz": {
-      "4b": 1024
+      "4b": 1024,
+      "9b": 1024
     },
     "task_sizes": {},
     "export_override": "blocked",

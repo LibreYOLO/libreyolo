@@ -54,7 +54,11 @@ def model(tmp_path, monkeypatch):
 def test_aliases_and_mirrors():
     assert LibreGen("open-vision-banana", device="cpu").size == "4b"
     assert LibreGen("open-vision-banana-4b", device="cpu").size == "4b"
-    assert LibreOpenVisionBanana.HF_REPOS == {"4b": "LibreYOLO/LibreOpenVisionBanana4b"}
+    assert LibreGen("open-vision-banana-9b", device="cpu").size == "9b"
+    assert LibreOpenVisionBanana.HF_REPOS == {
+        "4b": "LibreYOLO/LibreOpenVisionBanana4b",
+        "9b": "LibreYOLO/LibreOpenVisionBanana9b",
+    }
     for size, repo in LibreOpenVisionBanana.HF_REPOS.items():
         revision = LibreOpenVisionBanana.HF_REVISIONS[size]
         assert len(revision) == 40

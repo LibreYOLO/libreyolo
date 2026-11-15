@@ -8,8 +8,8 @@ photo goes in as ``source``. It still edits images and generates from text.
 The architecture is unchanged, so the pipeline is diffusers'
 ``Flux2KleinPipeline``.
 
-LibreYOLO mirrors the paper's non-zero-shot 4B checkpoint as a complete
-pipeline: BFL's scheduler, Qwen3 text encoder, tokenizer and VAE
+LibreYOLO mirrors the paper's non-zero-shot 4B and 9B checkpoints as
+complete pipelines: BFL's scheduler, Qwen3 text encoder, tokenizer and VAE
 byte-identical, and FunAILab's transformer cast from fp32 to bf16, the
 precision it runs in. ``UPSTREAM_REPOS`` records the sources. This module is
 LibreYOLO's own adapter code and calls only the upstream public API; no
@@ -36,13 +36,21 @@ class LibreOpenVisionBanana(DiffusersGenFamily):
     FILENAME_PREFIX = "LibreOpenVisionBanana"
     UPSTREAM_REPOS: ClassVar[dict[str, str]] = {
         "4b": f"{_OVB_REPO}/final_models/4B/nonzeroshot/checkpoint-avg90000-92500-97500-100000_uniform",
+        "9b": f"{_OVB_REPO}/final_models/9B/nonzeroshot/checkpoint-avg82500-85000-87500-92500-97500_uniform",
     }
-    UPSTREAM_REVISIONS: ClassVar[dict[str, str]] = {"4b": _OVB_REVISION}
-    HF_REPOS: ClassVar[dict[str, str]] = {"4b": "LibreYOLO/LibreOpenVisionBanana4b"}
+    UPSTREAM_REVISIONS: ClassVar[dict[str, str]] = {
+        "4b": _OVB_REVISION,
+        "9b": _OVB_REVISION,
+    }
+    HF_REPOS: ClassVar[dict[str, str]] = {
+        "4b": "LibreYOLO/LibreOpenVisionBanana4b",
+        "9b": "LibreYOLO/LibreOpenVisionBanana9b",
+    }
     HF_REVISIONS: ClassVar[dict[str, str]] = {
-        "4b": "f279d483b6b7bab1ed9e9e503436e8d25e630496"
+        "4b": "f279d483b6b7bab1ed9e9e503436e8d25e630496",
+        "9b": "7a01bb2c1e9dd72678032beb126d2670cb724dd6",
     }
-    INPUT_SIZES: ClassVar[dict[str, int]] = {"4b": 1024}
+    INPUT_SIZES: ClassVar[dict[str, int]] = {"4b": 1024, "9b": 1024}
     PIPELINE_CLASS = "Flux2KleinPipeline"
     # The mirror's NOTICE names the model; it tells an OVB folder apart from
     # a plain FLUX.2 [klein] one, which has the same pipeline class.
