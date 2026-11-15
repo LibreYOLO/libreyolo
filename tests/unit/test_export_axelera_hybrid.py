@@ -269,3 +269,26 @@ def test_detr_hybrid_is_backbone_only_and_reproduces_the_native_model(sdk, tmp_p
     monkeypatch.setitem(axelera.AXELERA_SIZE_RECIPES, ("detr", "detect", "r50"), {"hybrid_split": "neck"})
     with pytest.raises(ValueError, match="no convolutional neck"):
         AxeleraExporter(model)._hybrid_split()
+
+
+def test_dfine_is_hybrid_and_its_parts_reproduce_the_native_model():
+    from libreyolo.export.exporter import _AXELERA_HYBRID_OUTPUTS, _DETRBackboneWrapper, _detr_neck_parts
+    from libreyolo.export.exporter import _unfrozen_batchnorms
+    from libreyolo.export.support import get_support
+    from libreyolo.models.dfine.model import LibreDFINE
+
+    assert get_support("dfine", "detect", "axelera").tier == "hybrid"
+    assert _AXELERA_HYBRID_OUTPUTS[("dfine", "detect")] == OUTPUTS
+    net = LibreDFINE._from_scratch(size="n", device="cpu", seed=0).model.eval()
+    # D-FINE-n has two levels (strides 16 and 32): 320 px gives 500 positions for its 300 queries.
+    size = 320
+    x = torch.rand(1, 3, size, size)
+    with torch.no_grad():
+        expected = net(x)
+        copy_ = _unfrozen_batchnorms(copy.deepcopy(net).eval())
+        features = _DETRBackboneWrapper(copy_).eval()(x)
+        pack, neck, decoder = _detr_neck_parts(copy_, OUTPUTS, [torch.rand(1, 3, size, size)])
+        actual = decoder(*neck(pack(*features)[0]))
+    _assert_same_queries(
+        [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
+    )

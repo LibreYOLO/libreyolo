@@ -34,7 +34,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | detany3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | detr | detect | ✓ | ✓ | available | available | available |  |  |  | hybrid |  |  |  |  |
 | dexined | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |  |  |
-| dfine | detect | ✓ | ✓ |  | available | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |
+| dfine | detect | ✓ | ✓ |  | available | ✓ | ✓ | ✓ |  | hybrid |  |  |  | ✓ |
 | dfine | segment | ✓ | ✓ |  | available | ✓ |  |  |  |  |  |  |  |  |
 | diffusion_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | dinodetr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |  |
@@ -746,6 +746,7 @@ These exports run part of the network on the target accelerator and the
 rest on the host CPU; each entry names the split.
 
 - `detr` / `detect` / `axelera`: Hybrid INT8 export: the ResNet backbone and the input projection are compiled with Axelera's toolchain and run on the Metis AIPU; the transformer encoder and decoder and the prediction heads run on the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
+- `dfine` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
 - `rtdetr` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
 - `rtdetrv2` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
 
@@ -963,7 +964,6 @@ rest on the host CPU; each entry names the split.
 - `dexined` / `edge` / `coreai`: This edge runtime has no parity-valid artifact for the requested format.
 - `dfine` / `detect` / `executorch`: Strict capture reaches an unsupported ContextVar read in deformable attention. Forcing the manual exported grid-sample path permits serialization, but ExecuTorch 1.2 runtime execution still fails with an invalid delegated tensor dimension order.
 - `dfine` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dfine` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `dfine` / `detect` / `ncnn`: NCNN export is not supported for D-FINE: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dfine` / `detect` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError.
 - `dfine` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.

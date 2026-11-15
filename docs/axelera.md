@@ -74,6 +74,7 @@ a separate size:
 | RT-DETR | x | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5587 | 0.5573 | -0.14 | hybrid | `rtdetr/detect/x/2026-11-15` |
 | RT-DETRv2 | r18 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4965 | 0.4840 | -1.25 | hybrid | `rtdetrv2/detect/r18/2026-11-15` |
 | RT-DETRv2 | r34 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5050 | 0.4847 | -2.03 | hybrid | `rtdetrv2/detect/r34/2026-11-15` |
+| D-FINE | n | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4248 | 0.4209 | -0.39 | hybrid | `dfine/detect/n/2026-11-15` |
 | DETR | r50 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.3879 | 0.3852 | -0.27 | hybrid | `detr/detect/r50/2026-11-15` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
@@ -150,6 +151,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | Other families | all | all | not measured yet (section 11) | - |
 | RT-DETR | detect | r18, r34, r50, r50m, r101, l, x (hybrid: CNN backbone and fusion neck on the Metis, attention encoder layer and decoder on the host) | see `docs/export_support.md` | r18 `rtdetr/detect/r18/2026-11-15/2` (300: `rtdetr/detect/r18/2026-11-15`); r34 `rtdetr/detect/r34/2026-11-15`; r50 `rtdetr/detect/r50/2026-11-15`; r50m `rtdetr/detect/r50m/2026-11-15`; r101 `rtdetr/detect/r101/2026-11-15`; l `rtdetr/detect/l/2026-11-15`; x `rtdetr/detect/x/2026-11-15` |
 | RT-DETRv2 | detect | r18, r34 (hybrid, as RT-DETR: v1 backbone and fusion neck on the Metis, v2 decoder on the host; r50, r50m and r101 not measured yet) | see `docs/export_support.md` | r18 `rtdetrv2/detect/r18/2026-11-15`; r34 `rtdetrv2/detect/r34/2026-11-15` |
+| D-FINE | detect | n (hybrid, as RT-DETR: HGNetv2 backbone and fusion neck on the Metis, attention encoder layer and decoder on the host; s, m, l and x not measured yet) | see `docs/export_support.md` | n `dfine/detect/n/2026-11-15` |
 | DETR | detect | r50 (hybrid: ResNet-50 backbone and input projection on the Metis, transformer encoder, decoder and heads on the host; r50dc5, r101 and r101dc5 not measured yet) | see `docs/export_support.md` | r50 `detr/detect/r50/2026-11-15` |
 | RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
 
@@ -371,6 +373,7 @@ table at the top of this page.
 | RT-DETR-x (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5587 | 0.5573 | -0.14 (hybrid; HGNetv2 backbone part per channel, neck part per tensor) |
 | RT-DETRv2-r18 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4965 | 0.4840 | -1.25 (hybrid) |
 | RT-DETRv2-r34 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5050 | 0.4847 | -2.03 (hybrid) |
+| D-FINE-n (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4248 | 0.4209 | -0.39 (hybrid; backbone part per channel, neck part per tensor) |
 | DETR-r50 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.3879 | 0.3852 | -0.27 (hybrid) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
@@ -576,7 +579,8 @@ of 130.3 G) at 1.4 and 1.5 img/s (AIPU 138 ms, host 578 ms); RT-DETR-l (HGNetv2)
 (47.9 of 55.8 G) at 2.2 and 2.2 img/s (AIPU 89 ms, host 363 ms); RT-DETR-x 93%
 (109.4 of 118.0 G) at 1.5 and 2.4 img/s (AIPU 149 ms, host 485 ms).
 RT-DETRv2-r18 (same split) runs 84% on the Metis at 1.7 and 2.3 img/s;
-RT-DETRv2-r34 at 3.4 and 4.2 img/s.
+RT-DETRv2-r34 at 3.4 and 4.2 img/s. D-FINE-n runs 83% of its MACs on the Metis
+(3.1 of 3.7 G) at 3.7 and 7.0 img/s.
 DETR-r50 (backbone only, 800x800) runs 87% of its MACs on the Metis (52.5 of
 60.2 G) at 2.0 and 2.3 img/s, but only 36 ms of its 459 ms chain at batch 1:
 its six-layer encoder over all 625 positions and the decoder run on the host. Those were
