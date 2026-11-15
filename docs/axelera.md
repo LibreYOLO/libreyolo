@@ -66,6 +66,7 @@ a separate size:
 | RetinaNet | r50 | detect (800x800 canvas, imgsz=800) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas -2.03 more; -2.25 vs own resize) | option (imgsz=800) | `retinanet/detect/r50/2026-11-14/3` |
 | SSD | 300 | detect (two parts, L2Norm on the host) | COCO val2017, 1000 | 0.2408 | 0.2403 | -0.05 | validated | `ssd/detect/300/2026-11-13/2` |
 | RT-DETR | r18 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 1000 | 0.4535 | 0.4528 | -0.07 | hybrid | `rtdetr/detect/r18/2026-11-15/2` |
+| RT-DETR | r34 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4985 | 0.4982 | -0.03 | hybrid | `rtdetr/detect/r34/2026-11-15` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
 | EfficientDet | d2 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3744 | 0.3606 | -1.38 (canvas -5.31 more) | supported | `efficientdet/detect/d2/2026-11-14` |
@@ -138,7 +139,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 blocked: does not compile; d4 not measured yet) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 blocked `efficientdet/detect/d3/2026-11-14` |
 | Other families | all | all | not measured yet (section 11) | - |
-| RT-DETR | detect | r18 (hybrid: CNN backbone and fusion neck on the Metis, attention encoder layer and decoder on the host; r34, r50, r50m, r101, l and x not measured yet) | see `docs/export_support.md` | r18 `rtdetr/detect/r18/2026-11-15/2` (300: `rtdetr/detect/r18/2026-11-15`) |
+| RT-DETR | detect | r18, r34 (hybrid: CNN backbone and fusion neck on the Metis, attention encoder layer and decoder on the host; r50, r50m, r101, l and x not measured yet) | see `docs/export_support.md` | r18 `rtdetr/detect/r18/2026-11-15/2` (300: `rtdetr/detect/r18/2026-11-15`); r34 `rtdetr/detect/r34/2026-11-15` |
 | RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
 
 The tiers in `docs/export_support.md` are generated from
@@ -351,6 +352,7 @@ table at the top of this page.
 | RetinaNet-R50 (800x800 canvas, imgsz=800) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas -2.03) |
 | SSD300 (two parts) | detect | COCO val2017, 1000 images | 128 coco128 | 0.2408 | 0.2403 | -0.05 (+0.09 on 300) |
 | RT-DETR-r18 (hybrid) | detect | COCO val2017, 1000 images | 64 coco128 | 0.4535 | 0.4528 | -0.07 (hybrid; -0.12 on 300) |
+| RT-DETR-r34 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4985 | 0.4982 | -0.03 (hybrid) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
 | EfficientDet-d2 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3744 | 0.3606 | -1.38 (supported; canvas -5.31 more) |
@@ -546,7 +548,9 @@ RT-DETR-r18 (hybrid, section 8) runs 83% of its multiply-accumulates on the
 Metis (25.7 of 30.8 GMACs: the ResNet backbone and the fusion neck), but the
 host steps take most of the time: per image, 82 ms on the AIPU parts and
 302 ms in the two host ONNX graphs at batch 1 (27 and 200 ms at batch 8),
-2.5 img/s end to end at batch 1 and 4.1 img/s at batch 8. Those were
+2.5 img/s end to end at batch 1 and 4.1 img/s at batch 8. RT-DETR-r34
+runs 87% of its MACs on the Metis (40.8 of 46.8 G) at 2.8 and 4.6 img/s
+(AIPU 75 ms, host 274 ms per image at batch 1). Those were
 measured with 4 host threads on a busy 18-core NUC (load average about 20),
 so they are a floor; the host share depends on the CPU.
 
