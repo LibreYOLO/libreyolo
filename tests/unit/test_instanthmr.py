@@ -280,6 +280,23 @@ def test_fine_tune_runs_and_reloads(nano_checkpoint, tmp_path):
     assert torch.equal(before["body.base_shape"], after["body.base_shape"])
 
 
+def test_fine_tune_accepts_val_false_with_eval_interval_zero(nano_checkpoint, tmp_path):
+    data = _write_pose_dataset(tmp_path / "data")
+    model = LibreInstantHMR(
+        str(nano_checkpoint), size="n", device="cpu", person_detector=None
+    )
+    results = model.train(
+        data=data,
+        epochs=1,
+        batch=2,
+        workers=0,
+        project=str(tmp_path / "runs"),
+        val=False,
+        eval_interval=0,
+    )
+    assert not any(key.startswith("val/") for key in results["history"][0])
+
+
 def test_fine_tune_rejects_non_coco17(nano_checkpoint, tmp_path):
     data = _write_pose_dataset(tmp_path / "data")
     path = Path(data)

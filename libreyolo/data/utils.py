@@ -764,31 +764,25 @@ def _download_and_extract_zip(url: str, dest: Path) -> None:
         dest.mkdir(parents=True, exist_ok=True)
 
         with zipfile.ZipFile(tmp_path, "r") as zf:
-            # Check if zip contains a single root directory
+            # Every layout extracts into a private scratch folder and is then
+            # merged into dest without overwriting or deleting anything: dest
+            # can be a user's own folder (a YAML with ``path: .``).
             names = zf.namelist()
-            if names:
-                # Get the common prefix (root directory in zip)
-                root_dirs = set(n.split("/")[0] for n in names if "/" in n)
+            root_dirs = set(n.split("/")[0] for n in names if "/" in n)
+            scratch = Path(tempfile.mkdtemp(prefix=".libreyolo-extract-", dir=dest.parent))
+            try:
+                zf.extractall(scratch)
+                src = scratch
                 if len(root_dirs) == 1:
-                    # Extract into a private scratch folder, then move the
-                    # root folder's contents into dest. Never delete dest or
-                    # anything beside it: dest can be a user's own folder
-                    # (a YAML with ``path: .``).
+                    # A single root folder: merge its contents, not the folder.
                     root_dir = root_dirs.pop()
-                    scratch = Path(tempfile.mkdtemp(prefix=".libreyolo-extract-", dir=dest.parent))
-                    try:
-                        zf.extractall(scratch)
-                        src = scratch / root_dir if _safe_archive_root(root_dir) else scratch
-                        if not src.resolve().is_relative_to(scratch.resolve()):
-                            src = scratch
-                        _merge_into(src, dest)
-                    finally:
-                        shutil.rmtree(scratch, ignore_errors=True)
-                else:
-                    # Extract directly to dest
-                    zf.extractall(dest)
-            else:
-                zf.extractall(dest)
+                    if _safe_archive_root(root_dir):
+                        src = scratch / root_dir
+                    if not src.resolve().is_relative_to(scratch.resolve()):
+                        src = scratch
+                _merge_into(src, dest)
+            finally:
+                shutil.rmtree(scratch, ignore_errors=True)
 
     finally:
         # Clean up temp file
