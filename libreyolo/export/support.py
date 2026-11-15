@@ -4138,24 +4138,28 @@ _add(
     ),
 )
 _add(
-    "available",
+    "validated",
     ("realesrgan",),
     ("restore",),
     ("axelera",),
     reason=(
-        "INT8 export compiled with Axelera's toolchain; the compact network's "
-        "convolution trunk runs on the Metis AIPU and the host applies the pixel "
-        "shuffle and the nearest-upsampled input skip (layout "
-        "restore_shuffle_skip_v1). Supported, not validated: Real-ESRGAN-x4t "
-        "keeps PSNR 0.49 dB below FP32 on 296 COCO crops, 4x from 64 px "
-        "(docs/axelera.md)."
+        "INT8 export compiled with Axelera's toolchain. Real-ESRGAN-x4 (RRDB) runs "
+        "as three compiled parts with the trunk skip added on the host (its whole "
+        "graph's constants overflow the Metis DDR pool) and keeps PSNR within "
+        "0.06 dB of FP32 on 296 COCO crops, 4x from 64 px; that number was "
+        "measured on the prototype parts path, the library generates identical "
+        "part graphs, calibration and recipe, and a library re-export "
+        "confirmation is pending. For the compact network (x4t) the convolution "
+        "trunk runs on the Metis AIPU and the host applies the pixel shuffle and "
+        "the nearest-upsampled input skip (layout restore_shuffle_skip_v1); it "
+        "keeps PSNR 0.49 dB below FP32 (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: x4t (measured drop, SIZE_ACCURACY_NOTES); x4 and x2 are "
-        "not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
-        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 64x64 input "
-        "canvas (smaller images are padded)"
+        "validated sizes: x4 (three compiled parts); supported sizes: x4t "
+        "(measured drop, SIZE_ACCURACY_NOTES); x2 is not measured on a Metis yet "
+        "(UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "compile, INT8, batch 1, fixed 64x64 input canvas (smaller images are padded)"
     ),
 )
 _add(
@@ -5151,10 +5155,6 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         for size in ("x",)
     },
     ("realesrgan", "restore", "axelera"): {
-        "x4": (
-            "has not been measured on a Metis yet: its whole-graph compile at 64 px "
-            "with SDK 1.9.0 did not finish within 4 h (no error seen)"
-        ),
         "x2": (
             "has not been measured on a Metis yet: its whole-graph compile at 128 px "
             "with SDK 1.9.0 did not finish within 3.5 h (no error seen)"

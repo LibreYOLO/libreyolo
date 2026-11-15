@@ -94,6 +94,7 @@ a separate size:
 | FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated | `fcn/semantic/r50/2026-11-11/2` |
 | FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated | `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | m2 | restore 2x (PSNR, dB) | COCO crops from 128 px, 296 | 29.12 | 28.66 | -0.46 | supported | `quicksrnet/restore/m2/2026-11-11/7` |
+| Real-ESRGAN | x4 | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.44 | -0.05 (prototype parts path; library re-export pending) | validated | `realesrgan/restore/x4/2026-11-15/2` |
 | Real-ESRGAN | x4t | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.00 | -0.49 | supported | `realesrgan/restore/x4t/2026-11-12` |
 | MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported | `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
@@ -126,7 +127,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | AlexNet | classify | b | see `docs/export_support.md` | b `alexnet/classify/b/2026-11-13` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-11/7` |
-| Real-ESRGAN | restore | x4t (supported with a measured drop; bar 0.3 dB; x4 and x2 not measured yet: their compiles did not finish within 4 h) | see `docs/export_support.md` | x4t `realesrgan/restore/x4t/2026-11-12` |
+| Real-ESRGAN | restore | x4 (three compiled parts + a host add), x4t (supported with a measured drop; bar 0.3 dB); x2 not measured yet | see `docs/export_support.md` | x4 `realesrgan/restore/x4/2026-11-15/2`; x4t `realesrgan/restore/x4t/2026-11-12` |
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops; r50/r101 run their ASPP as per-tap 1x1 convolutions plus shifts) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-14/3`; r101 `deeplabv3/semantic/r101/2026-11-14` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
@@ -680,6 +681,8 @@ pixel shuffle and adds the upsampled input. On 296 COCO crops upscaled 4x from
 0.606 vs 0.658), so x4t is supported with that measured drop (the validated
 bar for restoration is 0.3 dB).
 
+Real-ESRGAN-x4 (the RRDB network) does not fit as one graph: its constants overflow the Metis DDR pool. It runs as three compiled parts: `conv_first` and RRDB blocks 0-11 (returning the trunk skip and the block output), blocks 12-22 and `conv_body`, then the upsampling tail; the host adds the skip to the body between parts 2 and 3. On the same 296 crops PSNR is 22.44 dB vs 22.49 dB FP32 (-0.05 dB; SSIM 0.622). That measurement ran on the prototype parts path; the library generates identical part graphs (same SHA-256 per part), the same calibration images in the same order and the same recipe, and a library re-export confirmation is pending.
+
 Hybrid exports (support tier `hybrid`, RT-DETR) run only the convolutional
 parts on the Metis. RT-DETR's attention encoder layer, its query selection
 (TopK over every feature position) and its decoder's deformable attention
@@ -771,7 +774,7 @@ Blocked for structural reasons (accuracy never blocks an export):
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
 - NAFNet: no trained LibreYOLO weights are published, so nothing can be exported or measured. When weights exist, the input skip around the whole graph runs on the host (as for Real-ESRGAN), and the per-pixel LayerNorms have the same reciprocal square root as ConvNeXt's (ledger `nafnet/restore/s/2026-11-11`).
-- Real-ESRGAN-x4 and -x2 (their compiles did not finish within 4 h and 3.5 h; no error seen; ledger `realesrgan/restore/x4/2026-11-13`, `realesrgan/restore/x2/2026-11-13`).
+- Real-ESRGAN-x2 (its whole-graph compile did not finish within 3.5 h; no error seen; ledger `realesrgan/restore/x2/2026-11-13`).
 - YOLO9-P2-t: no trained checkpoint is published (P2-s is validated on VisDrone; its checkpoint is a non-commercial research preview).
 - PP-LiteSeg (t50, b50, t75, b75): compiles and runs after exact rewrites, but the device labels agree with FP32 on only 48-56% of pixels (fidelity mIoU 0.17-0.19, 1000 COCO val2017 images; 41% on 131 street scenes), with min-max or hybrid ranges alike. Device prefix cuts show the STDC backbone drifting stage by stage (cosine 0.996 at stride 4, 0.985 at stride 8, 0.975 at stride 16, 0.951 at the stride-32 output, the largest step) (ledgers `ppliteseg/semantic/t50/2026-11-15/3` to `/6`, `ppliteseg/semantic/b50/2026-11-15`, `ppliteseg/semantic/t75/2026-11-15/2`, `ppliteseg/semantic/b75/2026-11-15/2`).
 - PIDNet-s: the compile did not finish within 90 minutes at 1024x1024 or 512x512 (ledgers `pidnet/semantic/s/2026-11-12`, `pidnet/semantic/s/2026-11-13`).

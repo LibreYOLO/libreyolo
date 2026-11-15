@@ -186,7 +186,12 @@ def _host_l2norm(x: np.ndarray, *, scale, eps: float = 1e-12) -> np.ndarray:
 #: parts, by the ``host`` name its metadata gives them. Each takes its input
 #: arrays positionally plus the step's parameters as keywords, and returns one
 #: array, or a tuple with one array per output.
-HOST_OPS: dict[str, Any] = {"l2norm": _host_l2norm}
+def _host_add(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Elementwise sum of two parts' outputs (Real-ESRGAN's trunk skip around the RRDB body)."""
+    return (np.asarray(a, dtype=np.float32) + np.asarray(b, dtype=np.float32)).astype(np.float32)
+
+
+HOST_OPS: dict[str, Any] = {"l2norm": _host_l2norm, "add": _host_add}
 _HOST_STEP_KEYS = ("host", "input", "output", "inputs", "outputs")
 #: A host-operation parameter written as ``"@npz:<key>"`` is the array stored
 #: under ``<key>`` in the export's ``host_arrays`` file (an ``.npz``).

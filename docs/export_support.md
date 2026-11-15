@@ -130,7 +130,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | qwen3vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | qwen3vl_embedding | embed |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | raft | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
+| realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |  | ✓ |
 | resnet | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |  | ✓ |
 | retinanet | detect | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
 | rfdetr | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ |  |  |  |  | available | ✓ |
@@ -417,6 +417,7 @@ A check mark applies only under any constraint listed here.
 - `realesrgan` / `restore` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `realesrgan` / `restore` / `tensorrt`: FP32 with a fixed-resolution export canvas
 - `realesrgan` / `restore` / `openvino`: fixed-resolution export canvas
+- `realesrgan` / `restore` / `axelera`: validated sizes: x4 (three compiled parts); supported sizes: x4t (measured drop, SIZE_ACCURACY_NOTES); x2 is not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 64x64 input canvas (smaller images are padded)
 - `realesrgan` / `restore` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with a fixed-resolution export canvas; two-input raw parity, factory reload, metadata, and public predict parity
 - `realesrgan` / `restore` / `tflite`: fixed-resolution export canvas
 - `realesrgan` / `restore` / `coreai`: fixed export canvas; permissively licensed trained restoration checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
@@ -679,7 +680,6 @@ These converter paths are callable with the recorded validation context.
 - `quicksrnet` / `restore` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `quicksrnet` / `restore` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole super-resolution graph runs on the Metis AIPU after its hidden channels are equalized through their Hardtanh bounds and its biases corrected for INT8 weight rounding. Supported, not validated: QuickSRNet-m2 keeps PSNR 0.46 dB below FP32 on 296 COCO crops, 2x from 128 px (docs/axelera.md). Constraint: supported sizes: m2 (measured drop, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (smaller images are padded)
 - `quicksrnet` / `restore` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
-- `realesrgan` / `restore` / `axelera`: INT8 export compiled with Axelera's toolchain; the compact network's convolution trunk runs on the Metis AIPU and the host applies the pixel shuffle and the nearest-upsampled input skip (layout restore_shuffle_skip_v1). Supported, not validated: Real-ESRGAN-x4t keeps PSNR 0.49 dB below FP32 on 296 COCO crops, 4x from 64 px (docs/axelera.md). Constraint: supported sizes: x4t (measured drop, SIZE_ACCURACY_NOTES); x4 and x2 are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 64x64 input canvas (smaller images are padded)
 - `retinanet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain on one fixed square canvas (the image fitted inside, padded bottom-right; 1024x1024 by default for R50); the graph stops after the box-delta and class convolutions and LibreYOLO rebuilds the anchors on the host. Supported, not validated: on a Metis M.2 Max RetinaNet-R50 scores 1.11 mAP50-95 below the PyTorch model's own val() on 1000 COCO val2017 images (0.3410 vs 0.3521): 0.49 from the canvas (FP32 0.3472) and 0.62 from INT8. The 1024 canvas is about 1.64x the device compute of 800; imgsz=800 is faster and scores 2.25 below (0.3296; docs/axelera.md). Constraint: supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed 1024x1024 canvas by default (imgsz=800 for speed); r50v2 is blocked (GroupNorm head, BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1
 - `rfdetr` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
 - `rfdetr` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes.

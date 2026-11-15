@@ -4097,6 +4097,48 @@ _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
 }
 
 
+def _identity_entry(t: torch.Tensor) -> torch.Tensor:
+    """A 1x1 identity depthwise convolution: lets one tensor be a part output that also feeds a node, or a part
+    input that fans out (the SDK's graph cleaner rejects both as plain tensors)."""
+    return torch.nn.functional.conv2d(
+        t, torch.ones(t.shape[1], 1, 1, 1, dtype=t.dtype, device=t.device), groups=t.shape[1]
+    )
+
+
+class _RRDBPart(torch.nn.Module):
+    """One compiled part of Real-ESRGAN's RRDB network (x4) on Metis (``graph_outputs_v1``).
+
+    The whole x4 graph's constants overflow the Metis DDR pool, so it runs as three compiled parts and one host
+    step: ``head`` = ``conv_first`` + RRDB blocks ``[:split]`` -> (``skip``, ``mid``); ``tail`` = blocks
+    ``[split:]`` + ``conv_body`` -> ``body``; the host adds ``skip + body``; ``upsample`` = the two nearest 2x
+    upsampling convolutions, ``conv_hr`` and ``conv_last`` -> ``restored``. Exact: the parts compose to the
+    network's own forward.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    _NAMES = {"head": ("skip", "mid"), "tail": ("body",), "upsample": ("restored",)}
+
+    def __init__(self, net: torch.nn.Module, role: str, split: int):
+        super().__init__()
+        # ``holder``: the attribute name becomes the ONNX initializer prefix (holder.conv_first.weight, ...),
+        # the names of the graphs that were compiled and measured.
+        self.holder, self.role, self.split = net, role, int(split)
+        self.output_names = self._NAMES[role]
+        self.upscale = int(getattr(net, "scale", 4))
+
+    def forward(self, x):
+        net, F = self.holder, torch.nn.functional
+        if self.role == "head":
+            skip = net.conv_first(x)
+            return _identity_entry(skip), net.body[: self.split](skip)
+        if self.role == "tail":
+            return (net.conv_body(net.body[self.split :](_identity_entry(x))),)
+        feat = net.lrelu(net.conv_up1(F.interpolate(x, scale_factor=2, mode="nearest")))
+        feat = net.lrelu(net.conv_up2(F.interpolate(feat, scale_factor=2, mode="nearest")))
+        return (net.conv_last(net.lrelu(net.conv_hr(feat))),)
+
+
 class _RestoreBodyWrapper(torch.nn.Module):
     """Real-ESRGAN compact trunk up to its last convolution (``restore_shuffle_skip_v1``).
 
@@ -4676,6 +4718,64 @@ class AxeleraExporter(BaseExporter):
             and all(hasattr(net, name) for name in ("body", "upsampler", "upscale"))
         )
 
+    def _rrdb_network(self):
+        """Real-ESRGAN's RRDB network (x4/x2 checkpoints), else ``None``."""
+        if self.model._get_model_name() != "realesrgan" or self._task() != "restore":
+            return None
+        for module in self.model.model.modules():
+            if all(hasattr(module, n) for n in ("conv_first", "body", "conv_body", "conv_up1", "conv_hr")):
+                return module
+        return None
+
+    def _rrdb_parts_restore(self) -> bool:
+        """Real-ESRGAN-x4's RRDB network as three compiled parts + a host add (recipe ``rrdb_split``)."""
+        net = self._rrdb_network()
+        return net is not None and bool(self._size_recipe().get("rrdb_split")) and int(getattr(net, "scale", 4)) == 4
+
+    def _export_rrdb_parts_onnx(self, out: Path, imgsz, opset) -> str:
+        """Export the three RRDB parts (``_RRDBPart``) and keep their run order in ``_hybrid_parts``.
+
+        The parts are traced with plain ``torch.onnx.export`` (opset 17, no simplification): the graphs that
+        were compiled and measured on a Metis (docs/axelera.md).
+        """
+        split = int(self._size_recipe()["rrdb_split"])
+        net = copy.deepcopy(self._rrdb_network()).eval()
+        head, tail, upsample = (_RRDBPart(net, role, split).eval() for role in ("head", "tail", "upsample"))
+        x = torch.zeros(1, 3, *imgsz)
+        paths = [str(out.with_name(f"{out.name}.export_intermediate{tag}.onnx")) for tag in ("", ".part2", ".part3")]
+        self._intermediate_paths = list(paths)
+        with torch.no_grad():
+            skip, mid = head(x)
+            feat = skip + tail(mid)[0]
+        logger.info(
+            "Step 1/2: Exporting Real-ESRGAN-%s as three parts (RRDB blocks split at %d; the host adds the trunk "
+            "skip) (%s)",
+            self.model.size,
+            split,
+            paths[0],
+        )
+        for module, sample, path, names in (
+            (head, x, paths[0], ["images"]),
+            (tail, mid, paths[1], ["mid"]),
+            (upsample, feat, paths[2], ["feat"]),
+        ):
+            torch.onnx.export(
+                module,
+                (sample,),
+                path,
+                input_names=names,
+                output_names=list(module.output_names),
+                opset_version=17,
+                dynamo=False,
+            )
+        self._raw_wrapper = head
+        self._hybrid_parts = [
+            {"compile": paths[1], "reference": tail, "input": "mid", "merge_pad": False},
+            {"host": "add", "inputs": ["skip", "body"], "output": "feat"},
+            {"compile": paths[2], "reference": upsample, "input": "feat", "merge_pad": False},
+        ]
+        return paths[0]
+
     def _graph_outputs(self) -> tuple[str, ...]:
         """ONNX output names when the whole dense graph runs on Metis, else ``()``."""
         return _AXELERA_GRAPH_OUTPUTS.get((self.model._get_model_name(), self._task()), ())
@@ -4852,6 +4952,8 @@ class AxeleraExporter(BaseExporter):
                 output_names=list(self._raw_wrapper.output_names),
                 dynamic_axes=None,
             )
+        if self._rrdb_parts_restore():
+            return self._export_rrdb_parts_onnx(out, imgsz, opset)
         graph_outputs = self._graph_outputs()
         if graph_outputs:
             if self.model._get_model_name() == "quicksrnet":
@@ -5123,6 +5225,20 @@ class AxeleraExporter(BaseExporter):
                     "batch": 1,
                     "output_layout": wrapper.output_layout,
                     "output_names": list(wrapper.output_names),
+                    "upscale": wrapper.upscale,
+                }
+            )
+            return meta
+        if isinstance(wrapper, _RRDBPart):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": ["restored"],
+                    "graph_outputs": ["restored"],
                     "upscale": wrapper.upscale,
                 }
             )

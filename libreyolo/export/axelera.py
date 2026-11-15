@@ -83,6 +83,9 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("efficientdet", "detect", "d1"): {"canvas": 512},
     # EfficientDet-d2 at its native 768: 3.15 MB needed, 2.54 MB available.
     ("efficientdet", "detect", "d2"): {"canvas": 512},
+    # Real-ESRGAN-x4 (RRDB): the whole graph's constants overflow the DDR pool;
+    # three compiled parts split at RRDB block 12 plus a host add fit.
+    ("realesrgan", "restore", "x4"): {"rrdb_split": 12, "quantization_scheme": "per_tensor_min_max"},
     # RetinaNet-R50 resizes each image to a shorter side of 800 (longer up to
     # 1333); the fixed canvas fits the whole image inside, so at 800x800 most
     # images reach the network smaller (-2.25 end to end on 1000 COCO images).

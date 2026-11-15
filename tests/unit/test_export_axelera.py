@@ -1119,9 +1119,10 @@ def test_support_matrix_rows_for_axelera():
     for notes in SIZE_ACCURACY_NOTES.values():
         assert all(note.startswith("measured ") and " vs FP32 " in note for note in notes.values())
     esrgan = get_support("realesrgan", "restore", "axelera")
-    assert esrgan.tier == "available" and "supported sizes: x4t " in esrgan.constraint
+    assert esrgan.tier == "validated" and "validated sizes: x4 " in esrgan.constraint
+    assert "supported sizes: x4t " in esrgan.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("realesrgan", "restore", "axelera")]) == ["x4t"]
-    assert sorted(UNMEASURED_SIZES[("realesrgan", "restore", "axelera")]) == ["x2", "x4"]
+    assert sorted(UNMEASURED_SIZES[("realesrgan", "restore", "axelera")]) == ["x2"]
     assert ("realesrgan", "restore") in INT8_EXPORTS["axelera"]
     alexnet = get_support("alexnet", "classify", "axelera")
     assert alexnet.tier == "validated" and "validated sizes: b;" in alexnet.constraint
@@ -1165,6 +1166,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("efficientdet", "detect", "d2"),
         ("retinanet", "detect", "r50"),
         ("deeplabv3", "semantic", "r50"), ("deeplabv3", "semantic", "r101"),
+        # Covered by their own tests (fixed canvas / three-part export).
+        ("realesrgan", "restore", "x4"),
     }
     assert recipes == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
@@ -2199,3 +2202,33 @@ def test_efficientnetv2_b1_block_names_the_padded_input_buffer():
     reason = BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b1"]
     assert "two output buffers" in reason and "channel-padded input" in reason
     assert "two output buffers" in BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b2"]
+
+
+def test_rrdb_parts_compose_to_the_network_with_a_host_add():
+    torch = pytest.importorskip("torch")
+    np = pytest.importorskip("numpy")
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import _RRDBPart
+    from libreyolo.models.realesrgan.nn import RRDBNet
+
+    torch.manual_seed(0)
+    net = RRDBNet(scale=4, num_feat=8, num_block=4, num_grow_ch=4).eval()
+    head, tail, upsample = (_RRDBPart(net, role, 2).eval() for role in ("head", "tail", "upsample"))
+    assert (head.output_names, tail.output_names, upsample.output_names) == (("skip", "mid"), ("body",), ("restored",))
+    x = torch.rand(1, 3, 16, 16)
+    with torch.no_grad():
+        skip, mid = head(x)
+        feat = HOST_OPS["add"](skip.numpy(), tail(mid)[0].numpy())
+        chained = upsample(torch.from_numpy(feat))[0]
+        whole = net(x)
+    assert chained.shape == whole.shape == (1, 3, 64, 64)
+    np.testing.assert_allclose(chained.numpy(), whole.numpy(), rtol=1e-5, atol=1e-5)
+
+
+def test_realesrgan_x4_recipe_runs_three_parts_with_min_max_ranges():
+    from libreyolo.export.axelera import AXELERA_SIZE_RECIPES
+
+    assert AXELERA_SIZE_RECIPES[("realesrgan", "restore", "x4")] == {
+        "rrdb_split": 12,
+        "quantization_scheme": "per_tensor_min_max",
+    }

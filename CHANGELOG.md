@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis export for Real-ESRGAN-x4, validated as three compiled parts.** Its whole graph's constants overflow the Metis DDR pool, so the RRDB network runs as three compiled parts split at block 12, and the host adds the trunk skip between parts 2 and 3 (new host operation `add`). On 296 COCO crops upscaled 4x from 64 px: PSNR 22.44 vs 22.49 dB FP32 (-0.05 dB). Measured on the prototype parts path; the library generates identical part graphs, calibration and recipe, and a library re-export confirmation is pending.
+
 - **Speridlabs Iris-Z: text to image and image to depth from one model, `LibreGen("speridlabs-iris-z")`.**
   Speridlabs' FLUX.2 fine-tune that denoises an image and its depth together. `LibreGen("speridlabs-iris-z")("a lighthouse at dusk")` generates images (50 steps); `LibreGen("speridlabs-iris-z", task="depth")("street.jpg")` returns `Results.depth_map` as relative log depth at the photo's size, with sky masked, in 4 steps (`ensemble=10` for the multi-seed median of the paper's benchmarks). Sizes `9b` (Iris-Z-small, default) and `32b` (Iris-Z-big). CLI: `libreyolo generate source=street.jpg task=depth`. The transformer, samplers and prompt embedders are ported from the Apache-2.0 Iris-Z SDK; weights are not mirrored and download from `speridlabs/iris-z` at a pinned revision (FLUX Non-Commercial License), the FLUX.2 VAE from FLUX.2 klein and the text encoders from Mistral AI and Qwen (Apache-2.0). Nothing is gated. Install `libreyolo[gen]`. See ADR 0033 and `docs/libregen.md`.
 
