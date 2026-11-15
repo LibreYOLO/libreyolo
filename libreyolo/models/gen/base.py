@@ -64,7 +64,10 @@ _SNAPSHOT_LOCKS: Dict[str, threading.Lock] = {}
 
 
 def _snapshot_lock(local_dir: Path) -> threading.Lock:
-    key = str(local_dir.resolve())
+    # abspath, not resolve(): on Windows resolve() only expands 8.3 short names
+    # (C:\Users\RUNNER~1) once the folder exists, so two threads racing on a
+    # first download could get different keys and both download.
+    key = os.path.normcase(os.path.abspath(local_dir))
     with _LOAD_LOCKS_GUARD:
         lock = _SNAPSHOT_LOCKS.get(key)
         if lock is None:

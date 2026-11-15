@@ -641,6 +641,17 @@ def test_two_instances_prepare_one_snapshot(tmp_path, monkeypatch):
     assert not list((tmp_path / "weights" / "LibreSanaSprint0.6b").glob("*.tmp"))
 
 
+def test_snapshot_lock_key_does_not_depend_on_the_folder_existing(tmp_path, monkeypatch):
+    """Relative and absolute spellings share one lock, before and after the folder exists."""
+    from libreyolo.models.gen.base import _snapshot_lock
+
+    monkeypatch.chdir(tmp_path)
+    before = _snapshot_lock(Path("weights") / "LibreSanaSprint0.6b")
+    (tmp_path / "weights" / "LibreSanaSprint0.6b").mkdir(parents=True)
+    after = _snapshot_lock(tmp_path / "weights" / "LibreSanaSprint0.6b")
+    assert before is after
+
+
 def test_marker_is_never_seen_half_written(tmp_path, monkeypatch):
     """Until the new marker is moved into place, readers see the previous complete one."""
     import os
