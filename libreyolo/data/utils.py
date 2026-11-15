@@ -766,10 +766,15 @@ def _download_and_extract_zip(url: str, dest: Path) -> None:
         with zipfile.ZipFile(tmp_path, "r") as zf:
             # Every layout extracts into a private scratch folder and is then
             # merged into dest without overwriting or deleting anything: dest
-            # can be a user's own folder (a YAML with ``path: .``).
+            # can be a user's own folder (a YAML with ``path: .``). The scratch
+            # folder lives inside dest, so only dest needs to be writable.
             names = zf.namelist()
-            root_dirs = set(n.split("/")[0] for n in names if "/" in n)
-            scratch = Path(tempfile.mkdtemp(prefix=".libreyolo-extract-", dir=dest.parent))
+            # A single root folder only when every entry sits inside it;
+            # top-level files beside one folder are kept, not dropped.
+            root_dirs = set(n.split("/")[0] for n in names)
+            if not all("/" in n for n in names):
+                root_dirs = set()
+            scratch = Path(tempfile.mkdtemp(prefix=".libreyolo-extract-", dir=dest))
             try:
                 zf.extractall(scratch)
                 src = scratch

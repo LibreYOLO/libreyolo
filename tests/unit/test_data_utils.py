@@ -452,4 +452,19 @@ def test_zip_without_a_single_root_never_overwrites_dest(tmp_path, monkeypatch):
     assert (project / "data.yaml").read_text() == "mine"
     assert (project / "train" / "images" / "a.jpg").exists()
     assert (project / "valid" / "images" / "b.jpg").exists()
-    assert not list((tmp_path / "parent").glob(".libreyolo-extract-*"))
+    assert not list(project.glob(".libreyolo-extract-*"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permissions")
+def test_zip_download_needs_only_dest_to_be_writable(tmp_path, monkeypatch):
+    data_utils = _fake_zip_download(monkeypatch, tmp_path, {"a.txt": b"x", "b/c.txt": b"y"})
+    parent = tmp_path / "parent"
+    project = parent / "project"
+    project.mkdir(parents=True)
+    parent.chmod(0o555)
+    try:
+        data_utils._download_and_extract_zip("https://example.invalid/evil.zip", project)
+    finally:
+        parent.chmod(0o755)
+    assert (project / "a.txt").exists() and (project / "b" / "c.txt").exists()
+    assert not list(project.glob(".libreyolo-extract-*"))
