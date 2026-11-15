@@ -52,7 +52,13 @@ def test_matrix_uses_capability_statuses_only():
 
 def test_hybrid_tier_exports_and_is_documented(monkeypatch, caplog):
     """A hybrid row is not blocked: preflight logs the split, INT8 stays allowed."""
+    import logging
+
     from libreyolo.export import support
+
+    # libreyolo's default logging setup turns propagation off; let caplog see the record
+    # whatever ran before this test.
+    monkeypatch.setattr(logging.getLogger("libreyolo"), "propagate", True)
     from libreyolo.export.support import SupportEntry, precision_support
     from tools import gen_compat_table
 
