@@ -4710,6 +4710,27 @@ _add(
     ),
 )
 _add(
+    "hybrid",
+    ("rtdetr",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "Hybrid INT8 export: the CNN backbone with the encoder's input "
+        "projections, and the convolutional fusion neck with the decoder's input "
+        "projections, are compiled with Axelera's toolchain and run on the Metis "
+        "AIPU; the attention encoder layer and the decoder (query selection, "
+        "deformable attention) run on the host CPU as FP32 ONNX graphs through "
+        "ONNX Runtime (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs "
+        "and metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed square input"
+    ),
+)
+_add(
     "blocked",
     ("rfdetr",),
     ("detect",),
@@ -5094,6 +5115,10 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "checkpoint is published"
         ),
     },
+    ("rtdetr", "detect", "axelera"): {
+        size: "has not been measured on a Metis yet"
+        for size in ("r34", "r50", "r50m", "r101", "l", "x")
+    },
     ("efficientdet", "detect", "axelera"): {
         "d4": "has not been measured on a Metis yet"
     },
@@ -5146,6 +5171,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("ssd", "detect"),
             ("efficientdet", "detect"),
             ("rtmdet", "segment"),
+            ("rtdetr", "detect"),
         }
     ),
 }

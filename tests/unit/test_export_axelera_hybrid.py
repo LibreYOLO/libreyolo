@@ -1,0 +1,201 @@
+"""Hybrid Axelera exports (support tier "hybrid"): RT-DETR's CNN parts on Metis, its transformer on the host.
+
+The fake SDK from test_axelera_backend plays the compiler and the device (it
+runs each compiled part's FP32 ONNX), so the chain is checked end to end
+without Axelera's packages.
+"""
+
+from __future__ import annotations
+
+import copy
+from pathlib import Path
+
+import numpy as np
+import pytest
+import torch
+
+from tests.unit.test_axelera_backend import _dataset, _image, _install_fake_sdk
+
+pytestmark = pytest.mark.unit
+pytest.importorskip("onnxruntime")
+
+OUTPUTS = ("pred_logits", "pred_boxes")
+IMGSZ = 160
+
+
+@pytest.fixture(scope="module")
+def sdk():
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        yield _install_fake_sdk(monkeypatch)
+
+
+def _rtdetr():
+    from libreyolo.models.rtdetr.model import LibreRTDETR
+
+    return LibreRTDETR._from_scratch(size="r18", device="cpu", seed=0)
+
+
+def test_rtdetr_axelera_is_a_hybrid_int8_row():
+    from libreyolo.export.support import get_support, precision_support
+
+    entry = get_support("rtdetr", "detect", "axelera")
+    assert entry.tier == "hybrid"
+    assert "host CPU" in entry.reason and "onnxruntime" in entry.constraint
+    assert precision_support("rtdetr", "detect", "axelera") == (True, True)
+
+
+def test_unfrozen_batchnorms_keep_the_outputs():
+    from libreyolo.export.exporter import _unfrozen_batchnorms
+    from libreyolo.models.rtdetr.backbone import FrozenBatchNorm2d
+
+    torch.manual_seed(0)
+    norm = FrozenBatchNorm2d(4)
+    norm.weight.uniform_(0.5, 2.0)
+    norm.bias.normal_()
+    norm.running_mean.normal_()
+    norm.running_var.uniform_(0.5, 2.0)
+    net = torch.nn.Sequential(torch.nn.Conv2d(3, 4, 3, padding=1), torch.nn.Sequential(norm)).eval()
+    x = torch.rand(2, 3, 8, 8)
+    with torch.no_grad():
+        expected = net(x)
+        _unfrozen_batchnorms(net)
+        actual = net(x)
+    assert type(net[1][0]) is torch.nn.BatchNorm2d and not net[1][0].training
+    torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+def _assert_same_queries(actual, expected, tol):
+    """Decoder outputs match up to the order of the queries.
+
+    Query selection is a TopK over the encoder scores: in a random-init model
+    two near-tied scores can swap under float noise, and the decoder is
+    permutation-equivariant over its queries, so the outputs swap rows too.
+    """
+    a = np.concatenate([np.asarray(v, dtype=np.float64)[0] for v in actual], axis=-1)
+    e = np.concatenate([np.asarray(v, dtype=np.float64)[0] for v in expected], axis=-1)
+    assert a.shape == e.shape
+    distance = (np.abs(a[:, None, :] - e[None, :, :]) - tol * (1 + np.abs(e[None, :, :]))).max(-1)
+    assert (distance.min(axis=1) <= 0).all() and (distance.min(axis=0) <= 0).all()
+    assert (np.diagonal(distance) <= 0).mean() >= 0.95
+
+
+@pytest.mark.parametrize("split", ["backbone", "neck"])
+def test_rtdetr_hybrid_parts_reproduce_the_native_model(split):
+    from libreyolo.export.exporter import (
+        _DETRBackboneWrapper,
+        _DETRHostTailWrapper,
+        _detr_neck_parts,
+        _unfrozen_batchnorms,
+    )
+
+    net = _rtdetr().model.eval()
+    x = torch.rand(1, 3, IMGSZ, IMGSZ)
+    with torch.no_grad():
+        expected = net(x)
+        copy_ = _unfrozen_batchnorms(copy.deepcopy(net).eval())
+        features = _DETRBackboneWrapper(copy_).eval()(x)
+        if split == "backbone":
+            actual = _DETRHostTailWrapper(copy_, OUTPUTS).eval()(*features)
+        else:
+            samples = [torch.rand(1, 3, IMGSZ, IMGSZ) for _ in range(2)]
+            pack, neck, decoder = _detr_neck_parts(copy_, OUTPUTS, samples)
+            assert min(pack.scales) == 1.0
+            assert all(float(k).hex().startswith("0x1.0000000000000p") for k in pack.scales)
+            canvas = pack(*features)[0]
+            assert canvas.shape == (1, 3 * 256, IMGSZ // 8, IMGSZ // 8)
+            actual = decoder(*neck(canvas))
+    _assert_same_queries(
+        [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
+    )
+    # The caller's model keeps its backbone and its own input projections.
+    assert net.backbone is not None
+    assert isinstance(net.encoder.input_proj[0], torch.nn.Sequential)
+    assert isinstance(net.decoder.input_proj[0], torch.nn.Sequential)
+
+
+def _export(model, tmp_path, name):
+    return Path(
+        model.export(
+            format="axelera",
+            data=str(_dataset(tmp_path)),
+            imgsz=IMGSZ,
+            output_path=str(tmp_path / f"{name}_axelera_model"),
+        )
+    )
+
+
+@pytest.mark.parametrize("split", ["neck", "backbone"])
+def test_rtdetr_hybrid_export_runs_the_chain(sdk, tmp_path, monkeypatch, split):
+    import yaml
+
+    from libreyolo import LibreYOLO
+    from libreyolo.export import axelera
+
+    if split == "backbone":
+        monkeypatch.setitem(
+            axelera.AXELERA_SIZE_RECIPES, ("rtdetr", "detect", "r18"), {"hybrid_split": "backbone"}
+        )
+    model = _rtdetr()
+    artifact = _export(model, tmp_path, f"rtdetr_{split}")
+    assert not list(tmp_path.glob("*.export_intermediate*"))
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "graph_outputs_v1"
+    assert meta["graph_outputs"] == meta["output_names"] == list(OUTPUTS)
+    assert meta["hybrid"]["split"] == split
+    if split == "neck":
+        assert len(meta["hybrid"]["canvas_scales"]) == 3
+    kinds = ["axm" if "axm" in part else "onnx" for part in meta["parts"]]
+    if split == "neck":
+        assert kinds == ["axm", "onnx", "axm", "onnx"]
+        assert meta["parts"][2]["input"] == "canvas"
+        assert sorted(p.name for p in artifact.glob("*.axm")) == [
+            "rtdetr_neck.axm",
+            "rtdetr_neck_part2.axm",
+        ]
+    else:
+        assert kinds == ["axm", "onnx"]
+    assert meta["parts"][0]["input"] == "images"
+    assert sorted(meta["parts"][0]["outputs"]) == ["feat_s16", "feat_s32", "feat_s8"]
+    assert meta["parts"][-1]["outputs"] == list(OUTPUTS)
+
+    backend = LibreYOLO(str(artifact))
+    assert type(backend).__name__ == "AxeleraBackend" and backend.model_family == "rtdetr"
+    image = _image(shape=(IMGSZ, IMGSZ, 3))
+    blob = model._preprocess(image, input_size=IMGSZ)[0].numpy()
+    actual = backend._run_inference(blob)
+    with torch.no_grad():
+        expected = model.model.eval()(torch.from_numpy(blob))
+    _assert_same_queries(actual, [expected[name].numpy() for name in OUTPUTS], 1e-3)
+    assert backend.chain_timing["images"] == 1
+    assert backend.chain_timing["aipu_ms"] > 0 and backend.chain_timing["host_ms"] > 0
+    result = backend(image, conf=0.0)
+    assert len(result.boxes) > 0
+
+
+def test_rtdetr_hybrid_calibration_takes_square_sizes(sdk):
+    from libreyolo.export.exporter import AxeleraExporter
+
+    model = _rtdetr()
+    preprocess = AxeleraExporter(model)._calibration_preprocess()
+    chw, _ = preprocess(_image(shape=(48, 64, 3)), (IMGSZ, IMGSZ))
+    assert chw.shape == (3, IMGSZ, IMGSZ) and chw.dtype == np.float32
+    with pytest.raises(ValueError, match="square"):
+        preprocess(_image(), (IMGSZ, 2 * IMGSZ))
+
+
+def test_unknown_hybrid_split_is_rejected(sdk, tmp_path, monkeypatch):
+    from libreyolo.export import axelera
+
+    monkeypatch.setitem(
+        axelera.AXELERA_SIZE_RECIPES, ("rtdetr", "detect", "r18"), {"hybrid_split": "decoder"}
+    )
+    with pytest.raises(ValueError, match="hybrid split"):
+        _export(_rtdetr(), tmp_path, "bad")
+
+
+def test_unmeasured_rtdetr_sizes_are_not_available_yet():
+    from libreyolo.export.support import BLOCKED_SIZES, UNMEASURED_SIZES
+
+    unmeasured = UNMEASURED_SIZES.get(("rtdetr", "detect", "axelera"), {})
+    assert "r18" not in unmeasured
+    assert not set(unmeasured) & set(BLOCKED_SIZES.get(("rtdetr", "detect", "axelera"), {}))

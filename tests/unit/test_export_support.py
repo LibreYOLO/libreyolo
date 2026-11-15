@@ -81,10 +81,11 @@ def test_hybrid_tier_exports_and_is_documented(monkeypatch, caplog):
 
     rows, _, _, hybrid, _ = gen_compat_table._rows()
     assert any(row.startswith("| rtdetr | detect | hybrid |") for row in rows)
-    assert hybrid == [
+    assert (
         "- `rtdetr` / `detect` / `onnx`: Backbone on the accelerator, transformer "
         "decoder on the host CPU. Constraint: fixed input size"
-    ]
+    ) in hybrid
+    assert any(line.startswith("- `rtdetr` / `detect` / `axelera`: Hybrid") for line in hybrid)
     assert "## Hybrid combinations" in gen_compat_table.render_docs()
 
 

@@ -335,7 +335,16 @@ def _host_onnx_session(path: Path, step: ChainStep, axm: Path):
             f"{axm.parent} runs part of the model on the host CPU as ONNX ({path.name}), "
             "which needs ONNX Runtime: pip install onnxruntime"
         ) from exc
-    session = onnxruntime.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    options = onnxruntime.SessionOptions()
+    # Host steps run between device calls: no spin-waiting threads, and
+    # OMP_NUM_THREADS (when set) caps the pool like the other host math.
+    options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+    threads = os.environ.get("OMP_NUM_THREADS", "").strip()
+    if threads.isdigit() and int(threads) > 0:
+        options.intra_op_num_threads = int(threads)
+    session = onnxruntime.InferenceSession(
+        str(path), options, providers=["CPUExecutionProvider"]
+    )
     graph_inputs = sorted(i.name for i in session.get_inputs())
     graph_outputs = {o.name for o in session.get_outputs()}
     if graph_inputs != sorted(step.inputs) or not set(step.outputs) <= graph_outputs:

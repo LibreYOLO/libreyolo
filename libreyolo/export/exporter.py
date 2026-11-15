@@ -9,6 +9,7 @@ import copy
 import importlib.util
 import json
 import logging
+import math
 import tempfile
 import warnings
 from abc import ABC, abstractmethod
@@ -4168,6 +4169,243 @@ class _SSDPartBWrapper(torch.nn.Module):
         )
 
 
+#: Transformer detectors exported as hybrids (support tier ``hybrid``): the
+#: CNN backbone and the encoder's input projections compile for the Metis
+#: AIPU, and the transformer encoder and decoder run as an FP32 ONNX graph on
+#: the host CPU. The artifact ends in the family's ONNX outputs
+#: (``graph_outputs_v1``), which the shared backend parser decodes.
+_AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
+    ("rtdetr", "detect"): ("pred_logits", "pred_boxes"),
+}
+
+
+def _unfrozen_batchnorms(module: torch.nn.Module) -> torch.nn.Module:
+    """Replace every ``FrozenBatchNorm2d`` of ``module`` (in place) by an equal ``BatchNorm2d``.
+
+    The frozen form exports as separate Mul/Add nodes the Axelera compiler
+    does not fold; a plain batch norm in eval mode folds into its convolution
+    during the ONNX export.
+    """
+    for name, child in list(module.named_children()):
+        if type(child).__name__ == "FrozenBatchNorm2d":
+            norm = torch.nn.BatchNorm2d(int(child.weight.numel()), eps=float(child.eps))
+            with torch.no_grad():
+                norm.weight.copy_(child.weight)
+                norm.bias.copy_(child.bias)
+                norm.running_mean.copy_(child.running_mean)
+                norm.running_var.copy_(child.running_var)
+            setattr(module, name, norm.to(child.weight.device).eval())
+        else:
+            _unfrozen_batchnorms(child)
+    return module
+
+
+class _DETRBackboneWrapper(torch.nn.Module):
+    """Part 1 of a hybrid DETR export: the CNN backbone and the encoder's input projections.
+
+    Returns the projected feature maps by stride (``feat_s8``, ``feat_s16``,
+    ``feat_s32`` for RT-DETR); every op is a convolution, a pooling or an
+    activation, so the whole part runs on the Metis AIPU.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        strides = [int(v) for v in model.encoder.feat_strides]
+        self.output_names = tuple(f"feat_s{stride}" for stride in strides)
+
+    def forward(self, x):
+        features = self.model.backbone(x)
+        projections = self.model.encoder.input_proj
+        return tuple(projections[i](feature) for i, feature in enumerate(features))
+
+
+class _DETRHostTailWrapper(torch.nn.Module):
+    """Part 2 of a hybrid DETR export, on the host: encoder and decoder after the input projections.
+
+    A deep copy of the model whose input projections are identities (and
+    which has no backbone) runs its own encoder and decoder forward, so the
+    host graph is the native model's code from the projected features to
+    ``pred_logits`` and ``pred_boxes``. The caller's model is not touched.
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        backbone, model.backbone = model.backbone, None
+        try:
+            tail = copy.deepcopy(model).eval()
+        finally:
+            model.backbone = backbone
+        tail.encoder.input_proj = torch.nn.ModuleList(
+            torch.nn.Identity() for _ in tail.encoder.input_proj
+        )
+        self.model = tail
+        self.output_names = tuple(output_names)
+
+    def forward(self, *features):
+        outputs = self.model.decoder(self.model.encoder(list(features)))
+        return tuple(outputs[name] for name in self.output_names)
+
+
+def _identity_depthwise(channels: int, stride: int = 1, scale: float = 1.0) -> torch.nn.Conv2d:
+    """A 1x1 convolution with constant weights: a per-channel scale, optionally with a stride-``stride`` subsample.
+
+    Without a stride it is depthwise. With one it is a dense convolution with
+    the scale on its diagonal (zeros elsewhere, the same result): the Metis
+    lowering rejects a strided 1x1 depthwise convolution on a stride-8 canvas
+    (a DWPU command length over its limit), while the dense form compiles.
+    """
+    if stride == 1:
+        conv = torch.nn.Conv2d(channels, channels, 1, groups=channels, bias=False)
+        with torch.no_grad():
+            conv.weight.fill_(float(scale))
+        return conv
+    conv = torch.nn.Conv2d(channels, channels, 1, stride=stride, bias=False)
+    with torch.no_grad():
+        conv.weight.zero_()
+        index = torch.arange(channels)
+        conv.weight[index, index, 0, 0] = float(scale)
+    return conv
+
+
+class _DETREncoderPackWrapper(torch.nn.Module):
+    """Host step of a hybrid DETR export with the neck on Metis: the transformer encoder, then one canvas.
+
+    Runs the encoder's attention layers (AIFI) on their feature level, as the
+    native encoder does, and stacks the levels on channels at the finest level's
+    size (coarser levels nearest-upsampled), so the neck part has the single
+    input a compiled part takes. The neck subsamples them back exactly. Level
+    ``i`` is multiplied by ``scales[i]`` so that every level spans the same
+    range in the canvas's one INT8 scale; the neck divides it out again.
+    """
+
+    def __init__(self, encoder: torch.nn.Module, scales=None):
+        super().__init__()
+        self.encoder = encoder
+        self.scales = [1.0] * len(encoder.input_proj) if scales is None else [float(v) for v in scales]
+
+    def forward(self, *features):
+        encoder = self.encoder
+        features = list(features)
+        for i, level in enumerate(encoder.use_encoder_idx):
+            h, w = features[level].shape[2:]
+            flat = features[level].flatten(2).permute(0, 2, 1)
+            if encoder.eval_spatial_size is None:
+                pos_embed = encoder.build_2d_sincos_position_embedding(
+                    w, h, encoder.hidden_dim, encoder.pe_temperature
+                ).to(flat.device)
+            else:
+                pos_embed = encoder._get_pos_embed(level, h, w, flat)
+            memory = encoder.encoder[i](flat, pos_embed=pos_embed)
+            features[level] = (
+                memory.permute(0, 2, 1).reshape(-1, encoder.hidden_dim, h, w).contiguous()
+            )
+        size = features[0].shape[2:]
+        levels = [features[0]] + [
+            torch.nn.functional.interpolate(f, size=size, mode="nearest") for f in features[1:]
+        ]
+        levels = [f * k if k != 1.0 else f for f, k in zip(levels, self.scales)]
+        return (torch.cat(levels, dim=1),)
+
+
+class _DETRNeckWrapper(torch.nn.Module):
+    """Compiled neck part of a hybrid DETR export: canvas -> fusion neck -> decoder input projections.
+
+    The canvas goes through one identity depthwise conv first (a graph input
+    that fans out straight into several ops is split into two AIPU functions),
+    then each level is sliced off its channels and subsampled back to its own
+    stride by a strided 1x1 conv (dense, diagonal) whose constant weight undoes
+    the level's canvas scale. The encoder copy runs with its attention layers and input
+    projections off, i.e. the convolutional fusion neck only; the decoder's
+    1x1 input projections (conv + batch norm) follow.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(
+        self, encoder: torch.nn.Module, decoder_projections, channels: int, strides, scales=None
+    ):
+        super().__init__()
+        self.encoder = encoder
+        self.projections = decoder_projections
+        self.channels = int(channels)
+        strides = [int(v) for v in strides]
+        levels = len(strides)
+        scales = [1.0] * levels if scales is None else [float(v) for v in scales]
+        self.entry = _identity_depthwise(self.channels * levels)
+        self.picks = torch.nn.ModuleList(
+            torch.nn.Identity()
+            if i == 0 and scales[0] == 1.0
+            else _identity_depthwise(self.channels, strides[i] // strides[0], 1.0 / scales[i])
+            for i in range(levels)
+        )
+        self.output_names = tuple(f"memory_s{stride}" for stride in strides)
+
+    def forward(self, canvas):
+        x = self.entry(canvas)
+        c = self.channels
+        features = [pick(x[:, c * i : c * (i + 1)]) for i, pick in enumerate(self.picks)]
+        fused = self.encoder(features)
+        return tuple(self.projections[i](f) for i, f in enumerate(fused))
+
+
+class _DETRDecoderWrapper(torch.nn.Module):
+    """Host step of a hybrid DETR export with the neck on Metis: the decoder after its input projections."""
+
+    def __init__(self, decoder: torch.nn.Module, output_names):
+        super().__init__()
+        self.decoder = decoder
+        self.output_names = tuple(output_names)
+
+    def forward(self, *memory):
+        outputs = self.decoder(list(memory))
+        return tuple(outputs[name] for name in self.output_names)
+
+
+def _detr_neck_parts(model: torch.nn.Module, output_names, samples=()):
+    """``(encoder_pack, neck, decoder)`` wrappers of a hybrid DETR export with the neck on Metis.
+
+    Each gets its own deep copy of the modules it runs; ``model`` (an export
+    copy whose backbone is part 1) is not modified. With calibration
+    ``samples`` (``[1, 3, H, W]`` images), each canvas level is scaled by the
+    power of two that brings its peak over them closest to the largest
+    level's peak (exact in float: the neck divides it out).
+    """
+    encoder = model.encoder
+    levels = len(encoder.input_proj)
+    pack = _DETREncoderPackWrapper(copy.deepcopy(encoder)).eval()
+    scales = None
+    if samples:
+        backbone = _DETRBackboneWrapper(model).eval()
+        peaks = torch.zeros(levels)
+        c = int(encoder.hidden_dim)
+        with torch.no_grad():
+            for sample in samples:
+                canvas = pack(*backbone(torch.as_tensor(sample)))[0]
+                peaks = torch.maximum(
+                    peaks, torch.stack([canvas[:, c * i : c * (i + 1)].abs().max() for i in range(levels)])
+                )
+        if bool((peaks > 0).all()):
+            # Powers of two, so scaling and unscaling are exact in float.
+            scales = [float(2.0 ** round(math.log2(float(peaks.max() / peak)))) for peak in peaks]
+            pack.scales = scales
+    neck_encoder = copy.deepcopy(encoder)
+    neck_encoder.input_proj = torch.nn.ModuleList(torch.nn.Identity() for _ in range(levels))
+    neck_encoder.num_encoder_layers = 0
+    neck_encoder.encoder = torch.nn.ModuleList()
+    decoder = copy.deepcopy(model.decoder)
+    projections = decoder.input_proj
+    decoder.input_proj = torch.nn.ModuleList(torch.nn.Identity() for _ in projections)
+    neck = _DETRNeckWrapper(
+        neck_encoder, projections, encoder.hidden_dim, encoder.feat_strides, scales
+    ).eval()
+    return pack, neck, _DETRDecoderWrapper(decoder, output_names).eval()
+
+
 def _efficientdet_at_canvas(model, canvas: int):
     """A copy of ``model`` (a LibreEfficientDet) that runs at a smaller square canvas.
 
@@ -4418,6 +4656,10 @@ class AxeleraExporter(BaseExporter):
         """ONNX output names when the whole dense graph runs on Metis, else ``()``."""
         return _AXELERA_GRAPH_OUTPUTS.get((self.model._get_model_name(), self._task()), ())
 
+    def _hybrid_outputs(self) -> tuple[str, ...]:
+        """Final ONNX output names of a hybrid export (backbone on Metis, transformer on the host), else ``()``."""
+        return _AXELERA_HYBRID_OUTPUTS.get((self.model._get_model_name(), self._task()), ())
+
     def _calibration_preprocess(self):
         """``(rgb_hwc, imgsz) -> (chw, ratio)`` matching what the exported model sees.
 
@@ -4450,6 +4692,16 @@ class AxeleraExporter(BaseExporter):
 
             return restore
         preprocess = self.model._get_preprocess_numpy()
+        if self._hybrid_outputs():
+            # DETR preprocessing takes one square size and returns NCHW.
+            def square(rgb, imgsz):
+                h, w = (imgsz, imgsz) if isinstance(imgsz, int) else imgsz
+                if int(h) != int(w):
+                    raise ValueError(f"{self.model._get_model_name()} exports a square input, got {h}x{w}.")
+                chw, ratio = preprocess(rgb, int(h))
+                return (chw[0] if chw.ndim == 4 else chw), ratio
+
+            return square
         if self.model._get_model_name() == "retinanet":
             # RetinaNet's own preprocessing gives every image its own shape;
             # the compiled graph takes one square canvas, so images are fitted
@@ -4630,6 +4882,9 @@ class AxeleraExporter(BaseExporter):
                 output_names=list(self._raw_wrapper.output_names),
                 dynamic_axes=None,
             )
+        hybrid = self._hybrid_outputs()
+        if hybrid:
+            return self._export_hybrid_onnx(dummy, out, opset, simplify, imgsz, hybrid)
         live = self.model.model
         self._chain_tail = None
         if self.model._get_model_name() == "ssd":
@@ -4747,6 +5002,81 @@ class AxeleraExporter(BaseExporter):
             )
         return exported
 
+    def _hybrid_split(self) -> str:
+        """Where a hybrid export stops running on Metis: ``"neck"`` (default) or ``"backbone"``."""
+        split = self._size_recipe().get("hybrid_split", "neck")
+        if split not in ("neck", "backbone"):
+            raise ValueError(f"Unknown hybrid split {split!r}; use 'neck' or 'backbone'.")
+        return split
+
+    def _export_hybrid_onnx(self, dummy, out: Path, opset, simplify, imgsz, outputs):
+        """Export the parts of a hybrid DETR export and keep their run order in ``_hybrid_parts``.
+
+        ``"backbone"`` split: the backbone and the encoder's input projections on
+        Metis, everything after them as one host ONNX graph. ``"neck"`` split
+        (default): the attention encoder and the canvas packing on the host,
+        then the fusion neck and the decoder's input projections on Metis, then
+        the decoder on the host.
+        """
+        from .onnx import _export_onnx_graph
+
+        net = _unfrozen_batchnorms(copy.deepcopy(self.model.model).eval())
+        self._raw_wrapper = _DETRBackboneWrapper(net).eval()
+        split = self._hybrid_split()
+        features = list(self._raw_wrapper.output_names)
+        onnx_meta = self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz)
+
+        def export(module, sample, path, inputs, names):
+            self._intermediate_paths.append(path)
+            return _export_onnx_graph(
+                module,
+                sample,
+                output_path=path,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=onnx_meta,
+                input_names=list(inputs),
+                output_names=list(names),
+                dynamic_axes=None,
+            )
+
+        part1 = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        logger.info(
+            "Step 1/2: Exporting the hybrid parts (%s split): backbone ONNX for Metis (%s)",
+            split,
+            part1,
+        )
+        exported = export(self._raw_wrapper, dummy, part1, ["images"], features)
+        with torch.no_grad():
+            sample = tuple(self._raw_wrapper(dummy))
+        if split == "backbone":
+            tail = _DETRHostTailWrapper(net, outputs).eval()
+            host = export(tail, sample, str(out.with_name(f"{out.name}.export_intermediate.host.onnx")), features, outputs)
+            self._hybrid_parts = [
+                {"host_onnx": host, "inputs": features, "outputs": list(outputs)},
+            ]
+            return exported
+        pack, neck, decoder = _detr_neck_parts(net, outputs, self._equalization_samples())
+        self._hybrid_canvas_scales = list(pack.scales)
+        logger.info(
+            "Axelera hybrid: canvas level scales %s (powers of two that bring each level's "
+            "calibration peak near the largest one; the neck divides them out)",
+            ", ".join(f"{v:.3f}" for v in pack.scales),
+        )
+        with torch.no_grad():
+            canvas = pack(*sample)[0]
+            memory = tuple(neck(canvas))
+        host1 = export(pack, sample, str(out.with_name(f"{out.name}.export_intermediate.host1.onnx")), features, ["canvas"])
+        part2 = export(neck, canvas, str(out.with_name(f"{out.name}.export_intermediate.part2.onnx")), ["canvas"], neck.output_names)
+        host2 = export(decoder, memory, str(out.with_name(f"{out.name}.export_intermediate.host2.onnx")), neck.output_names, outputs)
+        self._hybrid_parts = [
+            {"host_onnx": host1, "inputs": features, "outputs": ["canvas"]},
+            {"compile": part2, "reference": neck, "input": "canvas", "merge_pad": False},
+            {"host_onnx": host2, "inputs": list(neck.output_names), "outputs": list(outputs)},
+        ]
+        return exported
+
     def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
         meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
         wrapper = self._raw_wrapper
@@ -4760,6 +5090,38 @@ class AxeleraExporter(BaseExporter):
                     "output_layout": wrapper.output_layout,
                     "output_names": list(wrapper.output_names),
                     "upscale": wrapper.upscale,
+                }
+            )
+            return meta
+        if isinstance(wrapper, _DETRBackboneWrapper):
+            outputs = list(self._hybrid_outputs())
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": outputs,
+                    "graph_outputs": outputs,
+                    "hybrid": (
+                        {
+                            "split": "backbone",
+                            "aipu": "backbone and encoder input projections",
+                            "host": "attention encoder, fusion neck and decoder (FP32 ONNX)",
+                        }
+                        if self._hybrid_split() == "backbone"
+                        else {
+                            "split": "neck",
+                            "aipu": "backbone, encoder input projections, fusion neck and "
+                            "decoder input projections",
+                            "host": "attention encoder and decoder (FP32 ONNX)",
+                            "canvas_scales": [
+                                round(float(v), 6)
+                                for v in getattr(self, "_hybrid_canvas_scales", ())
+                            ],
+                        }
+                    ),
                 }
             )
             return meta
@@ -4886,6 +5248,31 @@ class AxeleraExporter(BaseExporter):
         else:
             quantization_scheme = default_quantization_scheme(family, task)
 
+        if getattr(self, "_hybrid_parts", None):
+            from .axelera import export_axelera_parts
+
+            compiled = 1 + sum("compile" in part for part in self._hybrid_parts)
+            logger.info(
+                "Step 2/2: Quantizing and compiling for Axelera Metis (hybrid, %d compiled "
+                "parts; the transformer runs on the host)",
+                compiled,
+            )
+            return export_axelera_parts(
+                parts=[
+                    {"compile": onnx_path, "reference": self._raw_wrapper, "input": "images"},
+                    *self._hybrid_parts,
+                ],
+                output_path=output_path,
+                stem=Path(output_path).name.removesuffix(self.suffix) or "model",
+                metadata=metadata,
+                calibration=calibration_data,
+                quantization_scheme=quantization_scheme,
+                calibration_info=getattr(self, "_calibration_info", {}),
+                compiler_overrides=getattr(self, "_compiler_overrides", {}),
+                devkit_version=getattr(self, "_devkit_version", None),
+                verify=bool(verify),
+                verify_samples=self._verify_samples(dummy.shape[-2:]) if verify else None,
+            )
         if getattr(self, "_chain_tail", None) is not None:
             from .axelera import export_axelera_chain
 

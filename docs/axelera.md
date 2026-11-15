@@ -6,6 +6,8 @@
 > works with a larger measured drop, which the export logs once as a warning.
 > Accuracy never blocks an export; "blocked" is only for families that do not
 > compile, do not run or give meaningless output (`docs/export_support.md`).
+> "hybrid" means the convolutional part runs on the Metis and the attention
+> part on the host CPU (section 8).
 > Results are from one Metis M.2 Max with axelera-devkit / axelera-rt 1.9.0.
 
 Measured on device, paired INT8 vs FP32 on the same images, each size with the
@@ -63,6 +65,7 @@ a separate size:
 | RetinaNet | r50 | detect (1024x1024 canvas, default) | COCO val2017, 1000 | 0.3472 | 0.3410 | -0.62 (canvas -0.49 more; -1.11 vs own resize) | supported | `retinanet/detect/r50/2026-11-14/4` |
 | RetinaNet | r50 | detect (800x800 canvas, imgsz=800) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas -2.03 more; -2.25 vs own resize) | option (imgsz=800) | `retinanet/detect/r50/2026-11-14/3` |
 | SSD | 300 | detect (two parts, L2Norm on the host) | COCO val2017, 1000 | 0.2408 | 0.2403 | -0.05 | validated | `ssd/detect/300/2026-11-13/2` |
+| RT-DETR | r18 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 1000 | 0.4535 | 0.4528 | -0.07 | hybrid | `rtdetr/detect/r18/2026-11-15/2` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
 | EfficientDet | d2 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3744 | 0.3606 | -1.38 (canvas -5.31 more) | supported | `efficientdet/detect/d2/2026-11-14` |
@@ -135,7 +138,8 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 blocked: does not compile; d4 not measured yet) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 blocked `efficientdet/detect/d3/2026-11-14` |
 | Other families | all | all | not measured yet (section 11) | - |
-| RF-DETR and other transformer families | all | all | out of scope (section 11) | - |
+| RT-DETR | detect | r18 (hybrid: CNN backbone and fusion neck on the Metis, attention encoder layer and decoder on the host; r34, r50, r50m, r101, l and x not measured yet) | see `docs/export_support.md` | r18 `rtdetr/detect/r18/2026-11-15/2` (300: `rtdetr/detect/r18/2026-11-15`) |
+| RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
 
 The tiers in `docs/export_support.md` are generated from
 `libreyolo/export/support.py`; `libreyolo formats --family yolonas` prints
@@ -346,6 +350,7 @@ table at the top of this page.
 | RetinaNet-R50 (1024x1024 canvas, default) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3472 | 0.3410 | -0.62 (supported: -1.11 vs own resize) |
 | RetinaNet-R50 (800x800 canvas, imgsz=800) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas -2.03) |
 | SSD300 (two parts) | detect | COCO val2017, 1000 images | 128 coco128 | 0.2408 | 0.2403 | -0.05 (+0.09 on 300) |
+| RT-DETR-r18 (hybrid) | detect | COCO val2017, 1000 images | 64 coco128 | 0.4535 | 0.4528 | -0.07 (hybrid; -0.12 on 300) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
 | EfficientDet-d2 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3744 | 0.3606 | -1.38 (supported; canvas -5.31 more) |
@@ -537,6 +542,14 @@ FP32 graph on held-out images carried through the chain the same way
 on the host steps in `chain_timing` (`images`, `aipu_ms`, `host_ms`); each
 multi-part model's support note gives that split as measured.
 
+RT-DETR-r18 (hybrid, section 8) runs 83% of its multiply-accumulates on the
+Metis (25.7 of 30.8 GMACs: the ResNet backbone and the fusion neck), but the
+host steps take most of the time: per image, 82 ms on the AIPU parts and
+302 ms in the two host ONNX graphs at batch 1 (27 and 200 ms at batch 8),
+2.5 img/s end to end at batch 1 and 4.1 img/s at batch 8. Those were
+measured with 4 host threads on a busy 18-core NUC (load average about 20),
+so they are a floor; the host share depends on the CPU.
+
 RetinaNet resizes each image so its shorter side is 800 pixels (longer
 side up to 1333), so its input shape changes from image to image. The Metis
 graph takes one fixed shape, so the export fits each image into a square
@@ -651,6 +664,32 @@ pixel shuffle and adds the upsampled input. On 296 COCO crops upscaled 4x from
 0.606 vs 0.658), so x4t is supported with that measured drop (the validated
 bar for restoration is 0.3 dB).
 
+Hybrid exports (support tier `hybrid`, RT-DETR) run only the convolutional
+parts on the Metis. RT-DETR's attention encoder layer, its query selection
+(TopK over every feature position) and its decoder's deformable attention
+(sampling at learned offsets, softmax, LayerNorm) have no AIPU form, so the
+artifact chains four steps (`parts` in `metadata.yaml`):
+
+```text
+image -> [Metis: ResNet backbone, encoder input projections] -> 3 feature maps
+      -> [host ONNX: attention encoder on the stride-32 map, levels stacked into one canvas]
+      -> [Metis: fusion neck, decoder input projections] -> 3 memory maps
+      -> [host ONNX: query selection, decoder] -> pred_logits, pred_boxes -> Results
+```
+
+A compiled part takes one input, so the host stacks the three levels on
+channels at stride 8 (coarser levels nearest-upsampled, each scaled by the
+power of two that brings its calibration peak nearest the largest level's,
+so all share the canvas's one INT8 scale well);
+the neck part slices them back and undoes the upsampling and the scale with
+constant 1x1 convolutions, exactly (strided ones are dense with the scale on
+the diagonal: the compiler rejects a strided 1x1 depthwise convolution there). The host steps run in FP32 through ONNX
+Runtime (`onnxruntime` must be installed; `OMP_NUM_THREADS` caps its
+threads) and end at the ONNX export's `pred_logits` and `pred_boxes`
+(layout `graph_outputs_v1`), which the shared parser decodes. The backend's
+`chain_timing` holds the time spent in the AIPU parts and in the host steps;
+section 7 quotes the measured split.
+
 `metadata.yaml` holds LibreYOLO's export metadata (`schema_version`,
 `model_family`, `task`, `names`, `imgsz`, ...) plus:
 
@@ -667,6 +706,7 @@ bar for restoration is 0.3 dB).
 | `anchors`, `scale_x_y` | anchor boxes in input pixels per level (YOLOv2's grid-cell anchors are converted), and Darknet's centre scaling (anchor-based heads) |
 | `parts` | multi-part exports only (SSD300): the compiled parts and host steps in order. A compiled part is `{axm, input, outputs}` (`input` is `images` for the first part, which is also `axm`), plus `per_item: true` and `item_shapes` for a part that runs a stack of items one at a time; a host operation is `{host, input or inputs, output or outputs, ...parameters}` with `host` one of the backend's `HOST_OPS` (`l2norm`: `scale` per channel; a parameter `"@npz:<key>"` is an array from `host_arrays`); a host ONNX graph is `{onnx, inputs, outputs}`, run on the CPU by ONNX Runtime. The backend runs them in order and assembles `output_names` from their outputs; artifacts without `parts` are one `.axm`. |
 | `host_arrays` | multi-part exports whose host operations take arrays: the `.npz` holding them |
+| `hybrid` | hybrid exports only: `split` (`neck` or `backbone`), what runs on the AIPU and on the host, and the canvas level scales |
 | `class_index_map` | logit columns kept after the softmax (SSD300 and RetinaNet: COCO-91 to the 80 classes) |
 | `axelera` | SDK version, quantization scheme, cores, resources, compiler overrides, calibration source and image count (of the first part, for multi-part exports) |
 | `weights_license` | reminder of the weight license |
@@ -738,9 +778,11 @@ Other known limits:
 - PP-YOLOE-s, -m and -x: supported, mAP50-95 1.2 to 1.7 points below FP32 (section 7). The loss is in the box-distribution outputs and does not come from their output range: windowing them, or histogram ranges, did not help. PP-YOLOE-l is validated.
 - YOLOv4-b: supported, mAP50-95 1.52 points below FP32 with its recipe (section 7): its box outputs lose resolution in the Mish backbone; histogram ranges and a box-output window recover most of it (-6.8 to -1.52).
 - YOLO-NAS-pose n and s: supported, keypoint mAP50-95 1.3 and 2.2 points below FP32 (section 7); m and l are validated.
-- RF-DETR and other transformer families: attention, data-dependent TopK and
-  grid sampling are outside what the compiler places on the AIPU, and the host
-  can only run operators before or after the accelerated graph.
+- RF-DETR and other transformer-backbone families: attention, data-dependent
+  TopK and grid sampling are outside what the compiler places on the AIPU.
+  RT-DETR, whose backbone is a CNN, exports as hybrid instead (section 8):
+  its backbone and fusion neck run on the Metis, its attention encoder layer
+  and decoder on the host.
 - MobileNetV4 (classify) s and l: supported, top-1 1.7 points below FP32
   at best (section 7). Per-tensor INT8 of the inverted-residual streams (the
   stage-2 stream of s spans about +-400 while its median channel stays
