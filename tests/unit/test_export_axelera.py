@@ -1130,7 +1130,8 @@ def test_support_matrix_rows_for_axelera():
     assert "two output buffers" in BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b3"]
     assert ("efficientnetv2", "classify", "axelera") not in UNMEASURED_SIZES
     yolo1 = get_support("yolo1", "detect", "axelera")
-    assert yolo1.tier == "blocked" and "Einsum" in yolo1.reason
+    assert yolo1.tier == "validated" and "validated sizes: b " in yolo1.constraint
+    assert ("yolo1", "detect") in INT8_EXPORTS["axelera"]
     assert "ViT-L" in BLOCKED_SIZES[("midas", "depth", "axelera")]["l"]
     assert ("midas", "depth", "axelera") not in UNMEASURED_SIZES
     ssd = get_support("ssd", "detect", "axelera")
@@ -1402,6 +1403,7 @@ def test_only_listed_families_request_graph_passes():
         "picodet": ("channel_shuffle_to_conv",),
         "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
         "vgg": ("fc_rowconv",),
+        "yolo1": ("fc_rowconv",),
         "efficientdet": (
             "float_div_to_mul",
             "stack_sum_to_add",

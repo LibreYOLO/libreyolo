@@ -40,6 +40,7 @@ a separate size:
 | YOLOX | m | detect | COCO val2017, 1000 | 0.4582 | 0.4516 | -0.66 | validated | `yolox/detect/m/2026-11-11/2` |
 | YOLOX | l | detect | COCO val2017, 1000 | 0.4849 | 0.4781 | -0.68 | validated | `yolox/detect/l/2026-11-11/2` |
 | YOLOX | x | detect | COCO val2017, 1000 | 0.4943 | 0.4867 | -0.76 | validated | `yolox/detect/x/2026-11-11/2` |
+| YOLOv1 | b | detect | COCO val2017 (20 VOC classes), 1000 | 0.1638 | 0.1617 | -0.21 | validated | `yolo1/detect/b/2026-11-15/2` |
 | YOLOv2 | t | detect | COCO val2017, 1000 | 0.1108 | 0.1097 | -0.11 | validated | `yolo2/detect/t/2026-11-13/2` |
 | YOLOv2 | b | detect | COCO val2017, 1000 | 0.2947 | 0.2856 | -0.91 | validated | `yolo2/detect/b/2026-11-13/2` |
 | YOLOv3 | t | detect | COCO val2017, 1000 | 0.1023 | 0.1006 | -0.17 | validated | `yolo3/detect/t/2026-11-11/6` |
@@ -121,6 +122,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops; r50/r101 run their ASPP as per-tap 1x1 convolutions plus shifts) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-14/3`; r101 `deeplabv3/semantic/r101/2026-11-14` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
+| YOLOv1 | detect | b | see `docs/export_support.md` | b `yolo1/detect/b/2026-11-15/2` |
 | YOLOv2 | detect | t, b | see `docs/export_support.md` | t `yolo2/detect/t/2026-11-13/2`; b `yolo2/detect/b/2026-11-13/2` |
 | YOLOv3 | detect | t, b, spp | see `docs/export_support.md` | t `yolo3/detect/t/2026-11-11/6`; b `yolo3/detect/b/2026-11-11/6`; spp `yolo3/detect/spp/2026-11-11/3` |
 | YOLOv4 | detect | t, b (b supported with a measured drop) | see `docs/export_support.md` | t `yolo4/detect/t/2026-11-11/5`; b `yolo4/detect/b/2026-11-11/6` |
@@ -320,6 +322,7 @@ table at the top of this page.
 | YOLOX-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4582 | 0.4516 | -0.66 |
 | YOLOX-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4849 | 0.4781 | -0.68 |
 | YOLOX-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.4943 | 0.4867 | -0.76 |
+| YOLOv1-b | detect | COCO val2017 (20 VOC classes), 1000 images | 128 coco128 | 0.1638 | 0.1617 | -0.21 |
 | YOLOv2-t | detect | COCO val2017, 1000 images | 128 coco128 | 0.1108 | 0.1097 | -0.11 (+0.41 on 300) |
 | YOLOv2-b | detect | COCO val2017, 1000 images | 128 coco128 | 0.2947 | 0.2856 | -0.91 (-1.15 on 300) |
 | YOLOv3-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.1023 | 0.1006 | -0.17 |
@@ -701,7 +704,6 @@ Blocked for structural reasons (accuracy never blocks an export):
 - RetinaNet-r50v2: like FCOS, the head normalizes every convolution with GroupNorm (per-image statistics); quantization stops on the head's InstanceNormalization ops (fixed 800x800 canvas, 14.9 min, 5.1 GB peak RSS; ledger `retinanet/detect/r50v2/2026-11-12`). Use RetinaNet-r50.
 - RTMDet-Ins-x: at 640x640 lowering fails in AssignTilingFactors (ScheduleMemory, LowerTIR): no tiling factor fits L1 (3.99 MB needed, 3.32 MB available; 2 h 08 min, 8.1 GB peak RSS; ledger `rtmdet/segment/x/2026-11-12`). Use RTMDet-Ins-l.
 - MiDaS-l (DPT ViT-L, 384 px): quantization stops at the quantizer's ONNX import ("unexpected input value type") on the ViT encoder (48 LayerNormalization, 24 Softmax, 28 Erf, attention MatMuls; the same graph's 5 Resize nodes also occur in MiDaS-s, which compiles). It peaks at 18 GB of host RAM before failing. Use MiDaS-s.
-- YOLOv1: the head's [local] locally connected layer exports as an Einsum, which the 1.9 quantizer does not support (YOLOv1-b; the tiny weights are not published). It would need the layer rewritten as convolutions.
 - RTMDet-x: at 640x640 the compiler's LowerTIR pass still overflows its on-chip buffers after 4 iterations (2 h 21 min, 7 GB peak RSS; ledger `rtmdet/detect/x/2026-11-12/2`). Use RTMDet-l.
 - CenterNet (ResDCN-18, DLA-34): the upsampling uses modulated deformable convolutions (grid_sample at learned offsets), which the quantizer has no converter for (ledger `centernet/detect/dla34/2026-11-11`).
 - ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them. The channel mean and variance have exact AIPU forms, but the per-pixel reciprocal square root feeding ConvNeXt's GELU has none; a host split at every LayerNorm would need about 23 parts for ConvNeXt-t, so a hybrid export (convolutions on the Metis, LayerNorms on the host) is the route if ConvNeXt is ever needed (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).

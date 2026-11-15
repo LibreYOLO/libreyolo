@@ -1269,6 +1269,57 @@ def _reorg_layers_to_conv(net: torch.nn.Module) -> int:
     return len(targets)
 
 
+class _LocalAsConvs(torch.nn.Module):
+    """Darknet's ``[local]`` layer (YOLOv1) as one convolution per output position.
+
+    ``[local]`` gives every output position its own filter bank and exports as
+    an Einsum, which the Axelera quantizer does not support. Position ``(i, j)``
+    is a ``size x size`` convolution (no padding) on its own patch of the
+    padded input, with weights ``weight[i * out_w + j]`` viewed as
+    ``(out, C, k, k)`` (``F.unfold``'s channel-major, kernel-row, kernel-col
+    order, as in Darknet's im2col) and bias ``bias[:, i * out_w + j]``. The
+    1x1 results are concatenated along W, then H: the same tensor as the
+    reference layer up to float summation order.
+    """
+
+    def __init__(self, local: torch.nn.Module):
+        super().__init__()
+        k = int(local.size)
+        self.size, self.stride, self.pad = k, int(local.stride), int(local.pad)
+        self.out_h, self.out_w = int(local.out_h), int(local.out_w)
+        weight = local.weight.detach().reshape(
+            self.out_h * self.out_w, local.out_channels, local.in_channels, k, k
+        )
+        self.weight = torch.nn.Parameter(weight.clone(), requires_grad=False)
+        self.bias = torch.nn.Parameter(local.bias.detach().t().clone(), requires_grad=False)
+        self.act = local.act
+
+    def forward(self, x):
+        k, s = self.size, self.stride
+        x = torch.nn.functional.pad(x, (self.pad,) * 4)
+        rows = []
+        for i in range(self.out_h):
+            cols = []
+            for j in range(self.out_w):
+                loc = i * self.out_w + j
+                patch = x[:, :, i * s : i * s + k, j * s : j * s + k]
+                cols.append(torch.nn.functional.conv2d(patch, self.weight[loc], self.bias[loc]))
+            rows.append(torch.cat(cols, dim=3))
+        return self.act(torch.cat(rows, dim=2))
+
+
+def _local_layers_to_convs(net: torch.nn.Module) -> int:
+    """Replace every Darknet ``[local]`` layer of ``net`` by :class:`_LocalAsConvs`, in place."""
+    from libreyolo.models.darknet.blocks import DarknetLocal
+
+    count = 0
+    for i, layer in enumerate(net.layers):
+        if isinstance(layer, DarknetLocal):
+            net.layers[i] = _LocalAsConvs(layer)
+            count += 1
+    return count
+
+
 def _darknet_raw_heads_wrapper(
     holder: torch.nn.Module, task: str = "detect", output_windows=None
 ):
@@ -3917,6 +3968,9 @@ _AXELERA_GRAPH_OUTPUTS = {
     # EfficientDet's decoded export; the top-candidate decode (TopK, Gather,
     # Exp) lands in the compiled model's host postamble.
     ("efficientdet", "detect"): ("output",),
+    # YOLOv1's decoded export (dense 7x7 grid, two boxes per cell); the decode
+    # lands in the compiled model's host postamble.
+    ("yolo1", "detect"): ("output",),
 }
 
 
@@ -4009,6 +4063,8 @@ _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
     "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
     # VGG's fc6 (Gemm over 7x7x512) as row convolutions.
     "vgg": ("fc_rowconv",),
+    # YOLOv1's [connected] layer (Gemm over 7x7x256 after its [local] layer).
+    "yolo1": ("fc_rowconv",),
     # BiFPN weighted fusion and squeeze-excite averages in AIPU-runnable form.
     "efficientdet": (
         "float_div_to_mul",
@@ -4525,6 +4581,14 @@ class AxeleraExporter(BaseExporter):
             if self.model._get_model_name() == "quicksrnet":
                 nn_model = copy.deepcopy(nn_model).eval()
                 self._prepare_quicksrnet(nn_model)
+            if self.model._get_model_name() == "yolo1":
+                nn_model = copy.deepcopy(nn_model).eval()
+                logger.info(
+                    "Axelera: %d Darknet batch norms folded into their convolutions, "
+                    "%d [local] layers as per-position convolutions (exact; docs/axelera.md).",
+                    _fuse_darknet_batchnorms(nn_model.net),
+                    _local_layers_to_convs(nn_model.net),
+                )
             if self._size_recipe().get("aspp_shift"):
                 nn_model = copy.deepcopy(nn_model).eval()
                 logger.info(

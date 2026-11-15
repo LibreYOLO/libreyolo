@@ -191,7 +191,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | wevisonevl | matte |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | wevisonevl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | wilddet3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| yolo1 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  | ✓ |
+| yolo1 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo2 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  |  | ✓ |
 | yolo3 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo4 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
@@ -506,6 +506,7 @@ A check mark applies only under any constraint listed here.
 - `yolo1` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolo1` / `detect` / `tensorrt`: TensorRT 10.16 FP32 with a fixed canvas; YOLO1 requires 448x448
 - `yolo1` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
+- `yolo1` / `detect` / `axelera`: validated sizes: b (t has no published weights). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolo1` / `detect` / `ncnn`: fixed 448x448 input; PNNX/NCNN 20260526 CPU FP32 with a public-domain trained checkpoint; two-input raw parity, factory reload, metadata, and public predict parity
 - `yolo1` / `detect` / `coreai`: fixed family-native canvases (YOLO1 448, YOLO2 608, YOLO3 416, YOLO4 608); representative published trained checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; Core AI graph preparation exactly folds Darknet inference batch normalization into the preceding convolutions because Core AI 0.4.1 does not preserve Darknet's epsilon-after-square-root formula
 - `yolo2` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
@@ -2640,7 +2641,6 @@ rest on the host CPU; each entry names the split.
 - `yolo1` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo1` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo1` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo1` / `detect` / `axelera`: YOLOv1's head runs a [local] locally connected layer (every one of the 7x7 output positions has its own 3x3 filter bank), which exports as an Einsum; Axelera's 1.9 quantizer does not support Einsum, so quantization of YOLOv1-b (the only published size) stops on that layer. Running it on Metis would need the layer rewritten as convolutions.
 - `yolo1` / `detect` / `tflite`: onnx2tf 2.6.7 emits an ONNX_EINSUM custom operation that LiteRT 2.1.2 cannot prepare at the native 448x448 canvas.
 - `yolo1` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo2` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.

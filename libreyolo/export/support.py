@@ -4485,17 +4485,24 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "validated",
     ("yolo1",),
     ("detect",),
     ("axelera",),
     reason=(
-        "YOLOv1's head runs a [local] locally connected layer (every one of the "
-        "7x7 output positions has its own 3x3 filter bank), which exports as an "
-        "Einsum; Axelera's 1.9 quantizer does not support Einsum, so "
-        "quantization of YOLOv1-b (the only published size) stops on that "
-        "layer. Running it on Metis would need the layer rewritten as "
-        "convolutions."
+        "INT8 export compiled with Axelera's toolchain; the whole YOLOv1 graph "
+        "runs on the Metis AIPU after exact rewrites: the [local] locally "
+        "connected layer (an Einsum) as one convolution per 7x7 output "
+        "position, every Darknet batch norm folded into its convolution, and "
+        "the [connected] layer as row convolutions; the dense-grid decode "
+        "runs on the host. YOLOv1-b on a Metis M.2 Max is within 0.3 "
+        "mAP50-95 of FP32 on a paired 1000-image COCO val2017 subset limited "
+        "to the 20 VOC classes (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: b (t has no published weights). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
 _add(
@@ -5127,6 +5134,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("deeplabv3", "semantic"),
             ("fcn", "semantic"),
             ("yolox", "detect"),
+            ("yolo1", "detect"),
             ("yolo2", "detect"),
             ("yolo4", "detect"),
             ("yolo3", "detect"),

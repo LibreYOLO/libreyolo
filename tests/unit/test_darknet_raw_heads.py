@@ -191,3 +191,75 @@ def test_batchnorms_are_fused_without_changing_outputs(family):
     )
     np.testing.assert_allclose(decoded[:, :4], expected[:, :4], rtol=1e-4, atol=1e-2)
     np.testing.assert_allclose(decoded[:, 4:], expected[:, 4:], atol=1e-4)
+
+
+@pytest.mark.parametrize("stride", [1, 2])
+def test_local_as_convs_matches_darknet_local_layer(stride):
+    """YOLOv1's [local] layer (an Einsum in ONNX) as per-position convolutions: same tensor."""
+    from libreyolo.export.exporter import _LocalAsConvs
+    from libreyolo.models.darknet.blocks import DarknetLocal
+
+    out_side = 5 if stride == 1 else 3
+    local = DarknetLocal(4, 6, 3, stride=stride, pad=1, activation="leaky", out_h=out_side, out_w=out_side)
+    generator = torch.Generator().manual_seed(5)
+    with torch.no_grad():
+        local.weight.copy_(torch.randn(local.weight.shape, generator=generator))
+        local.bias.copy_(torch.randn(local.bias.shape, generator=generator))
+    x = torch.randn(1, 4, 5, 5, generator=generator)
+    with torch.no_grad():
+        expected, actual = local(x), _LocalAsConvs(local)(x)
+    assert actual.shape == expected.shape
+    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-5)
+
+
+def test_local_layers_to_convs_replaces_only_local_layers():
+    from libreyolo.export.exporter import _LocalAsConvs, _local_layers_to_convs
+    from libreyolo.models.darknet.blocks import DarknetLocal
+
+    net = torch.nn.Module()
+    net.layers = torch.nn.ModuleList(
+        [torch.nn.Identity(), DarknetLocal(2, 3, 3, stride=1, pad=1, activation="linear", out_h=2, out_w=2)]
+    )
+    assert _local_layers_to_convs(net) == 1
+    assert isinstance(net.layers[0], torch.nn.Identity)
+    assert isinstance(net.layers[1], _LocalAsConvs)
+    assert _local_layers_to_convs(net) == 0
+
+
+def test_yolo1_batchnorm_fold_keeps_the_decoded_output():
+    """Darknet norms folded into the convs (F53 on the Metis compiler): same decoded YOLOv1 output."""
+    import copy
+
+    from libreyolo import LibreYOLO1
+    from libreyolo.export.exporter import _fuse_darknet_batchnorms
+    from libreyolo.models.darknet.export import DarknetExportWrapper
+
+    torch.manual_seed(0)
+    model = LibreYOLO1(None, size="t", device="cpu")  # the [connected] head is sized for its 20 VOC classes
+    with torch.no_grad():
+        for module in model.model.net.modules():
+            if hasattr(module, "running_var"):
+                module.running_mean.uniform_(-0.2, 0.2)
+                module.running_var.uniform_(0.5, 2.0)
+                module.weight.uniform_(0.5, 1.5)
+                module.bias.uniform_(-0.1, 0.1)
+    reference = DarknetExportWrapper(model.model).eval()
+    prepared = copy.deepcopy(reference).eval()
+    assert _fuse_darknet_batchnorms(prepared.net) > 0
+    x = torch.rand(1, 3, 448, 448, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        expected, actual = reference(x), prepared(x)
+    assert actual.shape == expected.shape
+    # Pixel-scale boxes: compare against the output's own scale (float rounding of the fold).
+    assert float((actual - expected).abs().max()) <= 1e-4 * float(expected.abs().max()) + 1e-5
+
+
+def test_yolo1_stretch_preprocessing_accepts_a_size_pair():
+    """Export calibration and verify pass (h, w); the stretch resize must take it like an int."""
+    from libreyolo.models.darknet.preprocess import preprocess_numpy_stretch
+
+    image = np.random.default_rng(2).integers(0, 256, (30, 50, 3), dtype=np.uint8)
+    by_int, ratio_int = preprocess_numpy_stretch(image, 64)
+    by_pair, ratio_pair = preprocess_numpy_stretch(image, (64, 64))
+    np.testing.assert_array_equal(by_pair, by_int)
+    assert ratio_pair == ratio_int == 1.0 and by_pair.shape == (3, 64, 64)
