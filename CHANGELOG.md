@@ -100,6 +100,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: PP-LiteSeg is "not available yet", with its measured loss.** All four sizes now compile and run on a Metis after exact graph rewrites (new: wide pyramid-pool windows split into 2x2 steps, `avgpool_staged`, for t75/b75), but device labels agree with FP32 on only 48-56% of pixels; device prefix cuts show the STDC backbone drifting stage by stage, most in its stride-32 stage. The export raises with that reason.
+
 - **Axelera Metis: NAFNet is "not available yet", not blocked; ConvNeXt's block names its measured limit.** NAFNet has no published LibreYOLO weights, so nothing can be measured on a Metis; its whole-graph skip and LayerNorms are known work, not a measured failure. ConvNeXt stays blocked: the per-pixel LayerNorm's reciprocal square root feeds the GELU with no exact AIPU form, and a host split would need about 23 parts for ConvNeXt-t.
 
 - **Ultralytics names now fail with the LibreYOLO line to type instead.**

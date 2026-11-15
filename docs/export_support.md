@@ -1900,7 +1900,7 @@ rest on the host CPU; each entry names the split.
 - `ppliteseg` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ppliteseg` / `semantic` / `axelera`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ppliteseg` / `semantic` / `axelera`: Not available yet: PP-LiteSeg t50, b50, t75 and b75 compile and run on a Metis M.2 Max after exact graph rewrites (channel reductions as 1x1 convolutions, pyramid-pool resizes as factor-2/3 steps, wide pool windows staged), but the device labels agree with FP32 on only 48-56% of pixels (fidelity mIoU 0.17-0.19 on 1000 COCO val2017 images; 41% on street scenes) with either per-tensor min-max or hybrid ranges. Device prefix cuts show the STDC backbone drifting stage by stage (cosine vs FP32 0.996 at stride 4, 0.985 at stride 8, 0.975 at stride 16, 0.951 at the stride-32 output, the largest step); no exact rewrite tried there helped.
 - `ppliteseg` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.

@@ -1884,6 +1884,14 @@ def test_nafnet_is_not_available_yet_for_lack_of_weights():
     assert entry.reason.startswith("Not available yet") and "weights" in entry.reason
 
 
+def test_ppliteseg_is_not_available_yet_with_its_measured_loss():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("ppliteseg", "semantic", "axelera")
+    assert entry.tier == "blocked" and entry.reason.startswith("Not available yet")
+    assert "pixels" in entry.reason and "backbone" in entry.reason
+
+
 @pytest.mark.parametrize("family", ["pidnet", "unet"])
 def test_long_compiles_are_not_available_yet(family):
     from libreyolo.export.support import get_support
