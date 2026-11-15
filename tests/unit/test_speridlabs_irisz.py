@@ -493,6 +493,30 @@ def test_depth_to_image_from_every_source(tiny_runtime, snapshot, photo, tmp_pat
         depth_model(str(photo), depth_format="depth")
 
 
+def test_depth_map_sources_keep_their_values(tiny_runtime, snapshot, tmp_path):
+    from libreyolo.models.gen.speridlabs_irisz.model import _load_depth_map_image
+
+    # A 16-bit depth map as a NumPy array is not clipped to 8 bits.
+    ramp = np.tile(np.linspace(1000, 60000, 88).astype(np.uint16), (64, 1))
+    image, path = _load_depth_map_image(ramp)
+    assert path is None and np.asarray(image).max() == 60000
+    model = LibreSperidlabsIrisZ(device="cpu", checkpoint_dir=str(snapshot))
+    from_array = model("x", source=ramp, depth_format="depth", imgsz=64, seed=1, steps=1)
+    png = tmp_path / "depth16.png"
+    Image.fromarray(ramp).save(png)
+    from_file = model("x", source=str(png), depth_format="depth", imgsz=64, seed=1, steps=1)
+    np.testing.assert_array_equal(np.asarray(from_array.generated.data), np.asarray(from_file.generated.data))
+    assert from_file.generated.params["depth_format"] == "depth"
+    assert "depth_format" not in model("x", source=from_file, imgsz=64, seed=1, steps=1).generated.params
+
+
+def test_bad_output_path_fails_before_loading(tiny_runtime, snapshot, photo):
+    model = LibreSperidlabsIrisZ(device="cpu", checkpoint_dir=str(snapshot))
+    with pytest.raises(ValueError, match="image extension"):
+        model("x", source=str(photo), save=True, output_path="out.pngg")
+    assert model._pipeline is None and tiny_runtime == []
+
+
 def test_big_variant_loads_with_its_guidance_mode(tiny_runtime, tmp_path):
     root = _write_snapshot(
         tmp_path / "big",

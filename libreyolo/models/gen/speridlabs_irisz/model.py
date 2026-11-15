@@ -386,11 +386,12 @@ class LibreSperidlabsIrisZ(LibreGenModel):
             return fit_encoded_depth(encode_log_depth(log_depth, ~valid, sky_ceiling), side), None
         if isinstance(source, (list, tuple)):
             raise TypeError("source= takes one image or depth result, not a list.")
-        image, path = LibreGen3DModel._load_source(source)
         if depth_format is not None:
             if depth_format not in DEPTH_MAP_FORMATS:
                 raise ValueError(f"depth_format must be one of {DEPTH_MAP_FORMATS}, got {depth_format!r}.")
+            image, path = _load_depth_map_image(source)
             return read_depth_map(image, depth_format, side, sky_ceiling), path
+        image, path = LibreGen3DModel._load_source(source)
         if side not in _DEPTH_SIZES:
             raise ValueError(f"imgsz with a photo as source must be 512 or 1024, got {side!r}.")
         image = image.convert("RGB")
@@ -437,6 +438,8 @@ class LibreSperidlabsIrisZ(LibreGenModel):
             raise ValueError("output_path requires save=True.")
         if output_path is not None and not one_image:
             raise ValueError("output_path names one file; it needs one prompt and n=1.")
+        if output_path is not None and Path(output_path).suffix.lower() not in Image.registered_extensions():
+            raise ValueError(f"output_path needs an image extension such as .png, got {output_path!r}.")
 
         def run() -> Generator[Results, None, None]:
             self._ensure_loaded()
@@ -451,6 +454,8 @@ class LibreSperidlabsIrisZ(LibreGenModel):
             with torch.no_grad(), self._autocast():
                 depth_latent = networks.latents.encode_depth(encoded)
             params = {**settings, "source": str(path) if path else type(source).__name__}
+            if depth_format is not None:
+                params["depth_format"] = depth_format
             index = 0
             save_dir: Optional[Path] = None
             for text in prompts:
@@ -675,6 +680,31 @@ class LibreSperidlabsIrisZ(LibreGenModel):
         log_depth = (members[0] if len(members) == 1 else ensemble(members)).astype(np.float32)
         sky = log_depth >= SKY_VALUE if sky_ceiling < 1.0 else np.zeros(log_depth.shape, dtype=bool)
         return np.ascontiguousarray(log_depth, dtype=np.float32), np.ascontiguousarray(sky)
+
+
+def _load_depth_map_image(source: Any):
+    """``(PIL image, path or None)`` for a depth map, keeping 16-bit and float values.
+
+    The photo loader converts to 8-bit RGB, which would clip a 16-bit depth map;
+    files, URLs, PIL images and 2D arrays are read as they are instead.
+    """
+    import io
+    import urllib.request
+
+    from PIL import Image
+
+    from ..base3d import LibreGen3DModel
+
+    if isinstance(source, Image.Image):
+        return source, None
+    if isinstance(source, np.ndarray) and source.ndim == 2:
+        return Image.fromarray(source), None
+    if isinstance(source, (str, Path)) and str(source).startswith(("http://", "https://")):
+        with urllib.request.urlopen(str(source)) as response:  # noqa: S310 - http(s) only
+            image = Image.open(io.BytesIO(response.read()))
+            image.load()
+        return image, str(source)
+    return LibreGen3DModel._load_source(source)
 
 
 class _ImageAndDepth(NamedTuple):
