@@ -1929,12 +1929,13 @@ def test_efficientdet_d1_axelera_recipe_is_the_512_canvas():
     assert ax.size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
     notes = SIZE_ACCURACY_NOTES[("efficientdet", "detect", "axelera")]
     assert "512x512 canvas" in notes["d1"] and "INT8" in notes["d1"]
-    assert "d1" not in UNMEASURED_SIZES[("efficientdet", "detect", "axelera")]
+    assert "d1" not in UNMEASURED_SIZES.get(("efficientdet", "detect", "axelera"), {})
     assert ax.size_recipe("efficientdet", "detect", "d2") == {"canvas": 512}
-    assert sorted(UNMEASURED_SIZES[("efficientdet", "detect", "axelera")]) == ["d4"]
+    assert ("efficientdet", "detect", "axelera") not in UNMEASURED_SIZES
     from libreyolo.export.support import BLOCKED_SIZES
 
     assert "L1" in BLOCKED_SIZES[("efficientdet", "detect", "axelera")]["d3"]
+    assert "blocks.5" in BLOCKED_SIZES[("efficientdet", "detect", "axelera")]["d4"]
 
 
 def test_axelera_canvas_recipe_sets_only_the_default_imgsz(monkeypatch):
