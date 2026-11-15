@@ -1109,7 +1109,10 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(effdet_notes) == ["d0", "d1", "d2"]
     assert precision_support("efficientdet", "detect", "axelera") == (True, True)
     fcos = get_support("fcos", "detect", "axelera")
-    assert fcos.tier == "blocked" and "GroupNorm" in fcos.reason
+    assert fcos.tier == "available" and "GroupNorm" in fcos.reason
+    assert "supported sizes: r50 " in fcos.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("fcos", "detect", "axelera")]) == ["r50"]
+    assert ("fcos", "detect") in INT8_EXPORTS["axelera"]
     other = get_support("dfine", "detect", "axelera")
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
@@ -1168,6 +1171,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("deeplabv3", "semantic", "r50"), ("deeplabv3", "semantic", "r101"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"),
+        ("fcos", "detect", "r50"),
     }
     assert recipes == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
@@ -2232,3 +2236,44 @@ def test_realesrgan_x4_recipe_runs_three_parts_with_min_max_ranges():
         "rrdb_split": 12,
         "quantization_scheme": "per_tensor_min_max",
     }
+
+
+def test_fcos_parts_chain_matches_the_export_wrapper():
+    """FCOS multi-part export in FP32: trunk -> host pack -> 4 x (head conv -> host GroupNorm+ReLU) ->
+    predictor -> host decode reproduces FCOSExportWrapper's tensor."""
+    torch = pytest.importorskip("torch")
+    np = pytest.importorskip("numpy")
+    import copy
+
+    from libreyolo import LibreFCOS
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import _fcos_parts
+    from libreyolo.models.fcos.nn import FCOSExportWrapper
+
+    torch.manual_seed(0)
+    model = LibreFCOS(None, size="r50", device="cpu")
+    net = model.model.eval()
+    ref = FCOSExportWrapper(copy.deepcopy(net)).eval()
+    trunk, layers, final, arrays, canvas, groups, eps, n_cls, _ = _fcos_parts(copy.deepcopy(net), 256)
+    x = torch.rand(1, 3, 256, 256, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = ref(x).numpy()
+        h = HOST_OPS["pack_levels"](*[t.numpy() for t in trunk(x)], boxes=arrays["boxes"], canvas=canvas)
+        for k in range(4):
+            h = layers[k](torch.from_numpy(h)).numpy()
+            h = HOST_OPS["gn_relu_levels"](h, boxes=arrays["boxes"], groups=2 * groups,
+                                           gamma=arrays[f"g{k + 1}"], beta=arrays[f"b{k + 1}"], eps=eps)
+        got = HOST_OPS["fcos_decode"](final(torch.from_numpy(h)).numpy(), boxes=arrays["boxes"], n_cls=n_cls,
+                                      anchors=arrays["anchors"], class_indices=arrays["class_indices"])
+    assert got.shape == want.shape
+    np.testing.assert_allclose(got[..., 5:], want[..., 5:], atol=1e-3)
+    np.testing.assert_allclose(got[..., :4], want[..., :4], atol=0.05)
+    assert np.array_equal(got[..., 4], want[..., 4])
+
+
+def test_fcos_level_boxes_leave_one_pixel_gutters():
+    from libreyolo.export.exporter import _fcos_level_boxes
+
+    boxes, canvas = _fcos_level_boxes([(8, 8), (4, 4), (2, 2)])
+    assert boxes == [[0, 0, 8, 8], [9, 0, 4, 4], [9, 5, 2, 2]]
+    assert canvas == [13, 8]

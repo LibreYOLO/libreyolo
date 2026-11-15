@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis export for FCOS detection, supported r50.** FCOS's GroupNorm head has no INT8 form, so the export runs as six compiled parts: the ResNet-FPN trunk, the four head convolutions (both towers stacked, all five levels packed onto one zero-gutter canvas) and the predictor on the Metis, with GroupNorm + ReLU per level and the box decode on the host (new host operations `pack_levels`, `gn_relu_levels`, `fcos_decode`). On a Metis M.2 Max at the 800x800 canvas: 0.3405 vs 0.3818 FP32 mAP50-95 (-4.13) on 1000 COCO val2017 images. FCOS's own export keeps opset 18 for every other format and lets Axelera choose its opset.
+
 - **Axelera Metis export for Real-ESRGAN-x4, validated as three compiled parts.** Its whole graph's constants overflow the Metis DDR pool, so the RRDB network runs as three compiled parts split at block 12, and the host adds the trunk skip between parts 2 and 3 (new host operation `add`). On 296 COCO crops upscaled 4x from 64 px: PSNR 22.44 vs 22.49 dB FP32 (-0.05 dB). Measured on the prototype parts path; the library generates identical part graphs, calibration and recipe, and a library re-export confirmation is pending.
 
 - **Speridlabs Iris-Z: text to image and image to depth from one model, `LibreGen("speridlabs-iris-z")`.**

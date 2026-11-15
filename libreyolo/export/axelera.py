@@ -86,6 +86,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # Real-ESRGAN-x4 (RRDB): the whole graph's constants overflow the DDR pool;
     # three compiled parts split at RRDB block 12 plus a host add fit.
     ("realesrgan", "restore", "x4"): {"rrdb_split": 12, "quantization_scheme": "per_tensor_min_max"},
+    # FCOS-R50: the 800x800 canvas of PORTER E's measured multi-part gate.
+    ("fcos", "detect", "r50"): {"canvas": 800},
     # RetinaNet-R50 resizes each image to a shorter side of 800 (longer up to
     # 1333); the fixed canvas fits the whole image inside, so at 800x800 most
     # images reach the network smaller (-2.25 end to end on 1000 COCO images).

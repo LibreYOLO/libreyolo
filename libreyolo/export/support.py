@@ -4510,17 +4510,26 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "available",
     ("fcos",),
     ("detect",),
     ("axelera",),
     reason=(
-        "FCOS's detection head normalizes every convolution with GroupNorm, "
-        "which divides each image's features by statistics computed from that "
-        "image; Axelera's INT8 toolchain has no form for it. Measured with the "
-        "1.9 SDK: quantization stops on the head's 40 InstanceNormalization "
-        "ops (at opset 18 it stops earlier, on Resize). Running FCOS on Metis "
-        "needs a head with batch norm or no norm, i.e. a retrained model."
+        "INT8 multi-part export compiled with Axelera's toolchain. FCOS's head "
+        "normalizes every convolution with GroupNorm (per-image statistics), "
+        "which the INT8 toolchain has no form for, so the ResNet-FPN trunk, the "
+        "four head convolutions (classification and regression towers stacked, "
+        "on all five levels packed onto one canvas) and the predictor run on "
+        "the Metis AIPU as six compiled parts, and the host applies each "
+        "GroupNorm + ReLU and decodes the boxes. Supported, not validated: on a "
+        "Metis M.2 Max FCOS-R50 loses 4.13 mAP50-95 points against FP32 on 1000 "
+        "COCO val2017 images at its 800x800 canvas (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES); fixed "
+        "800x800 canvas by default. axelera-devkit / axelera-rt 1.9.0, Linux "
+        "x86_64 compile, INT8, batch 1"
     ),
 )
 _add(
@@ -4886,6 +4895,13 @@ def iter_blocked() -> Iterator[tuple[tuple[str, str, str], SupportEntry]]:
 #: measured with the recipe the library uses for that size
 #: (``libreyolo.export.axelera.AXELERA_SIZE_RECIPES``).
 SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("fcos", "detect", "axelera"): {
+        "r50": (
+            "measured mAP50-95 drop 4.13 points vs FP32 (0.3405 vs 0.3818 on 1000 "
+            "COCO val2017 images at the 800x800 canvas; -3.43 on 300; six compiled "
+            "parts with GroupNorm on the host)"
+        ),
+    },
     ("mobilenetv4", "classify", "axelera"): {
         "s": (
             "measured top-1 drop 1.7 points vs FP32 (0.607 vs 0.624 on a paired "
@@ -5222,6 +5238,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("ppyoloe", "detect"),
             ("picodet", "detect"),
             ("rtmdet", "detect"),
+            ("fcos", "detect"),
             ("retinanet", "detect"),
             ("ssd", "detect"),
             ("efficientdet", "detect"),

@@ -891,7 +891,13 @@ class BaseBackend(ABC):
                 color_format=color_format,
             )
         elif self.model_family == "fcos":
-            return self._preprocess_fcos(image, effective_imgsz, color_format)
+            return self._preprocess_fcos(
+                image,
+                effective_imgsz,
+                color_format,
+                # Fixed-shape artifacts (Axelera) take one square canvas.
+                fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,
+            )
         elif self.model_family in {"deformable_detr", "dinodetr"}:
             tensor, img, size = self._preprocess_deformable_detr(
                 image, effective_imgsz, color_format
@@ -1332,7 +1338,7 @@ class BaseBackend(ABC):
         return torch.from_numpy(chw).unsqueeze(0), img.copy(), original_size, 1.0
 
     @staticmethod
-    def _preprocess_fcos(image, input_size, color_format):
+    def _preprocess_fcos(image, input_size, color_format, fixed_canvas=False):
         """Apply the out-of-graph torchvision FCOS transform."""
         from ..models.fcos.utils import preprocess_image
 
@@ -1343,6 +1349,7 @@ class BaseBackend(ABC):
             image,
             input_size=input_h,
             color_format=color_format,
+            fixed_canvas=fixed_canvas,
         )
 
     @staticmethod
@@ -2543,7 +2550,9 @@ class BaseBackend(ABC):
             raise ValueError(
                 f"FCOS backend parsing requires a scalar/square imgsz, got {effective_imgsz}"
             )
-        resized_h, resized_w, _ = resize_dimensions(orig_h, orig_w, input_h)
+        resized_h, resized_w, _ = resize_dimensions(
+            orig_h, orig_w, input_h, getattr(self, "_fixed_input_hw", None) is not None
+        )
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, resized_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, resized_h)
         boxes[:, [0, 2]] *= orig_w / resized_w
@@ -4627,7 +4636,7 @@ class BaseBackend(ABC):
             # normalization, stride pad; the parser undoes that geometry.
             "fcos": FCOSValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
-        if preprocessor_cls is RetinaNetValPreprocessor:
+        if preprocessor_cls in (RetinaNetValPreprocessor, FCOSValPreprocessor):
             return preprocessor_cls(
                 img_size=_imgsz_hw(img_size),
                 fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,

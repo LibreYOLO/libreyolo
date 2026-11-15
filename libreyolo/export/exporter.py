@@ -4139,6 +4139,128 @@ class _RRDBPart(torch.nn.Module):
         return (net.conv_last(net.lrelu(net.conv_hr(feat))),)
 
 
+class _NamedPart(torch.nn.Module):
+    """A compiled part of a multi-part export: ``module`` with named outputs (``graph_outputs_v1``)."""
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, module: torch.nn.Module, names):
+        super().__init__()
+        self.module, self.output_names = module.eval(), tuple(names)
+
+    def forward(self, x):
+        out = self.module(x)
+        return (out,) if isinstance(out, torch.Tensor) else tuple(out)
+
+
+class _FCOSTrunk(torch.nn.Module):
+    """FCOS part 1 on Metis: the ResNet-FPN backbone's five levels (``lvl0`` .. ``lvl4``).
+
+    P5 also feeds P6, so its output ends in an identity 1x1 convolution: the SDK's graph cleaner rejects a
+    part output that also feeds another node.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = tuple(f"lvl{i}" for i in range(5))
+
+    def __init__(self, net: torch.nn.Module):
+        super().__init__()
+        self.net = net
+
+    def forward(self, x):
+        outs = list(self.net.backbone(x).values())
+        c = outs[2].shape[1]
+        outs[2] = torch.nn.functional.conv2d(outs[2], torch.eye(c, dtype=outs[2].dtype, device=outs[2].device)[:, :, None, None])
+        return tuple(outs)
+
+
+def _fcos_level_boxes(shapes):
+    """``[y, x, h, w]`` boxes for FPN level shapes on one canvas: level 0 on top, the rest side by side below,
+    1-pixel zero gutters (a padded 3x3 convolution on the canvas then equals the per-level convolution)."""
+    (h0, w0), rest = shapes[0], shapes[1:]
+    boxes, x = [[0, 0, int(h0), int(w0)]], 0
+    y = int(h0) + 1
+    for h, w in rest:
+        boxes.append([y, x, int(h), int(w)])
+        x += int(w) + 1
+    return boxes, [max(b[0] + b[2] for b in boxes), max(int(w0), x - 1)]
+
+
+def _unfreeze_batchnorms(module: torch.nn.Module) -> None:
+    """Replace FrozenBatchNorm2d by an equal eval-mode BatchNorm2d (folded into the convolution by the export)."""
+    for name, child in list(module.named_children()):
+        if type(child).__name__ == "FrozenBatchNorm2d":
+            bn = torch.nn.BatchNorm2d(child.weight.numel(), eps=float(getattr(child, "eps", 1e-5)))
+            with torch.no_grad():
+                bn.weight.copy_(child.weight)
+                bn.bias.copy_(child.bias)
+                bn.running_mean.copy_(child.running_mean)
+                bn.running_var.copy_(child.running_var)
+            setattr(module, name, bn.eval())
+        else:
+            _unfreeze_batchnorms(child)
+
+
+def _fcos_parts(net: torch.nn.Module, canvas: int):
+    """Split FCOS (GroupNorm head) into Metis parts and host steps.
+
+    The four head convolutions of the classification and regression towers run on Metis as one conv each
+    (classification and regression stacked; grouped after the first), on all five levels packed onto one
+    canvas; GroupNorm + ReLU per level runs on the host; one block-diagonal predictor conv gives
+    ``cls | reg | ctrness``; the host decodes FCOSExportWrapper's tensor. Returns
+    ``(trunk, layers, final, arrays, canvas_hw, groups, eps, n_cls)``.
+    """
+    from ..models.fcos.nn import FCOSExportWrapper
+
+    _unfreeze_batchnorms(net.backbone)
+    for p in net.parameters():
+        p.requires_grad_(False)
+    cls_h, reg_h = net.head.classification_head, net.head.regression_head
+    convs = lambda h: [m for m in h.conv if isinstance(m, torch.nn.Conv2d)]  # noqa: E731
+    norms = lambda h: [m for m in h.conv if isinstance(m, torch.nn.GroupNorm)]  # noqa: E731
+    cc, rc, cg, rg = convs(cls_h), convs(reg_h), norms(cls_h), norms(reg_h)
+    if not (len(cc) == len(rc) == len(cg) == len(rg) == 4):
+        raise ValueError("FCOS Axelera export expects four conv + GroupNorm layers per head tower.")
+    n_cls = int(cls_h.cls_logits.out_channels)
+    width = int(cc[0].out_channels)
+
+    def conv(cin, cout, groups=1):
+        return torch.nn.Conv2d(cin, cout, 3, padding=1, groups=groups, bias=True)
+
+    with torch.no_grad():
+        layers = []
+        for k in range(4):
+            layer = conv(width if k == 0 else 2 * width, 2 * width, groups=1 if k == 0 else 2)
+            layer.weight.copy_(torch.cat([cc[k].weight, rc[k].weight], 0))
+            layer.bias.copy_(torch.cat([cc[k].bias, rc[k].bias], 0))
+            layers.append(layer.eval())
+        final = conv(2 * width, n_cls + 5)
+        final.weight.zero_()
+        final.weight[:n_cls, :width] = cls_h.cls_logits.weight
+        final.weight[n_cls : n_cls + 4, width:] = reg_h.bbox_reg.weight
+        final.weight[n_cls + 4 :, width:] = reg_h.bbox_ctrness.weight
+        final.bias.copy_(torch.cat([cls_h.cls_logits.bias, reg_h.bbox_reg.bias, reg_h.bbox_ctrness.bias]))
+        final.eval()
+    arrays = {}
+    for k in range(4):
+        arrays[f"g{k + 1}"] = torch.cat([cg[k].weight, rg[k].weight]).numpy().astype("float32")
+        arrays[f"b{k + 1}"] = torch.cat([cg[k].bias, rg[k].bias]).numpy().astype("float32")
+    x0 = torch.zeros(1, 3, int(canvas), int(canvas))
+    with torch.no_grad():
+        feats = list(net.backbone(x0).values())
+        anchors = net.anchor_generator.grid_anchors(x0, feats)
+    anchors = anchors[0] if isinstance(anchors, (list, tuple)) else anchors
+    boxes, canvas_hw = _fcos_level_boxes([tuple(t.shape[-2:]) for t in feats])
+    import numpy as np
+
+    arrays["boxes"] = np.asarray(boxes, dtype=np.int64)
+    arrays["anchors"] = np.asarray(anchors, dtype=np.float32).reshape(-1, 4)
+    arrays["class_indices"] = FCOSExportWrapper(net).class_indices.numpy().astype(np.int64)
+    return _FCOSTrunk(net).eval(), layers, final, arrays, canvas_hw, int(cg[0].num_groups), float(cg[0].eps), n_cls, width
+
+
 class _RestoreBodyWrapper(torch.nn.Module):
     """Real-ESRGAN compact trunk up to its last convolution (``restore_shuffle_skip_v1``).
 
@@ -4831,6 +4953,92 @@ class AxeleraExporter(BaseExporter):
         ]
         return paths[0]
 
+    def _export_fcos_parts_onnx(self, out: Path, imgsz) -> str:
+        """FCOS as a multi-part export (GroupNorm on the host); the run order goes to ``_hybrid_parts``."""
+        if int(imgsz[0]) != int(imgsz[1]):
+            raise ValueError(f"FCOS exports for Axelera at a square canvas, got {imgsz[0]}x{imgsz[1]}.")
+        net = copy.deepcopy(self.model.model).eval()
+        trunk, layers, final, arrays, canvas, groups, eps, n_cls, width = _fcos_parts(net, int(imgsz[0]))
+        work = out.with_name(f"{out.name}.export_intermediate")
+        self._intermediate_paths = []
+
+        def onnx_of(module, x, tag, in_name):
+            path = f"{work}.{tag}.onnx"
+            self._intermediate_paths.append(path)
+            torch.onnx.export(
+                module.eval(),
+                (x,),
+                path,
+                input_names=[in_name],
+                output_names=list(module.output_names),
+                opset_version=17,
+                dynamic_axes=None,
+                dynamo=False,
+            )
+            return path
+
+        logger.info(
+            "Step 1/2: Exporting FCOS as %d compiled parts (trunk, 4 head convolutions on the packed %dx%d level "
+            "canvas, predictor); GroupNorm and the decode run on the host",
+            6,
+            canvas[0],
+            canvas[1],
+        )
+        first = onnx_of(trunk, torch.zeros(1, 3, *imgsz), "trunk", "images")
+        steps = [
+            {
+                "host": "pack_levels",
+                "inputs": list(trunk.output_names),
+                "output": "packed",
+                "boxes": "@npz:boxes",
+                "canvas": [int(v) for v in canvas],
+            }
+        ]
+        src = "packed"
+        for k in range(4):
+            named = _NamedPart(layers[k], [f"h{k + 1}raw"])
+            sample = torch.zeros(1, width if k == 0 else 2 * width, *canvas)
+            steps.append(
+                {"compile": onnx_of(named, sample, f"l{k + 1}", src), "reference": named, "input": src, "merge_pad": False}
+            )
+            steps.append(
+                {
+                    "host": "gn_relu_levels",
+                    "input": f"h{k + 1}raw",
+                    "output": f"h{k + 1}",
+                    "boxes": "@npz:boxes",
+                    "groups": 2 * groups,
+                    "gamma": f"@npz:g{k + 1}",
+                    "beta": f"@npz:b{k + 1}",
+                    "eps": eps,
+                }
+            )
+            src = f"h{k + 1}"
+        named = _NamedPart(final, ["headraw"])
+        steps.append(
+            {
+                "compile": onnx_of(named, torch.zeros(1, 2 * width, *canvas), "final", src),
+                "reference": named,
+                "input": src,
+                "merge_pad": False,
+            }
+        )
+        steps.append(
+            {
+                "host": "fcos_decode",
+                "input": "headraw",
+                "output": "detections",
+                "boxes": "@npz:boxes",
+                "n_cls": n_cls,
+                "anchors": "@npz:anchors",
+                "class_indices": "@npz:class_indices",
+            }
+        )
+        self._raw_wrapper = trunk
+        self._hybrid_parts = steps
+        self._hybrid_host_arrays = arrays
+        return first
+
     def _graph_outputs(self) -> tuple[str, ...]:
         """ONNX output names when the whole dense graph runs on Metis, else ``()``."""
         return _AXELERA_GRAPH_OUTPUTS.get((self.model._get_model_name(), self._task()), ())
@@ -4881,10 +5089,10 @@ class AxeleraExporter(BaseExporter):
                 return (chw[0] if chw.ndim == 4 else chw), ratio
 
             return square
-        if self.model._get_model_name() == "retinanet":
-            # RetinaNet's own preprocessing gives every image its own shape;
-            # the compiled graph takes one square canvas, so images are fitted
-            # into it (the backend does the same for fixed-shape artifacts).
+        if self.model._get_model_name() in ("retinanet", "fcos"):
+            # RetinaNet's and FCOS's own preprocessing give every image its own
+            # shape; the compiled graph takes one square canvas, so images are
+            # fitted into it (the backend does the same for fixed-shape artifacts).
             import functools
 
             return functools.partial(preprocess, fixed_canvas=True)
@@ -5009,6 +5217,8 @@ class AxeleraExporter(BaseExporter):
             )
         if self._rrdb_parts_restore():
             return self._export_rrdb_parts_onnx(out, imgsz, opset)
+        if self.model._get_model_name() == "fcos" and self._task() == "detect":
+            return self._export_fcos_parts_onnx(out, imgsz)
         graph_outputs = self._graph_outputs()
         if graph_outputs:
             if self.model._get_model_name() == "quicksrnet":
@@ -5303,6 +5513,19 @@ class AxeleraExporter(BaseExporter):
                 }
             )
             return meta
+        if isinstance(wrapper, _FCOSTrunk):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": ["detections"],
+                    "graph_outputs": ["detections"],
+                }
+            )
+            return meta
         if isinstance(wrapper, (_DETRBackboneWrapper, _VanillaDETRBackboneWrapper)):
             outputs = list(self._hybrid_outputs())
             vanilla_detr = isinstance(wrapper, _VanillaDETRBackboneWrapper)
@@ -5488,6 +5711,7 @@ class AxeleraExporter(BaseExporter):
                 devkit_version=getattr(self, "_devkit_version", None),
                 verify=bool(verify),
                 verify_samples=self._verify_samples(dummy.shape[-2:]) if verify else None,
+                host_arrays=getattr(self, "_hybrid_host_arrays", None),
             )
         if getattr(self, "_chain_tail", None) is not None:
             from .axelera import export_axelera_chain

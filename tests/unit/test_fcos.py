@@ -158,3 +158,27 @@ def test_fcos_public_defaults_and_training_rejection() -> None:
 
     with pytest.raises(NotImplementedError, match="inference-only"):
         model.train()
+
+
+def test_fixed_canvas_fits_the_image_into_one_square():
+    from libreyolo.models.fcos.utils import preprocess_numpy
+
+    image = np.random.default_rng(0).integers(0, 256, (240, 400, 3), dtype=np.uint8)
+    chw, ratio = preprocess_numpy(image, 320, fixed_canvas=True)
+    assert chw.shape == (3, 320, 320) and ratio == pytest.approx(0.8)
+    assert resize_dimensions(240, 400, 320, fixed_canvas=True) == (192, 320, pytest.approx(0.8))
+    pair, _ = preprocess_numpy(image, (320, 320), fixed_canvas=True)  # (h, w) from export calibration
+    np.testing.assert_array_equal(pair, chw)
+    dynamic, _ = preprocess_numpy(image, 320)
+    assert dynamic.shape[1:] != (320, 320)  # torchvision's min/max resize stays the default
+
+
+def test_val_preprocessor_takes_the_fixed_canvas():
+    image = np.random.default_rng(1).integers(0, 256, (240, 400, 3), dtype=np.uint8)
+    targets = np.array([[10.0, 20.0, 110.0, 120.0, 3.0]], dtype=np.float32)
+    fixed = FCOSValPreprocessor(img_size=(320, 320), fixed_canvas=True)
+    chw, scaled = fixed(image, targets, (320, 320))
+    assert chw.shape == (3, 320, 320)
+    np.testing.assert_allclose(scaled[0, :4], targets[0, :4] * 0.8, rtol=1e-6)
+    assert fixed.letterbox_scale(240, 400, 320)[0] == pytest.approx(0.8)
+    assert not FCOSValPreprocessor(img_size=(320, 320)).fixed_canvas

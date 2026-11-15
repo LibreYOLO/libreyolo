@@ -191,7 +191,66 @@ def _host_add(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return (np.asarray(a, dtype=np.float32) + np.asarray(b, dtype=np.float32)).astype(np.float32)
 
 
-HOST_OPS: dict[str, Any] = {"l2norm": _host_l2norm, "add": _host_add}
+def _host_pack_levels(*levels, boxes, canvas) -> np.ndarray:
+    """Place FPN levels on one zero canvas at their ``[y, x, h, w]`` boxes (1-pixel zero gutters between them)."""
+    first = np.asarray(levels[0])
+    out = np.zeros((first.shape[0], first.shape[1], int(canvas[0]), int(canvas[1])), dtype=np.float32)
+    for level, (y, x, h, w) in zip(levels, np.asarray(boxes, dtype=np.int64)):
+        out[:, :, y : y + h, x : x + w] = np.asarray(level, dtype=np.float32)
+    return out
+
+
+def _host_gn_relu_levels(x, *, boxes, groups, gamma, beta, eps=1e-5) -> np.ndarray:
+    """GroupNorm (per level box, ``groups`` groups) + affine + ReLU on a packed canvas; zero outside the boxes."""
+    x = np.asarray(x, dtype=np.float32)
+    n, c = x.shape[:2]
+    out = np.zeros_like(x)
+    gamma = np.asarray(gamma, dtype=np.float32).reshape(1, c, 1, 1)
+    beta = np.asarray(beta, dtype=np.float32).reshape(1, c, 1, 1)
+    g = int(groups)
+    for y, x0, h, w in np.asarray(boxes, dtype=np.int64):
+        region = x[:, :, y : y + h, x0 : x0 + w].reshape(n, g, c // g, h, w)
+        mean = region.mean(axis=(2, 3, 4), keepdims=True)
+        var = region.var(axis=(2, 3, 4), keepdims=True)
+        normed = ((region - mean) / np.sqrt(var + np.float32(eps))).reshape(n, c, h, w)
+        out[:, :, y : y + h, x0 : x0 + w] = np.maximum(normed * gamma + beta, 0.0)
+    return out
+
+
+def _host_fcos_decode(y, *, boxes, n_cls, anchors, class_indices) -> np.ndarray:
+    """FCOS's export tensor from the packed predictor canvas (``cls | reg | ctrness`` channels per level box).
+
+    Per level, flatten in (h, w) order, decode the distances against the fixed-canvas anchors and score
+    ``sqrt(sigmoid(cls) * sigmoid(ctrness))`` for the exported classes: ``(1, N, 4 + 1 + classes)`` with the
+    level id in column 4, as ``FCOSExportWrapper`` emits it.
+    """
+    y = np.asarray(y, dtype=np.float32)
+    n_cls = int(n_cls)
+    cls_rows, reg_rows, ctr_rows, lvl_rows = [], [], [], []
+    for level, (yy, x0, h, w) in enumerate(np.asarray(boxes, dtype=np.int64)):
+        crop = y[0, :, yy : yy + h, x0 : x0 + w].reshape(y.shape[1], -1).T
+        cls_rows.append(crop[:, :n_cls])
+        reg_rows.append(np.maximum(crop[:, n_cls : n_cls + 4], 0.0))
+        ctr_rows.append(crop[:, n_cls + 4 : n_cls + 5])
+        lvl_rows.append(np.full((crop.shape[0], 1), float(level), dtype=np.float32))
+    cls, reg, ctr, lvl = (np.concatenate(r, axis=0) for r in (cls_rows, reg_rows, ctr_rows, lvl_rows))
+    a = np.asarray(anchors, dtype=np.float32)
+    cx, cy = 0.5 * (a[:, 0] + a[:, 2]), 0.5 * (a[:, 1] + a[:, 3])
+    aw, ah = a[:, 2] - a[:, 0], a[:, 3] - a[:, 1]
+    d = reg * np.stack([aw, ah, aw, ah], axis=-1)
+    xyxy = np.stack([cx - d[:, 0], cy - d[:, 1], cx + d[:, 2], cy + d[:, 3]], axis=-1)
+    scores = np.sqrt(1.0 / (1.0 + np.exp(-cls)) * (1.0 / (1.0 + np.exp(-ctr))))
+    scores = scores[:, np.asarray(class_indices, dtype=np.int64)]
+    return np.concatenate([xyxy, lvl, scores], axis=-1)[None].astype(np.float32)
+
+
+HOST_OPS: dict[str, Any] = {
+    "l2norm": _host_l2norm,
+    "add": _host_add,
+    "pack_levels": _host_pack_levels,
+    "gn_relu_levels": _host_gn_relu_levels,
+    "fcos_decode": _host_fcos_decode,
+}
 _HOST_STEP_KEYS = ("host", "input", "output", "inputs", "outputs")
 #: A host-operation parameter written as ``"@npz:<key>"`` is the array stored
 #: under ``<key>`` in the export's ``host_arrays`` file (an ``.npz``).

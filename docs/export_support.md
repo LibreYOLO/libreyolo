@@ -57,7 +57,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | falconperception | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | faster_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | fcn | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | ✓ |  |  |  |  |
-| fcos | detect | ✓ | ✓ |  |  | available |  |  |  |  |  |  |  |  |
+| fcos | detect | ✓ | ✓ |  |  | available |  |  |  | available |  |  |  |  |
 | fcos3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | feynobg | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | florence2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -636,6 +636,7 @@ These converter paths are callable with the recorded validation context.
 - `efficientdet` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `efficientnetv2` / `classify` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole classifier runs on the Metis AIPU with histogram activation ranges. Supported, not validated: on a Metis M.2 Max EfficientNetV2-b0 keeps top-1 1.0-1.1 points below FP32 on a paired 1000-image ImageNetV2 set (docs/axelera.md). Constraint: supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1, b2 and b3 do not compile with SDK 1.9.0 (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `fcos` / `detect` / `openvino`: FP32 dynamic-shape conversion and high-confidence public predictions pass, but small score/box drift can change low-confidence NMS ordering. Constraint: OpenVINO CPU, FP32, batch 1, dynamic padded H/W
+- `fcos` / `detect` / `axelera`: INT8 multi-part export compiled with Axelera's toolchain. FCOS's head normalizes every convolution with GroupNorm (per-image statistics), which the INT8 toolchain has no form for, so the ResNet-FPN trunk, the four head convolutions (classification and regression towers stacked, on all five levels packed onto one canvas) and the predictor run on the Metis AIPU as six compiled parts, and the host applies each GroupNorm + ReLU and decodes the boxes. Supported, not validated: on a Metis M.2 Max FCOS-R50 loses 4.13 mAP50-95 points against FP32 on 1000 COCO val2017 images at its 800x800 canvas (docs/axelera.md). Constraint: supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES); fixed 800x800 canvas by default. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1
 - `feynobg` / `matte` / `onnx`: The opset-19 DeformConv graph exports, but ONNX Runtime's CPU provider has no DeformConv implementation for runtime parity.
 - `gtr` / `detect` / `onnx`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
 - `gtr` / `detect` / `torchscript`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
@@ -1186,7 +1187,6 @@ rest on the host CPU; each entry names the split.
 - `fcos` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `fcos` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `fcos` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `fcos` / `detect` / `axelera`: FCOS's detection head normalizes every convolution with GroupNorm, which divides each image's features by statistics computed from that image; Axelera's INT8 toolchain has no form for it. Measured with the 1.9 SDK: quantization stops on the head's 40 InstanceNormalization ops (at opset 18 it stops earlier, on Resize). Running FCOS on Metis needs a head with batch norm or no norm, i.e. a retrained model.
 - `fcos` / `detect` / `ncnn`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `tflite`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `coreml`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.

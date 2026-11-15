@@ -146,10 +146,14 @@ class LibreFCOS(BaseModel):
         self,
         format: str = "onnx",
         *,
-        opset: int = 18,
+        opset: int | None = None,
         **kwargs,
     ) -> str:
         export_format = format.lower()
+        if opset is None and export_format != "axelera":
+            # Every validated FCOS format was measured at opset 18; Axelera
+            # takes opset 14-17 and chooses its own.
+            opset = 18
         if export_format in {"onnx", "openvino"}:
             if kwargs.get("dynamic") is False:
                 warnings.warn(
