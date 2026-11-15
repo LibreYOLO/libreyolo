@@ -158,6 +158,62 @@ classification. Each task has several models, and each model comes in several
 variants. For example, `LibreYOLO9t` is task detection, model YOLO9 and
 variant `t`, which means tiny. Click a model to open its documentation page.
 
+```mermaid
+mindmap
+  root((LibreYOLO))
+    👁️ See
+      Object detection · 52
+        YOLOv9 · RF-DETR · D-FINE · DEIM · YOLOX +47
+      Instance segmentation · 17
+        RF-DETR · SAM 3 · SAM 2 +14
+      Semantic segmentation · 10
+        SegFormer · EoMT · DeepLabv3 +7
+      Panoptic segmentation · 2
+        EoMT · SenseNova-Vision
+      Oriented boxes · 5
+        RF-DETR · RiO-DETRv2 +3
+      Pose · 7
+        RF-DETR · HRNet · YOLO-NAS +4
+      Pointing · 9
+        Molmo2 · Qwen3-VL grounding · Moondream +6
+    🧠 Understand
+      Classification · 15
+        DINOv2 · ConvNeXt V2 · SigLIP2 +12
+      Embeddings · 7
+        DINOv2 · SigLIP2 · CLIP +4
+      OCR · 7
+        PP-OCRv5 · GLM-OCR · DeepSeek-OCR +4
+      Gaze
+        L2CS-Net
+    🌐 Geometry
+      Depth · 11
+        Depth Anything 3 · MoGe-3 · Video Depth Anything +8
+      Surface normals · 4
+        LibreMODUS · Marigold V2 · MoGe-2 +1
+      Albedo
+        Marigold V2
+      Optical flow · 8
+        SEA-RAFT · WAFT · RAFT +5
+      3D detection · 4
+        3D-MOOD · DetAny3D · FCOS3D +1
+      Body mesh · 2
+        InstantHMR · SAM 3D Body
+      Edges · 3
+        DexiNed · LibreMODUS · TEED
+    🎨 Edit & create
+      Restoration · 7
+        Real-ESRGAN · SwinIR · LaMa +4
+      Background removal · 5
+        BiRefNet · BEN2 · ViTMatte +2
+      Image generation · 6
+        FLUX.2 klein · Speridlabs Iris-Z · SANA-Sprint +3
+      3D generation · 8
+        TRELLIS.2 · Speridlabs Idol · TripoSR +5
+    🤖 Act
+      Robot policies · 3
+        ACT · Diffusion Policy · LibreVLA
+```
+
 <details>
 <summary><b>All tasks and models</b></summary>
 
