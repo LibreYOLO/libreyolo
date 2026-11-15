@@ -4636,7 +4636,7 @@ class BaseBackend(ABC):
             # normalization, stride pad; the parser undoes that geometry.
             "fcos": FCOSValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
-        if preprocessor_cls in (RetinaNetValPreprocessor, FCOSValPreprocessor):
+        if preprocessor_cls in (RetinaNetValPreprocessor, FCOSValPreprocessor, FasterRCNNValPreprocessor):
             return preprocessor_cls(
                 img_size=_imgsz_hw(img_size),
                 fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,

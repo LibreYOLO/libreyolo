@@ -4638,18 +4638,6 @@ _add(
 )
 _add(
     "blocked",
-    ("faster_rcnn",),
-    ("detect",),
-    ("axelera",),
-    reason=(
-        "Faster R-CNN is two-stage: the region proposals pick boxes at run time "
-        "(If, NonZero, TopK) and RoIAlign crops them before the second network "
-        "runs. Axelera's host can only run operators before or after one "
-        "accelerated graph; with SDK 1.9 the graph cleaner rejects the export."
-    ),
-)
-_add(
-    "blocked",
     ("ec",),
     ("detect",),
     ("axelera",),
@@ -4761,6 +4749,26 @@ _add(
         "and metadata parts; keep them together. Needs onnxruntime at run time. "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed square input"
+    ),
+)
+_add(
+    "hybrid",
+    ("faster_rcnn",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "Hybrid INT8 export at a fixed square canvas: the input normalization, "
+        "the backbone and the FPN are compiled with Axelera's toolchain and run on "
+        "the Metis AIPU; the region proposal network, RoIAlign, the box head and "
+        "NMS run on the host CPU as an FP32 ONNX graph through ONNX Runtime "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and "
+        "metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed square canvas (images are stretched to it)"
     ),
 )
 _add(
@@ -5198,6 +5206,9 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("detr", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("r50dc5", "r101", "r101dc5")
+    },
+    ("faster_rcnn", "detect", "axelera"): {
+        size: "has not been measured on a Metis yet" for size in ("s", "m", "l")
     },
     ("realesrgan", "restore", "axelera"): {
         "x2": (

@@ -322,7 +322,17 @@ class PPDocLayoutV3ValPreprocessor(RFDETRValPreprocessor):
 
 
 class FasterRCNNValPreprocessor(BaseValPreprocessor):
-    """Keep source resolution for the model's in-graph detection transform."""
+    """Keep source resolution for the model's in-graph detection transform.
+
+    ``fixed_canvas`` stretches each image to the ``img_size`` canvas instead,
+    as the fixed-shape backends (Axelera hybrid exports) do at predict time.
+    """
+
+    def __init__(
+        self, img_size: Tuple[int, int], max_labels: int = 120, fixed_canvas: bool = False
+    ):
+        super().__init__(img_size, max_labels)
+        self.fixed_canvas = bool(fixed_canvas)
 
     @property
     def normalize(self) -> bool:
@@ -338,9 +348,12 @@ class FasterRCNNValPreprocessor(BaseValPreprocessor):
     ) -> Tuple[np.ndarray, np.ndarray]:
         orig_h, orig_w = img.shape[:2]
         target_h, target_w = input_size
-        rgb_chw = np.ascontiguousarray(
-            img[:, :, ::-1].transpose(2, 0, 1), dtype=np.float32
-        )
+        rgb = img[:, :, ::-1]
+        if self.fixed_canvas:
+            rgb = cv2.resize(
+                np.ascontiguousarray(rgb), (target_w, target_h), interpolation=cv2.INTER_LINEAR
+            )
+        rgb_chw = np.ascontiguousarray(rgb.transpose(2, 0, 1), dtype=np.float32)
 
         # Images stay in original coordinates, but DetectionValidator's shared
         # GT parser expects non-letterboxed targets in validation-canvas space

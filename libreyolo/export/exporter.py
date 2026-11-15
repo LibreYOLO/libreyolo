@@ -4368,10 +4368,11 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("dfine", "detect"): ("pred_logits", "pred_boxes"),
     ("deim", "detect"): ("pred_logits", "pred_boxes"),
     ("detr", "detect"): ("pred_logits", "pred_boxes"),
+    ("faster_rcnn", "detect"): ("boxes", "scores", "labels"),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
-_HYBRID_BACKBONE_ONLY = frozenset({"detr"})
+_HYBRID_BACKBONE_ONLY = frozenset({"detr", "faster_rcnn"})
 
 
 def _unfrozen_batchnorms(module: torch.nn.Module) -> torch.nn.Module:
@@ -4427,6 +4428,8 @@ class _VanillaDETRBackboneWrapper(torch.nn.Module):
     output_layout = "graph_outputs_v1"
     output_windows: ClassVar[dict] = {}
     output_names = ("feat",)
+    hybrid_aipu = "ResNet backbone and input projection"
+    hybrid_host = "positions, transformer encoder and decoder, heads (FP32 ONNX)"
 
     def __init__(self, model: torch.nn.Module):
         super().__init__()
@@ -4464,6 +4467,79 @@ class _VanillaDETRHostTailWrapper(torch.nn.Module):
         logits = self.model.class_embed(hidden)[-1]
         boxes = self.model.bbox_embed(hidden).sigmoid()[-1]
         return logits, boxes
+
+
+class _RCNNBackboneWrapper(torch.nn.Module):
+    """Part 1 of a hybrid Faster R-CNN export: input normalization, backbone and FPN.
+
+    Takes the backend's fixed canvas (RGB in [0, 1], already the model's
+    ``min_size``, so the in-graph resize is the identity) and returns the FPN
+    levels ``fpn0`` (finest) ... ``fpnN``. The extra ``pool`` level is a
+    stride-2 subsample of the coarsest one and runs on the host.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    hybrid_aipu = "input normalization, backbone and FPN"
+    hybrid_host = "RPN, RoIAlign, box head and NMS (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        mean = torch.tensor(model.transform.image_mean, dtype=torch.float32).view(1, -1, 1, 1)
+        std = torch.tensor(model.transform.image_std, dtype=torch.float32).view(1, -1, 1, 1)
+        self.register_buffer("scale", 1.0 / std, persistent=False)
+        self.register_buffer("shift", -mean / std, persistent=False)
+        levels = len(model.backbone.fpn.inner_blocks)
+        self.output_names = tuple(f"fpn{i}" for i in range(levels))
+
+    def forward(self, x):
+        levels = self.model.backbone(x * self.scale + self.shift)
+        # The extra "pool" level is dropped here (the ONNX export prunes it) and
+        # recomputed on the host: a strided 1x1 subsample has no safe AIPU form (F80).
+        return tuple(value for key, value in levels.items() if key != "pool")
+
+
+class _RCNNHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid Faster R-CNN export: pool level, RPN, RoI heads, NMS, COCO labels.
+
+    Ends at the ONNX export's ``boxes``, ``scores``, ``labels`` in canvas
+    pixels, which the backend's fixed-shape parser maps back to the image.
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names, canvas=(800, 800)):
+        super().__init__()
+        from ..models.faster_rcnn.nn import FasterRCNNExportWrapper
+
+        self.model = model
+        self.output_names = tuple(output_names)
+        self.canvas = tuple(int(v) for v in canvas)
+        self.register_buffer(
+            "label_map", FasterRCNNExportWrapper(model).label_map.clone(), persistent=False
+        )
+
+    def forward(self, *levels):
+        from collections import OrderedDict
+
+        from torchvision.models.detection.image_list import ImageList
+
+        features = OrderedDict((str(i), level) for i, level in enumerate(levels))
+        features["pool"] = torch.nn.functional.max_pool2d(levels[-1], 1, 2, 0)
+        h, w = self.canvas
+        images = ImageList(levels[0].new_zeros((levels[0].shape[0], 3, h, w)), [(h, w)])
+        proposals, _ = self.model.rpn(images, features)
+        detections, _ = self.model.roi_heads(features, proposals, images.image_sizes)
+        detection = self.model.transform.postprocess(detections, images.image_sizes, [(h, w)])[0]
+        labels = self.label_map[detection["labels"]]
+        keep = labels >= 0
+        return detection["boxes"][keep], detection["scores"][keep], labels[keep]
+
+
+#: Backbone-only hybrid families: (part-1 wrapper, host tail wrapper).
+_HYBRID_BACKBONE_WRAPPERS = {
+    "detr": ("_VanillaDETRBackboneWrapper", "_VanillaDETRHostTailWrapper"),
+    "faster_rcnn": ("_RCNNBackboneWrapper", "_RCNNHostTailWrapper"),
+}
 
 
 class _DETRHostTailWrapper(torch.nn.Module):
@@ -5078,6 +5154,17 @@ class AxeleraExporter(BaseExporter):
                 return BaseBackend._preprocess_restore(crop, (h, w), "rgb")[0][0].numpy(), 1.0
 
             return restore
+        if self.model._get_model_name() == "faster_rcnn":
+            import cv2
+
+            # The backend's fixed-shape Faster R-CNN preprocessing: stretch to the
+            # canvas, RGB in [0, 1]; the compiled part normalizes.
+            def canvas(rgb, imgsz):
+                h, w = (imgsz, imgsz) if isinstance(imgsz, int) else imgsz
+                resized = cv2.resize(rgb, (int(w), int(h)), interpolation=cv2.INTER_LINEAR)
+                return np.ascontiguousarray(resized.astype(np.float32).transpose(2, 0, 1) / 255.0), 1.0
+
+            return canvas
         preprocess = self.model._get_preprocess_numpy()
         if self._hybrid_outputs():
             # DETR preprocessing takes one square size and returns NCHW.
@@ -5416,8 +5503,11 @@ class AxeleraExporter(BaseExporter):
         from .onnx import _export_onnx_graph
 
         net = _unfrozen_batchnorms(copy.deepcopy(self.model.model).eval())
-        vanilla = self.model._get_model_name() in _HYBRID_BACKBONE_ONLY
-        self._raw_wrapper = (_VanillaDETRBackboneWrapper if vanilla else _DETRBackboneWrapper)(net).eval()
+        own = _HYBRID_BACKBONE_WRAPPERS.get(self.model._get_model_name())
+        head_cls, tail_cls = (
+            (globals()[own[0]], globals()[own[1]]) if own else (_DETRBackboneWrapper, _DETRHostTailWrapper)
+        )
+        self._raw_wrapper = head_cls(net).eval()
         split = self._hybrid_split()
         features = list(self._raw_wrapper.output_names)
         onnx_meta = self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz)
@@ -5447,7 +5537,16 @@ class AxeleraExporter(BaseExporter):
         with torch.no_grad():
             sample = tuple(self._raw_wrapper(dummy))
         if split == "backbone":
-            tail = (_VanillaDETRHostTailWrapper if vanilla else _DETRHostTailWrapper)(net, outputs).eval()
+            tail = tail_cls(net, outputs).eval()
+            if hasattr(tail, "canvas"):
+                canvas = tuple(int(v) for v in dummy.shape[-2:])
+                min_size = int(net.transform.min_size[-1])
+                if canvas != (min_size, min_size):
+                    raise ValueError(
+                        f"{self.model._get_model_name()} exports to Axelera at its {min_size}x{min_size} "
+                        f"canvas (the model's min_size); got {canvas[0]}x{canvas[1]}."
+                    )
+                tail.canvas = canvas
             host = export(tail, sample, str(out.with_name(f"{out.name}.export_intermediate.host.onnx")), features, outputs)
             self._hybrid_parts = [
                 {"host_onnx": host, "inputs": features, "outputs": list(outputs)},
@@ -5526,9 +5625,9 @@ class AxeleraExporter(BaseExporter):
                 }
             )
             return meta
-        if isinstance(wrapper, (_DETRBackboneWrapper, _VanillaDETRBackboneWrapper)):
+        if isinstance(wrapper, (_DETRBackboneWrapper, _VanillaDETRBackboneWrapper, _RCNNBackboneWrapper)):
             outputs = list(self._hybrid_outputs())
-            vanilla_detr = isinstance(wrapper, _VanillaDETRBackboneWrapper)
+            own_split = hasattr(wrapper, "hybrid_aipu")
             meta.update(
                 {
                     "format": "axelera",
@@ -5541,12 +5640,12 @@ class AxeleraExporter(BaseExporter):
                     "hybrid": (
                         {
                             "split": "backbone",
-                            "aipu": "backbone and encoder input projections"
-                            if not vanilla_detr
-                            else "ResNet backbone and input projection",
-                            "host": "attention encoder, fusion neck and decoder (FP32 ONNX)"
-                            if not vanilla_detr
-                            else "positions, transformer encoder and decoder, heads (FP32 ONNX)",
+                            "aipu": wrapper.hybrid_aipu
+                            if own_split
+                            else "backbone and encoder input projections",
+                            "host": wrapper.hybrid_host
+                            if own_split
+                            else "attention encoder, fusion neck and decoder (FP32 ONNX)",
                         }
                         if self._hybrid_split() == "backbone"
                         else {

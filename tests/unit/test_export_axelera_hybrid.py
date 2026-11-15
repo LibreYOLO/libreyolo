@@ -295,3 +295,38 @@ def test_dfine_line_is_hybrid_and_its_parts_reproduce_the_native_model(family):
     _assert_same_queries(
         [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
     )
+
+
+def test_faster_rcnn_hybrid_export_runs_the_chain(sdk, tmp_path, monkeypatch):
+    import yaml
+
+    from libreyolo import LibreYOLO
+    from libreyolo.export import support
+    from libreyolo.export.support import get_support
+    from libreyolo.models.faster_rcnn.model import LibreFasterRCNN
+
+    assert get_support("faster_rcnn", "detect", "axelera").tier == "hybrid"
+    monkeypatch.setitem(support.UNMEASURED_SIZES, ("faster_rcnn", "detect", "axelera"), {})
+    model = LibreFasterRCNN._from_scratch(size="n", device="cpu", seed=0)
+    data = str(_dataset(tmp_path))
+    artifact = Path(
+        model.export(
+            format="axelera",
+            imgsz=320,
+            data=data,
+            output_path=str(tmp_path / "frcnn_axelera_model"),
+        )
+    )
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["hybrid"]["split"] == "backbone"
+    assert [("axm" if "axm" in part else "onnx") for part in meta["parts"]] == ["axm", "onnx"]
+    assert sorted(meta["parts"][0]["outputs"]) == ["fpn0", "fpn1"]
+    assert meta["parts"][-1]["outputs"] == ["boxes", "scores", "labels"]
+    backend = LibreYOLO(str(artifact))
+    image = _image(shape=(240, 320, 3))
+    result = backend(image, conf=0.0)
+    assert result.boxes.xyxy.shape[-1] == 4
+    with pytest.raises(ValueError, match="canvas"):
+        model.export(
+            format="axelera", imgsz=256, data=data, output_path=str(tmp_path / "bad_axelera_model")
+        )

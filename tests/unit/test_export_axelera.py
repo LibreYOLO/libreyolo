@@ -1865,7 +1865,6 @@ def test_efficientdet_preprocessing_accepts_a_square_pair():
         ("centernet", "detect", "deformable"),
         ("convnext", "classify", "LayerNorm"),
         ("convnextv2", "classify", "Global"),
-        ("faster_rcnn", "detect", "two-stage"),
         ("ec", "detect", "deformable attention"),
         ("tinyformer", "detect", "deformable attention"),
         ("teed", "edge", "logarithm"),
