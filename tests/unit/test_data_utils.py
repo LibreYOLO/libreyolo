@@ -434,3 +434,37 @@ def test_zip_download_rejects_parent_dir_root(tmp_path, monkeypatch):
     assert neighbour.read_text() == "stay here"
     assert not (project / "neighbour.txt").exists()
     assert not list(parent.glob(".libreyolo-extract-*"))
+
+
+def test_zip_without_a_single_root_never_overwrites_dest(tmp_path, monkeypatch):
+    """Several top-level entries merge into dest like a single-root archive."""
+    data_utils = _fake_zip_download(
+        monkeypatch,
+        tmp_path,
+        {"data.yaml": b"from zip", "train/images/a.jpg": b"x", "valid/images/b.jpg": b"y"},
+    )
+    project = tmp_path / "parent" / "project"
+    project.mkdir(parents=True)
+    (project / "data.yaml").write_text("mine")
+
+    data_utils._download_and_extract_zip("https://example.invalid/evil.zip", project)
+
+    assert (project / "data.yaml").read_text() == "mine"
+    assert (project / "train" / "images" / "a.jpg").exists()
+    assert (project / "valid" / "images" / "b.jpg").exists()
+    assert not list(project.glob(".libreyolo-extract-*"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permissions")
+def test_zip_download_needs_only_dest_to_be_writable(tmp_path, monkeypatch):
+    data_utils = _fake_zip_download(monkeypatch, tmp_path, {"a.txt": b"x", "b/c.txt": b"y"})
+    parent = tmp_path / "parent"
+    project = parent / "project"
+    project.mkdir(parents=True)
+    parent.chmod(0o555)
+    try:
+        data_utils._download_and_extract_zip("https://example.invalid/evil.zip", project)
+    finally:
+        parent.chmod(0o755)
+    assert (project / "a.txt").exists() and (project / "b" / "c.txt").exists()
+    assert not list(project.glob(".libreyolo-extract-*"))

@@ -318,6 +318,7 @@ class InstantHMRFineTuner:
         out["metrics/loss"] = sums.get("loss", 0.0) / max(n, 1)
         return out
 
+    @torch.no_grad()
     def _validate(self, net, loader) -> dict[str, float]:
         net.eval()
         totals = {"2d": 0.0, "reproj": 0.0}
