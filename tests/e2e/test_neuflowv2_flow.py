@@ -24,8 +24,8 @@ pytestmark = [
 DX, DY = 6.0, 3.0
 
 
-def _shifted_pair(sample_image, tmp_path: Path) -> list[str]:
-    img = np.asarray(Image.open(sample_image).convert("RGB"))
+def _shifted_pair(image_path, tmp_path: Path) -> list[str]:
+    img = np.asarray(Image.open(image_path).convert("RGB"))
     h, w = img.shape[:2]
     scale = 960 / w
     img = cv2.resize(img, (960, round(h * scale)), interpolation=cv2.INTER_AREA)
@@ -41,13 +41,15 @@ def _shifted_pair(sample_image, tmp_path: Path) -> list[str]:
     return paths
 
 
-def test_neuflowv2_clean_download_recovers_a_known_shift(tmp_path: Path, sample_image):
+def test_neuflowv2_clean_download_recovers_a_known_shift(
+    tmp_path: Path, parkour_fixture_image
+):
     """Flow task: not a MODEL_CATALOG row (that catalog is detect-only)."""
     checkpoint_path = tmp_path / "LibreNeuFlowv2s-flow.pt"
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     model = LibreYOLO(str(checkpoint_path), device=device)
-    frames = _shifted_pair(sample_image, tmp_path)
+    frames = _shifted_pair(parkour_fixture_image, tmp_path)
     results = model.predict(frames)
 
     assert checkpoint_path.is_file()
