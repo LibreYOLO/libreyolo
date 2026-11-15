@@ -102,13 +102,17 @@ def test_gpu_matcher_falls_back_to_scipy_when_torch_hungarian_cannot_build(monke
 
     from libreyolo.models.rfdetr.matcher import HungarianMatcher
 
+    calls = []
+
     def broken(costs):
+        calls.append(costs.shape)
         raise subprocess.CalledProcessError(1, ["gcc", "cuda_utils.c"])
 
     cost = _gpu_host(monkeypatch, broken)
     matcher = HungarianMatcher()
     assert matcher._use_gpu_assignment(cost) is False
-    assert matcher._use_gpu_assignment(cost) is False  # decided once
+    assert matcher._use_gpu_assignment(cost) is False
+    assert len(calls) == 1  # the probe runs once, not on every step
 
 
 def test_gpu_matcher_uses_torch_hungarian_when_it_works(monkeypatch):
