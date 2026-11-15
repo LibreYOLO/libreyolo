@@ -297,6 +297,24 @@ class HungarianMatcher(nn.Module):
                 )
             except PackageNotFoundError:
                 self._gpu_assignment_available = False
+            if self._gpu_assignment_available:
+                # torch-hungarian JIT-compiles through Triton on first use, which
+                # needs a C compiler and Python headers. Probe once so a host
+                # without them trains on SciPy instead of crashing mid-step.
+                try:
+                    from ._assignment import _solve_to_indices
+
+                    _solve_to_indices(torch.zeros(1, 1, 1, device=cost.device), 1)
+                except Exception as exc:  # noqa: BLE001 - any build/runtime failure
+                    self._gpu_assignment_available = False
+                    logger.warning(
+                        "torch-hungarian is installed but failed on this machine "
+                        "(%s: %s); RF-DETR matching falls back to SciPy. Installing "
+                        "the Python development headers (e.g. python3-dev) usually "
+                        "fixes this.",
+                        type(exc).__name__,
+                        str(exc).splitlines()[0][:200] if str(exc) else "",
+                    )
             logger.info(
                 "RF-DETR assignment backend: %s",
                 "torch-hungarian" if self._gpu_assignment_available else "scipy",
