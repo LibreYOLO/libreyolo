@@ -5086,12 +5086,17 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("efficientnetv2", "classify", "axelera"): {
         "b1": (
             "does not compile with Axelera's SDK 1.9.0: at 224 and 240 px the "
-            "compiled model has two output buffers for its one output, and at "
-            "256 px the squeeze-excitation pooling exceeds a reduction limit"
+            "compiled model has two output buffers for its one output; the "
+            "second is the channel-padded input (224x224x16 at 224 px), which "
+            "the compiler lists as an output (b0 has no such buffer). Running "
+            "the classifier as a 1x1 convolution, or compiling with first-layer "
+            "replication, IO padding removal, memory paging or host/device "
+            "double buffering switched off, fails the same way; at 256 px the "
+            "squeeze-excitation pooling exceeds a reduction limit"
         ),
         "b2": (
-            "does not compile with Axelera's SDK 1.9.0: the compiled model has "
-            "two output buffers for its one output"
+            "does not compile with Axelera's SDK 1.9.0: like b1, the compiled "
+            "model has two output buffers for its one output"
         ),
         "b3": (
             "does not compile with Axelera's SDK 1.9.0: at its native 300 px and "

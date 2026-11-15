@@ -746,7 +746,7 @@ compiles their own.
 Blocked for structural reasons (accuracy never blocks an export):
 
 - L2CS (gaze): its only checkpoint is trained on Gaze360, whose licence forbids redistributing models trained on it; LibreYOLO fetches it from the authors and does not mirror it, so no Axelera export is measured or shipped.
-- EfficientNetV2-b1, -b2 and -b3: do not compile with SDK 1.9.0 (the compiled model has two output buffers for its one output: b1 at 224 and 240 px, b3 at 224 and its native 300 px; at 256 px b1's squeeze-excitation pooling exceeds a reduction limit).
+- EfficientNetV2-b1, -b2 and -b3: do not compile with SDK 1.9.0 (the compiled model has two output buffers for its one output: b1 at 224 and 240 px, b3 at 224 and its native 300 px; at 256 px b1's squeeze-excitation pooling exceeds a reduction limit). The second buffer is the channel-padded input (224x224x16 for b1 at 224 px), listed as an output; neither running the classifier as a 1x1 convolution nor any public compiler option tried (first-layer replication, IO padding removal, memory paging, double buffering) removes it (ledger `efficientnetv2/classify/b1/2026-11-15` to `/5`).
 - EfficientDet-d3: lowering finds no L1 tiling at its native 896 (2.52 MB needed, 2.15 MB available) nor at a 512 canvas (2.58 vs 2.14 MB); its 160-channel BiFPN and heads set the need (ledgers `efficientdet/detect/d3/2026-11-13/2`, `efficientdet/detect/d3/2026-11-14`). Use d2.
 - HRNet (pose): compiles, but the device output drifts from the quantized model stage by stage (keypoint mAP 0.000 on device vs a working CPU-quantized model).
 - ZipDepth: after an exact ReduceMean-to-pooling rewrite, quantization fails on the GCNet context MatMul.

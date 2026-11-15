@@ -2190,3 +2190,11 @@ def test_resize_1x1_broadcast_add_is_exact(tmp_path):
     before = ort.InferenceSession(str(source)).run(None, feeds)[0]
     after = ort.InferenceSession(out).run(None, feeds)[0]
     np.testing.assert_allclose(after, before, rtol=1e-6, atol=1e-6)
+
+
+def test_efficientnetv2_b1_block_names_the_padded_input_buffer():
+    from libreyolo.export.support import BLOCKED_SIZES
+
+    reason = BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b1"]
+    assert "two output buffers" in reason and "channel-padded input" in reason
+    assert "two output buffers" in BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b2"]
