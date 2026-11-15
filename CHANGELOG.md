@@ -98,6 +98,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: NAFNet is "not available yet", not blocked; ConvNeXt's block names its measured limit.** NAFNet has no published LibreYOLO weights, so nothing can be measured on a Metis; its whole-graph skip and LayerNorms are known work, not a measured failure. ConvNeXt stays blocked: the per-pixel LayerNorm's reciprocal square root feeds the GELU with no exact AIPU form, and a host split would need about 23 parts for ConvNeXt-t.
+
 - **Ultralytics names now fail with the LibreYOLO line to type instead.**
   `from libreyolo import YOLO` (also `RTDETR`, `NAS`, `YOLOWorld`, `YOLOE`, `SAM`) raises an `ImportError` naming `LibreYOLO("LibreYOLO9s.pt")` or the matching LibreYOLO class; attribute access raises an `AttributeError`, so `hasattr()` is unchanged. `LibreYOLO("yolov8n.pt")` and the other Ultralytics weight names (v3u to v26, n/s/m/l/x, `-seg`/`-pose`/`-obb`/`-cls`, `-world`, `yoloe-*`, model `.yaml`) name the closest LibreYOLO weights, and the CLI suggests the `model=` value. A checkpoint trained with Ultralytics is refused with a message to fine-tune a LibreYOLO model instead; it never reaches the autoconverter. `predict()` options `project`, `name`, `tracker`, `persist`, `save_txt` and `save_conf` name their LibreYOLO equivalents. None of these names became aliases.
 

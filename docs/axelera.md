@@ -704,15 +704,15 @@ Blocked for structural reasons (accuracy never blocks an export):
 - YOLOv1: the head's [local] locally connected layer exports as an Einsum, which the 1.9 quantizer does not support (YOLOv1-b; the tiny weights are not published). It would need the layer rewritten as convolutions.
 - RTMDet-x: at 640x640 the compiler's LowerTIR pass still overflows its on-chip buffers after 4 iterations (2 h 21 min, 7 GB peak RSS; ledger `rtmdet/detect/x/2026-11-12/2`). Use RTMDet-l.
 - CenterNet (ResDCN-18, DLA-34): the upsampling uses modulated deformable convolutions (grid_sample at learned offsets), which the quantizer has no converter for (ledger `centernet/detect/dla34/2026-11-11`).
-- ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).
+- ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them. The channel mean and variance have exact AIPU forms, but the per-pixel reciprocal square root feeding ConvNeXt's GELU has none; a host split at every LayerNorm would need about 23 parts for ConvNeXt-t, so a hybrid export (convolutions on the Metis, LayerNorms on the host) is the route if ConvNeXt is ever needed (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).
 - Faster R-CNN: a two-stage graph (run-time proposals with If/NonZero/TopK, then RoIAlign before the second network); the host can only run operators before or after one accelerated graph (ledger `faster_rcnn/detect/n/2026-11-11/2`).
 - EC and TinyFormer: gather-based deformable attention in the decoder; no quantizer converter for its GreaterOrEqual bounds masks (ledgers `ec/detect/s/2026-11-11`, `tinyformer/detect/s/2026-11-11`).
-- NAFNet: the output adds the input image (a skip around the whole graph that the graph cleaner rejects) and every block has a per-pixel LayerNorm; no trained weights are published (ledger `nafnet/restore/s/2026-11-11`).
 - TEED: the Smish activation takes a logarithm, which quantization stops on; no trained weights are published (ledger `teed/edge/t/2026-11-11/2`).
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
 - EfficientDet-d4.
+- NAFNet: no trained LibreYOLO weights are published, so nothing can be exported or measured. When weights exist, the input skip around the whole graph runs on the host (as for Real-ESRGAN), and the per-pixel LayerNorms have the same reciprocal square root as ConvNeXt's (ledger `nafnet/restore/s/2026-11-11`).
 - Real-ESRGAN-x4 and -x2 (their compiles did not finish within 4 h and 3.5 h; no error seen; ledger `realesrgan/restore/x4/2026-11-13`, `realesrgan/restore/x2/2026-11-13`).
 - YOLO9-P2-t: no trained checkpoint is published (P2-s is validated on VisDrone; its checkpoint is a non-commercial research preview).
 - PIDNet-s: the compile did not finish within 90 minutes at 1024x1024 or 512x512 (ledgers `pidnet/semantic/s/2026-11-12`, `pidnet/semantic/s/2026-11-13`).

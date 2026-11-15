@@ -1795,7 +1795,6 @@ def test_efficientdet_preprocessing_accepts_a_square_pair():
         ("faster_rcnn", "detect", "two-stage"),
         ("ec", "detect", "deformable attention"),
         ("tinyformer", "detect", "deformable attention"),
-        ("nafnet", "restore", "LayerNorm"),
         ("teed", "edge", "logarithm"),
     ],
 )
@@ -1804,6 +1803,21 @@ def test_structurally_blocked_axelera_families_name_the_reason(family, task, key
 
     entry = get_support(family, task, "axelera")
     assert entry.tier == "blocked" and keyword in entry.reason
+
+
+def test_convnext_block_names_the_layernorm_and_the_part_count():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("convnext", "classify", "axelera")
+    assert entry.tier == "blocked"
+    assert "reciprocal square root" in entry.reason and "23 parts" in entry.reason
+
+
+def test_nafnet_is_not_available_yet_for_lack_of_weights():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("nafnet", "restore", "axelera")
+    assert entry.reason.startswith("Not available yet") and "weights" in entry.reason
 
 
 @pytest.mark.parametrize("family", ["pidnet", "unet"])

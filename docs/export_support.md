@@ -823,7 +823,7 @@ rest on the host CPU; each entry names the split.
 - `convnext` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `convnext` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `convnext` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `convnext` / `classify` / `axelera`: ConvNeXt normalizes every block with a per-pixel LayerNorm (each pixel divided by the standard deviation of its own channels), which needs a data-dependent division and square root that the AIPU does not run; with SDK 1.9 quantization stops on the stem's channel ReduceMean.
+- `convnext` / `classify` / `axelera`: ConvNeXt normalizes every block with a per-pixel LayerNorm (each pixel divided by the standard deviation of its own channels). The channel mean and variance have exact AIPU forms, but the reciprocal square root of that per-pixel variance has none, and it sits right before the block's GELU, so it cannot be folded into a convolution; with SDK 1.9 quantization stops on the stem's channel ReduceMean. Running each LayerNorm on the host between accelerated parts would need about 23 parts for ConvNeXt-t (18 blocks, stem and three downsampling layers). A hybrid export (convolutions on the Metis, LayerNorms on the host) is the route if it is ever needed.
 - `convnext` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `convnextv2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `convnextv2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
@@ -1768,7 +1768,7 @@ rest on the host CPU; each entry names the split.
 - `nafnet` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `nafnet` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `nafnet` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `nafnet` / `restore` / `axelera`: NAFNet adds the input image to the network output (a skip around the whole graph, which the compiler's graph cleaner rejects) and normalizes every block with a per-pixel LayerNorm (a data-dependent division); no trained LibreYOLO weights are published to measure an exported model against.
+- `nafnet` / `restore` / `axelera`: Not available yet: no trained LibreYOLO NAFNet weights are published, so there is no model to export and measure on a Metis. Known work for when weights exist: the input skip around the whole graph runs on the host (as for Real-ESRGAN), and every block's per-pixel LayerNorm has the same reciprocal square root as ConvNeXt's.
 - `nafnet` / `restore` / `tflite`: onnx2tf 2.6.7 converts the fixed-canvas graph, but LiteRT 2.1.2 fails at invoke time because input tensor 4539 lacks data.
 - `nafnet` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `neuflowv2` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.

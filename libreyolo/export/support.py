@@ -4592,9 +4592,15 @@ _add(
     ("axelera",),
     reason=(
         "ConvNeXt normalizes every block with a per-pixel LayerNorm (each pixel "
-        "divided by the standard deviation of its own channels), which needs a "
-        "data-dependent division and square root that the AIPU does not run; "
-        "with SDK 1.9 quantization stops on the stem's channel ReduceMean."
+        "divided by the standard deviation of its own channels). The channel "
+        "mean and variance have exact AIPU forms, but the reciprocal square "
+        "root of that per-pixel variance has none, and it sits right before "
+        "the block's GELU, so it cannot be folded into a convolution; with SDK "
+        "1.9 quantization stops on the stem's channel ReduceMean. Running each "
+        "LayerNorm on the host between accelerated parts would need about 23 "
+        "parts for ConvNeXt-t (18 blocks, stem and three downsampling layers). "
+        "A hybrid export (convolutions on the Metis, LayerNorms on the host) "
+        "is the route if it is ever needed."
     ),
 )
 _add(
@@ -4651,11 +4657,11 @@ _add(
     ("restore",),
     ("axelera",),
     reason=(
-        "NAFNet adds the input image to the network output (a skip around the "
-        "whole graph, which the compiler's graph cleaner rejects) and "
-        "normalizes every block with a per-pixel LayerNorm (a data-dependent "
-        "division); no trained LibreYOLO weights are published to measure an "
-        "exported model against."
+        "Not available yet: no trained LibreYOLO NAFNet weights are published, "
+        "so there is no model to export and measure on a Metis. Known work for "
+        "when weights exist: the input skip around the whole graph runs on the "
+        "host (as for Real-ESRGAN), and every block's per-pixel LayerNorm has "
+        "the same reciprocal square root as ConvNeXt's."
     ),
 )
 _add(
