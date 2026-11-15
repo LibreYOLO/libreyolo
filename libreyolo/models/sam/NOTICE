@@ -39,3 +39,25 @@ card declares Apache-2.0. The learned weights are independently converted from
 the official checkpoint and then checked exactly against the reference.
 
 The Apache License 2.0 text is included at ``licenses/Apache-2.0.txt``.
+
+LibreSAM31 - third-party attribution
+====================================
+
+LibreSAM31 calls the SAM 3 implementation provided by the Apache-2.0
+Transformers package. LibreYOLO does not vendor any SAM 3 or SAM 3.1 model
+source; no code from facebookresearch/sam3 (SAM License) is copied or adapted.
+
+The key mapping in ``weights/convert_sam31_weights.py`` is adapted from the
+Apache-2.0 Hugging Face Transformers converters:
+
+    src/transformers/models/sam3/convert_sam3_to_hf.py
+      commit 22278df3198c4219f033f2a4b0931da3e5c21af4
+    src/transformers/models/sam3_video/convert_sam3_video_to_hf.py
+      commit 92d02b508707d6e190e358171c2eece10817f7e1
+    Copyright 2025 The Meta AI Authors and The HuggingFace Inc. team
+
+The weights come from facebook/sam3.1 revision
+daa63191845a41281374e725f4c9e51c7a824460 under Meta's SAM License, which is not
+permissive. The converted image path is mirrored at LibreYOLO/LibreSAM31large
+with that license and an access gate; it is not covered by LibreYOLO's MIT
+license.

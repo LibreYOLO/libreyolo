@@ -57,6 +57,9 @@ class FOMOYOLODataset(Dataset):
         self.label_files = label_files
         self.input_size = input_size
         self.grid_size = grid_size
+        from ...utils.input_channels import active_dataset_channels
+
+        self.input_channels = active_dataset_channels()
 
     def __len__(self) -> int:
         return len(self.img_files)
@@ -94,6 +97,8 @@ class FOMOYOLODataset(Dataset):
         img_path = self.img_files[idx]
         try:
             with Image.open(img_path) as pil_img:
+                if getattr(self, "input_channels", 3) == 1:
+                    pil_img = pil_img.convert("L").convert("RGB")
                 img_tensor = _transform_image(pil_img, self.input_size)
         except (FileNotFoundError, OSError) as e:
             raise FileNotFoundError(f"Cannot read image: {img_path}") from e

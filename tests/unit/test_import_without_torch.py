@@ -91,6 +91,25 @@ def test_import_libreyolo_without_torch():
     assert "OK" in _assert_ok(proc)
 
 
+def test_ultralytics_name_hint_without_torch():
+    """``from libreyolo import YOLO`` explains itself without importing torch."""
+    proc = run_without_torch(
+        """
+        try:
+            from libreyolo import YOLO
+        except ImportError as e:
+            assert "LibreYOLO(" in str(e), str(e)
+        else:
+            raise AssertionError("YOLO resolved")
+        import libreyolo
+        assert not hasattr(libreyolo, "YOLO")
+        assert "torch" not in sys.modules, "the YOLO hint pulled torch"
+        print("OK")
+        """
+    )
+    assert "OK" in _assert_ok(proc)
+
+
 def test_onnx_backend_imports_without_torch():
     """The ONNX backend module must be importable torch-free."""
     proc = run_without_torch(

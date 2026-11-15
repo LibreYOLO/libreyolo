@@ -1,0 +1,45 @@
+LibreTripoSplat includes code ported from TripoSplat:
+
+Source: https://github.com/VAST-AI-Research/TripoSplat (commit d8db9e018b413dd9c4a9fe22463781bf98e8e68d)
+License: MIT.
+Copyright (c) 2026 VAST. Authors: Runjie Yan, Yan-Pei Cao, Peng Wang,
+Ding Liang, Yuan-Chen Guo (TripoAI).
+
+The port covers inference: the denoiser (LatentSeqMMFlowModel), the octree
+and Gaussian decoders (OctreeGaussianDecoder), the upstream configuration
+constants, the flow sampler with its guidance convention, and the Gaussian
+activation. Parameter names mirror upstream so the released safetensors
+load with strict=True. Changes from upstream: the octree sampler and the
+leaf jitter draw from an explicit torch.Generator (upstream draws from the
+global generator, so its decoder stage is not seed-reproducible); the
+quaternions are normalised (upstream writes the raw biased quaternion to
+the PLY, which viewers normalise); TensorDict-free plain tensors; the
+networks run in fp16 on CUDA and MPS as upstream, and in fp32 on CPU.
+
+Preprocessing (background removal, erosion, crop), the DINOv3 and FLUX.2 VAE
+tokenization and the camera decoding are the same as Speridlabs Idol's,
+which builds on TripoSplat; they live in libreyolo/models/gen/image3d.py
+(ported from the Apache-2.0 Idol SDK, see
+libreyolo/models/gen/speridlabs_idol/NOTICE). Background removal runs on
+LibreYOLO's BiRefNet network (libreyolo/models/birefnet, ported from
+ZhengPeng7/BiRefNet, MIT) with the BiRefNet weights from the TripoSplat
+snapshot. Upstream's own DINOv3 ViT and FLUX.2 VAE encoder implementations
+are not ported; the encoders load through transformers and diffusers
+(Apache-2.0) as for Idol, from the same weights (VAST's DINOv3 file and the
+LibreYOLO mirror hold identical tensors). The VAE tokens equal upstream's
+bit for bit; the DINOv3 tokens differ at bf16 noise level (mean 0.006).
+
+Weights: the denoiser, the decoder and BiRefNet are redistributed by
+LibreYOLO as LibreYOLO/LibreTripoSplat0.6b (MIT), byte-identical to
+VAST-AI/TripoSplat at revision 56a96e603204ec410c4da60c13ea4fa09a2169a9;
+black-forest-labs/FLUX.2-klein-4B (Apache-2.0, VAE only) is downloaded from
+its publisher. All at pinned revisions. The DINOv3 encoder is Meta's
+facebook/dinov3-vith16plus-pretrain-lvd1689m (DINOv3 License), rehosted by
+LibreYOLO in bfloat16 as LibreYOLO/LibreDINOv3vith16plus together with the
+DINOv3 License Agreement. The DINOv3 and FLUX.2 VAE copies in the
+VAST-AI/TripoSplat repo are not mirrored.
+
+TripoSplat citation:
+Runjie Yan, Yan-Pei Cao, Peng Wang, Ding Liang, Yuan-Chen Guo. "Generative
+3D Gaussians with Learned Density Control." arXiv:2605.16355, 2026.
+https://arxiv.org/abs/2605.16355

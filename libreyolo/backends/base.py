@@ -117,6 +117,15 @@ def _f32(data):
     return np.asarray(data, dtype=np.float32)
 
 
+def _order_tensor(data):
+    """int64 reading-order vector (tensor when torch is installed), or None."""
+    if data is None:
+        return None
+    if _torch_installed():
+        return torch.as_tensor(np.asarray(data, dtype=np.int64))
+    return np.asarray(data, dtype=np.int64)
+
+
 def _zeros_f32(shape):
     """Empty-detection counterpart to :func:`_f32`."""
     if _torch_installed():
@@ -324,6 +333,8 @@ def _read_runtime_metadata(meta: dict) -> dict[str, Any]:
         runtime_meta["offset_deg"] = float(meta["offset_deg"])
     if meta.get("letterbox_pad") is not None:
         runtime_meta["letterbox_pad"] = str(meta["letterbox_pad"])
+    if meta.get("channels") not in (None, ""):
+        runtime_meta["channels"] = int(meta["channels"])
     return runtime_meta
 
 
@@ -483,8 +494,10 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
         "faster_rcnn",
         "mask_rcnn",
         "lwdetr",
+        "ppdoclayoutv3",
         "rfdetr",
         "rtdetr",
+        "riodetrv2",
         "rtdetrv2",
         "rtdetrv4",
         "yolo9_e2e",
@@ -629,8 +642,14 @@ class BaseBackend(ABC):
         bin_width_deg: float | None = None,
         offset_deg: float | None = None,
         letterbox_pad: str | None = None,
+        channels: int | str | None = None,
     ):
         self.model_path = model_path
+        from ..utils.input_channels import validate_channels
+
+        # Grayscale exports (dataset ``channels: 1``) consume one channel;
+        # artifacts without the key are RGB.
+        self.input_channels = validate_channels(int(channels)) if channels not in (None, "") else 3
         self.nb_classes = nb_classes
         self.device = device
         self.imgsz = _normalize_imgsz(imgsz)
@@ -720,6 +739,14 @@ class BaseBackend(ABC):
     # Preprocessing
     # =========================================================================
 
+    def _fold_channels(self, blob):
+        """Grayscale graphs take one channel; preprocessing yields three equal ones."""
+        if getattr(self, "input_channels", 3) != 1:
+            return blob
+        from ..utils.input_channels import fold_input_channels
+
+        return fold_input_channels(blob, 1)
+
     def _preprocess(self, image, effective_imgsz, color_format):
         """Dispatch to model-family-specific preprocessing.
 
@@ -730,6 +757,10 @@ class BaseBackend(ABC):
             from ..utils.event_histogram import predict_histogram
             tensor, preview, size, ratio = predict_histogram(self, image, effective_imgsz, color_format, as_numpy=True)
             return tensor, preview, size, ratio
+        if getattr(self, "input_channels", 3) == 1:
+            from ..utils.input_channels import gray_pil
+
+            image, color_format = gray_pil(image, color_format), "rgb"
 
         if self.task == "restore" or self.model_family == "nafnet":
             if self.model_family in {"realesrgan", "quicksrnet"} and not getattr(
@@ -848,6 +879,8 @@ class BaseBackend(ABC):
                 image,
                 input_size=input_h,
                 color_format=color_format,
+                # Fixed-shape artifacts (Axelera) take one square canvas.
+                fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,
             )
         elif self.model_family == "ssd":
             from ..models.ssd.utils import preprocess_image as ssd_preprocess_image
@@ -897,12 +930,21 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
+        elif self.model_family == "riodetrv2":
+            return self._preprocess_rtdetrv2_obb(
+                image, effective_imgsz, color_format
+            )
         elif self.model_family in ("rtdetr", "rtdetrv2"):
             if self.model_family == "rtdetrv2" and self.task == "obb":
                 return self._preprocess_rtdetrv2_obb(
                     image, effective_imgsz, color_format
                 )
             tensor, img, size = self._preprocess_rtdetr(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
+        elif self.model_family == "ppdoclayoutv3":
+            tensor, img, size = self._preprocess_ppdoclayoutv3(
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
@@ -1463,6 +1505,22 @@ class BaseBackend(ABC):
         return img_tensor, original_img, original_size
 
     @staticmethod
+    def _preprocess_ppdoclayoutv3(image, input_size, color_format):
+        """PP-DocLayoutV3: square cubic stretch resize, RGB in [0, 1]."""
+        from ..preprocess.ppdoclayoutv3 import preprocess_numpy
+
+        input_h, input_w = _imgsz_hw(input_size)
+        if input_h != input_w:
+            raise NotImplementedError(
+                "PP-DocLayoutV3 exported inference requires a square imgsz."
+            )
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size  # (W, H)
+        original_img = img.copy()
+        img_chw, _ = preprocess_numpy(np.array(img.convert("RGB")), input_h)
+        return as_batched_input(img_chw), original_img, original_size
+
+    @staticmethod
     def _preprocess_rtdetrv2_obb(image, input_size, color_format):
         """RT-DETRv2 OBB uniform resize with bottom/right zero padding."""
         from PIL import Image
@@ -1695,6 +1753,15 @@ class BaseBackend(ABC):
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
             return boxes, scores, cls, None
+        elif self.model_family == "riodetrv2":
+            return self._parse_rtdetr_obb(
+                all_outputs,
+                effective_imgsz,
+                orig_w,
+                orig_h,
+                conf,
+                max_det=max_det,
+            )
         elif self.model_family in ("rtdetr", "rtdetrv2"):
             if self.model_family == "rtdetrv2" and self.task == "obb":
                 return self._parse_rtdetr_obb(
@@ -1709,6 +1776,10 @@ class BaseBackend(ABC):
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
             return boxes, scores, cls, None
+        elif self.model_family == "ppdoclayoutv3":
+            return self._parse_ppdoclayoutv3(
+                all_outputs, orig_w, orig_h, conf, max_det=max_det
+            )
         elif self.model_family == "ppyoloe":
             boxes, scores, cls = self._parse_ppyoloe(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
@@ -1730,6 +1801,17 @@ class BaseBackend(ABC):
             )
             return boxes, scores, cls, None
         elif self.model_family == "rtmdet":
+            if self.task == "segment":
+                return self._parse_rtmdet_segment(
+                    all_outputs,
+                    effective_imgsz,
+                    orig_w,
+                    orig_h,
+                    conf,
+                    ratio,
+                    iou=iou,
+                    max_det=max_det,
+                )
             boxes, scores, cls = self._parse_rtmdet(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio
             )
@@ -1868,6 +1950,63 @@ class BaseBackend(ABC):
         class_ids = class_ids[valid_boxes]
 
         return boxes, max_scores, class_ids
+
+    def _parse_rtmdet_segment(
+        self,
+        all_outputs,
+        effective_imgsz,
+        orig_w,
+        orig_h,
+        conf,
+        ratio=1.0,
+        *,
+        iou: float = 0.45,
+        max_det: int = 300,
+    ):
+        """Parse RTMDet-Ins head outputs ``[cls x L, bbox x L, kernel x L, mask_feat]``.
+
+        Runs LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS and the
+        dynamic-kernel mask decode) on the rebuilt head outputs, so results
+        match native inference. Masks come back at the original image size.
+        """
+        import torch
+
+        from ..postprocess.rtmdet import postprocess as rtmdet_postprocess
+
+        levels = (len(all_outputs) - 1) // 3
+        if len(all_outputs) != 3 * levels + 1 or levels < 1:
+            raise ValueError(
+                "RTMDet-Ins outputs must be [cls x L, bbox x L, kernel x L, "
+                f"mask_feat]; got {len(all_outputs)} arrays."
+            )
+        tensors = [
+            torch.from_numpy(np.ascontiguousarray(array, dtype=np.float32))
+            for array in all_outputs
+        ]
+        outputs = (
+            tuple(tensors[:levels]),
+            tuple(tensors[levels : 2 * levels]),
+            tuple(tensors[2 * levels : 3 * levels]),
+            tensors[3 * levels],
+        )
+        input_h, input_w = _imgsz_hw(effective_imgsz)
+        if ratio is None or ratio == 1.0:  # as _parse_rtmdet: letterbox ratio from the sizes
+            ratio = min(input_h / orig_h, input_w / orig_w)
+        det = rtmdet_postprocess(
+            outputs,
+            conf_thres=conf,
+            iou_thres=iou,
+            input_size=(input_h, input_w),
+            original_size=(orig_w, orig_h),
+            ratio=ratio,
+            max_det=max_det,
+        )
+        return (
+            det["boxes"].numpy(),
+            det["scores"].numpy(),
+            det["classes"].numpy(),
+            det["masks"].numpy(),
+        )
 
     def _parse_rtmdet(
         self, all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio=1.0
@@ -2175,10 +2314,15 @@ class BaseBackend(ABC):
             raise NotImplementedError(
                 "RetinaNet exported inference requires a scalar or square imgsz."
             )
+        fixed_canvas = getattr(self, "_fixed_input_hw", None) is not None
         resized_h, resized_w, scale_x, scale_y = resize_geometry(
-            (orig_w, orig_h), input_h
+            (orig_w, orig_h), input_h, fixed_canvas
         )
-        counts = level_anchor_counts(resized_h, resized_w)
+        counts = (
+            level_anchor_counts(input_h, input_w)
+            if fixed_canvas
+            else level_anchor_counts(resized_h, resized_w)
+        )
         if sum(counts) != predictions.shape[0]:
             raise ValueError(
                 "RetinaNet anchor count does not match preprocessing geometry: "
@@ -2846,6 +2990,48 @@ class BaseBackend(ABC):
 
         mask = scores > conf
         return boxes[mask], scores[mask], class_ids[mask].astype(np.int64)
+
+    @staticmethod
+    def _parse_ppdoclayoutv3(all_outputs, orig_w, orig_h, conf, max_det: int = 300):
+        """Decode ``(pred_logits, pred_boxes, order_votes)`` in reading order.
+
+        NumPy twin of ``libreyolo.postprocess.ppdoclayoutv3.postprocess``.
+        Returns the 7-tuple form whose last item is the one-based
+        ``reading_order`` of each kept box.
+        """
+        logits = np.asarray(all_outputs[0][0], dtype=np.float32)
+        pred_boxes = np.asarray(all_outputs[1][0], dtype=np.float32)
+        votes = np.asarray(all_outputs[2][0], dtype=np.float32)
+        num_queries, num_classes = logits.shape
+        ranks = np.empty(num_queries, dtype=np.int64)
+        ranks[np.argsort(votes, kind="stable")] = np.arange(num_queries)
+
+        flat = (1.0 / (1.0 + np.exp(-logits))).reshape(-1)
+        top = np.argsort(-flat, kind="stable")[:num_queries]
+        scores = flat[top]
+        labels = (top % num_classes).astype(np.int64)
+        query = top // num_classes
+        keep = scores >= conf
+        scores, labels, query = scores[keep], labels[keep], query[keep]
+        order = np.argsort(ranks[query], kind="stable")
+        scores, labels, query = scores[order], labels[order], query[order]
+
+        cx, cy, w, h = pred_boxes[query].T
+        boxes = np.stack([cx - 0.5 * w, cy - 0.5 * h, cx + 0.5 * w, cy + 0.5 * h], -1)
+        boxes = (boxes * np.array([orig_w, orig_h, orig_w, orig_h], np.float32)).reshape(
+            -1, 4
+        )
+        reading_order = np.arange(1, len(scores) + 1, dtype=np.int64)
+        budget = max(int(max_det), 0)
+        if len(scores) > budget:
+            cut = np.sort(np.argsort(-scores, kind="stable")[:budget])
+            boxes, scores, labels, reading_order = (
+                boxes[cut],
+                scores[cut],
+                labels[cut],
+                reading_order[cut],
+            )
+        return boxes, scores, labels, None, None, None, reading_order
 
     def _parse_detr(self, all_outputs, orig_w, orig_h, conf, max_det: int = 100):
         """Parse vanilla DETR's softmax logits and one prediction per query."""
@@ -4127,6 +4313,7 @@ class BaseBackend(ABC):
         iou: float,
         classes: Optional[List[int]],
         max_det: int,
+        reading_order: "np.ndarray | None" = None,
     ) -> Results:
         """Apply family-appropriate suppression/max_det/filtering and wrap."""
         if self.model_family == "ssd":
@@ -4149,9 +4336,14 @@ class BaseBackend(ABC):
                 orig_shape=orig_shape,
                 path=str(image_path) if image_path else None,
                 names=self.names,
+                reading_order=_order_tensor(reading_order),
             )
 
-        if obb is None and not _is_nms_free_family(self.model_family):
+        # RTMDet-Ins outputs come from the native postprocess, which already ran
+        # NMS on the padded canvas; a second pass on the boxes clamped to the
+        # image can drop boxes native predict keeps.
+        native_nms_done = self.model_family == "rtmdet" and self.task == "segment"
+        if obb is None and not native_nms_done and not _is_nms_free_family(self.model_family):
             # YOLO9 needs class-aware NMS so multi-label detections
             # on a shared anchor (same box, different class) survive, matching
             # the native batched_nms path. Class-agnostic NMS would drop the
@@ -4200,6 +4392,8 @@ class BaseBackend(ABC):
                 obb = obb[cls_keep]
             if keypoints is not None:
                 keypoints = keypoints[cls_keep]
+            if reading_order is not None:
+                reading_order = reading_order[cls_keep]
 
         # Class-agnostic NMS (agnostic_nms=True), the same step native predict
         # applies: after the classes filter, before the max_det cut.
@@ -4215,9 +4409,15 @@ class BaseBackend(ABC):
                     obb = obb[keep]
                 if keypoints is not None:
                     keypoints = keypoints[keep]
+                if reading_order is not None:
+                    reading_order = reading_order[keep]
 
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
+            if reading_order is not None:
+                # Keep the selected boxes in reading order.
+                top_indices = np.sort(top_indices)
+                reading_order = reading_order[top_indices]
             boxes = boxes[top_indices]
             max_scores = max_scores[top_indices]
             class_ids = class_ids[top_indices]
@@ -4253,6 +4453,7 @@ class BaseBackend(ABC):
             orig_shape=orig_shape,
             path=str(image_path) if image_path else None,
             names=self.names,
+            reading_order=_order_tensor(reading_order),
         )
 
     # =========================================================================
@@ -4323,21 +4524,29 @@ class BaseBackend(ABC):
             DEIMv2ValPreprocessor,
             DeformableDETRValPreprocessor,
             CenterNetValPreprocessor,
+            DarknetValPreprocessor,
             DETRValPreprocessor,
             DFINEValPreprocessor,
             ECValPreprocessor,
             EfficientDetValPreprocessor,
+            FCOSValPreprocessor,
+            FasterRCNNValPreprocessor,
             LWDETRValPreprocessor,
             PICODETValPreprocessor,
+            PPDocLayoutV3ValPreprocessor,
             PPYOLOEValPreprocessor,
             RFDETRValPreprocessor,
             RTDETRValPreprocessor,
             RTDETRv2OBBValPreprocessor,
             RTDETRv2ValPreprocessor,
+            RetinaNetValPreprocessor,
             RTMDetValPreprocessor,
+            SSDValPreprocessor,
             StandardValPreprocessor,
+            YOLO1ValPreprocessor,
             YOLO9E2EValPreprocessor,
             YOLO9ValPreprocessor,
+            YOLONASOBBValPreprocessor,
             YOLONASValPreprocessor,
             YOLOXValPreprocessor,
         )
@@ -4372,9 +4581,11 @@ class BaseBackend(ABC):
             "efficientdet": EfficientDetValPreprocessor,
             "lwdetr": LWDETRValPreprocessor,
             "picodet": PICODETValPreprocessor,
+            "ppdoclayoutv3": PPDocLayoutV3ValPreprocessor,
             "ppyoloe": PPYOLOEValPreprocessor,
             "rfdetr": RFDETRValPreprocessor,
             "rtdetr": RTDETRValPreprocessor,
+            "riodetrv2": RTDETRv2OBBValPreprocessor,
             "rtdetrv2": (
                 RTDETRv2OBBValPreprocessor
                 if getattr(self, "task", "detect") == "obb"
@@ -4385,9 +4596,42 @@ class BaseBackend(ABC):
             "yolo9": YOLO9ValPreprocessor,
             "yolo9_e2e": YOLO9E2EValPreprocessor,
             "yolo9_p2": YOLO9ValPreprocessor,
-            "yolonas": YOLONASValPreprocessor,
+            # OBB resizes the longest side and pads bottom-right; the detect
+            # recipe would mis-map every box (see LibreYOLONAS._get_val_preprocessor).
+            "yolonas": (
+                YOLONASOBBValPreprocessor
+                if getattr(self, "task", "detect") == "obb"
+                else YOLONASValPreprocessor
+            ),
             "yolox": YOLOXValPreprocessor,
+            # Darknet letterbox (top-left, 128 fill), as the PyTorch models
+            # validate; the standard recipe mis-maps every box.
+            "yolo2": DarknetValPreprocessor,
+            "yolo3": DarknetValPreprocessor,
+            "yolo4": DarknetValPreprocessor,
+            # YOLOv1's FC head takes a plain stretch, not the letterbox.
+            "yolo1": YOLO1ValPreprocessor,
+            # YOLOv7 validates like YOLO9 (letterbox, RGB, 0-1).
+            "yolo7": YOLO9ValPreprocessor,
+            # RetinaNet: upstream min/max aspect resize, ImageNet
+            # normalization, pad to /32; the parser rebuilds its anchors
+            # from that geometry.
+            "retinanet": RetinaNetValPreprocessor,
+            # SSD300: RGB stretch with SSD's own 0-255 mean subtraction.
+            "ssd": SSDValPreprocessor,
+            # Faster R-CNN: source-resolution RGB; the graph resizes in-graph
+            # and returns boxes in the coordinates of the image it was fed.
+            "faster_rcnn": FasterRCNNValPreprocessor,
+            "mask_rcnn": FasterRCNNValPreprocessor,
+            # FCOS: torchvision aspect resize (800/1333), ImageNet
+            # normalization, stride pad; the parser undoes that geometry.
+            "fcos": FCOSValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
+        if preprocessor_cls is RetinaNetValPreprocessor:
+            return preprocessor_cls(
+                img_size=_imgsz_hw(img_size),
+                fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,
+            )
         if preprocessor_cls in (YOLO9ValPreprocessor, YOLO9E2EValPreprocessor):
             return preprocessor_cls(
                 img_size=_imgsz_hw(img_size),
@@ -4432,12 +4676,12 @@ class BaseBackend(ABC):
     def _forward(self, input_tensor: torch.Tensor):
         blob = _to_blob(input_tensor)
         try:
-            outputs = self._run_inference(blob)
+            outputs = self._run_inference(self._fold_channels(blob))
         except Exception:
             if blob.shape[0] <= 1:
                 raise
             per_image_outputs = [
-                self._run_inference(blob[i : i + 1]) for i in range(blob.shape[0])
+                self._run_inference(self._fold_channels(blob[i : i + 1])) for i in range(blob.shape[0])
             ]
             outputs = [
                 np.concatenate(
@@ -4464,7 +4708,14 @@ class BaseBackend(ABC):
         return [np.asarray(output)]
 
     @staticmethod
+    def _parsed_reading_order(parsed):
+        """The reading-order vector of a 7-tuple parse, else ``None``."""
+        return parsed[6] if len(parsed) == 7 else None
+
+    @staticmethod
     def _unpack_parsed_outputs(parsed):
+        if len(parsed) == 7:
+            return parsed[:6]
         if len(parsed) == 6:
             return parsed
         if len(parsed) == 5:
@@ -4556,6 +4807,7 @@ class BaseBackend(ABC):
             iou=iou_thres,
             classes=None,
             max_det=max_det,
+            reading_order=self._parsed_reading_order(parsed),
         )
 
         det: Dict[str, object] = {
@@ -4666,7 +4918,15 @@ class BaseBackend(ABC):
             verbose=verbose,
             **kwargs,
         )
-        if self.task == "classify":
+        if self.model_family == "mask_rcnn" and self.task in ("detect", "segment"):
+            # Source-resolution Mask R-CNN inputs vary in shape: one per batch.
+            from ..models.mask_rcnn.validator import MaskRCNNValidator
+            from ..models.faster_rcnn.validator import FasterRCNNValidator
+
+            validator_cls = (
+                MaskRCNNValidator if self.task == "segment" else FasterRCNNValidator
+            )
+        elif self.task == "classify":
             validator_cls = ClassifyValidator
         elif self.task == "embed":
             raise NotImplementedError(
@@ -4696,6 +4956,21 @@ class BaseBackend(ABC):
             raise NotImplementedError(
                 "Exported gaze validation requires a gaze-labelled dataset contract."
             )
+        elif self.model_family == "retinanet":
+            # Aspect-resized RetinaNet inputs vary in shape: one per batch.
+            from ..models.retinanet.validator import RetinaNetValidator
+
+            validator_cls = RetinaNetValidator
+        elif self.model_family == "faster_rcnn":
+            # Source-resolution Faster R-CNN inputs vary in shape: one per batch.
+            from ..models.faster_rcnn.validator import FasterRCNNValidator
+
+            validator_cls = FasterRCNNValidator
+        elif self.model_family == "fcos":
+            # Aspect-resized FCOS inputs vary in shape: one per batch.
+            from ..models.fcos.validator import FCOSValidator
+
+            validator_cls = FCOSValidator
         else:
             validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)
@@ -4739,7 +5014,7 @@ class BaseBackend(ABC):
 
         blob = _to_blob(input_tensor)
 
-        all_outputs = self._run_inference(blob)
+        all_outputs = self._run_inference(self._fold_channels(blob))
 
         orig_w, orig_h = original_size
         orig_shape = (orig_h, orig_w)
@@ -4917,6 +5192,7 @@ class BaseBackend(ABC):
             iou=iou,
             classes=classes,
             max_det=max_det,
+            reading_order=self._parsed_reading_order(parsed),
         )
 
         if save:
@@ -5077,7 +5353,7 @@ class BaseBackend(ABC):
         if stackable and not getattr(self, "_batched_inference_failed", False):
             blob = np.concatenate([_to_blob(t) for t in tensors], axis=0)
             try:
-                all_outputs = self._run_inference(blob)
+                all_outputs = self._run_inference(self._fold_channels(blob))
             except Exception as e:
                 self._batched_inference_failed = True
                 logger.warning(
@@ -5217,6 +5493,7 @@ class BaseBackend(ABC):
                     iou=iou,
                     classes=classes,
                     max_det=max_det,
+                    reading_order=self._parsed_reading_order(parsed),
                 )
 
             if save:
@@ -5417,6 +5694,90 @@ class BaseBackend(ABC):
         """Alias for __call__ method."""
         return self(*args, **kwargs)
 
+    def track(
+        self,
+        source,
+        *,
+        track_conf: float = 0.25,
+        conf: Optional[float] = None,
+        iou: float = 0.45,
+        imgsz: Optional[ImageSize] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        save: bool = False,
+        show: bool = False,
+        vid_stride: int = 1,
+        fps: float = 30.0,
+        color_format: str = "auto",
+        output_path: Optional[str] = None,
+        tracker="bytetrack",
+        tracker_config=None,
+        augment: bool = False,
+        persist: bool = False,
+        **tracker_kwargs,
+    ) -> Generator[Results, None, None]:
+        """Track objects across video frames or an image sequence.
+
+        Same contract as the native ``BaseModel.track()``: each frame runs
+        through this backend's inference and the detections are associated
+        by the selected tracker (``"bytetrack"``, ``"botsort"``, ``"ocsort"``,
+        ``"deepocsort"`` or a ``libreyolo.tracking.Tracker`` instance).
+        Yields one Results per frame with ``track_id`` set. ``persist=True``
+        keeps the tracker, and so the track IDs, across calls on this
+        backend. Deep OC-SORT runs its ReID network in PyTorch, on this
+        backend's device when PyTorch understands it, else on its default.
+        Test-time augmentation is not available for exported backends.
+        """
+        if augment:
+            raise ValueError(
+                "Test-time augmentation is not supported for exported backends"
+            )
+        from ..tracking.run import run_track
+
+        classes = normalize_classes(classes)
+
+        def predict_frame(pil_img, **predict_kwargs):
+            return self._predict_single(pil_img, color_format="rgb", **predict_kwargs)
+
+        def reid_device():
+            # torch.device() only parses the name; it does not check that this
+            # PyTorch build can use the device (e.g. ONNX Runtime on CUDA with
+            # CPU-only torch). Return None so the ReID model falls back to CPU.
+            try:
+                dev = torch.device(str(self.device))
+            except (RuntimeError, TypeError, ValueError):
+                return None
+            if dev.type == "cuda" and not torch.cuda.is_available():
+                return None
+            if dev.type == "mps" and not torch.backends.mps.is_available():
+                return None
+            return str(self.device)
+
+        yield from run_track(
+            self,
+            source,
+            predict_frame=predict_frame,
+            task=self.task,
+            reid_device=reid_device,
+            track_conf=track_conf,
+            conf=conf,
+            iou=iou,
+            imgsz=imgsz,
+            classes=classes,
+            max_det=max_det,
+            save=save,
+            show=show,
+            vid_stride=vid_stride,
+            fps=fps,
+            color_format=color_format,
+            output_path=output_path,
+            tracker=tracker,
+            tracker_config=tracker_config,
+            persist=persist,
+            tracker_kwargs=tracker_kwargs,
+            backend=True,
+        )
+
     def _predict_video(
         self,
         source: Union[str, Path, FrameSource],
@@ -5441,7 +5802,7 @@ class BaseBackend(ABC):
                 pil_img, effective_imgsz, "rgb"
             )
             blob = _to_blob(input_tensor)
-            all_outputs = self._run_inference(blob)
+            all_outputs = self._run_inference(self._fold_channels(blob))
             orig_w, orig_h = original_size
             orig_shape = (orig_h, orig_w)
             if self.task == "classify":
@@ -5540,6 +5901,7 @@ class BaseBackend(ABC):
                 iou=iou,
                 classes=classes,
                 max_det=max_det,
+                reading_order=self._parsed_reading_order(parsed),
             )
 
         def predict_frame(pil_img):

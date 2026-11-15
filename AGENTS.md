@@ -84,6 +84,11 @@
 - `/docs/testing.md` documents test tiers, CI expectations, smoke tests, nightly
   tests, and manual validation policy.
 - `/docs/adr/` documents architecture decisions and design contracts.
+- The only showcase/sample image is `libreyolo/assets/guggenheim-bilbao.jpg`
+  (`libreyolo.SAMPLE_IMAGE`). Never use or reintroduce `parkour.jpg` in
+  user-facing material. A test-only copy lives in `tests/data/parkour.jpg`
+  for parity and golden tests; `tests/unit/test_no_parkour_sample.py`
+  enforces this.
 
 ## README policy
 
@@ -141,6 +146,14 @@
   diff, never a placeholder, or the `provenance-check` CI gate fails.
 - An agent that opens a PR says so in one line, and states what it verified and
   what it did not. It never implies review or approval it does not have.
+- **One green OS is enough for a development PR.** The unit gate's shared
+  job runs on Linux, macOS, and Windows. For PRs into `dev`, that job passing
+  on any one of the three platforms is sufficient; a failure of the same job
+  on another platform is noted in the PR, not chased before merge. The rule
+  covers only that shared unit job. Every other check (the Linux-only
+  `distributed` job, provenance, the install smoke matrix, wheel and sdist
+  checks, Greptile) must pass as usual. Release PRs are the exception: cutting a
+  version requires the full matrix green (see the `libreyolo-release` skill).
 
 ## General library constraints
 - User-facing workflows must be directly callable. Document validation evidence

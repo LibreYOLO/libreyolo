@@ -4,6 +4,7 @@ import pytest
 
 from libreyolo.tasks import (
     TaskType,
+    detect_task_suffix,
     normalize_supported_tasks,
     normalize_task,
     resolve_task,
@@ -112,6 +113,7 @@ def test_task_type_literal_is_public():
         "act",
         "generate",
         "generate3d",
+        "flow",
     }
 
 
@@ -182,3 +184,32 @@ def test_task_suffix_pattern_includes_point_for_supported_families():
 
     assert "-point" in pattern
     assert "-seg" not in pattern
+
+
+def test_normalize_flow_task_aliases():
+    for alias in ("flow", "optical-flow", "optical_flow", "opticalflow", "FLOW"):
+        assert normalize_task(alias) == "flow"
+
+
+def test_flow_task_suffix_round_trip():
+    assert task_to_suffix("flow") == "flow"
+    assert suffix_to_task("-flow") == "flow"
+    assert suffix_to_task("flow") == "flow"
+    assert detect_task_suffix("LibreSEARAFTm-flow.pt") == "flow"
+    assert detect_task_suffix("LibreNeuFlowv2s-flow.onnx") == "flow"
+    assert "-flow" in task_suffix_pattern(("flow",))
+
+
+def test_flow_task_resolution_and_rejection():
+    assert (
+        resolve_task(
+            filename_task="flow",
+            default_task="flow",
+            supported_tasks=("flow",),
+        )
+        == "flow"
+    )
+    with pytest.raises(ValueError, match="not supported"):
+        resolve_task(explicit_task="flow", supported_tasks=("detect",))
+    with pytest.raises(ValueError, match="not supported"):
+        resolve_task(explicit_task="detect", supported_tasks=("flow",))

@@ -19,6 +19,7 @@ import torch
 
 from ...utils.image_loader import SUPPORTED_EXTENSIONS, ImageLoader
 from ...utils.results import Boxes, Boxes3D, DepthMap, Results
+from ...utils.hf_hub import hf_url
 
 logger = logging.getLogger(__name__)
 UPSTREAM_REPO = "cvg/3D-MOOD"
@@ -168,8 +169,8 @@ class Libre3DMOOD:
     def get_download_url(cls, filename):
         for weight in WEIGHTS.values():
             if filename == weight["filename"]:
-                return (
-                    f"https://huggingface.co/LibreYOLO/{weight['filename'][:-3]}"
+                return hf_url(
+                    f"LibreYOLO/{weight['filename'][:-3]}"
                     f"/resolve/{weight['repo_revision']}/{weight['filename']}"
                 )
         return None

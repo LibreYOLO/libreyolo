@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" width="820" height="470" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif" font-size="13" role="img" aria-label="COCO mAP against latency on Jetson Orin Nano Super, TensorRT FP16">
+<line x1="64.0" y1="24" x2="64.0" y2="406" stroke="#3d444d" stroke-width="1"/>
+<text x="64.0" y="426" fill="#9198a1" text-anchor="middle">20</text>
+<line x1="194.4" y1="24" x2="194.4" y2="406" stroke="#3d444d" stroke-width="1"/>
+<text x="194.4" y="426" fill="#9198a1" text-anchor="middle">40</text>
+<line x1="324.8" y1="24" x2="324.8" y2="406" stroke="#3d444d" stroke-width="1"/>
+<text x="324.8" y="426" fill="#9198a1" text-anchor="middle">60</text>
+<line x1="455.2" y1="24" x2="455.2" y2="406" stroke="#3d444d" stroke-width="1"/>
+<text x="455.2" y="426" fill="#9198a1" text-anchor="middle">80</text>
+<line x1="585.6" y1="24" x2="585.6" y2="406" stroke="#3d444d" stroke-width="1"/>
+<text x="585.6" y="426" fill="#9198a1" text-anchor="middle">100</text>
+<line x1="716.0" y1="24" x2="716.0" y2="406" stroke="#3d444d" stroke-width="1"/>
+<text x="716.0" y="426" fill="#9198a1" text-anchor="middle">120</text>
+<line x1="64" y1="406.0" x2="716" y2="406.0" stroke="#3d444d" stroke-width="1"/>
+<text x="54" y="410.0" fill="#9198a1" text-anchor="end">40</text>
+<line x1="64" y1="342.3" x2="716" y2="342.3" stroke="#3d444d" stroke-width="1"/>
+<text x="54" y="346.3" fill="#9198a1" text-anchor="end">44</text>
+<line x1="64" y1="278.7" x2="716" y2="278.7" stroke="#3d444d" stroke-width="1"/>
+<text x="54" y="282.7" fill="#9198a1" text-anchor="end">48</text>
+<line x1="64" y1="215.0" x2="716" y2="215.0" stroke="#3d444d" stroke-width="1"/>
+<text x="54" y="219.0" fill="#9198a1" text-anchor="end">52</text>
+<line x1="64" y1="151.3" x2="716" y2="151.3" stroke="#3d444d" stroke-width="1"/>
+<text x="54" y="155.3" fill="#9198a1" text-anchor="end">56</text>
+<line x1="64" y1="87.7" x2="716" y2="87.7" stroke="#3d444d" stroke-width="1"/>
+<text x="54" y="91.7" fill="#9198a1" text-anchor="end">60</text>
+<line x1="64" y1="24.0" x2="716" y2="24.0" stroke="#3d444d" stroke-width="1"/>
+<text x="54" y="28.0" fill="#9198a1" text-anchor="end">64</text>
+<text x="390.0" y="452" fill="#f0f6fc" text-anchor="middle">Latency per image, ms (lower is faster)</text>
+<text transform="translate(18 215.0) rotate(-90)" fill="#f0f6fc" text-anchor="middle">COCO mAP 50-95</text>
+<path d="M105.0,377.7 L116.1,240.0 L174.7,149.1 L184.2,133.0" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="105.0" cy="377.7" r="4.5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>YOLOv9: 41.8 mAP, 26.3 ms</title></circle>
+<circle cx="116.1" cy="240.0" r="4.5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>YOLOv9: 50.4 mAP, 28.0 ms</title></circle>
+<circle cx="174.7" cy="149.1" r="4.5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>YOLOv9: 56.1 mAP, 37.0 ms</title></circle>
+<circle cx="184.2" cy="133.0" r="4.5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>YOLOv9: 57.1 mAP, 38.4 ms</title></circle>
+<text x="174.2" y="127.0" fill="#f0f6fc" font-weight="600" text-anchor="end">YOLOv9</text>
+<path d="M154.8,226.1 L317.5,164.7 L418.0,129.1 L676.2,108.7" fill="none" stroke="#d95926" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="154.8" cy="226.1" r="4.5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>RF-DETR: 51.3 mAP, 33.9 ms</title></circle>
+<circle cx="317.5" cy="164.7" r="4.5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>RF-DETR: 55.2 mAP, 58.9 ms</title></circle>
+<circle cx="418.0" cy="129.1" r="4.5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>RF-DETR: 57.4 mAP, 74.3 ms</title></circle>
+<circle cx="676.2" cy="108.7" r="4.5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>RF-DETR: 58.7 mAP, 113.9 ms</title></circle>
+<text x="686.2" y="112.7" fill="#f0f6fc" font-weight="600" text-anchor="start">RF-DETR</text>
+<path d="M86.9,313.8 L148.1,191.9 L207.4,120.8 L281.5,88.0 L391.3,64.7" fill="none" stroke="#199e70" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="86.9" cy="313.8" r="4.5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>D-FINE: 45.8 mAP, 23.5 ms</title></circle>
+<circle cx="148.1" cy="191.9" r="4.5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>D-FINE: 53.4 mAP, 32.9 ms</title></circle>
+<circle cx="207.4" cy="120.8" r="4.5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>D-FINE: 57.9 mAP, 42.0 ms</title></circle>
+<circle cx="281.5" cy="88.0" r="4.5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>D-FINE: 60.0 mAP, 53.4 ms</title></circle>
+<circle cx="391.3" cy="64.7" r="4.5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>D-FINE: 61.4 mAP, 70.2 ms</title></circle>
+<text x="401.3" y="62.7" fill="#f0f6fc" font-weight="600" text-anchor="start">D-FINE</text>
+<path d="M87.9,298.2 L150.0,214.5 L209.3,158.5 L283.8,121.7 L394.3,94.0" fill="none" stroke="#c98500" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="87.9" cy="298.2" r="4.5" fill="#c98500" stroke="#0d1117" stroke-width="2"><title>DEIM: 46.8 mAP, 23.7 ms</title></circle>
+<circle cx="150.0" cy="214.5" r="4.5" fill="#c98500" stroke="#0d1117" stroke-width="2"><title>DEIM: 52.0 mAP, 33.2 ms</title></circle>
+<circle cx="209.3" cy="158.5" r="4.5" fill="#c98500" stroke="#0d1117" stroke-width="2"><title>DEIM: 55.5 mAP, 42.3 ms</title></circle>
+<circle cx="283.8" cy="121.7" r="4.5" fill="#c98500" stroke="#0d1117" stroke-width="2"><title>DEIM: 57.9 mAP, 53.7 ms</title></circle>
+<circle cx="394.3" cy="94.0" r="4.5" fill="#c98500" stroke="#0d1117" stroke-width="2"><title>DEIM: 59.6 mAP, 70.7 ms</title></circle>
+<text x="404.3" y="102.0" fill="#f0f6fc" font-weight="600" text-anchor="start">DEIM</text>
+<path d="M97.0,234.6 L133.0,195.9 L152.9,170.8 L202.8,156.4 L309.8,139.1" fill="none" stroke="#d55181" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="97.0" cy="234.6" r="4.5" fill="#d55181" stroke="#0d1117" stroke-width="2"><title>RT-DETRv2: 50.8 mAP, 25.1 ms</title></circle>
+<circle cx="133.0" cy="195.9" r="4.5" fill="#d55181" stroke="#0d1117" stroke-width="2"><title>RT-DETRv2: 53.2 mAP, 30.6 ms</title></circle>
+<circle cx="152.9" cy="170.8" r="4.5" fill="#d55181" stroke="#0d1117" stroke-width="2"><title>RT-DETRv2: 54.8 mAP, 33.6 ms</title></circle>
+<circle cx="202.8" cy="156.4" r="4.5" fill="#d55181" stroke="#0d1117" stroke-width="2"><title>RT-DETRv2: 55.7 mAP, 41.3 ms</title></circle>
+<circle cx="309.8" cy="139.1" r="4.5" fill="#d55181" stroke="#0d1117" stroke-width="2"><title>RT-DETRv2: 56.8 mAP, 57.7 ms</title></circle>
+<text x="319.8" y="151.1" fill="#f0f6fc" font-weight="600" text-anchor="start">RT-DETRv2</text>
+</svg>

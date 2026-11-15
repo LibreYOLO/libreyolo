@@ -184,6 +184,7 @@ class OnnxBackend(BaseBackend):
             default_task=default_task,
             **classify_eval_kwargs(runtime_metadata),
             letterbox_pad=runtime_metadata.get("letterbox_pad"),
+            channels=runtime_metadata.get("channels"),
             num_bins=(
                 int(runtime_metadata["num_bins"])
                 if runtime_metadata.get("num_bins")

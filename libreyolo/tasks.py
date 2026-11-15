@@ -30,6 +30,7 @@ TaskType = Literal[
     "act",
     "generate",
     "generate3d",
+    "flow",
 ]
 TASKS = (
     "detect",
@@ -54,6 +55,7 @@ TASKS = (
     "act",
     "generate",
     "generate3d",
+    "flow",
 )
 
 TASK_ALIASES = {
@@ -175,6 +177,11 @@ TASK_ALIASES = {
     "img2-3d": "generate3d",
     "img-to-3d": "generate3d",
     "i23d": "generate3d",
+    # Optical flow: a dense per-pixel displacement field between two frames.
+    "flow": "flow",
+    "optical-flow": "flow",
+    "optical_flow": "flow",
+    "opticalflow": "flow",
 }
 
 TASK_TO_SUFFIX = {
@@ -199,6 +206,7 @@ TASK_TO_SUFFIX = {
     "act": "act",
     "generate": "generate",
     "generate3d": "generate3d",
+    "flow": "flow",
 }
 
 SUFFIX_TO_TASK = {v: k for k, v in TASK_TO_SUFFIX.items()}

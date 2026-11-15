@@ -23,6 +23,7 @@ from libreyolo.models.sam3dbody.person import (
     normalize_person_boxes,
     resolve_person_detector,
 )
+from tests.fixture_images import PARKOUR_FIXTURE
 
 pytestmark = pytest.mark.unit
 
@@ -277,12 +278,11 @@ class TestRealModelParity:
         return LibreSAM3DBody(model_path=ckpt, size="d3")
 
     def test_predicts_a_body_in_the_camera_frame(self, model):
-        import libreyolo
         from PIL import Image
 
-        width, height = Image.open(libreyolo.SAMPLE_IMAGE).size
+        width, height = Image.open(PARKOUR_FIXTURE).size
         result = model(
-            libreyolo.SAMPLE_IMAGE,
+            PARKOUR_FIXTURE,
             person_boxes=[[width * 0.2, height * 0.05, width * 0.8, height * 0.95]],
         )
         meshes = result.meshes
@@ -304,14 +304,13 @@ class TestRealModelParity:
 
     def test_our_projection_matches_upstreams(self, model):
         """Our camera math must reproduce the upstream 2D joints exactly."""
-        import libreyolo
         from PIL import Image
 
         from libreyolo.models.sam3dbody.camera import perspective_project
 
-        width, height = Image.open(libreyolo.SAMPLE_IMAGE).size
+        width, height = Image.open(PARKOUR_FIXTURE).size
         result = model(
-            libreyolo.SAMPLE_IMAGE,
+            PARKOUR_FIXTURE,
             person_boxes=[[width * 0.2, height * 0.05, width * 0.8, height * 0.95]],
         )
         meshes = result.meshes

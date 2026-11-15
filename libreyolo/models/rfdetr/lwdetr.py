@@ -35,10 +35,16 @@ from .loss import (  # noqa: F401 — backward compat
     sigmoid_focal_loss,
     sigmoid_varifocal_loss,
 )
-from .segmentation import SegmentationHead
 from .matcher import build_matcher
-from .transformer import build_transformer
+from .math import MLP
+from .segmentation import SegmentationHead
 from .tensors import NestedTensor, nested_tensor_from_tensor_list
+from .transformer import (
+    Transformer,
+    _eager_cuda,
+    _module_call_is_plain,
+    build_transformer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,19 +54,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class MLP(nn.Module):
-    """Very simple multi-layer perceptron (also called FFN)."""
-
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
-        super().__init__()
-        self.num_layers = num_layers
-        h = [hidden_dim] * (num_layers - 1)
-        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
-
-    def forward(self, x):
-        for i, layer in enumerate(self.layers):
-            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
-        return x
 
 
 # ---------------------------------------------------------------------------
@@ -732,16 +725,31 @@ class LWDETR(nn.Module):
                 cross_src, _ = feature.decompose()
                 cross_attn_srcs.append(cross_src)
 
+        # Reusing encoder logits is internal to the unobserved stock CUDA
+        # path. Hooks and custom transformers keep their original tuple/API.
+        reuse_encoder_classes = (
+            self.two_stage
+            and self.training
+            and self.group_detr > 1
+            and _eager_cuda(srcs[0])
+            and type(self.transformer) is Transformer
+            and _module_call_is_plain(self.transformer)
+        )
+        transformer_kwargs = {"cross_attn_srcs": cross_attn_srcs}
+        if reuse_encoder_classes:
+            transformer_kwargs["return_encoder_class"] = True
         transformer_outputs = self.transformer(
             srcs,
             masks,
             poss,
             refpoint_embed_weight,
             query_feat_weight,
-            cross_attn_srcs=cross_attn_srcs,
+            **transformer_kwargs,
         )
         if self.use_grouppose_keypoints:
-            hs, ref_unsigmoid, hs_enc, ref_enc, keypoint_hs, enc_kp_predictions, _ = transformer_outputs
+            hs, ref_unsigmoid, hs_enc, ref_enc, keypoint_hs, enc_kp_predictions, _ = (
+                transformer_outputs[:7]
+            )
         else:
             hs, ref_unsigmoid, hs_enc, ref_enc = transformer_outputs[:4]
             keypoint_hs = None
@@ -815,13 +823,17 @@ class LWDETR(nn.Module):
 
         if self.two_stage:
             group_detr = self.group_detr if self.training else 1
-            hs_enc_list = hs_enc.chunk(group_detr, dim=1)
-            cls_enc = []
-            for g_idx in range(group_detr):
-                cls_enc_gidx = self.transformer.enc_out_class_embed[g_idx](hs_enc_list[g_idx])
-                cls_enc.append(cls_enc_gidx)
+            cls_enc = transformer_outputs[-1] if reuse_encoder_classes else None
+            if cls_enc is None:
+                hs_enc_list = hs_enc.chunk(group_detr, dim=1)
+                cls_enc = []
+                for g_idx in range(group_detr):
+                    cls_enc_gidx = self.transformer.enc_out_class_embed[g_idx](
+                        hs_enc_list[g_idx]
+                    )
+                    cls_enc.append(cls_enc_gidx)
 
-            cls_enc = torch.cat(cls_enc, dim=1)
+                cls_enc = torch.cat(cls_enc, dim=1)
 
             # --- GroupPose keypoint additions (ported from RF-DETR v1.8.0). ---
             keypoints_enc = None
@@ -888,7 +900,9 @@ class LWDETR(nn.Module):
             cross_attn_srcs=cross_attn_srcs,
         )
         if self.use_grouppose_keypoints:
-            hs, ref_unsigmoid, hs_enc, ref_enc, keypoint_hs, enc_kp_predictions, _ = transformer_outputs
+            hs, ref_unsigmoid, hs_enc, ref_enc, keypoint_hs, enc_kp_predictions, _ = (
+                transformer_outputs[:7]
+            )
         else:
             hs, ref_unsigmoid, hs_enc, ref_enc = transformer_outputs[:4]
             keypoint_hs = None

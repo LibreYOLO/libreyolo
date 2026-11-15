@@ -75,6 +75,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `detr`      | `LibreDETR`     | All-caps acronym |
 | `rtdetr`    | `LibreRTDETR`   | All-caps acronym (hyphen dropped from `RT-DETR`) |
 | `rtdetrv2`  | `LibreRTDETRv2` | All-caps acronym + lowercase version |
+| `riodetrv2` | `LibreRiODETRv2` | Upstream brand casing preserved (`RiO-DETRv2`, hyphen dropped); inference-only oriented-box family. Filenames always carry `-obb`; DOTA-v1.0 is the bare name, DIOR-R is the `-diorr` weight variant (`LibreRiODETRv2s-obb-diorr.pt`) |
 | `rtdetrv4`  | `LibreRTDETRv4` | All-caps acronym + lowercase version |
 | `rtmdet`    | `LibreRTMDet`   | Upstream brand casing preserved (`RTMDet`) |
 | `rfdetr`    | `LibreRFDETR`   | All-caps acronym (hyphen dropped from `RF-DETR`) |
@@ -119,6 +120,8 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `vjepa2`    | `LibreVJEPA2`   | All-caps acronym + version (`V-JEPA 2`), hyphen dropped; video clip embedding (`embed`) + attentive-probe video classification (`classify`) |
 | `levjepa`   | `LibreLeVJEPA`  | Upstream mixed-case name preserved; inference-only clip and patch video embeddings |
 | `nafnet`    | `LibreNAFNet`   | All-caps acronym + CamelCase `Net`; restore-only image-restoration family |
+| `raft`      | `LibreRAFT`     | All-caps acronym (RAFT); flow-only optical flow family |
+| `neuflowv2` | `LibreNeuFlowv2` | Upstream brand casing `NeuFlow` + lowercase `v2`; flow-only optical flow family |
 | `ddcolor`   | `LibreDDColor`  | Upstream mixed-case brand preserved (`DDColor`); restore-only automatic colorization family |
 | `hvi_cidnet` | `LibreHVICIDNet` | All-caps upstream acronyms (`HVI-CIDNet`) with the separator retained only in the family id; restore-only low-light enhancement family |
 | `lama`      | `LibreLaMa`     | Upstream mixed-case acronym preserved (`LaMa`); mask-guided inpainting under the restore task |
@@ -127,19 +130,29 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `swinir`    | `LibreSwinIR`    | Upstream brand casing (`SwinIR`); restore-only transformer super-resolution family |
 | `depth_anything` | `LibreDepthAnythingV2` | CamelCase preserved + version (Depth Anything V2), depth-only |
 | `depth_anything3` | `LibreDepthAnything3` | CamelCase preserved + version (Depth Anything 3), depth-only |
+| `video_depth_anything` | `LibreVideoDepthAnything` | CamelCase preserved (Video Depth Anything); depth-only sequence family, one depth map per frame |
+| `waft` | `LibreWAFT` | All-caps acronym (Warping-Alone Field Transforms), flow-only |
+| `dpflow`    | `LibreDPFlow` | All-caps acronym `DP` (dual pyramid) + `Flow`; flow-only, inference-only. Canonical `LibreDPFlowm-flow.pt` is the FlyingThings3D stage; benchmark fine-tunes use the `WEIGHT_VARIANTS` suffixes `-sintel`, `-kitti`, `-spring` |
 | `zipdepth`  | `LibreZipDepth` | CamelCase preserved (`ZipDepth` brand casing); depth-only lightweight CNN (speed/edge tier) |
 | `midas`     | `LibreMiDaS` | Upstream mixed-case brand preserved (`MiDaS`); inference-only relative-depth museum family |
+| `searaft`   | `LibreSEARAFT` | All-caps acronym (hyphen dropped from `SEA-RAFT`); flow-only, inference-only; canonical filenames require `-flow` |
 | `moge2`     | `LibreMoGe2` | Upstream brand casing preserved (`MoGe`) + version; surface-normal-only |
+| `moge3`     | `LibreMoGe3` | Upstream brand casing preserved (`MoGe`) + version; metric depth with point map and intrinsics, plus normals |
 | `marigold_v2` | `LibreMarigoldV2` | Marigold V2 depth, normals and albedo; pinned Qwen base with task adapters |
+| `memfof`    | `LibreMEMFOF` | All-caps acronym (`MEMFOF`); three-frame optical flow, flow-only |
 | `teed`      | `LibreTEED` | All-caps acronym (`TEED`); edge-only tiny CNN specialist |
 | `dexined`   | `LibreDexiNed` | Upstream brand casing preserved (`DexiNed`); edge-only base CNN specialist |
+| `flowseek`  | `LibreFlowSeek` | Upstream brand casing (`FlowSeek`); flow-only, SEA-RAFT style recurrent optical flow with a frozen Depth Anything V2 encoder |
+| `unimatch`  | `LibreUniMatch` | Upstream brand casing preserved (`UniMatch`); flow-only GMFlow optical flow family |
 | `birefnet`  | `LibreBiRefNet` | CamelCase preserved (Bilateral Reference); matte-only background-removal family |
 | `feynobg`   | `LibreFeyNobg` | CamelCase preserved (FeyNobg); matte-only background-removal family built on the BiRefNet architecture |
 | `ben2`      | `LibreBEN2` | All-caps acronym plus version digit; matte-only BEN2 Base background-removal family |
 | `vitmatte`  | `LibreViTMatte` | Upstream brand casing preserved (`ViTMatte`); trimap-guided matte family |
 | `ppocr`     | `LibrePPOCR`    | All-caps acronym (PP-OCR brand, hyphen dropped); ocr-only two-stage text detection + recognition family |
+| `ppdoclayoutv3` | `LibrePPDocLayoutV3` | Upstream brand casing preserved (`PP-DocLayoutV3`, hyphen dropped); detect-only document layout family with reading order; inference-only |
 | `facerec`   | `LibreFaceEmbedder` | Descriptive family name (no upstream brand): embed-only two-stage face detection + identity-embedding family, inference-only |
 | `sam3dbody` | `LibreSAM3DBody` | All-caps acronym plus CamelCase `Body` (hyphens dropped); mesh-only family. Named in full rather than shortened so it does not collide with the `LibreSAM` promptable-segmentation tier. Sizes are backbone codes: `d3` (DINOv3 ViT-H/16+) and `h` (ViT-H). This family wraps an optional third-party package rather than porting it; see ADR 0013 |
+| `instanthmr` | `LibreInstantHMR` | Upstream brand casing preserved (`InstantHMR`); mesh-only family. Canonical filenames carry `-mesh`; the `m` size has a `-commercial` weight variant trained only on commercially usable images |
 
 Casing rules observed in the table:
 
@@ -163,10 +176,10 @@ exceptions being lowercase version suffixes (`DEIMv2`, `RTDETRv2`,
 `RTDETRv4`) and preserved upstream brand casing (`RTMDet`).
 
 The VLM and promptable SAM tiers are separate categories and do not follow this
-rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreLFM2VL`,
+rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreQwen3VLEmbedding`, `LibreLFM2VL`,
 `LibreSmolVLM2`, `LibreInternVL3`, `LibreFlorence2`, `LibreKosmos2`,
-`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreMODUS`, `LibreSAM`,
-`LibreSAM2`, `LibreSAM3`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
+`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreWeVisOneVL`, `LibreFalconPerception`, `LibreDeepSeekOCR`, `LibrePaddleOCRVL`, `LibreGLMOCR`, `LibreFalconOCR`, `LibreMODUS`, `LibreSAM`,
+`LibreSAM2`, `LibreSAM3`, `LibreSAM31`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
 are not registered
 into the detector factory and do not emit `Libre<FAMILY><size>.pt` detector
 checkpoints. Their `FILENAME_PREFIX` is only a weights-directory prefix for a
@@ -224,6 +237,7 @@ ships:
 | `detr`      | `r50`, `r50dc5`, `r101`, `r101dc5` (ResNet depth plus optional dilated C5; all use a fixed 800 square) |
 | `rtdetr`    | `r18`, `r34`, `r50`, `r50m`, `r101`, `l`, `x` |
 | `rtdetrv2`  | detect: `r18`, `r34`, `r50`, `r50m`, `r101`; OBB: `n`, `s`, `m`, `l`, `x` (fixed 1024) |
+| `riodetrv2` | `n`, `s`, `m`, `l`, `x`; native canvas from the checkpoint: 1024 (DOTA-v1.0), 800 (`-diorr`) |
 | `rtdetrv4`  | `s`, `m`, `l`, `x` |
 | `gtr`       | detect, segment, pose, depth: `s`, `m`, `l`, `x` (640); semantic: `s`, `m`, `l`, `x` (1024x2048 canvas); OBB: `s`, `x` (fixed 1024) |
 | `rtmdet`    | `t`, `s`, `m`, `l`, `x` |
@@ -251,6 +265,7 @@ ships:
 | `ppyoloe`   | `s`, `m`, `l`, `x` (all at 640) |
 | `ec`     | `s`, `m`, `l`, `x` |
 | `l2cs`      | `r18`, `r34`, `r50`, `r101`, `r152` (ResNet backbone depth) |
+| `instanthmr` | `n`, `t`, `s`, `m` (HGNetV2-B0/B1/B2/B4 backbone; all at a fixed 288 person crop) |
 | `fomo`      | `s`, `m`, `l` |
 | `mobilenetv4` | `s`, `m`, `l` (conv-Small/Medium/Large) |
 | `convnext`  | `t`, `s`, `b` (V1 Tiny/Small/Base) |
@@ -263,6 +278,8 @@ ships:
 | `vgg`       | `16`, `19`, `16bn`, `19bn` (VGG depth plus optional batch normalization; all fixed 224) |
 | `swin`      | `t`, `s`, `b`, `l` (Swin V1 Tiny/Small/Base/Large; patch 4, window 7, all at 224) |
 | `nafnet`    | `s`, `l` (small width-32 / large width-64 restoration models). Weight variants select the degradation: `LibreNAFNetl-restore.pt` (GoPro deblur) and `LibreNAFNetl-restore-sidd.pt` (SIDD denoise, the model behind the `denoise` alias) |
+| `raft`      | `s`, `l` (raft-small / raft, native resolution by default (`imgsz` caps the long side), padded to a multiple of 8). Weight variants of `l` select the fine-tuning set: `LibreRAFTl-flow.pt` (raft-things, canonical), `LibreRAFTl-flow-sintel.pt` (raft-sintel), `LibreRAFTl-flow-kitti.pt` (raft-kitti) |
+| `neuflowv2` | `s` (the single released 9M-parameter network, default canvas 432x768). Training-data variants: `LibreNeuFlowv2s-flow.pt` (upstream `neuflow_mixed.pth`), `LibreNeuFlowv2s-flow-sintel.pt` and `LibreNeuFlowv2s-flow-things.pt` |
 | `ddcolor`   | `t`, `l` (ConvNeXt-T and ConvNeXt-L encoders; both use a fixed 512 colorization graph and restore the source canvas) |
 | `hvi_cidnet` | `t` (the 1.98M-parameter generalization checkpoint; native resolution with padding to a multiple of 8) |
 | `lama`      | `b` (the single fixed-512 OpenCV Zoo QDQ ONNX graph embedded in a safe LibreYOLO checkpoint) |
@@ -271,17 +288,26 @@ ships:
 | `swinir`    | `s`, `m`, `l` (all 4x: lightweight SwinIR-S, real-world SwinIR-M, and real-world SwinIR-L) |
 | `depth_anything` | `s`, `b`, `l`, `g` (ViT-S/B/L/G, all at 518) |
 | `depth_anything3` | `l` (DA3MONO-LARGE ViT-L, native upper-bound 504) |
+| `video_depth_anything` | `s`, `b`, `l` (ViT-S/B/L, 518 short side lower-bound, smaller for frames wider than 16:9; `b` and `l` weights are CC BY-NC 4.0) |
+| `waft` | `t`, `s`, `m`, `l` by parameter count: `t` a2 DINOv3 ViT-S/16 (56.5 M), `s` a2 Depth Anything V2 ViT-S (56.9 M), `m` a1 Depth Anything V2 ViT-S (64.2 M, upstream's recommended checkpoint), `l` a2 Twins-SVT-Large (136.0 M); native resolution by default (`imgsz` caps the long side), the backbone is the weight variant (`-dinov3`, `-dav2`, `-twins`); `m` has no variant suffix |
+| `dpflow`    | `m` (the single published DPFlow graph, 10.0M parameters; runs at the native frame size by default, pyramid depth chosen from the image diagonal; `imgsz` caps the long side) |
 | `zipdepth`  | `b` (base, GPU/CPU convex upsampling), `bnpu` (base capacity with the separately trained unfold-free upsampling head for NPU/edge compilers); both at short-side 384 |
 | `midas`     | `s` (MiDaS v2.1 Small, EfficientNet-Lite3, upper-bound 256), `l` (DPT-Large, ViT-L/16, minimal-resize 384) |
+| `searaft`   | `s` (ResNet18 encoders, 4 iterations), `m` (ResNet34, 4 iterations), `l` (the `m` weights at 12 iterations, upstream's SEA-RAFT L); native resolution padded to a multiple of 8, long side capped at 960 |
 | `moge2`     | `s`, `b`, `l` (official MoGe-2 ViT-S/B/L-14 normal checkpoints; all at native short side 518, `l` quality default) |
+| `moge3`     | `l`, `g` (official MoGe-3 ViT-L/14 and ViT-g/14; `imgsz` 840 sets a 3600-token budget, inputs keep native resolution) |
 | `marigold_v2` | `b` (20B Qwen base; task and depth-variant suffix select the adapter) |
+| `memfof`    | `m` (single released network, ResNet-34 FPN at dim 512; native resolution, `imgsz` caps the long side at 1920). Bare `LibreMEMFOFm-flow.pt` is upstream MEMFOF-Tartan-T-TSKH; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring` are the other published stages and fine-tunes, one Hugging Face repo per file |
 | `teed`      | `t` (tiny, 58,910 parameters; fixed 352 square) |
 | `dexined`   | `b` (base, 35.2M parameters; fixed 352 square) |
+| `flowseek`  | `t`, `s`, `m`, `l` (upstream FlowSeek-T/S/M/L: t and s share the ResNet-18 + DAv2 ViT-S weights at 4 and 12 iterations, m and l share the ResNet-34 + DAv2 ViT-B weights at 4 and 12; native resolution by default (`imgsz` caps the long side), padded to a multiple of 8) |
+| `unimatch`  | `s` (GMFlow scale1, FlyingThings), `l` (GMFlow+ scale2 with 6 refinement steps, mixed data; quality default). Weight variants `-sintel` and `-kitti` select the `l` finetunes: `LibreUniMatchl-flow-sintel.pt`, `LibreUniMatchl-flow-kitti.pt` |
 | `birefnet`  | `t` (BiRefNet_lite, Swin-T tier), `l` (BiRefNet general, Swin-L tier); both at fixed 1024 |
 | `feynobg`   | `l` (single released variant: Swin-L tier with stage 3 deepened to 24 blocks, 263M params) at fixed 1024 |
 | `ben2`      | `b` (the single public BEN2 Base checkpoint, 94M parameters) at fixed 1024 |
 | `vitmatte`  | `s` (ViT-S backbone; native image resolution with bottom/right padding to a multiple of 32; nominal checkpoint canvas 512) |
 | `ppocr`     | `t` (PP-OCRv5 mobile det + mobile rec, CPU tier), `l` (PP-OCRv5 server det + server rec, quality tier); detection long side 960 |
+| `ppdoclayoutv3` | `l` (the single released variant, HGNetV2-L backbone) at fixed 800 |
 | `clip`      | `b32`, `b16`, `l14` (ViT patch size baked in, all at 224) |
 | `siglip2`   | `b16` (base patch-16 at 256), `so400m` (shape-optimized 400M patch-14 at 384) |
 | `pe`        | `t16`, `s16` (patch-16 at 384), `b16` (patch-16 at 224), `l14` (patch-14 at 336), `g14` (gigantic patch-14 at 448) — ViT patch size baked in, resolution varies per size |
@@ -292,7 +318,12 @@ VLM snapshot families use model-specific size names:
 |---|---|
 | `molmo2` | `4b` (default), `8b`, `o-7b`; single-image point task |
 | `wevisonevl` | `2b` (default), `4b`; Qwen3-VL backbone plus the `mask_decoder.pt` pixel decoder |
+| `paddleocrvl` | `0.9b` (only size); PaddleOCR-VL-0.9B recognizer plus the PP-DocLayoutV2 layout detector under `layout/` in one mirror |
+| `glmocr` | `0.9b` (only size); GLM-OCR recognizer plus the PP-DocLayoutV3 layout detector under `layout/` in one mirror |
+| `falconocr` | `270m` (only size); Falcon OCR 1.5, mirror `LibreYOLO/LibreFalconOCR270m` |
+| `falconperception` | `600m` (default, detect and segment), `300m` (detect only); vendored early-fusion transformer, no Hugging Face remote code |
 | `libremodus` | `14b-a7b` (14B total parameters, approximately 7B active; external MODUS snapshot) |
+| `deepseekocr` | `1` (DeepSeek-OCR, default; mirror `LibreYOLO/LibreDeepSeekOCR1`), `2` (DeepSeek-OCR-2; mirror `LibreYOLO/LibreDeepSeekOCR2`); both 3B MoE |
 
 Promptable SAM tier size aliases:
 
@@ -302,6 +333,7 @@ Promptable SAM tier size aliases:
 | `sam2` | `tiny`, `small`, `base-plus`, `large` |
 | `edgetam` | `edge` (the default and only shipped size; 1024px input) |
 | `sam3` | `large` (the default and only shipped size) |
+| `sam31` | `large` (the default and only shipped size) |
 | `mobilesam` | `tiny` (the default and only shipped size) |
 | `picosam3` | `pico` (the default and only shipped size; 96px ROI input) |
 
@@ -350,6 +382,7 @@ From `libreyolo/tasks.py`:
 | `act`         | `-act` |
 | `generate`    | `-generate` |
 | `generate3d`  | `-generate3d` |
+| `flow`        | `-flow` |
 
 The factory accepts selected upstream-style aliases (`detection`, `det`,
 `segmentation`, `keypoints`, `cls`, …) at the API boundary; only the canonical
@@ -399,6 +432,42 @@ in their named spaces. See ADR 0025. Its default depth file is
 `LibreMarigoldV2b-depth.pt` (Log-stage2); the six other depth variants use
 `LibreMarigoldV2b-depth-<variant>.pt`. See ADR 0027 for the variant list.
 
+Video Depth Anything is a depth sequence family: every source is one ordered
+frame sequence, `N` frames give `N` depth maps in one relative scale, and a
+single image is a one-frame sequence. See ADR 0006 and ADR 0032.
+
+`flow` is the task for dense optical flow. Models expose `Results.flow`, a
+float32 `(H, W, 2)` displacement field on the original canvas of the first
+frame: `flow.data[y, x]` is `(dx, dy)` in pixels from frame `t` to frame
+`t + 1`, `+x` right and `+y` down, with an optional `(H, W)` confidence map.
+Every multi-image source is a sequence and `N` frames give `N - 1` results;
+a single image is an error. Families that need more than two frames declare
+`FLOW_CONTEXT = (before, after)`. Validation reports end-point error and the
+1 px, 3 px and KITTI Fl-all outlier rates. See ADR 0032. MEMFOF declares
+`FLOW_CONTEXT = (1, 0)`: it reads frames `t - 1`, `t`, `t + 1` and reports the
+forward flow of frame `t`.
+
+Views and saving: `plot()` draws the Middlebury colour wheel, `plot(arrows=True)`
+draws arrows on the frame, `plot(warp=True)` shows the next frame warped back
+onto the current one as a correctness check; `predict(save=True, arrows=...,
+warp=...)` writes the chosen view and `predict(save_flow=True)` writes each
+pair's raw field as `<frame stem>_<frame index>.flo` (`FlowField.save` writes
+`.flo` or `.npy`); `show=True` previews the view per pair. `imgsz` is the
+maximum long side for the flow families that run at native resolution (RAFT,
+WAFT, FlowSeek, DPFlow, default 8192 so nothing is resized unless asked; SEA-RAFT
+caps at 960 and MEMFOF at 1920): larger frames are downscaled before the network
+and the flow is rescaled back to the original canvas; NeuFlow v2 stretches to
+its 432x768 canvas or an explicit `imgsz` multiple of 16.
+
+```python
+m = LibreYOLO("LibreSEARAFTm-flow.pt")
+r = m(["a.jpg", "b.jpg"])[0]
+r.plot(arrows=True, save=True)          # frame with arrows
+r.plot(warp=True, save=True)            # frame t | frame t+1 warped onto t
+r.flow.save("a.flo")                    # raw (H, W, 2) field
+m("clip.mp4", save=True, warp=True, save_flow=True)   # video of the warp check plus one .flo per pair
+```
+
 `albedo` predicts `Results.albedo`, a float32 `(H,W,3)` linear-RGB reflectance
 map in `[0,1]`. Its preview uses sRGB while the numeric payload remains linear.
 The first checkpoint is `LibreMarigoldV2b-albedo.pt`; see ADR 0026.
@@ -437,6 +506,14 @@ the original image canvas (`1` = foreground, `0` = background), plus
 matte filenames must carry the `-matte` suffix; task aliases such as `matting`,
 `background-removal`, `rembg`, and `dis` resolve to `matte` at the API boundary.
 See ADR 0010 for the full contract.
+
+Document layout families (`ppdoclayoutv3`) use the `detect` task: boxes over
+layout classes such as text, titles, tables and figures. Their `Results` rows
+are sorted in reading order and carry `Results.reading_order`, a one-based
+integer rank per box (the same shape and slicing rules as `track_id`). It is
+the rank among the regions kept at the requested `conf`; a `classes=` filter or
+`max_det` cut keeps the surviving boxes' ranks, so the values can have gaps.
+Other families leave `Results.reading_order` as `None`.
 
 `ocr` is the task for located text: detection quads plus transcripts. Models
 expose `Results.ocr`, a list of text regions each carrying a 4-point `polygon`
@@ -490,6 +567,7 @@ the multi-task analysis family in that tier:
 | Family | `SUPPORTED_TASKS` | Default | Notes |
 |---|---|---|---|
 | `libremodus` | `("detect", "depth", "normal", "edge")` | detect | External `14b-a7b` snapshot; standard tasks plus image-conditioned `any2any()`; inference-only; no RGB output |
+| `deepseekocr` | `("ocr",)` | ocr | Vendored port, sizes `1` and `2`; `prompt="ocr"` / `"markdown"` / `"free"`, `resolution=` tiny to gundam; inference-only, `val()` runs the OCR validator |
 
 The promptable SAM tier is separate from the detector checkpoint factory. Its
 families all expose the promptable `segment` task:
@@ -500,6 +578,7 @@ families all expose the promptable `segment` task:
 | `sam2` | `("segment",)` | segment | SAM-2 image prompting; video deferred |
 | `edgetam` | `("segment",)` | segment | EdgeTAM image prompting; video deferred |
 | `sam3` | `("segment",)` | segment | SAM 3 visual and concept prompting |
+| `sam31` | `("segment",)` | segment | SAM 3.1 image path, same prompting as `sam3`; video deferred |
 | `mobilesam` | `("segment",)` | segment | MobileSAM image prompting |
 | `picosam3` | `("segment",)` | segment | PicoSAM3 box prompting |
 
@@ -524,6 +603,7 @@ Detector-factory family support follows:
 | `detr`      | `("detect",)`                       | detect | original DETR; inference-only (no trainer, `train()` raises); fixed 800 square |
 | `rtdetr`    | `("detect",)` (default)             | detect | detect-only |
 | `rtdetrv2`  | `("detect", "obb")`               | detect | OBB uses the DOTA `n`/`s`/`m`/`l`/`x` graph and is inference-only; detect remains trainable |
+| `riodetrv2` | `("obb",)`                         | obb    | inference-only; DOTA-v1.0 (nc=15) default, `-diorr` variant (nc=20) |
 | `rtdetrv4`  | `("detect",)` (default)             | detect | detect-only |
 | `lwdetr`    | `("detect",)`                       | detect | detect-only; inference-only (no trainer, `train()` raises) |
 | `faster_rcnn` | `("detect",)`                     | detect | detect-only; inference-only native RPN + RoI graph; official COCO heads map sparse 91-way ids to contiguous COCO-80 |
@@ -551,15 +631,21 @@ Detector-factory family support follows:
 | `dekr`      | `("pose",)`                          | pose   | inference-only bottom-up COCO-17 pose; no person detector; `LibreDEKRw32-pose.pt` at 640; person boxes are derived from decoded keypoints, not predicted |
 | `ec`     | `("detect", "pose", "segment")`     | detect | all three tasks |
 | `l2cs`      | `("gaze",)`                         | gaze   | inference-only; two-stage (face detector + gaze head); not trainable in LibreYOLO |
+| `instanthmr` | `("mesh",)`                     | mesh   | best-effort fine-tuning from a pretrained checkpoint on YOLO-pose COCO-17 person keypoints (no from-scratch training, no `val`); two-stage (person detector, RF-DETR by default, + per-crop MHR regression); ONNX export of the crop network with the MHR body; `n`/`t`/`s`/`m` weights CC BY-NC 4.0, `m` `-commercial` variant Apache-2.0 |
 | `fomo`      | `("point",)`                        | point  | point-only localizer model |
 | `depth_anything` | `("depth",)`                   | depth  | Depth Anything V2 (DINOv2 + DPT); sizes `s`/`b`/`l`/`g` all at 518; predict + zero-shot `val`; not trainable in LibreYOLO |
 | `depth_anything3` | `("depth",)`                  | depth  | Depth Anything 3 mono (ViT-L + DPT); size `l` at upper-bound 504; recommended quality default; Apache-2.0 code/weights; predict + zero-shot `val`; not trainable in LibreYOLO |
 | `zipdepth`  | `("depth",)`                        | depth  | ZipDepth lightweight CNN (RepVGG encoder + FPN decoder, DA2-L distilled); sizes `b`/`bnpu` at short-side 384; predict + zero-shot `val` + fixed-resolution ONNX/TorchScript export; MIT code and weights; not trainable in LibreYOLO |
 | `midas`     | `("depth",)`                        | depth  | MiDaS relative inverse depth, defined only up to a per-image scale and shift; higher means closer and values have no metric unit. Sizes `s`/`l`; predict + zero-shot `val` + fixed-resolution ONNX/TorchScript/TensorRT/OpenVINO export; inference-only |
+| `flowseek`  | `("flow",)`                         | flow   | FlowSeek (ICCV 2025) optical flow; `FLOW_CONTEXT = (0, 0)`; predict + `val`; Apache-2.0 code; m/l embed the CC BY-NC 4.0 DAv2 Base encoder (non-commercial); not trainable in LibreYOLO |
 | `moge2`     | `("normal",)`                       | normal | MoGe-2 ViT-S/B/L-14 normal models; sizes `s`/`b`/`l` at native short-side 518 (`l` quality default); OpenCV camera-frame unit normals; predict + zero-shot `val` + fixed-resolution ONNX export; official code and checkpoints are MIT; not trainable in LibreYOLO |
+| `moge3`     | `("depth", "normal")`             | depth  | MoGe-3 ViT-L/g-14 with sparse volumetric refinement; metric depth (`encoding="depth"`, `metric=True`) plus point map, pixel intrinsics, and validity mask on `Results.depth_map`, or OpenCV-frame unit normals; predict + zero-shot `val`; fixed-resolution normal export; MIT code and weights; not trainable in LibreYOLO |
 | `teed`      | `("edge",)`                         | edge   | TEED tiny edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
+| `unimatch`  | `("flow",)`                         | flow   | UniMatch / GMFlow optical flow; sizes `s` (scale1) and `l` (scale2 + 6 refinement steps) at native geometry rounded up to 16 / 32; MIT code, weights hosted under the implied MIT grant; predict only, not trainable in LibreYOLO |
 | `dexined`   | `("edge",)`                         | edge   | DexiNed base edge CNN at 352; MIT architecture source; predict + ODS/OIS `val` + fixed-resolution ONNX; local checkpoints only because the released BIPED-trained weights are non-commercial |
 | `nafnet`    | `("restore",)`                      | restore | NAFNet RGB restoration; sizes `s`/`l`; native predict runs at original resolution with reflect padding; paired PSNR/SSIM train+val; fixed-resolution ONNX v1. Published denoise weights: `LibreNAFNetl-restore-sidd.pt` (SIDD width-64, bit-exact conversion, upstream PSNR 40.3045 dB) |
+| `raft`      | `("flow",)`                         | flow   | RAFT optical flow, inference-only; sizes `s`/`l`; native predict pads to a multiple of 8 (upstream InputPadder) with 20 refinement iterations; `FLOW_CONTEXT = (0, 0)`; variants `-sintel`, `-kitti` of `l` |
+| `neuflowv2` | `("flow",)`                         | flow | NeuFlow v2 pair flow, `FLOW_CONTEXT = (0, 0)`; frames stretch-resized to 432x768 (any multiple of 16), field resized back with per-axis vector rescale; inference-only; variants `-sintel`, `-things` |
 | `ddcolor`   | `("restore",)`                      | restore | DDColor automatic image colorization; sizes `t`/`l`; fixed 512 Lab chroma prediction plus exact original-resolution luminance reconstruction; inference + paired PSNR/SSIM `val`; export blocked pending a luminance side-input contract |
 | `hvi_cidnet` | `("restore",)`                    | restore | HVI-CIDNet low-light enhancement; size `t`; native-resolution predict with `gamma`, `saturation`, and `intensity` controls; paired PSNR/SSIM `val`; inference-only |
 | `lama`      | `("restore",)`                      | restore | LaMa mask-guided inpainting; size `b`, fixed 512 graph; `predict(image, mask=mask)` preserves unmasked pixels exactly; paired validation additionally requires `mask_dir`; inference-only opaque ONNX Runtime path |
@@ -567,6 +653,7 @@ Detector-factory family support follows:
 | `feynobg`   | `("matte",)`                        | matte  | FeyNobg background removal (BiRefNet architecture, deeper stage 3); size `l`, fixed 1024; same matte surface as birefnet; inference-only; fp8/nvfp4 pre-quantized checkpoints published on HF |
 | `ben2`      | `("matte",)`                        | matte  | BEN2 Base background removal; size `b`, fixed 1024; batched predict + `cutout` + transparent-PNG save + zero-shot `val`; inference-only; fixed-resolution ONNX/TorchScript export |
 | `vitmatte`  | `("matte",)`                       | matte  | ViTMatte trimap-guided alpha matting; size `s`; `predict(image, trimap=trimap)` accepts only three-level guides; validation accepts explicit trimaps or derives a deterministic guide from GT; pretrained Composition-1k weights are non-commercial; inference-only |
+| `ppdoclayoutv3` | `("detect",)`                   | detect | PP-DocLayoutV3 document layout; size `l`, fixed 800; 25 layout classes; rows sorted in reading order with `Results.reading_order`; inference-only; ONNX/TorchScript export |
 | `ppocr`     | `("ocr",)`                          | ocr    | PP-OCRv5 two-stage text detection + recognition (zh/zh-TW/en/ja/pinyin, one dictionary); sizes `t` (mobile)/`l` (server); one composite checkpoint bundles det.* and rec.* plus the charset; predict + `val` (hmean / e2e F1 / 1-NED); inference-only; export unsupported (two-network pipeline) |
 | `realesrgan` | `("restore",)`                     | restore | Real-ESRGAN super-resolution; sizes `x4`/`x2`/`x4t`; native predict at original resolution, `Results.restored` is `restore_scale` x the input; optional seam-free tiling (`predict(..., tile=512)`); inference + PSNR/SSIM `val` only (no training); dynamic-H/W ONNX |
 | `quicksrnet` | `("restore",)`                     | restore | QuickSRNet Medium 2x compact super-resolution; size `m2`; native arbitrary-resolution predict; inference + PSNR/SSIM `val` only (no training); dynamic-H/W ONNX and fixed-canvas TorchScript |
@@ -620,6 +707,7 @@ LibreSSD300.pt
 LibreEfficientDetd0.pt
 LibrePICODETs.pt
 LibreECs.pt
+LibrePPDocLayoutV3l.pt
 ```
 
 ### Pose only
@@ -733,8 +821,20 @@ LibreDepthAnythingV2b-depth.pt   # ViT-B (CC-BY-NC-4.0 weights)
 LibreDepthAnythingV2l-depth.pt   # ViT-L (CC-BY-NC-4.0 weights)
 LibreDepthAnythingV2g-depth.pt   # ViT-G (local checkpoints only; not released upstream)
 
+# flowseek: FlowSeek optical flow (flow-only)
+LibreFlowSeekt-flow.pt   # ResNet-18 + DAv2 ViT-S, 4 iterations (Apache-2.0 weights)
+LibreFlowSeeks-flow.pt   # same weights, 12 iterations (Apache-2.0 weights)
+LibreFlowSeekm-flow.pt   # ResNet-34 + DAv2 ViT-B, 4 iterations (CC BY-NC 4.0 encoder)
+LibreFlowSeekl-flow.pt   # same weights, 12 iterations (CC BY-NC 4.0 encoder)
+
 # depth_anything3 — Depth Anything 3 mono (recommended depth quality default)
 LibreDepthAnything3l-depth.pt    # DA3MONO-LARGE ViT-L (Apache-2.0 weights)
+
+# waft: WAFT optical flow (flow-only, BSD-3-Clause; t also carries the DINOv3 License)
+LibreWAFTt-flow-dinov3.pt        # a2, DINOv3 ViT-S/16 encoder
+LibreWAFTs-flow-dav2.pt          # a2, Depth Anything V2 ViT-S encoder
+LibreWAFTm-flow.pt               # a1, Depth Anything V2 ViT-S (canonical)
+LibreWAFTl-flow-twins.pt         # a2, Twins-SVT-Large encoder
 
 # zipdepth — ZipDepth lightweight CNN (depth-only, MIT weights)
 LibreZipDepthb-depth.pt          # base, convex upsampling (GPU/CPU default)
@@ -744,10 +844,27 @@ LibreZipDepthbnpu-depth.pt       # base, unfold-free upsampling (NPU/edge export
 LibreMiDaSs-depth.pt             # MiDaS v2.1 Small, EfficientNet-Lite3, 256
 LibreMiDaSl-depth.pt             # DPT-Large, ViT-L/16, 384
 
+# raft — RAFT optical flow (flow-only, BSD-3-Clause code and weights)
+LibreRAFTs-flow.pt               # raft-small
+LibreRAFTl-flow.pt               # raft-things (canonical)
+LibreRAFTl-flow-sintel.pt        # raft-sintel
+LibreRAFTl-flow-kitti.pt         # raft-kitti
+# unimatch: UniMatch / GMFlow optical flow (flow-only)
+LibreUniMatchs-flow.pt           # GMFlow scale1, FlyingThings
+LibreUniMatchl-flow.pt           # GMFlow+ scale2 regrefine6, mixed data (default)
+LibreUniMatchl-flow-sintel.pt    # Sintel finetune of l
+LibreUniMatchl-flow-kitti.pt     # KITTI 2015 finetune of l
+
 # moge2 — MoGe-2 surface normals (normal-only, MIT weights)
 LibreMoGe2s-normal.pt            # ViT-S/14, native short side 518
 LibreMoGe2b-normal.pt            # ViT-B/14, native short side 518
 LibreMoGe2l-normal.pt            # ViT-L/14, native short side 518, quality default
+
+# moge3 - MoGe-3 metric geometry (depth + point map + intrinsics) and normals, MIT weights
+LibreMoGe3l-depth.pt             # ViT-L/14, metric depth, point map, intrinsics
+LibreMoGe3l-normal.pt            # ViT-L/14, surface normals (same tensors as -depth)
+LibreMoGe3g-depth.pt             # ViT-g/14, metric depth, point map, intrinsics
+LibreMoGe3g-normal.pt            # ViT-g/14, surface normals (same tensors as -depth)
 
 # edge specialists - architecture code is MIT; no released weights are mirrored
 LibreTEEDt-edge.pt               # tiny TEED, local compatible checkpoint
@@ -756,6 +873,11 @@ LibreDexiNedb-edge.pt            # base DexiNed, local compatible checkpoint
 # nafnet — NAFNet restoration (restore-only)
 LibreNAFNets-restore.pt
 LibreNAFNetl-restore.pt
+
+# neuflowv2: NeuFlow v2 optical flow (flow-only)
+LibreNeuFlowv2s-flow.pt
+LibreNeuFlowv2s-flow-sintel.pt
+LibreNeuFlowv2s-flow-things.pt
 
 # specialist restoration (restore-only)
 LibreDDColort-restore.pt         # DDColor ConvNeXt-T automatic colorization
@@ -1032,12 +1154,18 @@ Apache-2.0 defaults and the upstream license-change history.
 
 `LibreFlux2Klein` (`flux2_klein`, size `4b`, aliases `flux2-klein` and
 `flux2-klein-4b`) and `LibreSanaSprint` (`sana_sprint`, size `0.6b`, aliases
-`sana-sprint` and `sana-sprint-0.6b`) are a sibling API behind the
+`sana-sprint` and `sana-sprint-0.6b`), `LibrePRX` (`prx`, sizes
+`1024-beta`, `512-sft-distilled`, `512-sft`, `512`, `512-dc-ae-sft-distilled`,
+`512-dc-ae-sft`, `512-dc-ae`, `256-sft` and `256`, aliases `prx-<size>` and
+`prx` for `1024-beta`) and `LibrePRXPixel` (`prxpixel`, size `7b`, aliases
+`prxpixel`, `prxpixel-7b` and `prx-pixel`) are a sibling API behind the
 `LibreGen(...)` factory, wrapping `diffusers` pipelines through the optional
 `libreyolo[gen]` runtime. They use `generate`, with aliases `generation`,
 `image-generation`, `text-to-image`, `text2image`, `txt2img` and `t2i`, and
 coverage group `s`. Base weights are pinned Hub snapshots downloaded into
-`weights/LibreFlux2Klein4b/` and `weights/LibreSanaSprint0.6b/` as pipeline
+`weights/LibreFlux2Klein4b/`, `weights/LibreSanaSprint0.6b/`,
+`weights/LibrePRX<size>/` (for example `weights/LibrePRX512-sft-distilled/`)
+and `weights/LibrePRXPixel7b/` as pipeline
 directories; they are not `.pt` files and are not registered in the
 `LibreYOLO(...)` state-dict factory.
 
@@ -1058,6 +1186,91 @@ own weights are the pinned `speridlabs/idol` snapshot in
 `LibreYOLO/LibreDINOv3vith16plus`, both at pinned revisions. `Results.gaussians` stores the
 object as a `Gaussians` payload; `libreyolo generate source=...` is the CLI.
 See ADR 0031.
+
+`LibreSperidlabsIrisZ` (`speridlabs_irisz`, sizes `9b` for upstream's
+Iris-Z-small and `32b` for Iris-Z-big, aliases `speridlabs-iris-z` (`9b`),
+`speridlabs-iris-z-9b`, `speridlabs-iris-z-small`, `speridlabs-iris-z-32b`
+and `speridlabs-iris-z-big`) is the LibreGen family with two tasks:
+`generate` (default, text to image) and `depth` (image to relative log
+depth, `LibreGen(..., task="depth")`). Like Idol, the name keeps its maker
+and there is no bare `iris-z` alias. Weights are not mirrored: the size's
+folder of the pinned `speridlabs/iris-z` snapshot downloads into
+`weights/LibreSperidlabsIrisZ<size>/`; the FLUX.2 VAE loads from
+`FLUX.2-klein-4B` and the text encoders from their publishers, all at pinned
+revisions. Coverage group `s`. See ADR 0033.
+
+`LibreOpenVisionBanana` (`open_vision_banana`, sizes `4b` and `9b`, aliases
+`open-vision-banana` (`4b`), `open-vision-banana-4b` and
+`open-vision-banana-9b`) is FunAILab's Open Vision Banana, a FLUX.2 [klein]
+Base fine-tune. It keeps the `generate` task: the prompt names the
+perception task and an optional `source=` image is the photo it answers
+about. The name is upstream's; FunAILab publishes it without a maker
+prefix. Weights are LibreYOLO's complete-pipeline mirrors
+`LibreYOLO/LibreOpenVisionBanana<size>` in
+`weights/LibreOpenVisionBanana<size>/`. Coverage group `s`. See
+`docs/open_vision_banana.md`.
+
+`LibreTripoSplat` (`triposplat`, size `0.6b`, aliases `triposplat` and
+`triposplat-0.6b`) is the second image-to-3D family, the TripoAI model Idol
+builds on; the name is upstream's and already carries its maker. Same task,
+aliases, coverage group and encoders as Idol. Its own weights are the
+denoiser, decoder and BiRefNet files of LibreYOLO's mirror
+`LibreYOLO/LibreTripoSplat0.6b` (byte-identical to the pinned
+`VAST-AI/TripoSplat` snapshot) in `weights/LibreTripoSplat0.6b/`, kept in their upstream folders
+(`diffusion_models/`, `vae/`, `background_removal/`).
+
+`LibreTRELLIS` (`trellis`, size `l` for upstream's `TRELLIS-image-large`,
+aliases `trellis` and `trellis-image-large`) is the third image-to-3D
+family, Microsoft's model; the class keeps upstream's capitalisation. Same
+task, aliases and coverage group as Idol. Its weights are LibreYOLO's mirror
+`LibreYOLO/LibreTRELLISl` (byte-identical to the pinned
+`microsoft/TRELLIS-image-large` files, upstream layout under `ckpts/`, plus
+the BiRefNet weights) in `weights/LibreTRELLISl/`; its image encoder is
+`facebook/dinov2-with-registers-large` at a pinned revision.
+
+`LibreLGM` (`lgm`, size `0.4b` for upstream's released `big`
+configuration, 0.42B parameters, aliases `lgm` and `lgm-0.4b`) is an
+image-to-3D family with a multi-view diffusion stage in front. Same task,
+aliases and coverage group as Idol. Its weights are LibreYOLO's mirror
+`LibreYOLO/LibreLGM0.4b` (byte-identical to the pinned
+`ashawkey/LGM` `model_fp16_fixrot.safetensors`, plus the BiRefNet weights) in
+`weights/LibreLGM0.4b/`; its multi-view stage is LibreYOLO's mirror
+`LibreYOLO/LibreImageDream` of `ashawkey/imagedream-ipmv-diffusers`, at a
+pinned revision.
+
+`LibreTRELLIS2` (`trellis2`, size `4b` for upstream's `TRELLIS.2-4B`,
+aliases `trellis2`, `trellis2-4b`, `trellis.2` and `trellis.2-4b`) is an
+image-to-3D family that returns a mesh (`Results.meshes`); the class keeps
+upstream's capitalisation. Same task and coverage group as Idol. Its
+geometry weights are LibreYOLO's mirror `LibreYOLO/LibreTRELLIS2-4b`
+(byte-identical to the pinned `microsoft/TRELLIS.2-4B` files, upstream
+layout under `ckpts/`) in `weights/LibreTRELLIS2-4b/`; the sparse-structure
+decoder and BiRefNet load from `LibreYOLO/LibreTRELLISl`, the DINOv3 ViT-L/16
+encoder from `LibreYOLO/LibreDINOv3vitl16`, at pinned revisions.
+
+`LibreTripoSR` (`triposr`, alias `triposr`; one published model, so no size
+code) is an image-to-3D family that returns a mesh (`Results.meshes`)
+instead of Gaussians. Same task and coverage group as
+Idol. Its weights are LibreYOLO's mirror `LibreYOLO/LibreTripoSR`
+(byte-identical to the pinned `stabilityai/TripoSR` `config.yaml` and
+`model.ckpt`) in `weights/LibreTripoSR/`; BiRefNet loads from
+`LibreYOLO/LibreTRELLISl`.
+
+`LibreCRM` (`crm`, alias `crm`; one published model, so no size code) is an
+image-to-3D family that returns a mesh (`Results.meshes`) instead of
+Gaussians. Same task and coverage group as Idol. Its weights are LibreYOLO's
+mirror `LibreYOLO/LibreCRM` (byte-identical to the pinned `Zhengyi/CRM`
+`pixel-diffusion.pth`, `ccm-diffusion.pth` and `CRM.pth`) in
+`weights/LibreCRM/`; BiRefNet loads from `LibreYOLO/LibreTRELLISl`.
+
+`LibreDirect3DS2` (`direct3d_s2`, size `v11` for upstream's
+`direct3d-s2-v-1-1` release, aliases `direct3d-s2` and `direct3d-s2-v1.1`)
+is an image-to-3D family that returns a mesh (`Results.meshes`). Same task
+and coverage group as Idol. Its weights are LibreYOLO's mirror
+`LibreYOLO/LibreDirect3DS2v11` (byte-identical to the pinned
+`wushuang98/Direct3D-S2` `direct3d-s2-v-1-1/` folder, upstream layout) in
+`weights/LibreDirect3DS2v11/`; BiRefNet loads from `LibreYOLO/LibreTRELLISl`
+and DINOv2 from `facebook/dinov2-with-registers-large`, at pinned revisions.
 
 ## Vision-language-action policies
 

@@ -44,6 +44,12 @@ Resolution rules:
   is chosen (`LibreYOLO/LibreYOLO9t` loads `LibreYOLO9t.pt`). Otherwise the
   load raises an error listing them; select one with
   `hf://owner/repo/<filename>`.
+- Some repos in the `LibreYOLO` org are not `LibreYOLO()` checkpoints:
+  vision-language, OCR, SAM, open-vocabulary, generation and 3D models, plus
+  pipeline components and retired families. They are listed in
+  `HUB_REPO_USAGES` in `libreyolo/utils/hf_hub.py`, and `LibreYOLO()` rejects
+  them before downloading anything, naming the call that works, for example
+  `LibreVLM("moondream-3")` for `LibreYOLO/LibreMoondream3`.
 
 - A revision passed as `@revision` must not contain `/`; use a commit SHA or a
   slash-free branch name.

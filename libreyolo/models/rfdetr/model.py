@@ -7,29 +7,30 @@ from typing import Any, ClassVar, Dict, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
-from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
-from ...training.callbacks import TrainCallbacks
-from ..base import BaseModel
-from ..base.model import _drop_disabled_eval_interval
+from libreyolo.training.ddp_spawn import ddp_aware
+
 from ...data import load_data_config
 from ...data.pose_metadata import keypoints_per_class
+from ...postprocess.rfdetr import postprocess
 from ...tasks import normalize_task, task_to_suffix
+from ...training.callbacks import TrainCallbacks
+from ...utils.coco import COCO91_TO_COCO80
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
-from .nn import (
-    LibreRFDETRModel,
-    RFDETR_CONFIGS,
-    RFDETR_SEG_CONFIGS,
-)
+from ...validation.preprocessors import RFDETRValPreprocessor
+from ..base import BaseModel
+from ..base.model import _drop_disabled_eval_interval
 from .config import RFDETRConfig
 from .imgsz import resolve_patch_window, validate_imgsz
-from ...utils.coco import COCO91_TO_COCO80
-from ...postprocess.rfdetr import postprocess
-from .utils import IMAGENET_MEAN, IMAGENET_STD, preprocess_numpy
+from .nn import (
+    RFDETR_CONFIGS,
+    RFDETR_SEG_CONFIGS,
+    LibreRFDETRModel,
+)
 from .trainer import RFDETRTrainer
-from ...validation.preprocessors import RFDETRValPreprocessor
+from .utils import IMAGENET_MEAN, IMAGENET_STD, preprocess_numpy
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +189,11 @@ class LibreRFDETR(BaseModel):
         ):
             return False
 
+        # InstantHMR's mesh decoder also has query_embed and transformer.*
+        # keys; its decode-head index table never appears in RF-DETR.
+        if "cont_head.full_gather" in weights_dict:
+            return False
+
         # The original Deformable DETR shares generic transformer/query/head
         # names with RF-DETR. Its ResNet body plus native deformable-attention
         # key hierarchy is a distinct core family and must never reach the
@@ -220,6 +226,14 @@ class LibreRFDETR(BaseModel):
         # importing it pulls in models.dfine, so reject it on its own key
         # rather than relying on ordering.
         if any(k.startswith("encoder.DeFE.") for k in weights_dict):
+            return False
+
+        # PP-DocLayoutV3 carries a training-only ``denoising_class_embed``
+        # (matched by the "class_embed" token) but is its own family; reject
+        # its reading-order pointer, native or ``model.``-prefixed upstream.
+        if any(
+            k.endswith("decoder_global_pointer.dense.weight") for k in weights_dict
+        ):
             return False
 
         keys_lower = [k.lower() for k in weights_dict]
@@ -1046,7 +1060,10 @@ class LibreRFDETR(BaseModel):
                 apply_quant_structure(self, quant_manifest)
 
             from ...utils.event_histogram import restore_input
+            from ...utils.input_channels import restore_channels
+
             restore_input(self, checkpoint_input_metadata)
+            restore_channels(self, checkpoint_input_metadata)
             missing, unexpected = self.model.load_state_dict(loaded, strict=False)
             if unexpected:
                 raise RuntimeError(
@@ -1332,7 +1349,14 @@ class LibreRFDETR(BaseModel):
             # exist_ok=False asks for a new run.
             exist_ok = True
 
+        early_stopping = train_kwargs.pop("early_stopping", None)
+        if early_stopping is not None and not any(
+            key in train_kwargs for key in ("patience", "early_stopping_patience")
+        ):
+            train_kwargs["patience"] = 10 if early_stopping else 0
+
         resume_path = None
+        resume_wd_override = "weight_decay" in train_kwargs
         if resume:
             if resume_checkpoint is not None:
                 resume_path = resume_checkpoint
@@ -1342,6 +1366,22 @@ class LibreRFDETR(BaseModel):
                 )
             # Continue with the run's saved settings; explicit arguments win.
             saved = self._resume_saved_settings(resume_path)
+            # Legacy checkpoints used SciPy. Installing the optional GPU extra
+            # must not silently change their assignment backend on resume.
+            if "matcher_backend" not in saved:
+                train_kwargs.setdefault("matcher_backend", "scipy")
+                if getattr(self, "task", "detect") in ("detect", "segment", "obb"):
+                    # These fields existed but were ignored by the old generic
+                    # loader. Retain its effective defaults on legacy resume;
+                    # explicit caller overrides still win below.
+                    for key in ("pin_memory", "prefetch_factor", "persistent_workers"):
+                        saved[key] = None
+            if "cls_loss_coef" not in saved:
+                # Old segmentation runs used 5; old detection/pose runs used 1.
+                legacy_cls = (
+                    5.0 if getattr(self, "task", "detect") == "segment" else 1.0
+                )
+                train_kwargs.setdefault("cls_loss_coef", legacy_cls)
             _drop_disabled_eval_interval(saved, train_kwargs.get("val"))
             if data is None:
                 data = self._checkpoint_train_config(resume_path).get("data")
@@ -1483,7 +1523,6 @@ class LibreRFDETR(BaseModel):
         for src, dst in _TRAIN_ARG_ALIASES.items():
             if src in train_kwargs:
                 train_kwargs[dst] = train_kwargs.pop(src)
-        train_kwargs.pop("early_stopping", None)
 
         if resume:
             if not train_kwargs.get("single_cls", False):
@@ -1502,6 +1541,7 @@ class LibreRFDETR(BaseModel):
             loggers=loggers,
             **train_kwargs,
         )
+        trainer._resume_weight_decay_override = resume_wd_override
         if resume:
             trainer.setup()
             trainer.resume(str(resume_path))

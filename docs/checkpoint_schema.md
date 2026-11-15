@@ -33,7 +33,7 @@ Required field meanings:
 - `size`: model variant within the family, such as `t`, `s`, `r18`, or `atto`.
 - `task`: canonical task, one of `detect`, `segment`, `semantic`, `panoptic`,
   `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `albedo`, `restore`,
-  `matte`, `ocr`, `embed`, `mesh`, or `detect3d`. The `act` task has no
+  `matte`, `ocr`, `embed`, `mesh`, `detect3d`, or `flow`. The `act` task has no
   schema-v1 `.pt` form; its checkpoints are directories (see "Optional
   LibreVLA runtime"). The `generate` and `generate3d` tasks have none
   either (see "Optional LibreGen runtime").
@@ -59,6 +59,14 @@ Optional family-specific geometry (not required by schema v1.0):
   treated as `"topleft"`. Loaders must not assume a family-wide default other
   than that unmarked-means-topleft rule. YOLO-NAS is not this field: its
   official pipeline already pads bottom-right in `preprocess/yolonas.py`.
+
+Optional grayscale input metadata:
+
+- `channels`: `1` for models trained on a dataset with `channels: 1`. Readers
+  replace the image-reading convolution with a one-channel one before loading
+  the state dict. RGB checkpoints omit the key; absent means `3`. Exports write
+  the same key as a string, and exported backends convert input images to gray
+  when it is `"1"`.
 
 Optional event-histogram input metadata (YOLO9/RF-DETR detection only):
 
@@ -507,7 +515,20 @@ Speridlabs Idol, loads the upstream snapshot directory unchanged:
 `config.json` (with `image_encoders`, `denoiser`, `decoder` and
 `decoder_gs`) next to `denoiser.safetensors`, `decoder.safetensors`,
 `decoder_gs.safetensors` and `birefnet.safetensors`, pinned to a Hub commit.
-See ADR 0031.
+TripoSplat loads its snapshot the same way, keeping the upstream folders:
+`diffusion_models/triposplat_fp16.safetensors`,
+`vae/triposplat_vae_decoder_fp16.safetensors` and
+`background_removal/birefnet.safetensors`; its network configuration is
+upstream's, fixed in code. TRELLIS loads upstream's layout too:
+`pipeline.json`, then for each of the four networks it uses a
+`ckpts/<name>.json` config next to `ckpts/<name>.safetensors`, plus
+`birefnet.safetensors`. See ADR 0031.
+
+LGM loads upstream's `model_fp16_fixrot.safetensors` unchanged, with
+`birefnet.safetensors` next to it; its multi-view stage is upstream's
+diffusers folder (`unet/`, `vae/`, `text_encoder/`, `tokenizer/`,
+`image_encoder/`, `feature_extractor/`, `scheduler/`), from LibreYOLO's
+mirror or an `imagedream/` subfolder. See ADR 0031.
 
 ### Optional LibreVLA runtime
 
@@ -538,3 +559,13 @@ schema v1. Canonical mirror names are `Libre3DMOODt.pt` and
 verified against a pinned SHA-256. The sibling API requires an explicit size
 when a local upstream filename is supplied and never routes the raw checkpoint
 through `LibreYOLO(...)` or metadata conversion.
+
+### RF-DETR optimizer group migration
+
+RF-DETR merges equivalent AdamW parameter groups. New training checkpoints may
+include `_rfdetr_param_indices` inside optimizer `param_groups`; these are original
+parameter positions used to restore moments when group layouts change. They do
+not change model weight keys or the required checkpoint metadata. Legacy
+single-parameter optimizer groups remain supported. An ambiguous migration is a
+fatal resume error, rather than an implicit optimizer reset. See
+[RF-DETR training](rfdetr_training.md).

@@ -19,14 +19,146 @@ from __future__ import annotations
 import logging
 import os
 import re
+import socket
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger("libreyolo")
 
 HF_URI_PREFIX = "hf://"
+
+# =============================================================================
+# Endpoint (HF_ENDPOINT) handling
+# =============================================================================
+
+#: The public Hub. Hardcoded weight and dataset URLs use this canonical form;
+#: :func:`apply_hf_endpoint` points them at ``HF_ENDPOINT`` at download time.
+HF_DEFAULT_ENDPOINT = "https://huggingface.co"
+
+#: Community-run Hub mirror suggested to users who cannot reach huggingface.co.
+HF_COMMUNITY_MIRROR = "https://hf-mirror.com"
+
+
+def hf_endpoint_is_set() -> bool:
+    """True when the user set ``HF_ENDPOINT`` to a non-empty value."""
+    return bool(os.environ.get("HF_ENDPOINT", "").strip())
+
+
+def hf_base_url() -> str:
+    """Base URL of the Hugging Face Hub, honouring ``HF_ENDPOINT``.
+
+    Same rule as ``huggingface_hub``: the variable wins when set, and a
+    trailing slash is stripped. Read on every call, so setting the variable
+    after ``import libreyolo`` still takes effect for direct URL downloads.
+    """
+    endpoint = os.environ.get("HF_ENDPOINT", "").strip()
+    return (endpoint or HF_DEFAULT_ENDPOINT).rstrip("/")
+
+
+def hf_url(path: str) -> str:
+    """Build a Hub URL, e.g. ``hf_url("LibreYOLO/x/resolve/main/x.pt")``."""
+    return f"{hf_base_url()}/{path.lstrip('/')}"
+
+
+def apply_hf_endpoint(url: str) -> str:
+    """Point a canonical ``https://huggingface.co/...`` URL at ``HF_ENDPOINT``.
+
+    Any other URL (another host, or one already on the endpoint) is returned
+    unchanged.
+    """
+    prefix = HF_DEFAULT_ENDPOINT + "/"
+    if isinstance(url, str) and url.startswith(prefix):
+        return hf_url(url[len(prefix) :])
+    return url
+
+
+def canonical_hf_url(url: str) -> str:
+    """Inverse of :func:`apply_hf_endpoint`: map an endpoint URL back to
+    ``https://huggingface.co/...`` so it can be compared with pinned URLs."""
+    base = hf_base_url() + "/"
+    if (
+        isinstance(url, str)
+        and base != HF_DEFAULT_ENDPOINT + "/"
+        and url.startswith(base)
+    ):
+        return f"{HF_DEFAULT_ENDPOINT}/{url[len(base):]}"
+    return url
+
+
+def _is_connection_failure(exc: BaseException | None) -> bool:
+    """True if ``exc`` or anything in its cause chain is a network failure
+    (cannot connect, DNS failure, connection reset, timeout).
+
+    An HTTP status error (401, 404, 500, ...) means the server answered, so a
+    mirror would not help: it is checked first and stops the walk.
+    """
+    from urllib.error import HTTPError, URLError
+
+    network_types: list[type] = [
+        ConnectionError,
+        TimeoutError,
+        socket.timeout,
+        URLError,
+    ]
+    status_types: list[type] = [HTTPError]
+    try:
+        import requests
+
+        network_types += [
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ]
+        status_types.append(requests.exceptions.HTTPError)
+    except ImportError:  # pragma: no cover - requests is a core dependency
+        pass
+    try:  # huggingface_hub 1.x talks to the Hub through httpx
+        import httpx
+
+        network_types += [
+            httpx.NetworkError,  # ConnectError, ReadError, WriteError, ...
+            httpx.TimeoutException,  # ConnectTimeout, ReadTimeout, ...
+            httpx.ProxyError,
+        ]
+        status_types.append(httpx.HTTPStatusError)
+    except ImportError:
+        pass
+    network, status = tuple(network_types), tuple(status_types)
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, status):
+            return False
+        if isinstance(exc, network):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def hf_unreachable_hint(exc: BaseException | None, url: str | None = None) -> str:
+    """Advice to append to a failed Hub download, or ``""`` when it does not fit.
+
+    Only given when the failure is a connection error or timeout, the target
+    is huggingface.co (``url=None`` means a Hub call), and ``HF_ENDPOINT`` is
+    not set. LibreYOLO never switches to a mirror on its own.
+    """
+    if hf_endpoint_is_set() or not _is_connection_failure(exc):
+        return ""
+    if url is not None:
+        host = urlparse(url).netloc.lower()
+        if host != "huggingface.co" and not host.endswith(".huggingface.co"):
+            return ""
+    return (
+        "\nhuggingface.co may be unreachable from your network (it is "
+        "blocked in mainland China, for example). To download through a "
+        "Hugging Face mirror, set HF_ENDPOINT and retry:\n"
+        f"  export HF_ENDPOINT={HF_COMMUNITY_MIRROR}\n"
+        "hf-mirror.com is a community mirror, not run by Hugging Face or "
+        "LibreYOLO. You can also download the weights manually and pass the "
+        "local file path instead."
+    )
 
 # The canonical checkpoint filename inside a pushed repo. Loading does not
 # depend on it (any single .pt in a repo is picked up), but a fixed name keeps
@@ -231,15 +363,286 @@ def _select_repo_weight_file(repo_files: list[str], repo_id: str) -> str:
         named = [f for f in pool if same(Path(f).stem)]
         if len(named) == 1:
             return named[0]
+    candidates = sorted(candidates)
     raise ValueError(
         f"Hugging Face repo '{repo_id}' contains multiple checkpoints: "
-        f"{sorted(candidates)}. Select one explicitly with "
-        f"LibreYOLO('hf://{repo_id}/<filename>')."
+        f"{candidates}. Select one explicitly with "
+        f"LibreYOLO('hf://{repo_id}/<filename>'), for example:\n"
+        f"    model = LibreYOLO('hf://{repo_id}/{candidates[0]}')"
     )
+
+
+# =============================================================================
+# LibreYOLO org repos that LibreYOLO() does not load
+# =============================================================================
+#
+# Some repos in the LibreYOLO Hugging Face org hold models that load through
+# another entry point (LibreVLM, LibreGen, LibreSAM, ...), components that a
+# pipeline downloads by itself, or weights of a family this version does not
+# include. LibreYOLO("LibreYOLO/<repo>") would otherwise download gigabytes and
+# then fail with "no LibreYOLO checkpoint" or "multiple checkpoints", so these
+# repos are recognized up front, before any network call, and the error names
+# the call that works. Keyed by repo name (case-insensitive) under the
+# LibreYOLO owner only; repos of other owners are never matched.
+
+
+@dataclass(frozen=True)
+class HubRepoUsage:
+    """How to use a LibreYOLO org repo that ``LibreYOLO()`` does not load.
+
+    ``imports`` lists the ``(module, name)`` pairs the ``code`` snippet needs;
+    a unit test checks that every one of them exists.
+    """
+
+    summary: str
+    imports: tuple[tuple[str, str], ...] = ()
+    code: tuple[str, ...] = ()
+
+    def message(self, repo_id: str) -> str:
+        text = f"Hugging Face repo '{repo_id}' {self.summary}"
+        if not self.code:
+            return text
+        lines: list[str] = []
+        by_module: dict[str, list[str]] = {}
+        for module, name in self.imports:
+            by_module.setdefault(module, []).append(name)
+        for module, names in by_module.items():
+            lines.append(f"from {module} import {', '.join(names)}")
+        lines.extend(self.code)
+        return text + "\nUse:\n" + "\n".join(f"    {line}" for line in lines)
+
+
+_NOT_LIBREYOLO = "LibreYOLO() does not load it."
+
+
+def _class_call(what: str, cls: str, args: str, module: str = "libreyolo"):
+    return HubRepoUsage(
+        summary=f"holds {what}. {_NOT_LIBREYOLO}",
+        imports=((module, cls),),
+        code=(f"model = {cls}({args})",),
+    )
+
+
+def _build_hub_repo_usages() -> dict[str, HubRepoUsage]:
+    vlm = "a vision-language model"
+    ocr = "a document OCR model"
+    ground = "a GUI/phrase grounding model"
+    openvocab = "an open-vocabulary detector"
+    sam = "a promptable segmentation model (SAM family)"
+    gen = "a text-to-image generation pipeline"
+    to3d = "an image-to-3D generation pipeline"
+    det3d = "a monocular 3D detector"
+
+    usages: dict[str, HubRepoUsage] = {}
+
+    def add(repo: str, usage: HubRepoUsage) -> None:
+        usages[repo] = usage
+
+    # Vision-language, OCR and embedding models: LibreVLM(alias).
+    for repo, alias, what in (
+        ("LibreMoondream2", "moondream-2", vlm),
+        ("LibreMoondream3", "moondream-3", vlm),
+        ("LibreMolmo24b", "molmo2-4b", vlm),
+        ("LibreMolmo28b", "molmo2-8b", vlm),
+        ("LibreMolmo2o-7b", "molmo2-o-7b", vlm),
+        ("LibreGemma4e2b", "gemma-4-e2b", vlm),
+        ("LibreGemma4e4b", "gemma-4-e4b", vlm),
+        ("SenseNovaVision7b", "sensenova-vision", vlm),
+        ("LibreQwen3VLEmbedding2b", "qwen3-vl-embedding-2b",
+         "a multimodal embedding model"),
+        ("LibreDeepSeekOCR1", "deepseek-ocr", ocr),
+        ("LibreDeepSeekOCR2", "deepseek-ocr-2", ocr),
+        ("LibrePaddleOCRVL0.9b", "paddleocr-vl", ocr),
+        ("LibreGLMOCR0.9b", "glm-ocr", ocr),
+        ("LibreFalconOCR270m", "falcon-ocr", ocr),
+    ):
+        add(repo, _class_call(what, "LibreVLM", f'"{alias}"'))
+
+    # Grounding: LibreGround(alias).
+    for repo, alias in (
+        ("LibreShowUI2b", "showui-2b"),
+        ("LibreGroundFlorence2base", "florence-2-base"),
+        ("LibreGroundQwen3VL2b", "qwen3-vl-2b"),
+    ):
+        add(repo, _class_call(ground, "LibreGround", f'"{alias}"'))
+
+    # Open-vocabulary detectors: LibreOpenVocab(alias).
+    for repo, alias in (
+        ("LibreGroundingDINOt", "grounding-dino-tiny"),
+        ("LibreGroundingDINOb", "grounding-dino-base"),
+        ("LibreOWLv2b16", "owlv2-b16"),
+        ("LibreOWLv2l14", "owlv2-l14"),
+        ("LibreOMDetTurbot", "omdet-turbo"),
+        ("LibreOVDEIMs", "ov-deim-s"),
+        ("LibreOVDEIMm", "ov-deim-m"),
+        ("LibreOVDEIMl", "ov-deim-l"),
+    ):
+        add(repo, _class_call(openvocab, "LibreOpenVocab", f'"{alias}"'))
+
+    # Promptable segmentation: LibreSAM(alias).
+    for repo, alias in (
+        ("LibreSAMbase", "base"),
+        ("LibreSAMlarge", "large"),
+        ("LibreSAMhuge", "huge"),
+        ("LibreSAM2tiny", "sam2-tiny"),
+        ("LibreSAM2small", "sam2-small"),
+        ("LibreSAM2base-plus", "sam2-base-plus"),
+        ("LibreSAM2large", "sam2-large"),
+        ("LibreSAM31large", "sam3.1"),
+        ("LibreEdgeTAM", "edgetam"),
+        ("LibreMobileSAM", "mobilesam"),
+        ("LibrePicoSAM3", "picosam3"),
+    ):
+        add(repo, _class_call(sam, "LibreSAM", f'"{alias}"'))
+
+    # Generation pipelines: LibreGen(alias).
+    for size in (
+        "1024-beta", "512", "512-sft", "512-sft-distilled", "512-dc-ae",
+        "512-dc-ae-sft", "512-dc-ae-sft-distilled", "256", "256-sft",
+    ):
+        add(f"LibrePRX{size}", _class_call(gen, "LibreGen", f'"prx-{size}"'))
+    add("LibrePRXPixel7b", _class_call(gen, "LibreGen", '"prxpixel-7b"'))
+    for repo, alias in (
+        ("LibreTRELLISl", "trellis"),
+        ("LibreTRELLIS2-4b", "trellis2-4b"),
+        ("LibreTripoSplat0.6b", "triposplat"),
+        ("LibreLGM0.4b", "lgm"),
+        ("LibreTripoSR", "triposr"),
+        ("LibreCRM", "crm"),
+        ("LibreDirect3DS2v11", "direct3d-s2"),
+    ):
+        add(repo, _class_call(to3d, "LibreGen", f'"{alias}"'))
+
+    # Components downloaded by a pipeline, not standalone models.
+    add("LibreImageDream", HubRepoUsage(
+        summary=(
+            "holds ImageDream, the multi-view diffusion stage of the LGM "
+            f"pipeline, which downloads it as needed. {_NOT_LIBREYOLO}"
+        ),
+        imports=(("libreyolo", "LibreGen"),),
+        code=('model = LibreGen("lgm")',),
+    ))
+    for repo, users in (
+        ("LibreDINOv3vith16plus",
+         'LibreGen("triposplat") and LibreGen("speridlabs-idol")'),
+        ("LibreDINOv3vitl16", 'LibreGen("trellis2-4b")'),
+    ):
+        add(repo, HubRepoUsage(
+            summary=(
+                f"holds a DINOv3 image encoder, a component that {users} "
+                f"download as needed, not a standalone model. {_NOT_LIBREYOLO}"
+            ),
+        ))
+
+    # Monocular 3D detection and human mesh: their own classes.
+    # DetAny3D and 3D-MOOD run inside their own upstream checkout and
+    # interpreter (ADR 0022, ADR 0024).
+    runtime = (
+        'runtime_path="/path/to/{repo}", '
+        'runtime_python="/path/to/{repo}/.venv/bin/python"'
+    )
+    add("LibreDetAny3D", _class_call(
+        det3d, "LibreDetAny3D", runtime.format(repo="DetAny3D")
+    ))
+    add("LibreFCOS3D", _class_call(det3d, "LibreFCOS3D", ""))
+    add("LibreWildDet3D", _class_call(det3d, "LibreWildDet3D", ""))
+    for size in ("t", "b"):
+        add(f"Libre3DMOOD{size}", _class_call(
+            det3d, "Libre3DMOOD",
+            f'size="{size}", ' + runtime.format(repo="3D-MOOD"),
+        ))
+    for repo, size in (
+        ("LibreSAM3DBodyd3-mesh", "d3"),
+        ("LibreSAM3DBodyh-mesh", "h"),
+    ):
+        add(repo, _class_call(
+            "a SAM 3D Body human mesh model", "LibreSAM3DBody",
+            f'size="{size}"', module="libreyolo.models.sam3dbody",
+        ))
+
+    # Tracking ReID weights: picked by name through the DeepOCSORT tracker.
+    add("LibreReID-osnet", HubRepoUsage(
+        summary=(
+            "holds the OSNet ReID weights that the DeepOCSORT tracker "
+            "downloads as needed (osnet_ain_x0_25, x0_5, x0_75, x1_0), not "
+            "a detector checkpoint. LibreYOLO() does not load them. Pick the "
+            "variant with embedder=..."
+        ),
+        imports=(("libreyolo", "LibreYOLO"),),
+        code=(
+            'model = LibreYOLO("LibreYOLO9t.pt")',
+            (
+                'results = model.track("video.mp4", tracker="deepocsort", '
+                'embedder="osnet_ain_x0_5")'
+            ),
+        ),
+    ))
+
+    # ONNX files for other runtimes.
+    add("librefacerec-det", HubRepoUsage(
+        summary=(
+            "holds the ONNX face detector that the face-recognition model "
+            f"downloads as needed. {_NOT_LIBREYOLO}"
+        ),
+        imports=(("libreyolo", "LibreYOLO"),),
+        code=('model = LibreYOLO("librefacerec-l")',),
+    ))
+    add("face-rfdetr-nano", HubRepoUsage(
+        summary=(
+            "holds an ONNX face detector for the face-blurring use case and "
+            f"the browser demo, not a LibreYOLO checkpoint, so {_NOT_LIBREYOLO}"
+        ),
+    ))
+    add("libreyolo-web", HubRepoUsage(
+        summary=(
+            "holds ONNX files for the LibreYOLO browser demo, not a LibreYOLO "
+            f"checkpoint, so {_NOT_LIBREYOLO}"
+        ),
+    ))
+
+    # Weights of families this version of LibreYOLO does not include.
+    for size in ("t", "s", "m", "ns", "nm", "nl"):
+        add(f"LibreDAMOYOLO{size}", HubRepoUsage(
+            summary=(
+                "holds DAMO-YOLO weights. DAMO-YOLO was removed from "
+                f"LibreYOLO, so {_NOT_LIBREYOLO}"
+            ),
+        ))
+    for size in ("s", "sp", "b"):
+        add(f"LibrePAGE{size}-gazetarget", HubRepoUsage(
+            summary=(
+                "holds PAGE gaze-target weights. This version of LibreYOLO "
+                f"does not include the PAGE family, so {_NOT_LIBREYOLO}"
+            ),
+        ))
+
+    return {name.lower(): usage for name, usage in usages.items()}
+
+
+#: Owner whose repos :data:`HUB_REPO_USAGES` describes.
+LIBREYOLO_HUB_OWNER = "LibreYOLO"
+
+#: LibreYOLO org repos ``LibreYOLO()`` does not load, keyed by lowercased repo
+#: name. See :func:`hub_repo_usage`.
+HUB_REPO_USAGES: dict[str, HubRepoUsage] = _build_hub_repo_usages()
+
+
+def hub_repo_usage(repo_id: str) -> HubRepoUsage | None:
+    """Return how to use ``repo_id`` if it is a LibreYOLO org repo that
+    ``LibreYOLO()`` does not load, else None. Pure lookup, no network."""
+    owner, _, name = repo_id.partition("/")
+    if owner.lower() != LIBREYOLO_HUB_OWNER.lower():
+        return None
+    return HUB_REPO_USAGES.get(name.lower())
 
 
 def resolve_hub_checkpoint(ref: HubRef, *, token: str | None = None) -> str:
     """Download the checkpoint for ``ref`` and return its local cache path."""
+    usage = hub_repo_usage(ref.repo_id)
+    if usage is not None:
+        # Fail before any Hub call: these repos are often several GB.
+        raise ValueError(usage.message(ref.repo_id))
+
     hub = _require_hub()
     from huggingface_hub.errors import (
         EntryNotFoundError,
@@ -286,7 +689,7 @@ def resolve_hub_checkpoint(ref: HubRef, *, token: str | None = None) -> str:
             f"Could not download '{filename or ref.repo_id}' from the Hugging "
             f"Face Hub and it is not in the local cache. Check your network "
             f"connection, or unset HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE if you "
-            f"are in offline mode."
+            f"are in offline mode." + hf_unreachable_hint(exc)
         ) from exc
     except EntryNotFoundError as exc:
         raise FileNotFoundError(

@@ -5,6 +5,288 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases
 before 1.4.0 are documented in the
 [GitHub Releases](https://github.com/LibreYOLO/libreyolo/releases) only.
 
+## [1.8.0] - 2026-11-15
+
+This release adds Axelera Metis export for 23 families, a new optical flow task with eight families, document OCR and layout parsing (DeepSeek-OCR, PaddleOCR-VL, GLM-OCR, Falcon OCR, PP-DocLayoutV3), eleven LibreGen families (image-to-mesh, image-to-Gaussians, text-to-image, image-to-depth), InstantHMR body meshes, RiO-DETRv2 oriented boxes, grayscale training, tracking on exported models and Ultralytics-style result indexing. 53 merged pull requests (#993 to #1055). Some calls return different numbers or shapes than in 1.7.4: `results[0]` and iteration over a single-image `Results`, `val()` on several exported families, relative dataset YAML paths, `SAMPLE_IMAGE` and RF-DETR training defaults. Read **Changed** before upgrading.
+
+### Highlights
+
+- **Axelera Metis export and runtime. (#1045)**
+  `export(format="axelera")` and `LibreYOLO("<dir>")` for 23 families on detect, pose, obb, segment, classify, semantic, depth and super-resolution, each size with a measured accuracy label against FP32.
+
+- **Optical flow, a new `flow` task with eight families. (#1001)**
+  SEA-RAFT, RAFT, NeuFlow v2, WAFT, FlowSeek, DPFlow, UniMatch and MEMFOF, with views, raw `.flo`/`.npy` saving and a `FlowValidator`.
+
+- **Document OCR and layout. (#995, #996, #999, #1005, #1007)**
+  DeepSeek-OCR and -OCR-2, PaddleOCR-VL, GLM-OCR and Falcon OCR on the `ocr` task, and PP-DocLayoutV3 layout detection with reading order. `Results.ocr` gains `markdown` and `labels`.
+
+- **3D and image generation in LibreGen. (#993, #1000, #1012, #1014, #1016, #1017, #1018, #1019, #1041, #1047)**
+  Image to mesh (TripoSR, CRM, TRELLIS.2, Direct3D-S2), image to Gaussians (TripoSplat, TRELLIS, LGM), text to image (PRX, PRXPixel), and Iris-Z and Open Vision Banana for depth and perception from FLUX.2 fine-tunes. The 3D families run without upstream's CUDA-only extensions.
+
+- **Ultralytics-style results and errors. (#1032, #1039)**
+  `results[0]` is the whole single-image result, `metrics.box.map` and friends exist, and Ultralytics class names, weight names and options fail with the LibreYOLO line to use.
+
+### Added
+
+#### Models and tasks
+
+- **RiO-DETRv2: real-time oriented-box DETR. (#1013)**
+  `LibreRiODETRv2` (n/s/m/l/x) on the `obb` task: D-FINE-style four-side boundary distributions in the box's own frame, a coarse-to-fine angle residual (circular first layer, bounded linear later layers) and an angle-aware quality score. `LibreRiODETRv2n-obb.pt` is the DOTA-v1.0 checkpoint (15 classes, 1024 px); `-obb-diorr` is DIOR-R (20 classes, 800 px), with the canvas read from the checkpoint. Raw outputs and decoded rotated boxes match the upstream Apache-2.0 release exactly (max_abs_diff 0) for all ten checkpoints on CPU; ONNX and TorchScript export round-trip. Code from the initial Apache-2.0 commit only (upstream relicensed to AGPL-3.0 later without code changes). Inference only; `train()` raises.
+
+- **PP-DocLayoutV3 document layout detection with reading order. (#995, #1010)**
+  `LibreYOLO("LibrePPDocLayoutV3l.pt")` finds 25 kinds of page regions (text, titles, tables, figures, formulas, headers, footers, seals, ...) and returns them sorted in reading order, with the one-based rank in the new `Results.reading_order` field. Ported from PaddleOCR's PP-DocLayoutV3 (Apache-2.0 code and weights), outputs match the reference bit for bit, and ONNX and TorchScript export keep the reading order. The official `model.safetensors` also loads directly. Inference-only.
+
+- **MoGe-3 monocular geometry: `LibreMoGe3`, sizes `l` (ViT-L) and `g` (ViT-g), tasks `depth` and `normal`. (#998)**
+  `LibreYOLO("LibreMoGe3l-depth.pt").predict(img)` returns metric depth in metres on `Results.depth_map` (`encoding="depth"`, `metric=True`), with the camera-space point map, OpenCV pixel intrinsics, and validity mask attached as `depth_map.point_map`, `depth_map.intrinsics`, and `depth_map.valid_mask`; pixels outside the mask are `inf`. `LibreMoGe3l-normal.pt` returns unit normals. The sparse volumetric refiner is plain PyTorch and runs on CPU, CUDA, and MPS. `imgsz` (default 840) sets the token budget; inputs keep their resolution. The single-forward graph matches upstream bit for bit; refined depth matches to floating-point rounding (p99 relative difference 4.7e-6 for `l`, 3.7e-5 for `g`). Normal export to ONNX and TorchScript is validated; depth export is blocked. Inference only; MIT code and weights, mirrored on the LibreYOLO Hugging Face org.
+
+- **Video Depth Anything: temporally consistent depth for videos. (#1004)**
+  `LibreVideoDepthAnything` (s/b/l, `LibreVideoDepthAnythings-depth.pt`) on the `depth` task. A list of frames, a directory, a video or a stream is one sequence: `N` frames give `N` depth maps, all in one relative scale, from upstream's overlapping 32-frame windows with scale/shift alignment between them, streamed with at most one window of lag. A single image is a one-frame sequence. New shared hook: families set `SEQUENCE_INPUT = True` and implement `_forward_sequence` to reuse the optical flow sequence runner with one result per frame (ADR 0006 and 0032 amendments). Apache-2.0 code; `s` weights Apache-2.0, `b`/`l` CC BY-NC 4.0 with a non-commercial notice. Metric checkpoints are refused. Inference only; export is rejected.
+
+- **InstantHMR body meshes: `LibreInstantHMR`, sizes n, t, s and m, on the `mesh` task. (#1025, #1048)**
+  `LibreYOLO("LibreInstantHMRm-mesh.pt")(img)` finds people with RF-DETR (default `LibreRFDETRm.pt`), or takes `person_boxes=` or `person_detector=`, and returns MHR body meshes in `Results.meshes` through the existing mesh runner. Upstream publishes ONNX only; `weights/convert_instanthmr_weights.py` rebuilds PyTorch checkpoints, which match the upstream ONNX graphs within 8e-5 for all five releases. `export(format="onnx")` writes a graph with `image, cliff_cond` inputs and the mesh faces in its metadata. `train()` fine-tunes a pretrained checkpoint on YOLO-pose COCO-17 datasets (2D, reprojection and frozen-prior losses); no training from scratch and no `val()`. Weights at `LibreYOLO/LibreInstantHMR{n,t,s,m}-mesh` (CC BY-NC 4.0) and `LibreYOLO/LibreInstantHMRm-mesh-commercial` (Apache-2.0). RF-DETR loading no longer claims InstantHMR checkpoints, which share its `query_embed` keys.
+
+- **SAM 3.1 image segmentation: `LibreSAM("sam3.1")`. (#1008)**
+  `LibreSAM31` runs Meta's SAM 3.1 image path (detector plus interactive SAM head) on the existing SAM 3 pipeline: point, box and segment-everything prompts through `Sam3TrackerModel`, and `text=` concept prompts through `Sam3Model`, same API and `Results` as `LibreSAM3`. Meta ships SAM 3.1 only as an original-format checkpoint; `weights/convert_sam31_weights.py` converts its image path to the Transformers SAM 3 layout, using a key map that reproduces the official SAM 3 weights exactly. Weights download from the gated `LibreYOLO/LibreSAM31large` mirror under Meta's SAM License (not MIT). SAM 3.1 Object Multiplex video tracking is not supported. Install `libreyolo[sam]`.
+
+- **Qwen3-VL-Embedding, image and text retrieval on the `embed` task. (#1006)**
+  `LibreVLM("qwen3-vl-embedding-2b")` (or `LibreQwen3VLEmbedding`) runs Qwen3-VL-Embedding-2B (Apache-2.0), the first VLM-based embedder. `predict(image)` returns `Results.embeddings` of shape `(1, 2048)`, `embed(source)` stacks rows, and `embed_text(texts, prompt=None)` returns text rows in the same space, as CLIP, SigLIP2 and PE do. `prompt` is the model's instruction: set it at construction or per `embed_text` call, so queries can carry a retrieval instruction while page images keep the default. Embeddings match upstream's reference embedder (text max abs difference 7.4e-7, image cosine at least 0.99998, float32 on CPU). Weights download from the `LibreYOLO/LibreQwen3VLEmbedding2b` mirror. Inference only; `chat()`, `train()`, `val()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+
+- **Falcon Perception VLM family, detect and segment. (#1009)**
+  `LibreVLM("falcon-perception", names=[...])` (or `LibreFalconPerception`) runs TII's Falcon Perception 600m (default) and 300m, Apache-2.0 code and weights, from a vendored inference port with no remote code, at pinned revisions. Each vocabulary entry is one text query and every instance found gets its class id. Tasks: `detect` (boxes) on both sizes and `segment` (boxes plus masks) on 600m only; 300m has no mask head. Inference only: confidence is a constant 1.0, and `train()`, `val()`, `export()` and `chat()` raise. Runs on CPU when only MPS is available (complex RoPE tables). Install `libreyolo[vlm]`. Checked against the upstream engine on CPU in fp32: logits and hidden states bitwise equal on every forward pass, and generated tokens, box floats and mask bytes identical (`weights/parity_falcon_perception.py`). See `docs/librevlm_design.md`.
+
+- **DeepSeek-OCR and DeepSeek-OCR-2 on the `ocr` task. (#996)**
+  `LibreVLM("deepseek-ocr")` (or `LibreDeepSeekOCR`) runs DeepSeek-OCR, a 3B mixture-of-experts document OCR model with MIT code and weights, on the `ocr` task. Default predict returns one `Results.ocr` region per text line from the grounding prompt; `prompt="markdown"` returns layout blocks and the whole page as markdown, `prompt="free"` the page text only, and `resolution=` picks the release's `tiny`, `small`, `base`, `large` or `gundam` (default) input mode. The architecture is a vendored PyTorch port that reproduces the release token for token in bf16 on CUDA and also runs in float32 on CPU and MPS; weights download from the byte-identical `LibreYOLO/LibreDeepSeekOCR1` mirror. `LibreVLM("deepseek-ocr-2")` runs DeepSeek-OCR-2 (Apache-2.0, Qwen2-based vision encoder) through the same API from the `LibreYOLO/LibreDeepSeekOCR2` mirror, with `gundam` and `base` resolutions. `val()` runs the OCR validator; `train()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+
+- **`Results.ocr.markdown` and `Results.ocr.labels`. (#996, #999)**
+  OCR results can carry the whole page as text (`markdown`, `""` when the model emits only regions) and a per-region layout category (`labels`, `None` for line-level OCR). The JSON output of `libreyolo predict` includes both when set.
+
+- **PaddleOCR-VL document parsing on the `ocr` task. (#999)**
+  `LibreVLM("paddleocr-vl")` (or `LibrePaddleOCRVL`) runs PaddlePaddle's two-stage document parser, Apache-2.0 code and weights: PP-DocLayoutV2 finds layout regions and their reading order, and PaddleOCR-VL-0.9B reads each region as text, a table (returned as HTML) or a formula (LaTeX), with charts opt-in through `use_chart_recognition=True`. `Results.ocr` holds one region per block in reading order, and two new optional fields: `labels` (the layout class of each region) and `markdown` (the whole page). `use_layout_detection=False` with `prompt_label=` reads a pre-cropped element. `val()` runs the OCR validator. Both networks load through native transformers classes (transformers 5.3 or newer) from the pinned mirror `LibreYOLO/LibrePaddleOCRVL0.9b`; the surrounding pipeline is ported from PaddleX. Inference only; `train()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+
+- **GLM-OCR document parsing on the `ocr` task. (#1005)**
+  `LibreVLM("glm-ocr")` (or `LibreGLMOCR`) runs Z.ai's GLM-OCR pipeline: PP-DocLayoutV3 finds layout regions and their reading order, and the 0.9B GLM-OCR recognizer (MIT weights) reads each region as text, a table (HTML) or a formula (LaTeX). `Results.ocr` holds one block per region in reading order with `labels` and the page `markdown`, formatted as the official SDK does (titles, `\tag{}` formula numbers, hyphenation and bullet fixes). `use_layout_detection=False` with `prompt_label=` reads a pre-cropped element and `chat()` covers the JSON information-extraction prompts. Both networks load through native transformers classes (transformers 5.3 or newer) from the pinned mirror `LibreYOLO/LibreGLMOCR0.9b`; the pipeline is ported from the Apache-2.0 GLM-OCR SDK. Inference only; `train()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+
+- **Falcon OCR on the `ocr` task. (#1007)**
+  `LibreVLM("falcon-ocr")` (or `LibreFalconOCR`) runs TII's Falcon OCR 1.5, a 0.27B early-fusion document OCR model with Apache-2.0 code and weights. Default predict reads the whole page in one pass into `Results.ocr.markdown` (one page-sized region, label `plain`); `layout=True` runs LibreYOLO's PP-DocLayoutV3 first and reads each region with its category prompt, filling `Results.ocr.labels`; `prompt=` picks a category (`table`, `formula`, ...) or a custom instruction. The architecture is a PyTorch port of the release (no remote code, Triton or FlexAttention) that reproduces it token for token in float32 on CPU; weights download from the byte-identical `LibreYOLO/LibreFalconOCR270m` mirror. `val()` runs the OCR validator; `train()` and `export()` raise. Install `libreyolo[vlm]`. See `docs/librevlm_design.md`.
+
+- **Optical flow task (`flow`) with eight families. (#1001)**
+  A new dense task: `Results.flow` is a `FlowField` with `(H, W, 2)` pixel displacements from frame t to frame t+1 on the original canvas, optional per-pixel confidence and the next frame. Any multi-image source (list, directory, video, stream, screen) is a sequence: N frames give N-1 results, `stream=True` yields per pair, a single image raises. Three views: the Middlebury colour wheel (default), arrows over the frame (`plot(arrows=True)`) and a warp check (`plot(warp=True)`); raw fields save as `.flo` or `.npy` (`save_flow=True`, `FlowField.save`). `FlowDataset` reads Middlebury `.flo`, KITTI 16-bit PNG and `.npy`; `FlowValidator` reports `metrics/epe`, `px1`, `px3` and `fl_all` with `px1` as fitness. CLI: `--source a.jpg,b.jpg`, `--arrows`, `--warp`, `--save-flow`, a flow block in `--json` and `libreyolo val`. ADR 0032. Inference only; training and export are rejected until their contracts land.
+  Families, all with recorded parity against upstream on a 23-pair clip and weights mirrored on the LibreYOLO Hugging Face org: `LibreSEARAFT` (s/m/l, BSD-3, with a confidence map from its uncertainty head), `LibreRAFT` (s/l plus Sintel and KITTI variants, BSD-3), `LibreNeuFlowv2` (s plus Sintel and Things variants, Apache-2.0, the edge model), `LibreWAFT` (t/s/m/l by backbone, BSD-3; the DINOv3 `t` weights carry the DINOv3 licence), `LibreFlowSeek` (t/s/m/l, Apache-2.0; m and l embed the CC BY-NC Depth Anything V2 Base encoder and ship with a non-commercial banner), `LibreDPFlow` (m plus Sintel, KITTI and Spring variants, Apache-2.0 code from ptlflow; its weights are CC BY-NC-SA and ship with a non-commercial banner), `LibreUniMatch` (s/l plus Sintel and KITTI variants, MIT) and `LibreMEMFOF` (m plus five variants, BSD-3, the three-frame family that uses the `FLOW_CONTEXT` window). UFM was evaluated and left out: its DPT head imports non-commercial code.
+
+- **`DepthMap` can carry camera geometry. (#998)**
+
+#### LibreGen
+
+- **PRX and PRXPixel text-to-image models from Photoroom. (#1012)**
+  `LibreGen("prx-512-sft-distilled")("a red fox")` runs Photoroom's PRX, a 1.3B text-to-image transformer trained from scratch. All nine published checkpoints load by name: `prx-1024-beta` (also `prx`), `prx-512-sft-distilled`, `prx-512-sft`, `prx-512`, the DC-AE autoencoder versions `prx-512-dc-ae-sft-distilled`, `prx-512-dc-ae-sft` and `prx-512-dc-ae`, and `prx-256-sft` and `prx-256`. Each uses its model card's settings (28 steps at guidance 5.0, or 8 steps without guidance for the distilled ones), and `negative=` sets a negative prompt (also `libreyolo generate negative=...`). A local PRX folder whose checkpoint cannot be told from its config asks for `size=`. `LibreGen("prxpixel-7b")` runs PRXPixel, the 7B version that generates pixels directly, and needs `diffusers>=0.39`. Both are diffusers pipelines, downloaded from byte-identical mirrors at `LibreYOLO/LibrePRX<size>` and `LibreYOLO/LibrePRXPixel7b` pinned to a commit. Apache-2.0 weights; PRX's T5Gemma text encoder is under the Gemma Terms of Use, and the loader says so once. Install `libreyolo[gen]`, which now also installs `ftfy` (Apache-2.0) because both pipelines clean prompts with it.
+
+- **Speridlabs Iris-Z: text to image and image to depth from one model, `LibreGen("speridlabs-iris-z")`. (#1041)**
+  Speridlabs' FLUX.2 fine-tune that denoises an image and its depth together. `LibreGen("speridlabs-iris-z")("a lighthouse at dusk")` generates images (50 steps); `LibreGen("speridlabs-iris-z", task="depth")("street.jpg")` returns `Results.depth_map` as relative log depth at the photo's size, with sky masked, in 4 steps (`ensemble=10` for the multi-seed median of the paper's benchmarks). Sizes `9b` (Iris-Z-small, default) and `32b` (Iris-Z-big). CLI: `libreyolo generate source=street.jpg task=depth`. The transformer, samplers and prompt embedders are ported from the Apache-2.0 Iris-Z SDK; weights are not mirrored and download from `speridlabs/iris-z` at a pinned revision (FLUX Non-Commercial License), the FLUX.2 VAE from FLUX.2 klein and the text encoders from Mistral AI and Qwen (Apache-2.0). Nothing is gated. Install `libreyolo[gen]`. See ADR 0033 and `docs/libregen.md`.
+
+- **Iris-Z depth to image and image plus depth. (#1049)**
+  `LibreGen("speridlabs-iris-z")(prompt, source=...)` paints an image on a depth map. `source` is a photo (depth estimated first, `imgsz` 512 or 1024), a `Results` or `DepthMap` from any depth model, or a grayscale depth map with `depth_format="depth"` or `"disparity"`; `Results.depth_map` is the depth the image was painted on. `model(prompt, depth=True)` samples image and depth jointly, then re-estimates depth from the finished image, as upstream's `text_to_rgbd` does. The depth task's `source=` is unchanged (ADR 0033 amendment). In the CLI, `prompt=` and `source=` stay mutually exclusive; upstream's coloured depth-map reader and the joint depth itself are not exposed. Ported from the Apache-2.0 Iris-Z SDK at commit `6c8925f4`.
+
+- **Open Vision Banana: segmentation, depth, normals and editing from one prompt, `LibreGen("open-vision-banana")`. (#1047)**
+  FunAILab's FLUX.2 [klein] Base fine-tune answers a perception prompt about a photo with an image: segmentation as flat colours, relative inverse depth as grey, surface normals as RGB. `model(prompt, source="photo.jpg")` returns `Results.generated`; without `source` it generates from text. Sizes `4b` (default) and `9b`, the paper's non-zero-shot checkpoints, 28 steps at guidance 3.5. Weights are mirrored as complete diffusers pipelines at `LibreYOLO/LibreOpenVisionBanana4b` and `9b` (transformer cast to bf16, outputs bit-identical to upstream's quickstart; FLUX Non-Commercial License). No network code: it runs through diffusers' `Flux2KleinPipeline`. Prompts and NumPy readouts in `docs/open_vision_banana.md`. Install `libreyolo[gen]`.
+
+- **TripoSplat, a second image-to-3D family: `LibreGen("triposplat")`. (#993)**
+  TripoAI's MIT model that Speridlabs Idol builds on, behind the same call: one image in, up to 262,144 Gaussian splats out, `.ply` and `.splat` files, `libreyolo generate source=chair.jpg model=triposplat`. Knobs `steps`, `guidance`, `shift`, `gaussians`, `margin`. Weights download from LibreYOLO's mirror of the `VAST-AI/TripoSplat` snapshot; the DINOv3 and FLUX.2 VAE encoders are the ones Idol uses. Runs on CUDA, Apple MPS and CPU.
+
+- **TRELLIS, image to 3D Gaussians on any device: `LibreGen("trellis")`. (#1000)**
+  Microsoft's TRELLIS-image-large (MIT) behind the same call as Idol and TripoSplat: one image in, the object out as Gaussian splats, `libreyolo generate source=chair.jpg model=trellis`. Upstream needs CUDA-only extensions (spconv, xformers or flash-attn); LibreYOLO runs it in plain PyTorch, on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `shift`, `margin`. Weights download from LibreYOLO's mirror of `microsoft/TRELLIS-image-large`; DINOv2 from `facebook/dinov2-with-registers-large`.
+
+- **LGM, image to 3D Gaussians through four generated views: `LibreGen("lgm")`. (#1014)**
+  LGM (MIT) behind the same call as the other image-to-3D families: ImageDream samples four views of the object, LGM turns them into Gaussian splats, `libreyolo generate source=chair.jpg model=lgm`. Upstream needs xformers on CUDA; LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `elevation`. Weights download from LibreYOLO's mirrors `LibreYOLO/LibreLGM0.4b` (MIT) and `LibreYOLO/LibreImageDream` (OpenRAIL use restrictions apply).
+
+- **TripoSR, image to vertex-coloured mesh: `LibreGen("triposr")`. (#1016, #1023)**
+  Tripo AI and Stability AI's feed-forward model (MIT): one image in, a mesh out in `Results.meshes`, saved as `.obj`, `libreyolo generate source=chair.jpg model=triposr`. Plain PyTorch in fp32 on CUDA, Apple MPS and CPU; marching cubes through scikit-image instead of upstream's MPL-2.0 torchmcubes, and background removal with LibreYOLO's BiRefNet. BiRefNet runs on CPU when the device is MPS and the installed torchvision has no MPS `deform_conv2d` kernel. Weights from the byte-identical `LibreYOLO/LibreTripoSR` mirror. This is the first mesh family in LibreGen: a mesh family returns the existing `Meshes` (one row, `body_model="object"`, z-up inside `[-0.5, 0.5]^3`, `extras["vertex_colors"]`), and `Meshes.save_obj` writes vertex colours when present (ADR 0031 "Meshes" section).
+
+- **CRM, image to mesh through six generated views: `LibreGen("crm")`. (#1017, #1024)**
+  Tsinghua's CRM (MIT code, weights MIT with OpenRAIL++-M use restrictions) in plain PyTorch: two multi-view diffusion models, the triplane UNet, FlexiCubes extraction (ported from the Apache-2.0 `nv-tlabs/FlexiCubes`; CRM's NVIDIA-licensed copies are not used) and NumPy mesh cleanup. Knobs `steps` (50, accepted 1 to 499), `guidance` (5.0), `texture` (False). `texture=True` bakes a UV texture with a PyTorch rasterizer and needs the optional `xatlas` package; the texture is saved as `<stem>_texture.png` beside the `.obj` and `.mtl`, and `save_obj` refuses with `FileExistsError` instead of overwriting a `.mtl` or PNG it did not write. `Meshes` gains optional `seed` and `generation_params`. Weights from the byte-identical `LibreYOLO/LibreCRM` mirror.
+
+- **TRELLIS.2, image to 3D mesh on any device: `LibreGen("trellis2")`. (#1018, #1021)**
+  Microsoft's TRELLIS.2-4B (MIT) geometry path: one image in, the object's shape out as a mesh in `Results.meshes`, `libreyolo generate source=chair.png model=trellis2`. Upstream needs CUDA-only extensions (FlexGEMM, flash-attn, o-voxel); LibreYOLO runs it in plain PyTorch on NVIDIA GPUs, Apple silicon and CPU. Knobs `steps`, `guidance`, `resolution` (512, 1024, 1536), `margin`, `max_tokens`. No texture stage (upstream bakes it with the non-commercial nvdiffrast). The seed and knobs are recorded in `Meshes.seed` and `Meshes.generation_params`. Weights from LibreYOLO's mirrors of `microsoft/TRELLIS.2-4B` and DINOv3 ViT-L/16 (Meta DINOv3 License).
+  RoPE tables are stored as real (cos, sin) pairs so the flows load on MPS builds without complex-number support, and on MPS without bf16 (macOS 13) the flows load in fp32 (#1021).
+
+- **Direct3D-S2, image to mesh from sparse SDF volumes: `LibreGen("direct3d-s2")`. (#1019, #1022)**
+  DreamTech's Direct3D-S2 v1.1 (MIT) in plain PyTorch: torchsparse convolutions as gathered GEMMs, spatial sparse attention with matmul and SDPA, the CUDA voxeliser as a chunked point-to-triangle distance, marching cubes through scikit-image. Knobs `resolution` (1024 or 512), `steps` per stage (50, 30, 15), `guidance` (7.0); the CLI gains `resolution=`, which TripoSR also reads. No vertex colours. End to end at 1024 on an RTX A6000, mean surface distance to upstream 0.0069 (upstream units). Weights from the byte-identical `LibreYOLO/LibreDirect3DS2v11` mirror.
+
+#### Training, data and API
+
+- **Grayscale models: `channels: 1` in the dataset YAML. (#1015)**
+  Same key and behaviour as Ultralytics. Images are converted to gray when they are read, for training, validation and prediction, so colour datasets train grayscale models without a converted copy. The input convolution becomes one-channel, starting from the pretrained RGB weights summed (exactly the RGB model's response to a gray image for families that divide by 255, a close start for ImageNet-normalized ones). Checkpoints store `channels: 1`, and exports take a one-channel `(N, 1, H, W)` input with `channels` in their metadata. Supported on YOLO9 (and E2E, P2), YOLO7, YOLOX, YOLO-NAS, RTMDet, PP-YOLOE, PicoDet, D-FINE, DEIM, DEIMv2, RT-DETR, RT-DETRv2, RT-DETRv4, RF-DETR, EC and FOMO. RGB models, checkpoints and exports are unchanged. See `docs/dataset_schema.md`.
+
+- **`val()` results name their metrics: `metrics.box.map`, `.map50`, `.map75`, `.mp`, `.mr` and `.maps`. (#1039)**
+  `map`, `map50` and `map75` read the existing `metrics/...(B)` keys (or the unsuffixed detection keys); `maps` is AP50-95 per class index at the run's `max_det`, the overall mAP where a class has no ground truth. `mp` and `mr` are the class means of `box.p` and `box.r`, precision and recall at the best mean-F1 confidence (`metrics/precision` holds a COCO AP summary, so they do not read it). Segmentation adds `metrics.seg` (`map`, `map50`, `map75`, `maps`) with the mask values and the keys `metrics/mAP75(B)` and `metrics/mAP75(M)`. Detect and segment.
+
+- **`track()` on exported models and a `libreyolo track` command. (#1031)**
+  `track()` used to exist only on PyTorch models; ONNX, TensorRT, OpenVINO and the other backends raised `AttributeError`. Every backend now has `track()` with the same signature, and native and ONNX tracking give the same track IDs on the same clip. `libreyolo track` prints one line per frame, or one JSON object per frame with `--json`; it has no `persist` option and rejects live and webcam sources. Backend `track(augment=True)` raises a `ValueError`, and backends reject the `embed`, `matte` and `gaze` tasks. See `docs/custom_trackers.md`.
+
+- **Downloads honour `HF_ENDPOINT`. (#1033)**
+  Weight and dataset URLs are built from `HF_ENDPOINT` (default `https://huggingface.co`), so a mirror set there is used for every download, not only for `hf_hub_download`. Checksums still compare against the huggingface.co URL, and the Hugging Face token is sent to huggingface.co only, never to a mirror. When a download from huggingface.co fails with a connection error and `HF_ENDPOINT` is not set, the error suggests `export HF_ENDPOINT=https://hf-mirror.com` (a community mirror) and the manual download; nothing switches to a mirror on its own.
+
+#### Export and deployment
+
+- **Axelera Metis export and runtime: `format="axelera"`. (#1045, #1046)**
+  `model.export(format="axelera")` compiles an INT8 `.axm` for Axelera's Metis AIPU into `weights/<stem>_axelera_model/` (`<stem>.axm`, `compiler_config_final.toml`, `metadata.yaml`), and `LibreYOLO("<dir>")` runs it with the usual `predict` and `val`, in Python and the CLI (new `AxeleraBackend`). Detection-style families stop the graph after the head convolutions and LibreYOLO decodes boxes, scores, keypoints and masks on the host, so coordinates never pass through an 8-bit tensor (one `*_raw_heads_v1` layout per head type, ADR 0034); dense models run the whole graph (`graph_outputs_v1`), classifiers return logits (`classify_logits_v1`), Real-ESRGAN runs its trunk on the device with the pixel shuffle on the host (`restore_shuffle_skip_v1`), and SSD300 compiles as two parts with its L2Norm on the host. Exact, family-only graph rewrites make models compile (RepConv and batch-norm folding, channel shuffles as permutation convolutions, VGG's fc6 as row convolutions, EfficientDet's BiFPN fusion, residual-stream equalization). `data=` sets calibration images (default coco128 for detect and pose; classifiers warn without it; YOLO-NAS-R needs it), and `verify=True` (CLI `--verify`) writes a quantized-vs-FP32 parity report. Each size compiles with its measured recipe (`AXELERA_SIZE_RECIPES`; `libreyolo.export.axelera.default_quantization_scheme(family, task)` names the scheme).
+  Labels: "validated" is within 1.0 point of FP32 on a paired set; "supported" exports with one warning naming the measured drop and dataset (`SIZE_ACCURACY_NOTES`); "blocked" means the size does not compile, quantize or lower (`BLOCKED_SIZES`). Measured on a Metis M.2 Max with Voyager SDK 1.9.0, mAP50-95 on 1000 COCO val2017 images unless noted:
+  - Validated: YOLO-NAS s/m/l, YOLO-NAS-pose m/l, YOLO-NAS-R s/m/l (300 DOTA-v2.0 tiles), YOLO9 t/s/m/c (-0.17 to -0.52), YOLOX t/s/m/l/x, YOLOv2 t/b, YOLOv3 t/b/spp, YOLOv4 t, YOLOv7 b, PP-YOLOE l, SSD300 (-0.05), ResNet 18/34/50/101, MobileNetV4 m, VGG 16/19/16bn, AlexNet (top-1 on 1000 ImageNetV2 images), FCN r50/r101 (mIoU, 300 images with VOC-21 masks).
+  - Supported with a measured drop: YOLO-NAS-pose n (-1.30) and s (-2.21), YOLOX n (-1.81, 300 images), YOLOv4 b (-1.52), PP-YOLOE s/m/x (-1.23, -1.22, -1.71), PicoDet s/m/l (-2.34, -2.86, -1.70), RTMDet t/s/m/l (-2.29, -6.75, -2.66, -1.87), RTMDet-Ins t/s/m/l (mask -1.44, -5.80, -0.79, -0.50; box -2.51, -7.26, -3.96, -5.34), RetinaNet r50 on a fixed 1024x1024 canvas (-1.11 against the PyTorch model's own resize; `imgsz=800` gives -2.25), EfficientDet d0 (-1.78) and d1/d2 rebuilt for a 512x512 canvas (INT8 -1.64 and -1.38 on top of a -3.10 and -5.31 canvas cost), MobileNetV4 s/l (-1.7 top-1), EfficientNetV2 b0 (-1.1), VGG 19bn (-5.1), DeepLabV3 mv3 (-3.77 mIoU), MiDaS s (AbsRel 0.069 against FP32), QuickSRNet m2 (-0.46 dB) and Real-ESRGAN x4t (-0.49 dB).
+  - Blocked: RTMDet x, RTMDet-Ins x, EfficientDet d3, EfficientNetV2 b1/b2/b3, DeepLabV3 r50/r101, MiDaS l, YOLOv1, RetinaNet r50v2 and FCOS. Not measured yet, so not exportable: YOLO9-E2E, YOLO9-P2, EfficientDet d4, Real-ESRGAN x4 and x2, and the other families; transformer families are out of scope.
+  Compiling needs Axelera's `axelera-devkit` (Linux x86_64) and running needs `axelera-rt` and a Metis device, both 1.9.0 from Axelera's own package index (proprietary, Axelera EULA); LibreYOLO prints the install command, or runs it with `LIBREYOLO_AUTOINSTALL=1`. Full table, recipes and evidence ids in `docs/axelera.md`; agent skill in `skills/libreyolo-export-axelera/`.
+
+### Changed
+
+Calls that return different numbers, shapes or files than 1.7.4:
+
+- **`results[0]` and `for r in results` on a single-image `Results` now give the whole result, not the first detection. (#1039)**
+  `predict()` of one image returns one `Results`, and code written for a per-image list does `results = model(img); r = results[0]; r.boxes.xyxy`. That used to return only the first detection. Now an integer `0` or `-1` returns the `Results` itself with all its detections, and `for r in results` yields it once (it used to step through detections, and never stopped for classification and dense results). Slices, boolean masks and index arrays still select detections (`results[:1]`, `results[results.boxes.conf > 0.5]`). Other integers (`results[2]`) still select one detection with a `DeprecationWarning` naming `results[2:3]` or `results.boxes[2]`. The first `results[0]` or iteration of a result with more than one detection emits a one-time `DeprecationWarning` describing the change. `len(results)` still counts detections.
+
+- **`val()` on exported Mask R-CNN, Faster R-CNN, FCOS, SSD, RetinaNet, YOLOv7, YOLOv2/v3/v4 and YOLO-NAS-R models, and on PyTorch YOLOv1, returns different mAP. (#1045)**
+  These validations used the wrong preprocessing and reported mAP at or near 0 (or raised, for RetinaNet). They now use each family's own preprocessing and match the PyTorch model; details under **Fixed**. INT8 exports of YOLO-NAS pose and YOLO-NAS-R models calibrate differently. `predict()` was not affected.
+
+- **Relative `path` in a local dataset YAML resolves against the YAML's folder. (#1040)**
+  `path: .`, `./sub` or `sub` used to be tried under `DATASETS_DIR` first, so `path: .` became `~/datasets` whenever that folder existed and training and validation found 0 images without saying so (the 97 RF100 datasets on the LibreYOLO Hugging Face org ship `path: .`). Bundled YAMLs such as `coco8.yaml`, and a local YAML whose relative path exists only under `DATASETS_DIR` or that has a `download:` and nothing on disk yet, still resolve there. A split with no images now logs a warning naming the resolved path, the dataset root and the YAML.
+
+- **`libreyolo.SAMPLE_IMAGE` is `guggenheim-bilbao.jpg`; `parkour.jpg` is no longer in the package. (#1034)**
+  Scripts, CLI help and examples that use `SAMPLE_IMAGE` now get a different image (`image 1/1 guggenheim-bilbao.jpg: 1536x1194 1 person`). Code that opened `libreyolo/assets/parkour.jpg` or `parkour_result.jpg` directly must point at another file.
+
+- **RF-DETR training: new defaults for fresh runs, and `early_stopping=True` now stops early. (#1044)**
+  New runs use upstream's classification-loss coefficient: 1 for detection, segmentation and oriented boxes (segmentation was 5) and 2 for pose (was 1). Resumed runs keep their old coefficients unless overridden. `early_stopping=True` was ignored and now means patience 10 when no `patience` is given. `lr_encoder`, `lr_vit_layer_decay`, `lr_component_decay`, `focal_alpha` and `cls_loss_coef` can be passed to `train()`, and `pin_memory`, `prefetch_factor` and `persistent_workers` are honoured. Batched kernels round differently from the old separate ones, so training is not bitwise identical to 1.7.4. Old checkpoints resume (AdamW groups are merged with a moment migration). See `docs/rfdetr_training.md`.
+
+- **`Results.save()` saves the annotated image for every task, and `Results.show()` displays it. (#1039)**
+  `save()` used to raise outside generation and matting; it now does `plot(save=True)`, takes `filename=` as well as a path, defaults to `results_<image name>`, and returns the path. Generated images, 3D objects and mattes save as before.
+
+- **MoGe-2 no longer claims MoGe-3 checkpoints (#998)**, which share its encoder, neck, and head names.
+
+Errors and messages:
+
+- **Ultralytics names now fail with the LibreYOLO line to type instead. (#1032)**
+  `from libreyolo import YOLO` (also `RTDETR`, `NAS`, `YOLOWorld`, `YOLOE`, `SAM`) raises an `ImportError` naming `LibreYOLO("LibreYOLO9s.pt")` or the matching LibreYOLO class; attribute access raises an `AttributeError`, so `hasattr()` is unchanged. `LibreYOLO("yolov8n.pt")` and the other Ultralytics weight names (v3u to v26, n/s/m/l/x, `-seg`/`-pose`/`-obb`/`-cls`, `-world`, `yoloe-*`, model `.yaml`) name the closest LibreYOLO weights, and the CLI suggests the `model=` value. A checkpoint trained with Ultralytics is refused with a message to fine-tune a LibreYOLO model instead; it never reaches the autoconverter. `predict()` options `project`, `name`, `tracker`, `persist`, `save_txt` and `save_conf` name their LibreYOLO equivalents. None of these names became aliases.
+
+- **More Ultralytics spellings fail with the LibreYOLO line to use. (#1039)**
+  Class-name hints are case-insensitive (`from libreyolo import Yolo`, `yolo`, `Rtdetr`), `hasattr()` unchanged. Weight-name hints cover later versions (`yolo27n.pt`, `yolov27s-seg.pt`, `yolo30x.pt`) with the latest known mapping. `model.add_callback()` names `train(callbacks=...)`; it is an `AttributeError`, so `hasattr(model, "add_callback")` is False. `export(format=...)` with `saved_model`, `pb`, `tfjs` or `edgetpu` names the closest supported format.
+
+- **Hub repos that `LibreYOLO()` cannot load fail before any download. (#1036)**
+  76 of the 454 public repos in the LibreYOLO Hugging Face org (VLMs, grounding, open-vocabulary, SAM, PRX and image-to-3D generation, 3D detection, SAM 3D Body, ReID, ONNX-only repos) failed with unrelated errors, sometimes after a large download. `LibreYOLO("LibreYOLO/<repo>")` now raises before any Hub request and names the call that works, for example `from libreyolo import LibreSAM; LibreSAM("sam2-tiny")`. Repos with several checkpoints show an `hf://repo/<file>` example. See `docs/hf_hub.md`.
+
+### Deprecated
+
+- **Pre-1.0 all-caps class names import again, with a `DeprecationWarning`. (#1039)**
+  `LIBREYOLO`, `LIBREYOLOX`, `LIBREYOLO9`, `LIBREYOLORFDETR` and `LIBREYOLONCNN` resolve to `LibreYOLO`, `LibreYOLOX`, `LibreYOLO9`, `LibreRFDETR` and `NcnnBackend`, for dataset cards and tutorials written before 1.0. `import libreyolo` still does not import torch.
+
+- **`results[i]` with an integer other than 0 or -1 on a single-image `Results`. (#1039)**
+  It still selects one detection, with a `DeprecationWarning` naming `results[i:i + 1]` or `results.boxes[i]`.
+
+### Fixed
+
+- **LibreGen downloads a snapshot once when two instances load it at the same time on Windows. (#1050)**
+  The per-directory lock was keyed on `Path.resolve()`, which expands Windows 8.3 short names only once the folder exists, so two threads could take different locks and both download.
+
+- **InstantHMR fine-tuning honours `eval_interval`. (#1051)**
+
+- **Grayscale and RGB runs on different threads of one process no longer mix their dataset channel count. (#1055)**
+
+- **RF-DETR training falls back to SciPy matching when torch-hungarian cannot build. (#1052)**
+  With `libreyolo[rfdetr-train]` on a host without Python headers, Triton's first compile failed and stopped training. `matcher_backend="auto"` now probes the GPU solver once and logs a warning before using SciPy.
+
+- **Letterbox preprocessing no longer crashes on extreme aspect ratios or empty images. (#1002)**
+  A 1x2000 strip made `predict()` fail with Pillow's "height and width must be > 0" on YOLOv7, Darknet (YOLOv1 to v4), RTMDet and YOLOX, and on the YOLOX branch of the CoreML backend, because a resized side truncated to 0. Resized sides are now at least 1 pixel, and a 0-pixel image raises `ValueError("Image has an empty dimension: WxH")`, as the shared YOLO9 letterbox already did. Normal images are unchanged. Thanks @gboeer.
+
+- **Dataset ZIP downloads never overwrite files in the destination. (#1048)**
+  A ZIP without a single root folder was extracted straight into the destination, which can be the user's own folder (`path: .`), overwriting their files. Every layout now extracts into a scratch folder inside the destination and is merged without overwriting or deleting. A ZIP counts as single-root only when every entry is inside that folder; before, `a.txt` next to `b/` was dropped.
+
+- **Validating a YOLOv1 model uses the stretch resize it predicts with. (#1045)**
+  `val()` on the PyTorch YOLOv1 model used the Darknet letterbox of YOLOv2/v3/v4, while its fully-connected head and postprocessing expect a plain square stretch, so every box was misplaced; an ONNX or other exported YOLOv1 model instead used the standard preprocessor, a stretch on BGR pixels. On the 100-image COCO val2017 set relabelled to the 20 VOC classes, `LibreYOLO1b.pt` scored mAP50-95 0.0293 in PyTorch and 0.1745 as ONNX. Both now validate with the RGB stretch that `predict()` uses: 0.1679 in PyTorch and 0.1673 as ONNX. `predict()` was not affected.
+
+- **Validating an exported Mask R-CNN model no longer reports mAP 0. (#1045)**
+  `val()` on an ONNX Mask R-CNN export used the standard preprocessor, which resizes every image to a fixed square, while the graph does its own aspect resize and returns boxes and full-image masks in the coordinates of the image it was fed, so every box and mask was misplaced: on 10 COCO val2017 images the `r50` segment export scored mask mAP50-95 0.0 (box 0.0052) instead of 0.5029 (box 0.5097) for the PyTorch model. Exported backends now validate Mask R-CNN with its own source-resolution preprocessing and validator, one image at a time, and the ONNX export scores 0.5029 (box 0.5097), identical to the PyTorch model. `predict()` was not affected.
+
+- **Validating an exported FCOS model uses FCOS's own preprocessing. (#1045)**
+  `val()` on an ONNX or TorchScript FCOS export used the standard preprocessor, which stretches every image to a BGR 0-1 square, while the model expects torchvision's aspect resize (shorter side 800, longer side up to 1333) with ImageNet normalization and the parser undoes that geometry, so on 100 COCO val2017 images the `r50` ONNX export scored mAP50-95 0.0306 instead of 0.4376 for the PyTorch model. Exported backends now validate FCOS with its own preprocessing and validator, one image at a time because the input size varies per image, and the ONNX export scores 0.4376, identical to the PyTorch model. `predict()` was not affected.
+
+- **Validating an exported Faster R-CNN model no longer reports mAP 0. (#1045)**
+  `val()` on an ONNX Faster R-CNN export used the standard preprocessor, which resizes every image to a fixed square, while the graph does its own aspect resize and returns boxes in the coordinates of the image it was fed, so every box was misplaced: on 100 COCO val2017 images the `n` ONNX export scored mAP50-95 0.0 instead of 0.2347 for the PyTorch model. Exported backends now validate Faster R-CNN with its own source-resolution preprocessing and validator, one image at a time because the input size varies per image, and the ONNX export scores 0.2347, identical to the PyTorch model. `predict()` was not affected.
+
+- **Validating an exported SSD model uses SSD's own preprocessing. (#1045)**
+  `val()` on an ONNX or other exported SSD300 model used the standard preprocessor, which feeds BGR 0-1 pixels to a model that expects RGB 0-255 pixels with SSD's mean subtracted, so on 100 COCO val2017 images the ONNX export scored mAP50-95 0.023 instead of 0.250 for the PyTorch model. Exported backends now validate SSD with its own preprocessing: the ONNX export scores 0.2497, identical to the PyTorch model. `predict()` was not affected.
+
+- **Validating an exported RetinaNet model works. (#1045)**
+  `val()` on an ONNX or other exported RetinaNet model used the standard preprocessing, whose geometry does not match RetinaNet's resize (shorter side 800, longer side up to 1333), so it raised "anchor count does not match preprocessing geometry" (120087 vs 182403 anchors for r50). Exported backends now validate RetinaNet with its own preprocessing and validator, one image at a time because the input size varies per image: on 100 COCO val2017 images the ONNX export scores mAP50-95 0.3785, identical to the PyTorch model. `predict()` was not affected.
+
+- **Validating an exported YOLOv7 model uses the model's own preprocessing. (#1045)**
+  `val()` on an ONNX, TensorRT or other exported YOLOv7 model used the standard preprocessor, which feeds 0-255 pixels to a model that expects 0-1 (mean input 151 instead of 0.54 on a test image). Exported backends now validate YOLOv7 with the letterbox, RGB, 0-1 recipe the PyTorch model uses. `predict()` was not affected.
+
+- **Validating an exported YOLOv2/v3/v4 (Darknet) model no longer reports mAP near 0. (#1045)**
+  `val()` on an ONNX, TensorRT or other exported Darknet model used the standard resize instead of Darknet's letterbox (top-left placement, 128 fill), which the postprocessing undoes, so every box was misplaced: a YOLOv4-tiny ONNX export scored 0.031 mAP50-95 on 100 COCO val2017 images instead of 0.2235 for the PyTorch model. Exported backends now validate Darknet models with the Darknet letterbox (0.2206). `predict()` was not affected.
+  Darknet INT8 calibration no longer skips every image.
+
+- **Validating an exported YOLO-NAS-R (oriented boxes) model no longer reports mAP near 0. (#1045)**
+  `val()` on an ONNX, TensorRT or other exported YOLO-NAS-R model resized and padded the images with the detection recipe while the postprocessing undid the oriented-box recipe (longest side to 1024, bottom-right padding), so every box landed in the wrong place: mAP50 0.003 instead of 0.72 on a 300-tile DOTA-v2.0 subset. Exported backends now pick the oriented-box validation preprocessing, as the PyTorch model already did. `predict()` was not affected.
+
+- **INT8 calibration of YOLO-NAS pose and YOLO-NAS-R models uses their own preprocessing. (#1045)**
+  `_get_preprocess_numpy()` returned the detection preprocessing for every YOLO-NAS task, so INT8 exports calibrated pose and oriented-box models on images resized, padded and channel-ordered differently from what the models see at inference. It now returns the task's own preprocessing (pose: BGR, bottom-right padding with 127; obb: BGR, 1024 canvas), shared with inference through `preprocess_pose_numpy` / `preprocess_obb_numpy`. Affects every INT8 export of those models.
+
+- **RetinaNet exports other than ONNX use their own default opset. (05156c72, #1045)**
+  `LibreRetinaNet.export()` pinned opset 13 for every format. ONNX keeps 13 by default; other formats choose their own.
+
+- **`LibreYOLO("yolov8n")` no longer suggests a nonexistent `hf://weights/yolov8n` path. (#1032)**
+
+### Performance
+
+- **RF-DETR training steps are faster on CUDA. (#1044)**
+  Ported from upstream RF-DETR (Apache-2.0, commit `b49df291`): batched detection matching with one compact CPU transfer, optional GPU Hungarian matching (`matcher_backend="auto"` with `libreyolo[rfdetr-train]` on Linux NVIDIA GPUs of compute capability 8.0 or newer; SciPy everywhere else and with `matcher_backend="scipy"`), proposal and attention optimizations on eager CUDA, merged AdamW groups and fewer host transfers for loss logging. RTX 3090, BF16, batch 8: a full RF-DETR-n update from 162.6 to 94.1 ms and RF-DETR-l from 323.4 to 219.6 ms, excluding loading and validation. GPU and SciPy matching may pick different assignments on ties. No COCO accuracy run was made for this change.
+
+### Security/Licensing
+
+- **Weights with restrictions in this release.** Non-commercial: Video Depth Anything b and l (CC BY-NC 4.0, #1004), InstantHMR n, t, s and m (CC BY-NC 4.0; `-commercial` is Apache-2.0, #1025), FlowSeek m and l and DPFlow (CC BY-NC and CC BY-NC-SA, #1001), Open Vision Banana and Iris-Z (FLUX Non-Commercial License, #1047, #1041). Use restrictions: SAM 3.1 (Meta SAM License, gated mirror, #1008), CRM (OpenRAIL++-M, #1017), LGM's ImageDream (OpenRAIL, #1014), TRELLIS.2 and WAFT `t` (DINOv3 License, #1018, #1001), PRX's T5Gemma text encoder (Gemma Terms of Use, #1012).
+- **Notices for every new family.** Root `NOTICE`, `THIRD_PARTY_NOTICES.txt` and `weights/LICENSE_NOTICE.txt` list the upstream code and weight licences and pinned revisions (#993 to #1047). RiO-DETRv2 code comes from the upstream's initial Apache-2.0 commit only (#1013). Axelera's SDK is proprietary and is never installed without the user's command or `LIBREYOLO_AUTOINSTALL=1` (#1045).
+
+### Dependencies & extras
+
+- **`typer` is capped below 0.29. (#1031)**
+  typer 0.29 vendors its own Click and breaks `--help-json` and CLI error output. The cap stays until the CLI is migrated.
+- **New `rfdetr-train` extra. (#1044)**
+  `transformers>=5.1.0` plus `torch-hungarian==0.1.0rc0` (Apache-2.0) for batched GPU matching. Conflicts with `molmo2`, like `rfdetr`.
+- **The `gen` extra adds `scikit-image>=0.19` and `ftfy>=6.0`. (#1016, #1012)**
+  scikit-image for TripoSR's and Direct3D-S2's marching cubes, ftfy for PRX and PRXPixel prompt cleaning. PRXPixel needs `diffusers>=0.39` and says so at load time; the extra's floor stays at 0.38.
+- **Optional, in no extra:** `xatlas` for CRM `texture=True` (#1017); `axelera-devkit` and `axelera-rt` 1.9.0 from Axelera's index (#1045). The Axelera SDK pins `torch>=2.7,<2.15`, `typer<0.13`, `onnx<1.19` and `click==8.1.8`; use a dedicated environment (`docs/axelera.md`).
+
+### Documentation
+
+- **README redesign. (#1035)** Banner, task-first sections (Install, Train, Inference, Export, Documentation, models, Contributors, Sponsors, License), model names linked to their docs pages, and a note for users who cannot reach huggingface.co.
+- **Chinese README synced with the English one. (#1038)** Same sections, the `HF_ENDPOINT` note, docs links to the `/zh/` pages, and a request for feedback from users in mainland China.
+- **New pages:** `docs/axelera.md`, `docs/provenance/axelera.md`, `docs/moge3.md`, `docs/ppdoclayoutv3.md`, `docs/open_vision_banana.md`, `docs/rfdetr_training.md`, ADR 0032 (flow task), ADR 0033 (Iris-Z) and ADR 0034 (NPU raw-head export contract) (#1001, #1041, #1045, #998, #995, #1047, #1044).
+- **Development PRs need a green unit gate on one OS. (#997)** Release PRs still need the full matrix (`AGENTS.md`, `docs/testing.md`).
+
+### Tests and CI
+
+- The NeuFlow v2 known-shift e2e runs on the textured parkour test fixture; the Guggenheim sample image is mostly sky, where flow is ambiguous. (#1053)
+- Test tolerances matched to measured numerical noise: PP-DocLayoutV3 ONNX reload with tied queries (#1010), batched-vs-sequential e2e boxes on the new sample image (#1043), YOLO9 Axelera backend parity sized to the stride (#1046). The TRELLIS.2 MPS parity test skips on GitHub's virtual macOS GPU and still runs on physical Macs (#1028).
+
+### Known limitations
+
+- Direct3D-S2 takes about 1082 s per 1024 object on an RTX A6000 (upstream 150 s), peak 23.4 GiB; its attention is correct but slow (#1019).
+- InstantHMR training is best effort (not upstream's recipe, no convergence evidence) and the family has no `val()` (#1025).
+- TRELLIS.2 has no texture stage; TRELLIS.2 and CRM parity scripts were not rerun after their review fixes (#1021, #1024).
+- Most new families are inference only: the OCR, VLM, flow, Video Depth Anything, MoGe-3, PP-DocLayoutV3 and RiO-DETRv2 families raise on `train()`, and several on `export()` (#995 to #1013).
+- SAM 3.1 supports the image path only; Object Multiplex video tracking is not supported (#1008).
+- Axelera export runs on Linux x86_64 only, and the measured accuracy comes from 300 to 1000 paired images per size, not full validation sets (#1045).
+
+### Contributors
+
+- **omkar-334 (Omkar Kabde)**, 8 commits: the Falcon Perception VLM family (#1009).
+- **gboeer (Gordon Böer)**, 1 commit: letterbox preprocessing on extreme aspect ratios (#1002).
+- **Xuban Ceccon**: everything else, 394 commits.
+
+### Stats
+
+403 commits, 610 files changed, +98,445 / -1,696 lines, 53 merged pull requests (#993-#1055), 2 issues closed as completed (#943, #1029). 82 new test modules (608 to 690). 9 new documentation pages.
+
+```
+pip install --upgrade libreyolo
+```
+
 ## [1.7.4] - 2026-11-07
 
 ### Fixed

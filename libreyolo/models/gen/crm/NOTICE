@@ -1,0 +1,67 @@
+LibreCRM includes code adapted from CRM:
+
+Source: https://github.com/thu-ml/CRM (commit 4964e36a593070a3045eb0f300935a771ff5c172)
+License: MIT.
+Copyright (c) 2024 TSAIL group. Authors: Zhengyi Wang, Yikai Wang, Yifei
+Chen, Chendong Xiang, Shuo Chen, Dajiang Yu, Chongxuan Li, Hang Su, Jun Zhu.
+
+Adapted, with upstream's module and parameter names so the released .pth
+files load with strict=True: the multi-view UNet, its spatial transformer,
+the image-prompt resampler, the KL autoencoder, the OpenCLIP text and image
+towers as CRM reads them, the camera matrices, the zero-terminal-SNR
+schedule and the DDIM sampler (imagedream/); the reconstruction UNet
+wrapper, the triplane decoder, the SDF/colour/weight MLPs, the views-to-
+triplane layout (get_tri) and the decode and export steps (model/, util/,
+inference.py); the preprocessing and the two-stage pipeline (run.py,
+pipelines.py, libs/sample.py).
+
+CRM's imagedream/ package derives from ImageDream
+(https://github.com/bytedance/ImageDream, Apache-2.0, Copyright ByteDance)
+and MVDream (https://github.com/bytedance/MVDream, MIT), which build on
+Stable Diffusion's latent diffusion code (MIT) and OpenAI's
+guided-diffusion and improved-diffusion (MIT). The resampler is modified
+from OpenFlamingo (https://github.com/mlfoundations/open_flamingo, MIT); the
+text and image towers follow OpenCLIP
+(https://github.com/mlfoundations/open_clip, MIT). The reconstruction UNet
+is HuggingFace diffusers' UNet2DModel (Apache-2.0), used as a dependency.
+
+FlexiCubes (flexicubes.py, _flexicubes_tables.py) is adapted from NVIDIA's
+FlexiCubes (https://github.com/nv-tlabs/FlexiCubes, commit
+eac497031e5138aa544065f357d093f9f3e101e9), Apache-2.0, Copyright (c) 2025
+NVIDIA CORPORATION & AFFILIATES: the voxel grid and the inference-time
+triangle extraction, arithmetic unchanged. CRM's own copies of
+util/flexicubes.py, util/tables.py and util/flexicubes_geometry.py carry
+NVIDIA's proprietary all-rights-reserved header and are not used; the grid
+wrapper (Grid, extract_mesh) is written for LibreYOLO against the Apache
+FlexiCubes API.
+
+Written for LibreYOLO, replacing upstream dependencies: attention through
+torch.nn.functional.scaled_dot_product_attention (upstream: xformers); the
+UV rasterization used to bake the texture (upstream: nvdiffrast, whose NVIDIA
+Source Code License is non-commercial and which is not used); the mesh
+cleanup, the same operations upstream asks of kiui and pymeshlab (GPL-3.0,
+not used): drop unreferenced vertices, merge vertices within 1% of the
+bounding-box diagonal, drop duplicate and zero-area faces. Not used either:
+rembg (background removal runs on LibreYOLO's BiRefNet network), open_clip's
+tokenizer (CRM's two fixed prompts are stored as token ids), trimesh, kiui's
+Mesh and pygltflib (LibreYOLO's Meshes payload writes the OBJ). UV
+unwrapping uses the optional xatlas package (MIT), only for texture=True.
+
+Other changes from upstream: every random draw (VAE posterior samples,
+initial latents, the triplane re-noising) comes from an explicit CPU
+torch.Generator, so a seed gives the same noise on every device; the
+diffusion models run in fp16 on CUDA and MPS as upstream, and in fp32 on
+CPU; SD 2.1's scheduler values are built in instead of read from the
+stabilityai/stable-diffusion-2-1-base repository, which is no longer online.
+
+Weights: Zhengyi/CRM (MIT as declared by its card; the two diffusion models
+are fine-tuned from ImageDream and MVDream, themselves from Stable Diffusion
+2.1, whose CreativeML Open RAIL++-M use restrictions are carried on the
+mirror's card), redistributed unchanged by LibreYOLO as LibreYOLO/LibreCRM.
+BiRefNet weights (ZhengPeng7/BiRefNet, MIT) load from LibreYOLO/LibreTRELLISl.
+All at pinned revisions.
+
+CRM citation:
+Zhengyi Wang, Yikai Wang, Yifei Chen, Chendong Xiang, Shuo Chen, Dajiang Yu,
+Chongxuan Li, Hang Su, Jun Zhu. "CRM: Single Image to 3D Textured Mesh with
+Convolutional Reconstruction Model." ECCV 2024. arXiv:2403.05034.

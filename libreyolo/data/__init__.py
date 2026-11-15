@@ -33,6 +33,13 @@ from .depth_dataset import (
     img2depth_paths,
     resolve_depth_data,
 )
+from .flow_dataset import (
+    FlowDataset,
+    flow_collate_fn,
+    img2flow_path,
+    read_flow_file,
+    resolve_flow_data,
+)
 from .normal_dataset import (
     NormalDataset,
     img2normal_mask_paths,
@@ -118,6 +125,11 @@ __all__ = [
     "depth_collate_fn",
     "img2depth_paths",
     "resolve_depth_data",
+    "FlowDataset",
+    "flow_collate_fn",
+    "img2flow_path",
+    "read_flow_file",
+    "resolve_flow_data",
     "NormalDataset",
     "img2normal_mask_paths",
     "img2normal_paths",

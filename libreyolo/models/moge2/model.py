@@ -23,6 +23,7 @@ from ...utils.image_loader import ImageInput, ImageLoader
 from ..base.model import BaseModel
 from .nn import MoGe2NormalNet
 from .utils import PATCH_SIZE, preprocess_numpy
+from ...utils.hf_hub import canonical_hf_url
 
 _NORMAL_STATE_PREFIXES = ("encoder.", "neck.", "normal_head.")
 
@@ -101,8 +102,11 @@ class LibreMoGe2(BaseModel):
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
+        # MoGe-3 checkpoints share these keys; its sparse refiner marks them.
         return (
-            "encoder.backbone.cls_token" in weights_dict
+            "refiner.input_proj.weight" not in weights_dict
+            and "moge3_tag" not in weights_dict
+            and "encoder.backbone.cls_token" in weights_dict
             and "neck.input_blocks.0.weight" in weights_dict
             and "normal_head.output_blocks.4.weight" in weights_dict
         )
@@ -155,6 +159,7 @@ class LibreMoGe2(BaseModel):
         # each has its own recorded digest. Both are checked: `resolve/main` is
         # mutable, and an unverified mirror would be a weaker guarantee than the
         # upstream path it replaced.
+        source_url = canonical_hf_url(source_url)
         if source_url.startswith("https://huggingface.co/LibreYOLO/"):
             size = next(
                 (s for s in cls._MIRROR_SHA256 if f"LibreMoGe2{s}-normal" in source_url),

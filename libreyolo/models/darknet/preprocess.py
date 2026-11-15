@@ -23,16 +23,27 @@ _PAD_VALUE = 128
 
 def preprocess_numpy(
     img_rgb_hwc: np.ndarray,
-    input_size: int = 416,
+    input_size: int | Tuple[int, int] = 416,
 ) -> Tuple[np.ndarray, float]:
     """Letterbox an RGB HWC uint8 image to ``input_size`` and normalize to [0,1].
 
-    Returns ``(CHW float32 RGB in [0,1], ratio)`` where ``ratio =
-    min(input/orig_h, input/orig_w)``.
+    ``input_size`` is an int or a square ``(height, width)`` pair (the form
+    export calibration loaders pass). Returns ``(CHW float32 RGB in [0,1],
+    ratio)`` where ``ratio = min(input/orig_h, input/orig_w)``.
     """
+    if isinstance(input_size, (tuple, list)):
+        height, width = (int(v) for v in input_size)
+        if height != width:
+            raise ValueError(
+                f"Darknet preprocessing letterboxes onto a square canvas, got {height}x{width}."
+            )
+        input_size = height
     orig_h, orig_w = img_rgb_hwc.shape[:2]
+    if orig_h == 0 or orig_w == 0:
+        raise ValueError(f"Image has an empty dimension: {orig_w}x{orig_h} (WxH).")
     ratio = min(input_size / orig_h, input_size / orig_w)
-    new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
+    # Clamp so extreme aspect ratios (e.g. 1x2000) don't truncate to a 0-px side.
+    new_w, new_h = max(1, int(orig_w * ratio)), max(1, int(orig_h * ratio))
 
     img_resized = Image.fromarray(img_rgb_hwc).resize(
         (new_w, new_h), Image.Resampling.BILINEAR

@@ -54,6 +54,9 @@ class LibreDEIM(BaseModel):
             return False
         if any(k.startswith("encoder.DeFE.") for k in weights_dict):
             return False
+        # RiO-DETRv2 also carries pre_bbox_head; its angle head is unique.
+        if any(k.startswith("decoder.dec_angle_head.") for k in weights_dict):
+            return False
         return any("decoder.pre_bbox_head." in k for k in weights_dict)
 
     @classmethod
@@ -375,6 +378,9 @@ class LibreDEIM(BaseModel):
             if state_dict_has_lora(state_dict) and not module_has_lora(self.model):
                 apply_lora_to_detr(self.model)
 
+            from ...utils.input_channels import restore_channels
+
+            restore_channels(self, loaded)
             missing, unexpected = self.model.load_state_dict(
                 state_dict, strict=self._strict_loading()
             )

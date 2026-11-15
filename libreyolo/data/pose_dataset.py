@@ -163,6 +163,9 @@ class YOLOPoseDataset(Dataset):
         if decode_scale not in (1, 2, 4, 8):
             raise ValueError(f"decode_scale must be one of 1, 2, 4, 8; got {decode_scale}")
         self.decode_scale = decode_scale
+        from ..utils.input_channels import active_dataset_channels
+
+        self.input_channels = active_dataset_channels()
 
         self.img_files = [Path(f) for f in img_files]
         if label_files is not None:
@@ -289,6 +292,10 @@ class YOLOPoseDataset(Dataset):
         img = cv2.imread(str(self.img_files[index]), flags)
         if img is None:
             raise FileNotFoundError(f"Failed to load image: {self.img_files[index]}")
+        if getattr(self, "input_channels", 3) == 1:
+            from ..utils.input_channels import to_gray3
+
+            img = to_gray3(img)
         return img
 
     def __getitem__(self, index: int):

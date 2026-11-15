@@ -45,7 +45,7 @@ class LibreRTMDet(BaseModel):
         >>> model = LibreYOLO("LibreRTMDett.pt")
         >>> result = model("image.jpg", save=True)
         >>> segmenter = LibreYOLO("LibreRTMDett-seg.pt")
-        >>> masks = segmenter("image.jpg")[0].masks
+        >>> masks = segmenter("image.jpg").masks
     """
 
     FAMILY = "rtmdet"

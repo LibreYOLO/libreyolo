@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -55,6 +56,32 @@ def _numpy(data: TensorLike | None):
     if isinstance(data, torch.Tensor):
         return data.detach().cpu().numpy()
     return data
+
+
+def _is_scalar_int(idx) -> bool:
+    """True for a Python or NumPy integer index (bools excluded)."""
+    return isinstance(idx, (int, np.integer)) and not isinstance(idx, (bool, np.bool_))
+
+
+_image_indexing_warned = False
+
+
+def _warn_image_indexing_once() -> None:
+    """Say once per process that ``results[0]`` is the whole image now."""
+    global _image_indexing_warned
+    if _image_indexing_warned:
+        return
+    _image_indexing_warned = True
+    warnings.warn(
+        "results[0], results[-1] and `for r in results` on a single-image "
+        "Results return the whole result with all its detections, as for the "
+        "list predict() returns for several images. Earlier releases selected "
+        "detections. Select detections with a slice, mask or index "
+        "array (results[:1], results[results.boxes.conf > 0.5]) or use "
+        "results.boxes[i].",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 def _slice_first(data: TensorLike | None, idx):
@@ -824,7 +851,15 @@ class DepthMap(_TensorPayload):
     Data is ``(H, W)`` on the original canvas. The default ``inverse_depth``
     encoding has larger values nearer the camera. ``depth`` and ``log_depth``
     have larger values farther away. Each is affine-relative in its named
-    space; no metric unit or cross-image scale is implied.
+    space; no metric unit or cross-image scale is implied unless ``metric`` is
+    true, in which case ``depth`` values are metres.
+
+    Families that also recover camera geometry may attach it, all on the same
+    original canvas: ``point_map`` is the ``(H, W, 3)`` camera-frame point map
+    (OpenCV axes: x right, y down, z forward; metres when ``metric``),
+    ``intrinsics`` the ``(3, 3)`` pixel-unit OpenCV calibration with pixel
+    centers at integer coordinates, and ``valid_mask`` the ``(H, W)`` boolean
+    mask of pixels with a valid prediction.
     """
 
     ENCODINGS = ("inverse_depth", "depth", "log_depth")
@@ -835,6 +870,10 @@ class DepthMap(_TensorPayload):
         orig_shape: Tuple[int, int] | None = None,
         *,
         encoding: str = "inverse_depth",
+        metric: bool = False,
+        point_map: TensorLike | None = None,
+        intrinsics: TensorLike | None = None,
+        valid_mask: TensorLike | None = None,
     ):
         if encoding not in self.ENCODINGS:
             raise ValueError(f"depth encoding must be one of {self.ENCODINGS}")
@@ -842,30 +881,64 @@ class DepthMap(_TensorPayload):
             raise ValueError(
                 f"expected (H, W) depth map but got shape {tuple(data.shape)}"
             )
+        if metric and encoding != "depth":
+            raise ValueError("metric depth maps must use encoding='depth'")
+        canvas = tuple(int(n) for n in data.shape)
+        if point_map is not None and tuple(point_map.shape) != (*canvas, 3):
+            raise ValueError(
+                f"point_map must be (H, W, 3) = {(*canvas, 3)}, got "
+                f"{tuple(point_map.shape)}"
+            )
+        if intrinsics is not None and tuple(intrinsics.shape) != (3, 3):
+            raise ValueError(
+                f"intrinsics must be (3, 3), got {tuple(intrinsics.shape)}"
+            )
+        if valid_mask is not None and tuple(valid_mask.shape) != canvas:
+            raise ValueError(
+                f"valid_mask must be (H, W) = {canvas}, got {tuple(valid_mask.shape)}"
+            )
         if orig_shape is None:
-            orig_shape = (int(data.shape[0]), int(data.shape[1]))
+            orig_shape = canvas
         super().__init__(data, orig_shape)
         self.encoding = encoding
+        self.metric = bool(metric)
+        self.point_map = point_map
+        self.intrinsics = intrinsics
+        self.valid_mask = valid_mask
 
     @property
     def near_is_high(self) -> bool:
         return self.encoding == "inverse_depth"
 
-    def to(self, *args, **kwargs):
+    def _map(self, fn, orig_shape=None) -> "DepthMap":
+        def apply(value):
+            return None if value is None else fn(value)
+
+        mask = apply(self.valid_mask)
+        if isinstance(mask, torch.Tensor) and mask.dtype != torch.bool:
+            # A dtype cast (``to(torch.float16)``) must not turn the mask numeric.
+            mask = mask.bool()
         return self.__class__(
-            _move(self.data, *args, **kwargs), self.orig_shape, encoding=self.encoding
+            fn(self.data),
+            self.orig_shape if orig_shape is None else orig_shape,
+            encoding=self.encoding,
+            metric=self.metric,
+            point_map=apply(self.point_map),
+            intrinsics=apply(self.intrinsics),
+            valid_mask=mask,
         )
+
+    def to(self, *args, **kwargs):
+        return self._map(lambda value: _move(value, *args, **kwargs))
 
     def cpu(self):
-        return self.__class__(_cpu(self.data), self.orig_shape, encoding=self.encoding)
+        return self._map(_cpu)
 
     def cuda(self):
-        return self.__class__(_cuda(self.data), self.orig_shape, encoding=self.encoding)
+        return self._map(_cuda)
 
     def numpy(self):
-        return self.__class__(
-            _numpy(self.data), self.orig_shape, encoding=self.encoding
-        )
+        return self._map(_numpy)
 
     def _finite_values(self) -> np.ndarray:
         values = np.asarray(_numpy(self.data), dtype=np.float32)
@@ -902,7 +975,7 @@ class DepthMap(_TensorPayload):
     def __getitem__(self, idx):
         # Instance indexing does not apply to a dense map; keep it intact so
         # shared Results slicing paths cannot corrupt the (H, W) layout.
-        return self.__class__(self.data, self.orig_shape, encoding=self.encoding)
+        return self._map(lambda value: value)
 
     def __repr__(self) -> str:
         return (
@@ -1112,6 +1185,245 @@ class NormalMap(_TensorPayload):
     def __repr__(self) -> str:
         return (
             f"NormalMap(shape={tuple(self.data.shape)}, orig_shape={self.orig_shape})"
+        )
+
+
+class FlowField(_TensorPayload):
+    """Dense optical flow from this frame to the next one.
+
+    ``data`` is float32 ``(H, W, 2)`` on the original image canvas: for the
+    pixel at ``(y, x)`` of the first frame, ``data[y, x]`` is ``(dx, dy)``, its
+    displacement in pixels to the second frame (``+x`` right, ``+y`` down).
+    ``confidence`` is an optional ``(H, W)`` float map in ``[0, 1]`` carrying
+    whatever the family can offer (an occlusion or covisibility estimate, a
+    variance-derived score); ``None`` when the family has none.
+    ``next_frame`` is the second frame as a uint8 ``(H, W, 3)`` RGB array on
+    the same canvas, attached by predict so ``warp()`` and the warp view have
+    something to warp; ``None`` when not attached.
+    """
+
+    def __init__(
+        self,
+        data: TensorLike,
+        orig_shape: Tuple[int, int] | None = None,
+        *,
+        confidence: TensorLike | None = None,
+        next_frame: TensorLike | None = None,
+    ):
+        if not isinstance(data, (torch.Tensor, np.ndarray)):
+            raise TypeError("flow data must be a torch.Tensor or numpy.ndarray")
+        if data.ndim != 3 or data.shape[-1] != 2:
+            raise ValueError(
+                f"expected (H, W, 2) flow field but got shape {tuple(data.shape)}"
+            )
+        if int(data.shape[0]) <= 0 or int(data.shape[1]) <= 0:
+            raise ValueError("flow height and width must be positive")
+
+        if isinstance(data, torch.Tensor):
+            data = data.to(dtype=torch.float32)
+        else:
+            data = np.asarray(data, dtype=np.float32)
+
+        data_shape = (int(data.shape[0]), int(data.shape[1]))
+        if orig_shape is None:
+            orig_shape = data_shape
+        else:
+            orig_shape = (int(orig_shape[0]), int(orig_shape[1]))
+            if orig_shape != data_shape:
+                raise ValueError(
+                    f"flow shape {data_shape} does not match original "
+                    f"image shape {orig_shape}"
+                )
+
+        if confidence is not None:
+            if not isinstance(confidence, (torch.Tensor, np.ndarray)):
+                raise TypeError(
+                    "flow confidence must be a torch.Tensor or numpy.ndarray"
+                )
+            if confidence.ndim != 2 or (
+                int(confidence.shape[0]),
+                int(confidence.shape[1]),
+            ) != data_shape:
+                raise ValueError(
+                    f"expected ({data_shape[0]}, {data_shape[1]}) flow confidence "
+                    f"but got shape {tuple(confidence.shape)}"
+                )
+            if isinstance(confidence, torch.Tensor):
+                confidence = confidence.to(dtype=torch.float32)
+            else:
+                confidence = np.asarray(confidence, dtype=np.float32)
+
+        super().__init__(data, orig_shape)
+        self.confidence = confidence
+        if next_frame is not None:
+            frame = _numpy(next_frame) if isinstance(next_frame, torch.Tensor) else next_frame
+            if not isinstance(frame, np.ndarray):
+                raise TypeError("flow next_frame must be a numpy.ndarray or torch.Tensor")
+            if frame.ndim != 3 or frame.shape[-1] != 3 or (
+                int(frame.shape[0]),
+                int(frame.shape[1]),
+            ) != data_shape:
+                raise ValueError(
+                    f"expected a ({data_shape[0]}, {data_shape[1]}, 3) RGB next_frame "
+                    f"but got shape {tuple(frame.shape)}"
+                )
+            next_frame = np.ascontiguousarray(frame.astype(np.uint8, copy=False))
+        self.next_frame = next_frame
+
+    def _with(self, data, confidence) -> "FlowField":
+        return self.__class__(
+            data, self.orig_shape, confidence=confidence, next_frame=self.next_frame
+        )
+
+    def save(self, path: str | Path) -> Path:
+        """Write the raw field to ``path``: Middlebury ``.flo`` or NumPy ``.npy``.
+
+        Both hold the float32 ``(H, W, 2)`` vectors on the original canvas,
+        exactly as stored; ``confidence`` and ``next_frame`` are not written.
+        The extension picks the format; anything else is an error.
+        """
+        target = Path(path)
+        suffix = target.suffix.lower()
+        if suffix == ".flo":
+            from ..data.flow_dataset import write_flo
+
+            write_flo(target, self.array)
+        elif suffix == ".npy":
+            target.parent.mkdir(parents=True, exist_ok=True)
+            np.save(target, np.ascontiguousarray(self.array, dtype=np.float32))
+        else:
+            raise ValueError(
+                f"FlowField.save writes .flo or .npy files, got {target.name!r}"
+            )
+        return target
+
+    def to(self, *args, **kwargs):
+        return self._with(
+            _move(self.data, *args, **kwargs), _move(self.confidence, *args, **kwargs)
+        )
+
+    def cpu(self):
+        return self._with(_cpu(self.data), _cpu(self.confidence))
+
+    def cuda(self):
+        return self._with(_cuda(self.data), _cuda(self.confidence))
+
+    def numpy(self):
+        return self._with(_numpy(self.data), _numpy(self.confidence))
+
+    def __getitem__(self, idx):
+        # A dense flow field is whole-image data, not an instance collection.
+        return self._with(self.data, self.confidence)
+
+    def __len__(self) -> int:
+        return 1
+
+    @property
+    def array(self) -> np.ndarray:
+        """The field as an ``(H, W, 2)`` float32 NumPy array."""
+        return np.asarray(_numpy(self.data), dtype=np.float32)
+
+    @property
+    def dx(self) -> TensorLike:
+        """Horizontal displacement ``(H, W)`` in pixels, positive to the right."""
+        return self.data[..., 0]
+
+    @property
+    def dy(self) -> TensorLike:
+        """Vertical displacement ``(H, W)`` in pixels, positive downwards."""
+        return self.data[..., 1]
+
+    @property
+    def magnitude(self) -> TensorLike:
+        """Per-pixel displacement length ``(H, W)`` in pixels."""
+        if isinstance(self.data, torch.Tensor):
+            return torch.linalg.vector_norm(self.data, dim=-1)
+        return np.linalg.norm(self.data, axis=-1)
+
+    @property
+    def angle(self) -> TensorLike:
+        """Per-pixel displacement direction ``(H, W)`` in radians, ``atan2(dy, dx)``."""
+        if isinstance(self.data, torch.Tensor):
+            return torch.atan2(self.data[..., 1], self.data[..., 0])
+        return np.arctan2(self.data[..., 1], self.data[..., 0])
+
+    def _finite_magnitudes(self) -> np.ndarray:
+        values = np.linalg.norm(self.array, axis=-1)
+        return values[np.isfinite(values)]
+
+    @property
+    def max_magnitude(self) -> float:
+        values = self._finite_magnitudes()
+        return float(values.max()) if values.size else 0.0
+
+    @property
+    def mean_magnitude(self) -> float:
+        values = self._finite_magnitudes()
+        return float(values.mean()) if values.size else 0.0
+
+    def to_rgb(self, max_magnitude: float | None = None) -> np.ndarray:
+        """Middlebury colour-wheel rendering as uint8 ``(H, W, 3)`` RGB.
+
+        Pass ``max_magnitude`` to keep colours comparable across video frames.
+        """
+        from .drawing import flow_to_rgb
+
+        return flow_to_rgb(self.array, max_magnitude=max_magnitude)
+
+    def warp(self, image: Any) -> np.ndarray:
+        """Warp the second frame back onto the first frame's pixel grid.
+
+        ``image`` is the second frame as an ``(H, W)`` or ``(H, W, C)`` array on
+        the original canvas. The output samples it bilinearly at
+        ``(x + dx, y + dy)`` with border clamping, so a zero flow returns the
+        image unchanged and a correct flow turns the second frame into the
+        first. Non-finite vectors sample in place. Integer inputs return the
+        same dtype, rounded; float inputs return float32.
+        """
+        source = np.asarray(_numpy(image) if isinstance(image, torch.Tensor) else image)
+        h, w = self.orig_shape
+        if source.ndim not in (2, 3) or (int(source.shape[0]), int(source.shape[1])) != (h, w):
+            raise ValueError(
+                f"expected an image of shape ({h}, {w}[, C]) on the original canvas, "
+                f"got {source.shape}"
+            )
+        flow = self.array
+        flow = np.where(np.isfinite(flow), flow, 0.0)
+        ys, xs = np.mgrid[0:h, 0:w]
+        sx = np.clip(xs + flow[..., 0], 0, w - 1)
+        sy = np.clip(ys + flow[..., 1], 0, h - 1)
+        x0 = np.floor(sx).astype(np.int64)
+        y0 = np.floor(sy).astype(np.int64)
+        x1 = np.minimum(x0 + 1, w - 1)
+        y1 = np.minimum(y0 + 1, h - 1)
+        wx = (sx - x0).astype(np.float32)
+        wy = (sy - y0).astype(np.float32)
+        planar = source.ndim == 2
+        values = source.astype(np.float32)
+        if planar:
+            values = values[..., None]
+        wx = wx[..., None]
+        wy = wy[..., None]
+        out = (
+            values[y0, x0] * (1 - wx) * (1 - wy)
+            + values[y0, x1] * wx * (1 - wy)
+            + values[y1, x0] * (1 - wx) * wy
+            + values[y1, x1] * wx * wy
+        )
+        if planar:
+            out = out[..., 0]
+        if np.issubdtype(source.dtype, np.integer):
+            info = np.iinfo(source.dtype)
+            return np.rint(out).clip(info.min, info.max).astype(source.dtype)
+        return out.astype(np.float32)
+
+    def __repr__(self) -> str:
+        return (
+            f"FlowField(shape={tuple(self.data.shape)}, "
+            f"max_magnitude={self.max_magnitude:.4g}, "
+            f"confidence={'yes' if self.confidence is not None else 'no'}, "
+            f"next_frame={'yes' if self.next_frame is not None else 'no'}, "
+            f"orig_shape={self.orig_shape})"
         )
 
 
@@ -1650,6 +1962,13 @@ class OCRRegions(_TensorPayload):
 
     Detection quads are genuine polygons (rotated text), so they do not
     populate ``Results.boxes``; use :attr:`xyxy` for axis-aligned hulls.
+
+    Document parsers fill two optional extras: ``labels``, the per-region
+    layout category (for example ``"text"``, ``"table"``,
+    ``"display_formula"``), and ``markdown``, the whole-page document the
+    regions assemble into. Both default to empty (``None`` labels, ``""``
+    markdown) for line-level OCR. ``markdown`` is page-level, so slicing keeps
+    it unchanged.
     """
 
     def __init__(
@@ -1659,6 +1978,8 @@ class OCRRegions(_TensorPayload):
         confidence: TensorLike | None = None,
         det_confidence: TensorLike | None = None,
         orig_shape: Tuple[int, int] | None = None,
+        labels: Optional[List[str]] = None,
+        markdown: str = "",
     ):
         if isinstance(data, np.ndarray):
             data = torch.as_tensor(data)
@@ -1693,6 +2014,12 @@ class OCRRegions(_TensorPayload):
 
         self._conf = _as_scores(confidence)
         self._det_conf = _as_scores(det_confidence)
+        self.labels: Optional[List[str]] = list(labels) if labels is not None else None
+        if self.labels is not None and len(self.labels) != n:
+            raise ValueError(
+                f"expected {n} labels to match {n} polygons, got {len(self.labels)}"
+            )
+        self.markdown: str = str(markdown or "")
 
     @property
     def polygons(self) -> TensorLike:
@@ -1743,6 +2070,8 @@ class OCRRegions(_TensorPayload):
             _move(self._conf, *args, **kwargs),
             _move(self._det_conf, *args, **kwargs),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def cpu(self):
@@ -1752,6 +2081,8 @@ class OCRRegions(_TensorPayload):
             _cpu(self._conf),
             _cpu(self._det_conf),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def cuda(self):
@@ -1761,6 +2092,8 @@ class OCRRegions(_TensorPayload):
             _cuda(self._conf),
             _cuda(self._det_conf),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def numpy(self):
@@ -1770,6 +2103,8 @@ class OCRRegions(_TensorPayload):
             _numpy(self._conf),
             _numpy(self._det_conf),
             self.orig_shape,
+            self.labels,
+            self.markdown,
         )
 
     def __getitem__(self, idx):
@@ -1785,6 +2120,8 @@ class OCRRegions(_TensorPayload):
             self._conf[indices],
             self._det_conf[indices],
             self.orig_shape,
+            [self.labels[i] for i in indices] if self.labels is not None else None,
+            self.markdown,
         )
 
     def __repr__(self) -> str:
@@ -2108,6 +2445,27 @@ class Identities:
         return f"Identities(n={len(self)}, known={known})"
 
 
+_SIDECAR_MARK = "LibreYOLO mesh texture"
+_MATERIAL = "newmtl material_0\nKd 1 1 1\nKa 1 1 1\nKs 0 0 0\nillum 1\n"
+
+
+def _written_by_libreyolo(path: Path) -> bool:
+    """True when ``path`` is a .mtl or texture .png that ``Meshes.save_obj`` wrote."""
+    try:
+        if path.suffix == ".mtl":
+            text = path.read_text(encoding="utf-8")
+            # Earlier releases wrote the same material, unmarked, pointing at <stem>.png.
+            return text.startswith(f"# {_SIDECAR_MARK}\n") or text == (
+                f"{_MATERIAL}map_Kd {path.stem}.png\n"
+            )
+        from PIL import Image
+
+        with Image.open(path) as image:
+            return image.format == "PNG" and image.info.get("Software") == _SIDECAR_MARK
+    except Exception:
+        return False
+
+
 class Meshes:
     """Parametric human body meshes for a single image.
 
@@ -2130,6 +2488,14 @@ class Meshes:
     carry different degrees of freedom), and ``betas`` are identity blendshape
     coefficients. Model-specific extras such as skeleton scale, hand pose and
     facial expression live in ``extras``.
+
+    LibreGen image-to-3D families that return a mesh reuse this payload for
+    the generated object (ADR 0031), with no person boxes: one row,
+    ``body_model="object"``, empty ``global_orient``/``body_pose``/``betas``
+    (shape ``(1, 0)``), zero ``transl``, ``vertices`` ``(1, V, 3)`` in the
+    object frame (z up, inside ``[-0.5, 0.5]^3``), shared ``faces``
+    ``(F, 3)`` wound counter-clockwise seen from outside, and optional
+    ``extras["vertex_colors"]`` ``(1, V, 3)`` RGB in ``[0, 1]``.
     """
 
     def __init__(
@@ -2148,6 +2514,8 @@ class Meshes:
         focal_length: TensorLike | None = None,
         extras: Optional[Dict[str, TensorLike]] = None,
         orig_shape: Tuple[int, int] | None = None,
+        seed: Optional[int] = None,
+        generation_params: Optional[Dict[str, Any]] = None,
     ):
         self.global_orient = global_orient
         self.body_pose = body_pose
@@ -2164,6 +2532,10 @@ class Meshes:
         self.focal_length = focal_length
         self.extras = dict(extras) if extras else {}
         self.orig_shape = orig_shape
+        # A generated object from a sampling family: the seed that reproduces
+        # it and the rest of the call (model and knobs), as Gaussians.params.
+        self.seed = seed
+        self.generation_params = dict(generation_params) if generation_params else {}
 
     # Per-row tensors, in the order they are rebuilt by _rebuild().
     _ROW_FIELDS = (
@@ -2197,6 +2569,8 @@ class Meshes:
             faces=shared_fn(self.faces),
             extras={k: fn(v) for k, v in self.extras.items()},
             orig_shape=self.orig_shape,
+            seed=self.seed,
+            generation_params=self.generation_params,
             **values,
         )
 
@@ -2239,15 +2613,67 @@ class Meshes:
             raise IndexError(f"index {index} is out of range for {len(self)} mesh(es)")
         verts = np.asarray(_numpy(self.vertices))[index]
         faces = np.asarray(_numpy(self.faces))
+        # Generated objects carry per-vertex RGB in [0, 1], written as the
+        # common ``v x y z r g b`` OBJ extension.
+        colors = self.extras.get("vertex_colors")
+        colors = None if colors is None else np.asarray(_numpy(colors))[index]
 
+        # A textured object carries ``uv`` (1, T, 2), ``uv_faces`` (1, F, 3)
+        # and ``texture`` (1, H, W, 3) uint8 with row 0 at v = 0; it is
+        # written with ``<stem>.mtl`` and ``<stem>_texture.png`` next to the
+        # .obj. Neither may replace a file LibreYOLO did not write: the input
+        # photo often sits next to the output with the same stem.
+        texture = self.extras.get("texture")
         path = Path(path)
+        mtl_path = path.with_suffix(".mtl")
+        png_path = path.with_name(f"{path.stem}_texture.png")
+        if texture is not None:
+            for sidecar in (mtl_path, png_path):
+                if sidecar.exists() and not _written_by_libreyolo(sidecar):
+                    raise FileExistsError(
+                        f"{sidecar} exists and was not written by LibreYOLO; saving "
+                        f"{path.name} with its texture would replace it. Choose "
+                        "another output name or move that file."
+                    )
         if path.parent and path.parent != Path("."):
             path.parent.mkdir(parents=True, exist_ok=True)
+        if texture is not None:
+            from PIL import Image, PngImagePlugin
+
+            image = np.asarray(_numpy(texture))[index][::-1]
+            info = PngImagePlugin.PngInfo()
+            info.add_text("Software", _SIDECAR_MARK)
+            Image.fromarray(np.ascontiguousarray(image)).save(png_path, pnginfo=info)
+            mtl_path.write_text(
+                f"# {_SIDECAR_MARK}\n{_MATERIAL}map_Kd {png_path.name}\n",
+                encoding="utf-8",
+            )
+            colors = None
         with open(path, "w", encoding="utf-8") as fh:
-            fh.write(f"# LibreYOLO body mesh ({self.body_model})\n")
-            for v in verts:
-                fh.write(f"v {float(v[0]):.6f} {float(v[1]):.6f} {float(v[2]):.6f}\n")
+            fh.write(f"# LibreYOLO mesh ({self.body_model})\n")
+            if texture is not None:
+                fh.write(f"mtllib {mtl_path.name}\nusemtl material_0\n")
+            for i, v in enumerate(verts):
+                rgb = (
+                    ""
+                    if colors is None
+                    else " {:.4f} {:.4f} {:.4f}".format(*(float(c) for c in colors[i]))
+                )
+                fh.write(
+                    f"v {float(v[0]):.6f} {float(v[1]):.6f} {float(v[2]):.6f}{rgb}\n"
+                )
             # OBJ vertex indices are 1-based.
+            if texture is not None:
+                for t in np.asarray(_numpy(self.extras["uv"]))[index]:
+                    fh.write(f"vt {float(t[0]):.6f} {float(t[1]):.6f}\n")
+                uv_faces = np.asarray(_numpy(self.extras["uv_faces"]))[index]
+                for f, t in zip(faces, uv_faces):
+                    fh.write(
+                        "f "
+                        + " ".join(f"{int(a) + 1}/{int(b) + 1}" for a, b in zip(f, t))
+                        + "\n"
+                    )
+                return
             for f in faces:
                 fh.write(f"f {int(f[0]) + 1} {int(f[1]) + 1} {int(f[2]) + 1}\n")
 
@@ -2304,6 +2730,7 @@ class Results:
         "actions",
         "generated",
         "gaussians",
+        "flow",
     )
 
     def __init__(
@@ -2341,6 +2768,8 @@ class Results:
         orig_img: Any = None,
         generated: Optional[GeneratedImage] = None,
         gaussians: Optional[Gaussians] = None,
+        flow: Optional[FlowField] = None,
+        reading_order: Optional[TensorLike] = None,
     ):
         if boxes is not None and boxes.orig_shape is None:
             boxes = boxes.with_orig_shape(orig_shape)
@@ -2349,7 +2778,7 @@ class Results:
         if points is not None and points.orig_shape is None:
             points = Points(points.data, orig_shape)
         if depth_map is not None and depth_map.orig_shape is None:
-            depth_map = DepthMap(depth_map.data, orig_shape, encoding=depth_map.encoding)
+            depth_map = depth_map._map(lambda value: value, orig_shape=orig_shape)
         if albedo is not None and albedo.orig_shape != tuple(orig_shape):
             raise ValueError("albedo must match Results.orig_shape")
         if normal_map is not None and normal_map.orig_shape != tuple(orig_shape):
@@ -2361,7 +2790,19 @@ class Results:
         if matte is not None and matte.orig_shape is None:
             matte = Matte(matte.data, orig_shape)
         if ocr is not None and ocr.orig_shape is None:
-            ocr = OCRRegions(ocr.data, ocr.texts, ocr.conf, ocr.det_conf, orig_shape)
+            ocr = OCRRegions(
+                ocr.data,
+                ocr.texts,
+                ocr.conf,
+                ocr.det_conf,
+                orig_shape,
+                ocr.labels,
+                ocr.markdown,
+            )
+        if flow is not None and flow.orig_shape != tuple(orig_shape):
+            flow = FlowField(
+                flow.data, orig_shape, confidence=flow.confidence, next_frame=flow.next_frame
+            )
 
         if boxes3d is not None:
             boxes3d._validate_alignment(boxes, orig_shape)
@@ -2386,6 +2827,7 @@ class Results:
         self.actions = actions
         self.generated = generated
         self.gaussians = gaussians
+        self.flow = flow
         # Integer upscale factor of a restore/super-resolution result: the
         # restored canvas is ``restore_scale`` times the input. 1 for
         # deblur/denoise and every non-restore task.
@@ -2401,6 +2843,9 @@ class Results:
         )
         self.frame_idx = frame_idx
         self.orig_img = orig_img
+        # One-based reading-order rank per box (document layout families),
+        # aligned with ``boxes`` and sliced in lockstep like ``track_id``.
+        self.reading_order = reading_order
 
     @property
     def orig_img(self) -> np.ndarray | None:
@@ -2452,6 +2897,7 @@ class Results:
             "actions": self.actions,
             "generated": self.generated,
             "gaussians": self.gaussians,
+            "flow": self.flow,
             "restore_scale": self.restore_scale,
             "embeddings": self.embeddings,
             "identities": self.identities,
@@ -2459,6 +2905,7 @@ class Results:
             "track_id": self.track_id,
             "frame_idx": self.frame_idx,
             "orig_img": self._orig_img,
+            "reading_order": self.reading_order,
         }
         data.update(overrides)
         return Results(**data)
@@ -2488,14 +2935,16 @@ class Results:
                 getattr(value, method)(*args, **kwargs) if value is not None else None
             )
 
-        if method == "cpu":
-            overrides["track_id"] = _cpu(self.track_id)
-        elif method == "numpy":
-            overrides["track_id"] = _numpy(self.track_id)
-        elif method == "to":
-            overrides["track_id"] = _move(self.track_id, *args, **kwargs)
-        elif method == "__getitem__":
-            overrides["track_id"] = _slice_first(self.track_id, args[0])
+        for key in ("track_id", "reading_order"):
+            value = getattr(self, key)
+            if method == "cpu":
+                overrides[key] = _cpu(value)
+            elif method == "numpy":
+                overrides[key] = _numpy(value)
+            elif method == "to":
+                overrides[key] = _move(value, *args, **kwargs)
+            elif method == "__getitem__":
+                overrides[key] = _slice_first(value, args[0])
 
         return self._new(**overrides)
 
@@ -2503,7 +2952,44 @@ class Results:
         return self._apply("__getitem__", idx)
 
     def __getitem__(self, idx) -> "Results":
+        """Index the image (an int) or select detections (anything else).
+
+        ``predict()`` of one image returns one Results, and code written for
+        a per-image list does ``results[0].boxes``. So an integer index
+        treats the Results as a batch of one image: ``results[0]`` (and
+        ``results[-1]``) return the whole result, all detections included.
+        Slices, boolean masks and index arrays select detections, as before:
+        ``results[:1]`` is the first detection, ``results[conf > 0.5]`` a
+        filter. Other integers still select one detection but are deprecated;
+        use ``results[i:i + 1]`` or ``results.boxes[i]``.
+        """
+        if _is_scalar_int(idx):
+            if int(idx) in (0, -1):
+                if len(self) > 1:
+                    _warn_image_indexing_once()
+                return self
+            warnings.warn(
+                f"Results[{int(idx)}] selects one detection, which is "
+                "deprecated: an integer index now picks the image, as for the "
+                "list predict() returns for several images. Use "
+                f"results[{int(idx)}:{int(idx) + 1}] or "
+                f"results.boxes[{int(idx)}] instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         return self._select(idx)
+
+    def __iter__(self):
+        """Iterate as a batch of one image: yields this Results once.
+
+        ``for r in model(image)`` then works like iterating the list
+        ``predict()`` returns for several images. Iterate detections with
+        ``for i in range(len(results)): results[i:i + 1]`` or over
+        ``results.boxes``.
+        """
+        if len(self) > 1:
+            _warn_image_indexing_once()
+        yield self
 
     def update(
         self,
@@ -2534,6 +3020,8 @@ class Results:
         actions: Optional[Actions] = None,
         generated: Optional[GeneratedImage] = None,
         gaussians: Optional[Gaussians] = None,
+        flow: Optional[FlowField] = None,
+        reading_order: Optional[TensorLike] = None,
     ) -> "Results":
         aligned_cuboids = boxes3d if boxes3d is not None else self.boxes3d
         if aligned_cuboids is not None:
@@ -2590,6 +3078,17 @@ class Results:
             self.generated = generated
         if gaussians is not None:
             self.gaussians = gaussians
+        if flow is not None:
+            self.flow = (
+                flow
+                if flow.orig_shape == tuple(self.orig_shape)
+                else FlowField(
+                    flow.data,
+                    self.orig_shape,
+                    confidence=flow.confidence,
+                    next_frame=flow.next_frame,
+                )
+            )
         if meshes is not None:
             self.meshes = meshes
         if matte is not None:
@@ -2603,7 +3102,13 @@ class Results:
                 ocr
                 if ocr.orig_shape is not None
                 else OCRRegions(
-                    ocr.data, ocr.texts, ocr.conf, ocr.det_conf, self.orig_shape
+                    ocr.data,
+                    ocr.texts,
+                    ocr.conf,
+                    ocr.det_conf,
+                    self.orig_shape,
+                    ocr.labels,
+                    ocr.markdown,
                 )
             )
         if restore_scale is not None:
@@ -2616,6 +3121,8 @@ class Results:
             self.track_id = track_id
             if self.boxes is not None:
                 self.boxes = self.boxes.with_id(track_id)
+        if reading_order is not None:
+            self.reading_order = reading_order
         return self
 
     @property
@@ -2642,15 +3149,29 @@ class Results:
         show: bool = False,
         save: bool = False,
         filename: str | None = None,
+        arrows: bool = False,
+        arrow_step: int = 16,
+        arrow_scale: float = 1.0,
+        warp: bool = False,
     ):
         """Render the result on its source image.
 
         Boxes, masks, OBB, keypoints, points, OCR, semantic and panoptic maps,
         and classification top-5 draw exactly like ``predict(save=True)`` and
         return an ``HxWx3`` uint8 BGR array. Dense maps (depth, normal, edge,
-        albedo), 3D cuboids, action chunks, generated images and a preview of
-        generated Gaussians (rendered from the inferred input camera) return a
-        PIL image. ``pil`` forces either return type.
+        albedo, optical flow), 3D cuboids, action chunks, generated images and
+        a preview of generated Gaussians (rendered from the inferred input
+        camera) return a PIL image. ``pil`` forces either return type.
+
+        Optical flow has three views. The default is the Middlebury colour
+        wheel (hue is direction, saturation is speed). ``arrows=True`` draws
+        the source frame with one yellow arrow every ``arrow_step`` pixels,
+        stretched by ``arrow_scale``, vectors under 1 px skipped.
+        ``warp=True`` puts the source frame on the left and the next frame
+        warped back onto it with the flow on the right, so a correct flow
+        makes the two panels look alike; it needs ``flow.next_frame``, which
+        predict attaches. ``arrows`` and ``warp`` together draw the arrows on
+        the left panel.
 
         The source image is ``img`` (BGR array or PIL image), else ``image``
         (RGB array or PIL image), else the image kept by predict
@@ -2664,7 +3185,9 @@ class Results:
                 if isinstance(img, np.ndarray)
                 else img
             )
-        rendered = self._plot_dense(image)
+        rendered = self._plot_dense(
+            image, arrows=arrows, arrow_step=arrow_step, arrow_scale=arrow_scale, warp=warp
+        )
         default_pil = rendered is not None
         if rendered is None:
             from .drawing import draw_results
@@ -2684,23 +3207,81 @@ class Results:
             rendered.show()
         if save or filename:
             if filename is None:
-                source = Path(self.path) if self.path else Path("image.jpg")
-                if source.suffix.lower() in Image.registered_extensions():
-                    filename = f"results_{source.name}"
-                else:
-                    # A video frame or clip: name the still after the video.
-                    frame = f"_{self.frame_idx}" if self.frame_idx is not None else ""
-                    filename = f"results_{source.stem}{frame}.jpg"
+                filename = self._default_plot_filename()
             Path(filename).parent.mkdir(parents=True, exist_ok=True)
             rendered.save(filename)
         if pil if pil is not None else default_pil:
             return rendered
         return np.ascontiguousarray(np.asarray(rendered.convert("RGB"))[..., ::-1])
 
-    def _plot_dense(self, image=None):
+    def show(self, *args, **kwargs) -> None:
+        """Display the annotated result: ``plot(show=True)`` without a return."""
+        kwargs["show"] = True
+        self.plot(*args, **kwargs)
+
+    def _default_plot_filename(self) -> str:
+        """``results_<image name>``, or ``results_<video stem>[_<frame>].jpg``."""
+        from PIL import Image
+
+        source = Path(self.path) if self.path else Path("image.jpg")
+        if source.suffix.lower() in Image.registered_extensions():
+            return f"results_{source.name}"
+        # A video frame or clip: name the still after the video.
+        frame = f"_{self.frame_idx}" if self.frame_idx is not None else ""
+        return f"results_{source.stem}{frame}.jpg"
+
+    def _plot_flow(
+        self,
+        image=None,
+        *,
+        arrows: bool = False,
+        arrow_step: int = 16,
+        arrow_scale: float = 1.0,
+        warp: bool = False,
+    ):
+        """The three flow views: colour wheel, arrows on the frame, warp check."""
+        from PIL import Image
+        from .drawing import draw_flow
+
+        h, w = self.orig_shape
+        if not arrows and not warp:
+            return draw_flow(Image.new("RGB", (w, h)), self.flow.array)
+        frame = Image.fromarray(self._source_rgb(image, self.orig_shape))
+        left = (
+            draw_flow(frame, self.flow.array, arrows=True, step=arrow_step, scale=arrow_scale)
+            if arrows
+            else frame
+        )
+        if not warp:
+            return left
+        if self.flow.next_frame is None:
+            raise ValueError(
+                "plot(warp=True) needs the next frame, but Results.flow.next_frame is "
+                "None. Predict attaches it; for a hand-built FlowField pass "
+                "next_frame=<HxWx3 RGB uint8 array>, or call flow.warp(image) yourself."
+            )
+        right = Image.fromarray(self.flow.warp(self.flow.next_frame))
+        panels = Image.new("RGB", (2 * w, h))
+        panels.paste(left, (0, 0))
+        panels.paste(right, (w, 0))
+        return panels
+
+    def _plot_dense(
+        self,
+        image=None,
+        *,
+        arrows: bool = False,
+        arrow_step: int = 16,
+        arrow_scale: float = 1.0,
+        warp: bool = False,
+    ):
         """Render dense outputs, cuboids, actions or a generated image or object; else None."""
         if self.generated is not None:
             return self.generated.image
+        if self.flow is not None:
+            return self._plot_flow(
+                image, arrows=arrows, arrow_step=arrow_step, arrow_scale=arrow_scale, warp=warp
+            )
         if self.gaussians is not None:
             return self.gaussians.render()
         if self.actions is not None:
@@ -2826,14 +3407,45 @@ class Results:
             cap.release()
         return frame[..., ::-1] if ok else None
 
-    def save(self, path: str, image: Any = None) -> str:
-        """Save a generated image or 3D object, or a matte result as a transparent RGBA PNG.
+    def save(
+        self,
+        path: str | None = None,
+        image: Any = None,
+        *,
+        filename: str | None = None,
+        **plot_kwargs,
+    ) -> str:
+        """Save the result and return the written path.
 
-        Returns the written path. Generated Gaussians go to ``.ply`` or
-        ``.splat``. A matte cutout requires the source image (via ``image``
-        or ``self.path``).
+        A generated image or 3D object is saved as itself (Gaussians to
+        ``.ply`` or ``.splat``, a generated mesh to ``.obj``), and a matte as
+        a transparent RGBA PNG cutout, which needs the source image (via
+        ``image`` or ``self.path``); these need a path. Every other result
+        saves its annotated image, ``plot(save=True)``, to ``path`` (default
+        ``results_<image name>``); ``plot_kwargs`` go to :meth:`plot`.
+        ``filename`` is another name for ``path``.
         """
         from PIL import Image
+
+        if filename is not None:
+            if path is not None and str(path) != str(filename):
+                raise TypeError("Pass the output file as path or filename, not both.")
+            path = filename
+        if self.generated is None and self.gaussians is None and self.matte is None and (
+            self.meshes is None or self.boxes is not None
+        ):
+            if plot_kwargs.pop("save", True) is False:
+                raise TypeError("save() always saves; drop save=False.")
+            plot_kwargs.pop("show", None)
+            path = path if path is not None else self._default_plot_filename()
+            self.plot(image, save=True, filename=str(path), **plot_kwargs)
+            return str(path)
+        if plot_kwargs:
+            raise TypeError(
+                f"save() got unexpected keyword arguments: {', '.join(sorted(plot_kwargs))}"
+            )
+        if path is None:
+            raise TypeError("save() needs a path for this result, e.g. result.save('out.png').")
 
         if self.generated is not None:
             self.generated.save(path)
@@ -2841,12 +3453,12 @@ class Results:
         if self.gaussians is not None:
             self.gaussians.save(path)
             return str(path)
-        if self.matte is None:
-            raise NotImplementedError(
-                "Results.save() writes a generated image or 3D object, or a "
-                "transparent-PNG matte cutout. Use result.plot(save=True) or CLI "
-                "--save for other tasks."
-            )
+        if self.meshes is not None and self.boxes is None:
+            # A generated object (one row, no person boxes).
+            if Path(path).suffix.lower() != ".obj":
+                raise ValueError(f"A generated mesh saves as .obj, got {path!r}.")
+            self.meshes.save_obj(path)
+            return str(path)
         rgba = self.cutout(image=image)
         out = Path(path)
         if out.parent and str(out.parent) not in (".", ""):
@@ -2867,6 +3479,22 @@ class Results:
                 return [self.generated.to_dict()]
             if self.gaussians is not None:
                 return [self.gaussians.to_dict()]
+            if self.meshes is not None:
+                return [
+                    {
+                        "name": "mesh",
+                        "body_model": self.meshes.body_model,
+                        "num_vertices": self.meshes.num_vertices,
+                        "num_faces": 0
+                        if self.meshes.faces is None
+                        else int(self.meshes.faces.shape[0]),
+                        **(
+                            {"seed": self.meshes.seed, **self.meshes.generation_params}
+                            if self.meshes.seed is not None
+                            else {}
+                        ),
+                    }
+                ]
             if self.embeddings is not None:
                 emb = (
                     self.embeddings.numpy()
@@ -2897,7 +3525,7 @@ class Results:
                         polygon = polygon / np.array([w, h], dtype=float)
                     rows.append(
                         {
-                            "name": "text",
+                            "name": ocr_np.labels[i] if ocr_np.labels else "text",
                             "text": ocr_np.texts[i],
                             "confidence": round(float(ocr_np.conf[i]), decimals),
                             "det_confidence": round(
@@ -2962,6 +3590,17 @@ class Results:
                         }
                     )
                 return rows
+            if self.flow is not None:
+                h, w = self.flow.orig_shape
+                return [
+                    {
+                        "name": "flow",
+                        "shape": [int(h), int(w), 2],
+                        "max_magnitude": round(self.flow.max_magnitude, decimals),
+                        "mean_magnitude": round(self.flow.mean_magnitude, decimals),
+                        "has_confidence": self.flow.confidence is not None,
+                    }
+                ]
             if self.depth_map is not None:
                 return [
                     {
@@ -3045,6 +3684,7 @@ class Results:
         meshes_np = self.meshes.numpy() if self.meshes is not None else None
         cuboids = self.boxes3d.numpy() if self.boxes3d is not None else None
         track_ids = _numpy(self.track_id)
+        reading_order = _numpy(self.reading_order)
         rows = []
         for i in range(len(boxes_np)):
             cls_id = int(boxes_np.cls[i])
@@ -3161,6 +3801,8 @@ class Results:
                 row["mesh"] = mesh_row
             if track_ids is not None:
                 row["track_id"] = int(track_ids[i])
+            if reading_order is not None:
+                row["reading_order"] = int(reading_order[i])
             rows.append(row)
         return rows
 
@@ -3187,6 +3829,8 @@ class Results:
         if self.panoptic is not None:
             return 1
         if self.depth_map is not None:
+            return 1
+        if self.flow is not None:
             return 1
         if self.normal_map is not None:
             return 1
@@ -3220,6 +3864,8 @@ class Results:
             parts.append(f"panoptic={self.panoptic}")
         if self.depth_map is not None:
             parts.append(f"depth_map={self.depth_map}")
+        if self.flow is not None:
+            parts.append(f"flow={self.flow}")
         if self.normal_map is not None:
             parts.append(f"normal_map={self.normal_map}")
         if self.albedo is not None:
@@ -3246,6 +3892,8 @@ class Results:
             parts.append(f"gaussians={self.gaussians}")
         if self.track_id is not None:
             parts.append(f"track_ids={len(self.track_id)}")
+        if self.reading_order is not None:
+            parts.append(f"reading_order={len(self.reading_order)}")
         if self.frame_idx is not None:
             parts.append(f"frame_idx={self.frame_idx}")
         return f"Results({', '.join(parts)})"

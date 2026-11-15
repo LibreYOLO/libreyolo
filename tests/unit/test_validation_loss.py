@@ -1007,6 +1007,7 @@ _VAL_LOSS_FAMILIES = {
     "libreyolo.models.dinov2.trainer": "DINOv2Trainer",
     "libreyolo.models.vjepa2.trainer": "VJEPA2Trainer",
     "libreyolo.models.nafnet.trainer": "NAFNetTrainer",
+    "libreyolo.models.instanthmr.trainer": "InstantHMRFineTuner",
 }
 
 

@@ -269,6 +269,24 @@ project the weights were derived from. Per-family summary:
              weights/convert_rtdetrv2_weights.py; conversion preserves learned
              tensors and adds only LibreYOLO checkpoint metadata.
 
+    RiO-DETRv2                                         Apache-2.0
+             (LibreRiODETRv2{n,s,m,l,x}-obb, DOTA-v1.0;
+              LibreRiODETRv2{n,s,m,l,x}-obb-diorr, DIOR-R)
+             upstream code: RicePasteM/RiO-DETRv2 at commit
+               ab8b22df5d800a927774c8c67e77fd29c0fe6967 (Apache-2.0
+               release; preserved as LibreYOLO/RiO-DETRv2 tag
+               apache-2.0-ab8b22d). Upstream relicensed to AGPL-3.0
+               afterwards with no code changes; the port relies on the
+               Apache-2.0 grant of the initial release.
+             official checkpoints: RicePasteM/RiO-DETRv2 (Hugging Face,
+               license: apache-2.0) at revision
+               5f578f57929aded1962ebf8c5584a4771461124f
+             converted mirrors carry the upstream Apache License 2.0 and
+             NOTICE. Conversion renames encoder input-projection keys and
+             drops the training-only distillation projector; learned
+             tensors are unchanged. The DOTA-v1.0 and DIOR-R training data
+             are not bundled and carry their own terms.
+
     DETR     (LibreDETR{r50,r50dc5,r101,r101dc5})      Apache-2.0
              upstream: facebookresearch/detr, commit
              29901c51d7fe8712168b8d0d64351170bc0f83e0.
@@ -384,6 +402,27 @@ project the weights were derived from. Per-family summary:
              any-view checkpoints are not hosted. CC-BY-NC-4.0
              Large/Giant/Nested checkpoints are explicitly excluded.
 
+    Video Depth Anything (LibreVideoDepthAnythings-depth)  Apache-2.0
+    Video Depth Anything (LibreVideoDepthAnything{b,l}-depth) CC BY-NC 4.0
+             upstream: depth-anything/Video-Depth-Anything-{Small,Base,Large}
+             pinned revisions: 256875362cff76724b920335dfb4b29dd611f66e,
+               7231d0c6e260f54f103eba5005d01f6efa4f43db,
+               7aafbcb5c6af0bac741aad2b6471894fb4761afa
+             Tensors are unchanged; conversion adds LibreYOLO checkpoint
+             metadata. b and l are non-commercial. Metric checkpoints are
+             not hosted.
+             Convert with weights/convert_video_depth_anything_weights.py.
+
+    SEA-RAFT (LibreSEARAFT{s,m,l}-flow)                BSD-3-Clause
+             upstream: princeton-vl/SEA-RAFT, checkpoints
+             MemorySlices/Tartan-C-T-TSKH-spring540x960-{S,M}
+             (revisions 31b9b4b711bd2d0d0d38cb99d93ba144beb2dc92 and
+             eb97ef34ba5d856c3fa2cdcd073150c057ac8b69). l is the M
+             checkpoint run with 12 iterations. Tensors are unchanged; the
+             converter re-adds the BatchNorm aliases safetensors stores once
+             and adds LibreYOLO checkpoint metadata.
+             Convert with weights/convert_searaft_weights.py.
+
     MiDaS    (LibreMiDaS{s,l}-depth)                   upstream download only
              upstream: isl-org/MiDaS release assets
              midas_v21_small_256.pt SHA-256:
@@ -396,6 +435,20 @@ project the weights were derived from. Per-family summary:
              Runtime auto-download uses the official GitHub release URLs,
              verifies these hashes, safely loads the raw state dict, and adds
              LibreYOLO metadata locally. See docs/provenance/midas.md.
+
+    MoGe-3  (LibreMoGe3{l,g}-{depth,normal})           MIT
+             upstream / pinned revision / model.pt SHA-256:
+             Ruicheng/moge-3-vitl
+               184008f877d7ad1ad4c2cd2182a9bd1f63d0e5be
+               9b41b7b9f65ad80aab7ad686f5e9cc0d1fd33f1964022618dfbcd52fc1fb7925
+             Ruicheng/moge-3-vitg
+               6ef26c5a4b4148dab5ccaacdb08b72dc66380475
+               ce7c15417e9105c2ace7b4272e2cc69e36940921211eb7fa05d4d0bb03f0a00c
+             Both upstream Hugging Face model cards declare license: mit.
+             Conversion keeps every tensor unchanged and adds LibreYOLO
+             checkpoint metadata; the depth and normal files share tensors.
+             Mirrored at LibreYOLO/LibreMoGe3{l,g}-{depth,normal} and
+             checksum-pinned. Convert with weights/convert_moge3_weights.py.
 
     MoGe-2  (LibreMoGe2{s,b,l}-normal)                 MIT
              upstream / pinned revision / model.pt SHA-256:
@@ -556,10 +609,34 @@ project the weights were derived from. Per-family summary:
              metadata (Apache-2.0, attribution in
              libreyolo/models/ppocr/NOTICE).
 
+    PP-DocLayoutV3 (LibreYOLO/LibrePPDocLayoutV3l)       Apache-2.0
+             upstream: PaddlePaddle/PP-DocLayoutV3_safetensors revision
+             e4f489dc536556fc1be02b973ba06756e0d4a2ac (model card declares
+             Apache-2.0; the weight repository ships no LICENSE file, so the
+             mirror carries the Apache-2.0 text of the releasing PaddleOCR
+             project). Conversion removes the "model." key prefix and adds
+             LibreYOLO metadata (weights/convert_ppdoclayoutv3_weights.py);
+             learned parameters are unchanged.
+
     SAM 3    (facebook/sam3 snapshot; not rehosted)   custom SAM License
              upstream: facebook/sam3 on Hugging Face. Access is gated and
              requires accepting Meta's terms. LibreYOLO downloads the weights
              directly and does not distribute them under the MIT license.
+
+    SAM 3.1 (LibreYOLO/LibreSAM31large)               SAM License (restricted)
+             upstream: facebook/sam3.1 revision
+             daa63191845a41281374e725f4c9e51c7a824460, sam3.1_multiplex.pt
+             (SHA-256 0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6).
+             Image path only (detector and interactive SAM head), converted to
+             the Transformers SAM 3 layout by weights/convert_sam31_weights.py:
+             key renames, QKV split, class-token position embedding dropped,
+             CLIP projection transposed, point embeddings concatenated, and
+             the unused fourth FPN level zero-filled. No learned value is
+             changed; the Object Multiplex video weights are not mirrored.
+             The SAM License permits redistribution when its terms are passed
+             through, so the mirror carries the license verbatim and an
+             automatic access gate (SAM 3D Body precedent). The weights are
+             NOT covered by LibreYOLO's MIT license.
 
     EdgeTAM (LibreYOLO/LibreEdgeTAM)                   Apache-2.0
              Converted from facebook/EdgeTAM revision
@@ -604,6 +681,27 @@ project the weights were derived from. Per-family summary:
              No upstream code is ported; libreyolo/models/sam3dbody/ is
              LibreYOLO's own MIT wrapper around the optional upstream
              package. See THIRD_PARTY_NOTICES.txt for the full description.
+
+    InstantHMR (LibreInstantHMR{n,t,s,m}-mesh)        CC BY-NC 4.0 (non-commercial)
+    InstantHMR (LibreInstantHMRm-mesh-commercial)    Apache-2.0
+             upstream: Naturalpad-studio/InstantHMR (code Apache-2.0, commit
+               5437400d4b25c1972821e51916fac34bd96acce6); weights:
+               momolesang/InstantHMR revision
+               07988f51c8c8908cfc7bb44fc18f645c9551b0bf, published as ONNX
+               only and converted to PyTorch by
+               weights/convert_instanthmr_weights.py (a format conversion
+               of the released weights; BatchNorm layers are rebuilt from
+               the folded graph and given running statistics measured on
+               coco128 person crops, with unchanged eval-mode output).
+             The n/t/s/m weights are CC BY-NC 4.0 because part of their
+             training images (SA-1B, AI Challenger) are non-commercial. The
+             commercial variant was trained on Harmony4D and commercially
+             licensed COCO images only and is Apache-2.0. Every variant was
+             trained on the SAM 3D Body dataset annotations, released by
+             Meta under the SAM License, whose terms are passed through with
+             the weights. The checkpoints embed the MHR body constants (MHR,
+             Apache-2.0). A notice is printed before auto-download. NOT
+             covered by LibreYOLO's permissive license.
 
     Face recognition (librefacerec-l.onnx,             per-file, see below
               librefacerec-det.onnx)
@@ -755,6 +853,13 @@ mirrored or bundled by LibreYOLO.
              ee0ef6023621cff504d758262d4e04895a5af4a2.
              Learned parameters unchanged.
 
+    Qwen3-VL-Embedding 2B (LibreQwen3VLEmbedding2b)  Apache-2.0
+             mirrored snapshot of Qwen/Qwen3-VL-Embedding-2B @
+             9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda. The upstream
+             repo ships no LICENSE file; the Apache-2.0 text is from
+             QwenLM/Qwen3-VL-Embedding @ 393e2978. Learned parameters
+             unchanged.
+
     Moondream 2 (LibreMoondream2)                      Apache-2.0
              mirrored snapshot of vikhyatk/moondream2 @ 9a7d402
              (2025-06-21). Learned parameters unchanged.
@@ -810,8 +915,8 @@ WildDet3D (LibreYOLO/LibreWildDet3D; byte-identical upstream mirror)
     Filename: wilddet3d_alldata_all_prompt_v1.0.pt
     SHA-256: f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57
 
-DINOv3 ViT-H+/16 encoder for Speridlabs Idol (LibreYOLO/LibreDINOv3vith16plus;
-bfloat16 mirror)
+DINOv3 ViT-H+/16 encoder for Speridlabs Idol and TripoSplat
+(LibreYOLO/LibreDINOv3vith16plus; bfloat16 mirror)
     Source: https://huggingface.co/facebook/dinov3-vith16plus-pretrain-lvd1689m
             revision c807c9eeea853df70aec4069e6f56b28ddc82acc
     License: Meta's DINOv3 License, a custom non-OSI agreement. It permits
@@ -944,6 +1049,104 @@ and Qwen3-VL-4B-Instruct (Apache-2.0, Copyright 2024 Alibaba Cloud), as stated
 in each repository's LICENSE. Ported inference code: see
 libreyolo/models/wevisone/NOTICE.
 
+Falcon Perception (LibreFalconPerception 300m / 600m)    Apache-2.0
+Early-fusion text-query detection and segmentation
+---------------------------------------------------
+
+Upstream: Technology Innovation Institute (TII), https://github.com/tiiuae/Falcon-Perception
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+tiiuae/Falcon-Perception      @ a3e21ada0abd533393776ffab8908a728f775509  (600m)
+tiiuae/Falcon-Perception-300M @ 36993684b3ba5945b22d01e705f8ff2e048bf0b0  (300m)
+
+The 300m checkpoint has no mask head (detect only). Both model cards declare
+Apache-2.0. Ported inference code: see libreyolo/models/falcon_perception/NOTICE.
+
+
+
+DeepSeek-OCR (LibreDeepSeekOCR 1)                    MIT
+3B MoE document OCR vision-language model
+-----------------------------------------
+
+Upstream: DeepSeek, https://huggingface.co/deepseek-ai/DeepSeek-OCR
+License: MIT (model card YAML and repository LICENSE)
+Copyright (c) 2023 DeepSeek
+
+Hosted by LibreYOLO as a byte-identical snapshot mirror (safetensors, config,
+tokenizer; the upstream remote-code Python files are not included):
+
+LibreYOLO/LibreDeepSeekOCR1 @ a47622e3fb7279eaed206ab5d656158b71976b5b
+  mirrored from deepseek-ai/DeepSeek-OCR @ 9f30c71f441d010e5429c532364a86705536c53a
+
+DeepSeek-OCR-2 (LibreDeepSeekOCR 2)                  Apache-2.0
+Upstream: DeepSeek, https://huggingface.co/deepseek-ai/DeepSeek-OCR-2
+License: Apache-2.0 (model card YAML and repository LICENSE.txt, shipped
+verbatim as LICENSE in the mirror)
+
+LibreYOLO/LibreDeepSeekOCR2 @ 9958a0a3fe52c14219cc3008d4bb85a4db875083
+  mirrored from deepseek-ai/DeepSeek-OCR-2 @ aaa02f3811945a91062062994c5c4a3f4c0af2b0
+
+No learned parameters were changed in either mirror. Ported inference code:
+see libreyolo/models/deepseekocr/NOTICE.
+
+PaddleOCR-VL (LibrePaddleOCRVL 0.9b)                  Apache-2.0
+PaddleOCR-VL-0.9B recognizer plus PP-DocLayoutV2 layout detector
+----------------------------------------------------------------
+
+Upstream: PaddlePaddle, https://huggingface.co/PaddlePaddle/PaddleOCR-VL
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright (c) PaddlePaddle Authors.
+
+Mirrored, unmodified, at LibreYOLO/LibrePaddleOCRVL0.9b
+(@ 9fe2730f6d29e4a3805175312114ef70d1e4c9d6) from:
+
+PaddlePaddle/PaddleOCR-VL @ 7fa00a8c55b735ba51ba49a9058f3f9c57a99a11 (root)
+PaddlePaddle/PP-DocLayoutV2_safetensors @ 880e8971b88938518611c54fc0f59ad57849c9d4
+(layout/)
+
+The recognizer's language model is initialized from ERNIE-4.5-0.3B (Baidu,
+Apache-2.0), per the upstream model card. The mirror ships LICENSE and NOTICE.
+Ported pipeline code: see libreyolo/models/paddleocrvl/NOTICE.
+
+GLM-OCR (LibreGLMOCR 0.9b)                    MIT (recognizer), Apache-2.0 (layout)
+GLM-OCR recognizer plus PP-DocLayoutV3 layout detector
+------------------------------------------------------
+
+Upstream: Z.ai (zai-org), https://huggingface.co/zai-org/GLM-OCR
+License: MIT, as declared by the upstream model card ("The GLM-OCR model is
+released under the MIT License."); upstream ships no license file or
+copyright line. The layout detector is Apache-2.0 (full text:
+licenses/Apache-2.0.txt in LibreYOLO), Copyright (c) PaddlePaddle Authors.
+
+Mirrored, unmodified, at LibreYOLO/LibreGLMOCR0.9b
+(@ 196bf843d3b7e8b8e7bc55edd1580c2455a7fb02) from:
+
+zai-org/GLM-OCR @ 2e85a62840ccac27daa451df36c736c4636b8628 (root)
+PaddlePaddle/PP-DocLayoutV3_safetensors @ e4f489dc536556fc1be02b973ba06756e0d4a2ac
+(layout/)
+
+The mirror ships LICENSE and NOTICE. Ported pipeline code: see
+libreyolo/models/glmocr/NOTICE.
+
+Falcon OCR (LibreFalconOCR 270m)                       Apache-2.0
+Early-fusion document OCR model, version 1.5
+------------------------------------------------------------
+
+Upstream: Technology Innovation Institute, https://huggingface.co/tiiuae/Falcon-OCR
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+Mirrored, unmodified, at LibreYOLO/LibreFalconOCR270m
+(@ 00657b06ef217f0eb87120141adf0ea2971c9b41) from tiiuae/Falcon-OCR @
+0bc28f89c90fbe8bdb063097fab144d4ce4c19b5. The upstream repository declares
+Apache-2.0 in its model card; the license text and NOTICE come from TII's
+code repository https://github.com/tiiuae/Falcon-Perception, whose NOTICE
+covers the model weights. The mirror ships LICENSE and NOTICE.
+Ported inference code: see libreyolo/models/falconocr/NOTICE.
+
 
 Speridlabs Idol (LibreSperidlabsIdol 0.6b)              Apache-2.0
 Image-to-3D Gaussian splats
@@ -963,9 +1166,258 @@ bfloat16 mirror LibreYOLO/LibreDINOv3vith16plus under Meta's DINOv3 License
 libreyolo/models/gen/speridlabs_idol/NOTICE.
 
 
+Speridlabs Iris-Z (LibreSperidlabsIrisZ 9b, 32b)        FLUX Non-Commercial
+Text-to-image and image-to-depth
+--------------------------------
+
+Upstream: Speridlabs, https://huggingface.co/speridlabs/iris-z
+License: FLUX Non-Commercial License,
+https://huggingface.co/black-forest-labs/FLUX.2-dev/blob/main/LICENSE.txt
+(the weights are derived from FLUX.2 [dev] and FLUX.2 [klein] Base 9B).
+
+Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
+
+speridlabs/iris-z @ 16239e1a5444c484b11a04b61d633eceb768574c
+  (9b: Iris-Z-small/, 32b: Iris-Z-big/)
+
+Non-commercial use only. Section 2(e) of the license asks for content
+filtering or review of generated images before they are shared. The FLUX.2
+VAE comes from black-forest-labs/FLUX.2-klein-4B (see the FLUX.2 klein entry
+below). Text encoders, downloaded from their publishers (Apache-2.0):
+mistralai/Mistral-Small-3.2-24B-Instruct-2506 @
+95a6d26c4bfb886c58daf9d3f7332c857cb27b43 with the processor of
+mistralai/Mistral-Small-3.1-24B-Instruct-2503 @
+68faf511d618ef198fef186659617cfd2eb8e33a (32b), and Qwen/Qwen3-8B-FP8 @
+220b46e3b2180893580a4454f21f22d3ebb187d3 (9b). Ported inference code: see
+libreyolo/models/gen/speridlabs_irisz/NOTICE.
+
+
+Open Vision Banana (LibreOpenVisionBanana 4b, 9b)       FLUX Non-Commercial
+Perception as images: segmentation, depth, normals, editing, text-to-image
+--------------------------------------------------------------------------
+
+Upstream: FunAILab, https://huggingface.co/FunAILab/Open-Vision-Banana
+(code: https://github.com/OpenVisionBanana/OpenVisionBanana, Apache-2.0)
+License: FLUX Non-Commercial License,
+https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/blob/main/LICENSE.md
+(the weights are fine-tunes of FLUX.2 [klein] Base 4B and 9B).
+
+Redistributed by LibreYOLO as complete diffusers pipelines:
+
+LibreYOLO/LibreOpenVisionBanana4b @ f279d483b6b7bab1ed9e9e503436e8d25e630496
+LibreYOLO/LibreOpenVisionBanana9b @ 7a01bb2c1e9dd72678032beb126d2670cb724dd6
+
+The transformer is FunAILab's non-zero-shot paper checkpoint from
+FunAILab/Open-Vision-Banana @ be5da66250cc385ff9c75ebbe4114e13ec305848
+(4b: final_models/4B/nonzeroshot/checkpoint-avg90000-92500-97500-100000_uniform,
+9b: final_models/9B/nonzeroshot/checkpoint-avg82500-85000-87500-92500-97500_uniform),
+cast from float32 to bfloat16 and otherwise unchanged. Scheduler, Qwen3 text
+encoder, tokenizer and VAE are byte-identical copies of
+black-forest-labs/FLUX.2-klein-base-4B @ a3b4f4849157f664bdbc776fd7453c2783562f4d
+(Apache-2.0) and black-forest-labs/FLUX.2-klein-base-9B @
+32773329fbe7e81a90ef971740e8ba4b0364ecf3 (FLUX Non-Commercial License).
+Non-commercial use only. Section 2(e) of the license asks for content
+filtering or review of generated images before they are shared.
+
+
+LGM (LibreLGM 0.4b)                                    MIT
+Image-to-3D Gaussian splats
+---------------------------
+
+Upstream: Jiaxiang Tang et al., https://huggingface.co/ashawkey/LGM
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreLGM0.4b @
+492f8ab3a45e79073df505ebc28f5c3beb479303 (with LICENSE and NOTICE), mirrored
+from ashawkey/LGM @ bc0097d24ffc5efc2e6a216edd579128f85f53ab. SHA-256 equals
+upstream's:
+  model_fp16_fixrot.safetensors
+    744d6324656342c64f871308e73db97f0eb51858d94329b30090e986a6d050ab
+The mirror also holds the BiRefNet weights (ZhengPeng7/BiRefNet, MIT,
+SHA-256 9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154).
+
+LGM's multi-view stage, ImageDream                      CreativeML OpenRAIL++-M
+-----------------------------------
+
+Upstream: https://huggingface.co/ashawkey/imagedream-ipmv-diffusers, a diffusers
+port of Peng-Wang/ImageDream (fine-tuned from MVDream and Stable Diffusion 2.1
+base), with the LAION CLIP-ViT-H-14 image encoder (MIT).
+License: declared "openrail" upstream with no license text. As a Stable
+Diffusion 2.1 derivative it carries the CreativeML Open RAIL++-M License
+(Stability AI, November 24, 2022), whose use-based restrictions apply to
+users; LibreYOLO ships that license verbatim. LibreYOLO's reading, not a
+statement by the upstream authors.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreImageDream @
+9076f3a181027f8172ec1abed27faddfeca7f7d5 (with LICENSE and NOTICE), mirrored
+from ashawkey/imagedream-ipmv-diffusers @
+73a034178e748421506492e91790cc62d6aefef5 without upstream's remote-code .py
+files. SHA-256 of each weight file equals upstream's:
+  unet/diffusion_pytorch_model.safetensors
+    28d8b241a54125fa0a041c1818a5dcdb717e6f5270eea1268172acd3ab0238e0
+  vae/diffusion_pytorch_model.safetensors
+    3e4c08995484ee61270175e9e7a072b66a6e4eeb5f0c266667fe1f45b90daf9a
+  text_encoder/model.safetensors
+    bc1827c465450322616f06dea41596eac7d493f4e95904dcb51f0fc745c4e13f
+  image_encoder/model.safetensors
+    2a56cfd4ffcf40be097c430324ec184cc37187f6dafef128ef9225438a3c03c4
+Ported inference code: see libreyolo/models/gen/lgm/NOTICE.
+
+TRELLIS.2 (LibreTRELLIS2 4b)                            MIT
+Image-to-3D mesh (geometry)
+---------------------------
+
+Upstream: Microsoft, https://huggingface.co/microsoft/TRELLIS.2-4B
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreTRELLIS2-4b @
+266ce97c4ecf81b9fb090644609aaccc6fa2ce5d (with LICENSE and NOTICE), mirrored
+from microsoft/TRELLIS.2-4B @ af44b45f2e35a493886929c6d786e563ec68364d: the
+geometry networks and pipeline.json only. SHA-256 of each mirrored network
+file equals upstream's:
+  ckpts/ss_flow_img_dit_1_3B_64_bf16.safetensors
+    ca01377c485bec418076d38ee80166d32dc776d744f2553b835cba1e97a7abf6
+  ckpts/slat_flow_img2shape_dit_1_3B_512_bf16.safetensors
+    ec5e0917ef9b7e25ad51dffc7d19687a42019871f94239f2fa7f86264c55b70f
+  ckpts/slat_flow_img2shape_dit_1_3B_1024_bf16.safetensors
+    07cd0596f634c5adc1890023d16023afc5eed02fb84b22bb23aff5bf0030fbbd
+  ckpts/shape_dec_next_dc_f16c32_fp16.safetensors
+    e3b718d3e43e4f8780e9a24ac6fff231811a67e3b058e336e10fe654c911d581
+The sparse-structure decoder and the BiRefNet weights load from
+LibreYOLO/LibreTRELLISl (see TRELLIS below).
+
+DINOv3 ViT-L/16 image encoder (Meta DINOv3 License, NOT MIT): redistributed
+unmodified as LibreYOLO/LibreDINOv3vitl16 @
+7f681024a32a03b7f56a1732455b373834d3ee76 with the agreement, mirrored from
+facebook/dinov3-vitl16-pretrain-lvd1689m @
+ea8dc2863c51be0a264bab82070e3e8836b02d51 (gated upstream).
+  model.safetensors
+    dcb2e45127cccbf1601e5f42fef165eea275c8e5213197e8dcf3f48822718179
+The agreement restricts some uses (Trade Controls, ITAR, military, weapons,
+nuclear, espionage). Ported inference code: see
+libreyolo/models/gen/trellis2/NOTICE.
+
+
+TRELLIS (LibreTRELLIS l)                                MIT
+Image-to-3D Gaussian splats
+---------------------------
+
+Upstream: Microsoft, https://huggingface.co/microsoft/TRELLIS-image-large
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreTRELLISl @
+75c784a8fa56ebfb76f46d9b9d830caec25826a7 (with LICENSE and NOTICE), mirrored
+from microsoft/TRELLIS-image-large @ 25e0d31ffbebe4b5a97464dd851910efc3002d96.
+SHA-256 of each mirrored network file equals upstream's:
+  ckpts/ss_flow_img_dit_L_16l8_fp16.safetensors
+    96dc6bfd4136fd950af564dd16b4ae533c9ba6af8f26c670646b2a9f2789b1db
+The mirror also holds the BiRefNet weights (ZhengPeng7/BiRefNet, MIT,
+SHA-256 9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154) and
+upstream's mesh decoder, which LibreYOLO does not download yet. DINOv2 loads
+from facebook/dinov2-with-registers-large (Apache-2.0) at revision
+e4c89a4e05589de9b3e188688a303d0f3c04d0f3. Ported inference code: see
+libreyolo/models/gen/trellis/NOTICE.
+
+
+TripoSR (LibreTripoSR)                                  MIT
+Image-to-3D mesh
+----------------
+
+Upstream: Tripo AI and Stability AI, https://huggingface.co/stabilityai/TripoSR
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreTripoSR @
+249e9d7749b01a89542aab66c25273cf4ce48646 (with LICENSE and NOTICE), mirrored
+from stabilityai/TripoSR @ 5b521936b01fbe1890f6f9baed0254ab6351c04a.
+SHA-256 of the mirrored files equals upstream's:
+  model.ckpt
+    429e2c6b22a0923967459de24d67f05962b235f79cde6b032aa7ed2ffcd970ee
+BiRefNet weights load from LibreYOLO/LibreTRELLISl (see TRELLIS below).
+Ported inference code: see libreyolo/models/gen/triposr/NOTICE.
+
+Direct3D-S2 (LibreDirect3DS2 v11)                       MIT
+Image-to-3D mesh
+----------------
+
+Upstream: DreamTech, https://huggingface.co/wushuang98/Direct3D-S2
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreDirect3DS2v11 @
+5df0bc1130a6a79e255a8ac22a5e75175c49ad33 (with LICENSE and NOTICE), mirrored
+from wushuang98/Direct3D-S2 @ 8b04a8eddb7a56a0f4e89fe5f5b840c7d5610c00,
+folder direct3d-s2-v-1-1 (the v1.0 folder is not mirrored).
+SHA-256 of the mirrored files equals upstream's:
+  direct3d-s2-v-1-1/model_dense.ckpt
+    5e6598155f907ca15eb9e4fb96905f9df4d10ebc319f9567ea947db8c684d8fd
+  direct3d-s2-v-1-1/model_sparse_512.ckpt
+    c54cd5527d6b040a931e00f7f6edd9460180726bce21cde03c7fe5c4f646e151
+  direct3d-s2-v-1-1/model_sparse_1024.ckpt
+    c3349a91b1ee0d5843bfca4077e4d526f8e0856bd8a03c9f097b3312f386642d
+  direct3d-s2-v-1-1/model_refiner.ckpt
+    2eb0f70d323a43d63ab37c91790c8a7c2b9ada1d7771ffe99ef7a647bdbc99e4
+  direct3d-s2-v-1-1/model_refiner_1024.ckpt
+    e75e405067f5c3eed48b2e46ee752e1f6593bf9a0db421cb4d694a677958460a
+  direct3d-s2-v-1-1/config.yaml
+    95f8c47d4e396e801a46858a315e3183723a4aab099b52ccc4bf5e7f31fb23bb
+BiRefNet weights load from LibreYOLO/LibreTRELLISl and DINOv2 from
+facebook/dinov2-with-registers-large (Apache-2.0) (see TRELLIS).
+Ported inference code: see libreyolo/models/gen/direct3d_s2/NOTICE.
+
+
+TripoSplat (LibreTripoSplat 0.6b)                       MIT
+Image-to-3D Gaussian splats
+---------------------------
+
+Upstream: VAST-AI-Research (TripoAI), https://github.com/VAST-AI-Research/TripoSplat
+License: MIT, as declared by the official model repository.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreTripoSplat0.6b @
+dbef04688a6b3af979b735e20dbf09acbb941af7 (with LICENSE and NOTICE), mirrored from:
+
+VAST-AI/TripoSplat @ 56a96e603204ec410c4da60c13ea4fa09a2169a9
+  diffusion_models/triposplat_fp16.safetensors
+    SHA-256: c870b97ac1d6bc9177608a5ec625e19ef9f3c5019aa68f64b0fb7803abcd6d20
+  vae/triposplat_vae_decoder_fp16.safetensors
+    SHA-256: ed0d0c3d43b599e326845d0ec70f3cf77be9a55e2d97627ac3b34d2830763cc8
+  background_removal/birefnet.safetensors
+    SHA-256: 9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154
+
+The repository's own DINOv3 and FLUX.2 VAE copies are not downloaded. The
+FLUX.2 VAE comes from black-forest-labs/FLUX.2-klein-4B (see the FLUX.2
+klein entry below) and the DINOv3 encoder from LibreYOLO's bfloat16 mirror
+LibreYOLO/LibreDINOv3vith16plus under Meta's DINOv3 License (see its entry
+above). Ported inference code: see libreyolo/models/gen/triposplat/NOTICE.
+
+
+CRM (LibreCRM)                     MIT; OpenRAIL++-M use restrictions
+Image-to-3D mesh
+----------------
+
+Upstream: Zhengyi Wang et al. (Tsinghua University), https://huggingface.co/Zhengyi/CRM
+License: MIT, as declared by the official model repository. The two
+diffusion checkpoints are fine-tuned from ImageDream and MVDream (tagged
+"openrail"), themselves from Stable Diffusion 2.1 base (CreativeML Open
+RAIL++-M License, dated November 24, 2022), whose use-based restrictions
+must accompany derivatives; the mirror ships that license and leads its card
+with a use-restrictions banner. This is LibreYOLO's reading of the terms.
+
+Redistributed by LibreYOLO, unmodified, as LibreYOLO/LibreCRM @
+386740e20da920f1e73f4604dbdb484a6ddee9bb (with LICENSE and NOTICE), mirrored
+from Zhengyi/CRM @ 36283fd567b9a3120a166dfe2f2e0965d96261b0.
+SHA-256 of the mirrored files equals upstream's:
+  CRM.pth
+    71fcf063f0be558e12ef696ee2d26ae61736d1779ff56a30f5aed377b5aa3537
+  ccm-diffusion.pth
+    220907ea252a2c3dadd6c283de1be272746241403151e7a7e36c2b85e8399861
+  pixel-diffusion.pth
+    27445c0202f51cb7e6715978e2d7811d1f9a276adae0bc7af8bf7191dd2e71e0
+BiRefNet weights load from LibreYOLO/LibreTRELLISl (see TRELLIS above).
+Ported inference code: see libreyolo/models/gen/crm/NOTICE.
+
+
 FLUX.2 klein (LibreFlux2Klein 4b)                       Apache-2.0
-Text-to-image pipeline, also the VAE source for Speridlabs Idol
----------------------------------------------------------------
+Text-to-image pipeline, also the VAE source for Speridlabs Idol, Iris-Z and TripoSplat
+-------------------------------------------------------------------------------------
 
 Upstream: Black Forest Labs, https://huggingface.co/black-forest-labs/FLUX.2-klein-4B
 License: Apache-2.0, as declared by the official model repository.
@@ -991,6 +1443,57 @@ Prohibited Use Policy; the loader logs this notice once. These terms are not MIT
 Not redistributed by LibreYOLO. Downloaded at runtime, unmodified, from:
 
 Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers @ aa76e7f4f4928f378716b6716a2130fba3caf5b1
+
+The pipeline runs from diffusers (Apache-2.0); LibreYOLO ships only its own
+adapter code.
+
+
+PRX (LibrePRX, nine checkpoints)                         Apache-2.0 + Gemma
+Text-to-image pipelines; T5Gemma text encoder under the Gemma Terms of Use
+-------------------------------------------------------------------------
+
+Upstream: Photoroom, https://huggingface.co/collections/Photoroom/prx-models-68e66254c202ebfab99ad38e
+License: the PRX weights are Apache-2.0, as declared by each official model
+repository and its LICENSE and NOTICE files. Each repository bundles Google's
+T5Gemma 2B-2B text encoder, which stays under the Gemma Terms of Use
+(https://ai.google.dev/gemma/terms) and the Gemma Prohibited Use Policy; the
+loader logs this notice once. These terms are not MIT. The non-DC-AE
+checkpoints bundle the FLUX.1 [schnell] VAE (Apache-2.0); the -dc-ae
+checkpoints bundle the DC-AE f32c32 autoencoder from
+mit-han-lab/dc-ae-f32c32-sana-1.1-diffusers (MIT).
+
+Mirrored by LibreYOLO, byte-identical, with Photoroom's LICENSE and NOTICE,
+at LibreYOLO/LibrePRX<size> (for example LibreYOLO/LibrePRX512-sft-distilled)
+and downloaded at runtime from there. Mirrored from:
+
+Photoroom/prx-1024-t2i-beta @ 0370504b9a433fbdff814b8fcba9da03bf72a7a3
+Photoroom/prx-512-t2i-sft-distilled @ cb72bdc1f4c77126fb80d0c03fab156ee5f4df3a
+Photoroom/prx-512-t2i-sft @ 2996423bc26e8eaca48774fac1797484214dfea0
+Photoroom/prx-512-t2i @ fff12bc02365e07860f2567caa44f1f249946cd4
+Photoroom/prx-512-t2i-dc-ae-sft-distilled @ 03d133506d11f7b3087a9c9509259acd36ede975
+Photoroom/prx-512-t2i-dc-ae-sft @ da9ca7af3f87383677ff7c63817a02c340a73e85
+Photoroom/prx-512-t2i-dc-ae @ 3db6a639a9782f6e05f952b75c4943c3875b19c8
+Photoroom/prx-256-t2i-sft @ 1b8e70f4dd51170fe7c03402f1891c15455d7447
+Photoroom/prx-256-t2i @ 39a6b3bc5adc5a0271acdcc20c19be2c355e227c
+
+The pipeline runs from diffusers (Apache-2.0); LibreYOLO ships only its own
+adapter code.
+
+
+PRXPixel (LibrePRXPixel 7b)                                       Apache-2.0
+Pixel-space text-to-image pipeline
+-------------------------------------------------------------------------
+
+Upstream: Photoroom, https://huggingface.co/Photoroom/prxpixel-t2i
+License: Apache-2.0, as declared by the official model repository and its
+LICENSE and NOTICE files. It bundles Alibaba's Qwen3-VL-Embedding-2B text
+encoder (Apache-2.0) and no autoencoder.
+
+Mirrored by LibreYOLO, byte-identical, with Photoroom's LICENSE and NOTICE,
+at LibreYOLO/LibrePRXPixel7b and downloaded at runtime from there. Mirrored
+from:
+
+Photoroom/prxpixel-t2i @ bcd5e63f072257a220c5d0ba039c97657398b1c2
 
 The pipeline runs from diffusers (Apache-2.0); LibreYOLO ships only its own
 adapter code.

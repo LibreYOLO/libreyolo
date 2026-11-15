@@ -65,7 +65,7 @@ CASES = {
 
 
 def _image_tensor() -> torch.Tensor:
-    image_path = Path(__file__).parents[2] / "libreyolo" / "assets" / "parkour.jpg"
+    image_path = Path(__file__).parents[2] / "tests" / "data" / "parkour.jpg"
     with Image.open(image_path) as image:
         return pil_to_tensor(image.convert("RGB")).float() / 255.0
 

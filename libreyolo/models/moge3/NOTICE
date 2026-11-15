@@ -1,0 +1,57 @@
+MoGe-3 family notice
+====================
+
+Code provenance
+---------------
+The MoGe-3 forward pass, log-depth voxelization, iterative sparse refinement,
+the sparse 3D UNet module layout, and the camera recovery (focal and shift
+solve, intrinsics, depth unprojection) in this directory are ported from the
+official Microsoft MoGe implementation:
+
+    https://github.com/microsoft/MoGe
+    commit 74fbce054ebed49800de42d0ad0e83495065719a
+    License: MIT
+    Copyright (c) Microsoft Corporation.
+
+Upstream runs the sparse convolution, pooling, and upsampling through
+FlexGEMM GPU kernels. LibreYOLO does not use or vendor FlexGEMM; sparse.py
+re-expresses the same operator semantics (kernel tap order, weight layout,
+mean pooling, nearest upsampling) with standard PyTorch ops:
+
+    https://github.com/JeffreyXiang/FlexGEMM
+    commit b2fadb29d41846c7981ade6801ffc689fae119cf
+    License: MIT
+    Copyright (c) 2025 Jianfeng Xiang.
+
+The image-coordinate map, intrinsics construction, and OpenCV unprojection
+follow the utils3d helpers MoGe pins:
+
+    https://github.com/EasternJournalist/utils3d-moge
+    commit 62f09d58509485564e24d5d9f6aac9ee9ebc0c37
+    License: MIT
+    Copyright (c) 2022 EasternJournalist.
+
+The DINOv2 encoder wrapper and convolutional decoder are shared with the
+MoGe-2 family (libreyolo/models/moge2), and the DINOv2 backbone is the
+existing Apache-2.0 implementation bundled for Depth Anything V2. The full
+license texts are reproduced in the repository-level THIRD_PARTY_NOTICES.txt.
+
+Weight provenance
+-----------------
+The official checkpoints are:
+
+    https://huggingface.co/Ruicheng/moge-3-vitl
+    revision 184008f877d7ad1ad4c2cd2182a9bd1f63d0e5be
+    file model.pt
+    SHA-256 9b41b7b9f65ad80aab7ad686f5e9cc0d1fd33f1964022618dfbcd52fc1fb7925
+    model-card license: MIT
+
+    https://huggingface.co/Ruicheng/moge-3-vitg
+    revision 6ef26c5a4b4148dab5ccaacdb08b72dc66380475
+    file model.pt
+    SHA-256 ce7c15417e9105c2ace7b4272e2cc69e36940921211eb7fa05d4d0bb03f0a00c
+    model-card license: MIT
+
+weights/convert_moge3_weights.py keeps every tensor unchanged and adds
+LibreYOLO checkpoint metadata. LibreYOLO mirrors the converted files as
+LibreYOLO/LibreMoGe3{l,g}-{depth,normal} and checksum-pins them.

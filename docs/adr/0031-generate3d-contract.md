@@ -100,6 +100,30 @@ rasterization.
 Box-specific paths (tracking, tiling, export backends, mAP validation) do not
 apply.
 
+### Meshes
+
+A family whose output is a triangle mesh returns it in `Results.meshes`, the
+existing `Meshes` payload of ADR 0013, with no person boxes, instead of
+adding a payload type:
+
+- one row: `len(meshes)` is 1, `body_model` is `"object"`;
+- `global_orient`, `body_pose` and `betas` are empty `(1, 0)` and `transl`
+  is zero `(1, 3)`: a generated object has no body parameters;
+- `vertices` `(1, V, 3)` float32 in the object frame above (z up, inside
+  `[-0.5, 0.5]^3`), `faces` `(F, 3)` int64 wound counter-clockwise seen from
+  outside;
+- `extras["vertex_colors"]` `(1, V, 3)` float32 RGB in `[0, 1]`, when the
+  family colours its vertices.
+
+`result.save(path)` writes Wavefront `.obj`, with vertex colours as the
+common `v x y z r g b` extension; `save=True` writes `.obj` files. A mesh
+family declares `SAVE_SUFFIXES = (".obj",)`; `LibreGen3DModel` picks the
+`Results` slot from the payload type. `summary()` returns one row with the
+vertex and face counts. `plot()` has no mesh preview yet. `Meshes` has no
+`seed`, `params`, `camera` or `input_image`; a mesh family that samples, and
+so needs `seed` recorded on the result, adds that to `Meshes` rather than a
+second payload.
+
 ## Call contract
 
 `generate(source, *, seed=None, n=1, stream=False, save=False,
@@ -150,6 +174,13 @@ SDK's behaviour.
 | Alias | Upstream | License | Knobs (defaults) |
 | --- | --- | --- | --- |
 | `speridlabs-idol` | `speridlabs/idol` (code `speridlabs/idol-sdk`) | Apache-2.0 code and weights | `steps` (50), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `mode` (`"synthetic"`), `margin` (`None`) |
+| `trellis` | `LibreYOLO/LibreTRELLISl`, a mirror of `microsoft/TRELLIS-image-large` (code `microsoft/TRELLIS`) | MIT code and weights | `steps` (25), `guidance` (5.0), `shift` (3.0), `margin` (1.2) |
+| `trellis2` | `LibreYOLO/LibreTRELLIS2-4b`, a mirror of the geometry files of `microsoft/TRELLIS.2-4B` (code `microsoft/TRELLIS.2`) | MIT code and weights; DINOv3 encoder under Meta's DINOv3 License | `steps` (12), `guidance` (7.5), `resolution` (1024), `margin` (1.0), `max_tokens` (49152) |
+| `triposr` | `LibreYOLO/LibreTripoSR`, a mirror of `stabilityai/TripoSR` (code `VAST-AI-Research/TripoSR`) | MIT code and weights | `resolution` (256), `threshold` (25.0), `margin` (1/0.85) |
+| `direct3d-s2` | `LibreYOLO/LibreDirect3DS2v11`, a mirror of `wushuang98/Direct3D-S2` `direct3d-s2-v-1-1` (code `DreamTechAI/Direct3D-S2`) | MIT code and weights | `resolution` (1024), `steps` ((50, 30, 15)), `guidance` (7.0) |
+| `triposplat` | `LibreYOLO/LibreTripoSplat0.6b`, a mirror of `VAST-AI/TripoSplat` (code `VAST-AI-Research/TripoSplat`) | MIT code and weights | `steps` (20), `guidance` (3.0), `shift` (3.0), `gaussians` (262144), `margin` (1.2) |
+| `lgm` | `LibreYOLO/LibreLGM0.4b`, a mirror of `ashawkey/LGM`, and `LibreYOLO/LibreImageDream`, a mirror of `ashawkey/imagedream-ipmv-diffusers` (code `3DTopia/LGM`) | MIT code; MIT LGM weights; OpenRAIL ImageDream weights | `steps` (30), `guidance` (5.0), `elevation` (0) |
+| `crm` | `LibreYOLO/LibreCRM`, a mirror of `Zhengyi/CRM` (code `thu-ml/CRM`) | MIT code; MIT weights carrying SD 2.1's OpenRAIL++-M use restrictions | `steps` (50), `guidance` (5.0), `texture` (`False`) |
 
 Speridlabs Idol is a 0.66B rectified-flow transformer: DINOv3 ViT-H+ and
 FLUX.2 VAE tokens of the 1024px input condition a denoiser over an 8192-token
@@ -175,6 +206,171 @@ not the same Gaussians, because TF32 and fused kernels move the sampled
 latent slightly and the octree places its points from it.
 Precision is the published mixed precision (fp16 transformer blocks, bf16
 encoders), so `dtype` accepts only `"auto"`.
+
+TripoSplat is the model Idol builds on: the same 0.66B architecture, the
+same encoders, the same octree and Gaussian decoders, up to 262,144
+Gaussians. Its knobs are upstream's: `steps` (upstream recommends 10 to
+20), `guidance` with upstream's diffusers convention (1 or less runs the
+conditional pass only; above 1 blends `s * v(cond) - (s - 1) * v(uncond)`,
+where Idol's `w` equals `s - 1`), `shift`, `gaussians` (32,768 to 262,144)
+and `margin` (upstream's fixed 1.2 crop, exposed). No `mode`, no `compile`.
+The networks run in fp16 on CUDA and MPS as upstream loads them, and in
+fp32 on CPU. Upstream draws the octree sampling from the global generator,
+so its decoder stage is not seed-reproducible; the port draws it from the
+seeded generator, so a seed reproduces the whole object. The sampled latent
+and camera follow upstream for a seed; the Gaussians are the same
+distribution, not the same draw.
+
+The shared steps (background removal, crop, the two encoders, the camera
+decoding) live in `libreyolo/models/gen/image3d.py`; each family keeps its
+own networks and sampler. TripoSplat upstream ships its own DINOv3 ViT and
+FLUX.2 VAE encoder implementations; the port reads the same weights (VAST's
+DINOv3 file equals LibreYOLO's mirror tensor for tensor) through
+transformers and diffusers, as Idol does. The VAE tokens are bitwise equal;
+the DINOv3 tokens differ at bf16 noise level (mean absolute difference 0.006
+after the layer norm, isolated tokens up to 1.0), because the two
+implementations order their bf16 arithmetic differently. The parity gate
+(`weights/parity_triposplat.py`) checks the encoders at that tolerance and
+the rest of the pipeline from upstream's own tokens.
+
+TRELLIS (Microsoft, `TRELLIS-image-large`) has a different architecture: a
+dense flow transformer denoises a 16^3 occupancy latent, a 3D CNN decodes it
+to the active voxels of a 64^3 grid, a sparse flow transformer denoises an
+8-channel structured latent on those voxels, and a shifted-window sparse
+transformer turns each voxel into 32 Gaussians. Both flow stages read DINOv2
+ViT-L/14 tokens of the 518px input. Upstream runs the sparse stages on
+spconv and xformers or flash-attn, CUDA-only extensions; the port replaces
+them with PyTorch (`libreyolo/models/gen/trellis/sparse.py`): the
+submanifold convolution as a gathered GEMM over the 27 neighbours (equal to
+spconv in fp32 to 2.4e-7, with spconv's weight layout unchanged), the
+variable-length attention as SDPA per batch element and over padded windows
+with a key mask. So the family runs on CUDA, MPS and CPU. Knobs follow
+upstream's samplers, shared by the two stages: `steps`, `guidance` (applied
+inside upstream's guidance interval t in [0.5, 1]), `shift`, plus `margin`.
+The Gaussian count is 32 per occupied voxel, not a knob. TRELLIS infers no
+camera, so `camera` holds only `margin`. Noise is drawn on the CPU as
+upstream does, so a seed gives the same starting noise on every device. The
+torso runs in fp16 on CUDA and MPS as upstream, and in fp32 on CPU. Two
+deliberate differences: background removal uses LibreYOLO's BiRefNet
+instead of rembg's U2Net, and DINOv2 is read through transformers
+(`facebook/dinov2-with-registers-large`) instead of `torch.hub`, the
+pre-norm last-layer tokens as upstream takes them.
+
+LGM (Tang et al., ECCV 2024) is two-stage. ImageDream, a multi-view
+diffusion UNet fine-tuned from Stable Diffusion 2.1 with an image-prompt
+branch over CLIP ViT-H/14 tokens, samples four 256 px views at azimuths 0,
+90, 180 and 270 with DDIM; LGM, an asymmetric UNet with cross-view attention,
+reads the four views with their Plücker ray embeddings and returns one
+Gaussian per pixel of four 128 x 128 maps (65,536). The port keeps the
+Gaussians at opacity 0.005 and above, as upstream's saved files do, and moves
+them from LGM's frame (y up, `[-1, 1]^3`) into the object frame. Upstream
+runs every attention through xformers (CUDA only) and renders through
+diff-gaussian-rasterization (Inria, non-commercial); the port uses SDPA and
+does not render. Knobs: `steps` and `guidance` of the ImageDream sampler
+(`guidance` above 1 enables classifier-free guidance; upstream fails at 1,
+the port then runs the conditional pass only) and `elevation`, upstream's
+input-camera elevation in degrees, which also sets `camera` (`yaw` pi,
+`pitch` minus the elevation, `radius` 0.75, `fov` 49.1, `margin` 1.25 from
+the 80 % recentring). LGM infers no camera; the camera is the one it
+assumes. Noise is drawn on the model's device from a generator seeded with
+the seed, in upstream's order (the VAE posterior sample of the input, then
+the starting latents), so on CUDA a seed reproduces upstream's demo seeded
+with `kiui.seed_everything`. The networks run in fp16 on CUDA and MPS (LGM
+under autocast, as upstream), fp32 on CPU. Background removal uses
+BiRefNet instead of rembg; a real alpha channel is used as is, where
+upstream always re-cuts the image. The empty prompt's CLIP text tokens are
+computed once at load and the text encoder is released.
+
+CRM (Tsinghua, ECCV 2024) returns a mesh. An ImageDream-style multi-view
+diffusion model (SD 2.1's UNet with cross-view self-attention, camera
+embeddings and a 16-token OpenCLIP image prompt) samples six orthographic
+views; a second one samples their canonical coordinate maps; a diffusers
+UNet2DModel turns views and maps into a 32-channel triplane; MLPs read the
+SDF, vertex offsets and FlexiCubes weights on an 80^3 grid; FlexiCubes
+extracts the surface and a colour MLP colours it. The result goes in
+`Results.meshes` as one `Meshes` row with `body_model="object"`, empty body
+parameters, `vertices` z-up in `[-0.5, 0.5]^3` (CRM's `[-1, 1]` frame halved),
+faces wound counter-clockwise seen from outside and
+`extras["vertex_colors"]`. Because CRM samples, `Meshes` gains `seed` and
+`generation_params` (the model and knobs), which `summary()` reports.
+`texture=True` adds `extras["uv"]`, `extras["uv_faces"]` and
+`extras["texture"]` (1024 x 1024 uint8, row 0 at v = 0); `.obj` then comes
+with `<stem>.mtl` and `<stem>_texture.png`, and never replaces a file it did not write. Upstream's CUDA-only and non-permissive pieces are
+replaced: SDPA for xformers, NVIDIA's Apache-2.0 FlexiCubes for CRM's
+proprietary-header copy, a PyTorch UV rasterizer for nvdiffrast, a NumPy
+cleanup (same operations) for kiui/pymeshlab, LibreYOLO's BiRefNet for rembg.
+The diffusion models run in fp16 on CUDA and MPS as upstream and in fp32 on
+CPU. Every random draw comes from one CPU generator. The parity gate
+(`weights/parity_crm.py`) feeds both sides the same image and noise: the
+views and CCMs differ by fp16 kernel noise (mean 0.05 and 0.11 of 255), the
+triplane features, the FlexiCubes grid and the raw mesh are equal, the
+colours bitwise; the cleanup merges vertices in a different order than
+upstream's library (Chamfer distance 0.001 in CRM units).
+
+TRELLIS.2 (Microsoft, `TRELLIS.2-4B`) returns a mesh in `Results.meshes`.
+A dense flow transformer with 3D rotary positions denoises a 16^3 occupancy
+latent, TRELLIS's 3D CNN decodes it to the occupied voxels of a 32^3 grid,
+a sparse flow transformer denoises a 32-channel shape latent on them at 512,
+and for `resolution` 1024 or 1536 a second one denoises it again on the
+voxels the first latent's decoder predicts (fewer when they exceed
+`max_tokens`, as upstream). A sparse ConvNeXt decoder upsamples the latent
+16 times into a flexible dual grid, one vertex per voxel and a quad around
+every crossed voxel edge. Both flow stages read DINOv3 ViT-L/16 tokens (512px,
+and 1024px for the second stage). Upstream's CUDA-only extensions (FlexGEMM
+sparse convolution, flash-attn, o-voxel's hash map) are replaced by the
+TRELLIS family's PyTorch operations, with neighbours found by binary search
+in sorted voxel keys on grids too large for a dense table; so the family
+runs on CUDA, MPS and CPU. `steps` and `guidance` apply to every sampling
+stage; each keeps upstream's guidance interval, guidance rescale and time
+shift. Noise is drawn on the CPU as upstream does. The networks run in their
+published precision (bf16 transformers, fp16 decoders) on CUDA and MPS and in
+fp32 on CPU. The mesh is the dual grid's output before upstream's CuMesh
+post-processing: it keeps one vertex per voxel, some unreferenced, and its
+faces are not consistently wound (the dual grid carries no inside or
+outside), so the `Meshes` winding rule above does not hold for this family.
+`Meshes.seed` and `Meshes.generation_params` record the seed and the call
+(model and knobs), as for CRM.
+Upstream's texture stage is not ported: it bakes PBR voxels into a UV texture
+with nvdiffrast, a non-commercial NVIDIA library. Background removal uses
+LibreYOLO's BiRefNet instead of upstream's RMBG-2.0 (non-commercial).
+The parity gate (`weights/parity_trellis2.py`, end to end
+`weights/parity_trellis2_e2e.py`) runs each stage from upstream's inputs:
+the preprocessing, the DINOv3 tokens, the structure stage with upstream's
+SDPA attention backend, the structure decoder and the meshing of upstream's
+decoder fields are bitwise equal; the stages that run on flash-attn and
+FlexGEMM upstream differ by kernel noise of the same size as upstream's own
+distance to an fp32 run of the same weights (within a few percent either
+way, on two examples).
+
+Direct3D-S2 (DreamTech, `direct3d-s2-v-1-1`) returns a mesh. A dense flow
+transformer denoises a 16^3 latent whose decoded 64^3 occupancy picks the
+active voxels; a sparse flow transformer with spatial sparse attention
+(compressed, top-k selected and windowed attention over 8^3 blocks, gated)
+denoises a 16-channel latent on them; a sparse decoder turns it into an SDF
+on the 8x finer voxels, a dense 3D UNet refiner fills the 512^3 field, and
+marching cubes gives a mesh. At `resolution=1024` (the default) that mesh is
+voxelised within 4/1024 of its surface and the same steps run again at
+1024^3, with a refiner that predicts the inside/outside sign. All three
+stages read DINOv2 ViT-L/14 tokens of the 518px input (white background, as
+upstream). Upstream runs on torchsparse, flash-attn, Triton kernels and a
+CUDA voxeliser; the port expresses each in PyTorch (`sparse.py`): the
+convolution as a gathered GEMM with torchsparse's kernel layout, the
+attention branches with matmul and SDPA in chunks of queries, the
+voxeliser as a chunked point-to-triangle distance. Knobs: `resolution`
+(512 or 1024), `steps` per stage (dense, 512, 1024; upstream's 50, 30, 15),
+`guidance` for all three. Noise is drawn on the model's device from a
+generator seeded with the seed, in upstream's order, so on CUDA a seed gives
+upstream's starting noise for `torch.manual_seed(seed)`; the sparse stages
+amplify fp16 rounding (top-k block selection can flip on near ties), so the
+mesh is the same object, not the same triangles. The PyTorch attention is
+slower than upstream's kernels: on an RTX A6000 an object at 1024^3 takes
+1082 s (upstream 150 s), peak 23.4 GiB. The networks run in fp16
+on CUDA and MPS as upstream converts them, fp32 on CPU. The vertices are
+halved into the object frame and turned z up (a rotation, so upstream's
+counter-clockwise winding is kept). Upstream's optional hole filling and remeshing
+(`remesh=True`) is not ported: it depends on pymeshfix (GPL-3.0) and
+python-igraph (GPL-2.0+). The `Meshes` row records `seed` and
+`generation_params`, as CRM's.
 
 ## Weights
 
@@ -206,6 +402,54 @@ snapshot.
 (`config.json` with `image_encoders`, `denoiser.safetensors`,
 `decoder.safetensors`, `decoder_gs.safetensors`, `birefnet.safetensors`).
 
+TripoSplat's own weights (denoiser, decoder, BiRefNet) are redistributed
+under MIT as `LibreYOLO/LibreTripoSplat0.6b`, byte-identical to the pinned
+`VAST-AI/TripoSplat` snapshot and in its folder layout, downloaded into
+`weights/LibreTripoSplat0.6b/`; upstream's DINOv3 and FLUX.2 VAE copies are
+not mirrored, the two encoders above are used instead. `LibreGen(path)` loads a directory holding those three files.
+
+TRELLIS's weights are redistributed under MIT as `LibreYOLO/LibreTRELLISl`:
+upstream's `pipeline.json` and network files byte-identical to
+`microsoft/TRELLIS-image-large` (the sparse-structure flow and decoder, the
+structured-latent flow, the Gaussian and mesh decoders), plus the BiRefNet
+weights. The library downloads only the files it loads into
+`weights/LibreTRELLISl/`. DINOv2 loads from
+`facebook/dinov2-with-registers-large` (Apache-2.0) at a pinned revision.
+
+LGM's own network (`model_fp16_fixrot.safetensors`, upstream's checkpoint
+after its rotation-normalisation fix) and the BiRefNet weights are
+redistributed under MIT as `LibreYOLO/LibreLGM0.4b`, the LGM file
+byte-identical to the pinned `ashawkey/LGM`, downloaded into
+`weights/LibreLGM0.4b/`. ImageDream is redistributed as
+`LibreYOLO/LibreImageDream`, byte-identical to the pinned
+`ashawkey/imagedream-ipmv-diffusers` weights and configs (without upstream's
+remote-code `.py` files), loaded through the Hugging Face cache. Upstream
+declares it `openrail`; it descends from Stable Diffusion 2.1, so the mirror
+ships the CreativeML OpenRAIL++-M License and its use restrictions.
+`LibreGen(path)` loads a directory holding `model_fp16_fixrot.safetensors`,
+optionally with `birefnet.safetensors` and an `imagedream/` copy.
+
+TRELLIS.2's geometry networks (the sparse-structure flow, the two shape
+flows, the shape decoder) and `pipeline.json` are redistributed under MIT as
+`LibreYOLO/LibreTRELLIS2-4b`, byte-identical to `microsoft/TRELLIS.2-4B` in
+upstream's layout, downloaded into `weights/LibreTRELLIS2-4b/`; the texture
+networks are not mirrored. The sparse-structure decoder TRELLIS.2 reuses and
+the BiRefNet weights come from `LibreYOLO/LibreTRELLISl`. DINOv3 ViT-L/16
+comes from LibreYOLO's mirror `LibreYOLO/LibreDINOv3vitl16`, byte-identical
+(fp32) to Meta's gated `facebook/dinov3-vitl16-pretrain-lvd1689m`, with the
+agreement. `LibreGen(path)` loads a local copy of upstream's TRELLIS.2-4B
+layout.
+
+Direct3D-S2's weights are redistributed under MIT as
+`LibreYOLO/LibreDirect3DS2v11` (revision
+`5df0bc1130a6a79e255a8ac22a5e75175c49ad33`): upstream's `direct3d-s2-v-1-1/`
+folder (`config.yaml` and the five checkpoints) byte-identical to
+`wushuang98/Direct3D-S2` at `8b04a8eddb7a56a0f4e89fe5f5b840c7d5610c00`,
+downloaded into `weights/LibreDirect3DS2v11/`. BiRefNet loads from
+`LibreYOLO/LibreTRELLISl` and DINOv2 from
+`facebook/dinov2-with-registers-large`, as for TRELLIS. `LibreGen(path)`
+loads a directory holding upstream's `direct3d-s2-v-1-1/` folder.
+
 ## Reserved for later
 
 As in ADR 0030, each raises `NotImplementedError` with its reason:
@@ -215,8 +459,9 @@ As in ADR 0030, each raises `NotImplementedError` with its reason:
 
 ## Out of scope
 
-- Meshing, texturing and rendering beyond the preview. Viewers and trainers
-  that read the standard PLY do that.
+- Meshing Gaussians, texturing and rendering beyond the preview. Viewers and
+  trainers that read the standard PLY do that. Families whose network
+  outputs a surface return it as a mesh (see Meshes above).
 - Scenes. One result is one object.
 
 ## Consequences

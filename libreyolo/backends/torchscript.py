@@ -149,6 +149,7 @@ class TorchScriptBackend(BaseBackend):
             default_task=default_task,
             **classify_eval_kwargs(runtime_metadata),
             letterbox_pad=runtime_metadata.get("letterbox_pad"),
+            channels=runtime_metadata.get("channels"),
             num_bins=runtime_metadata.get("num_bins"),
             bin_width_deg=runtime_metadata.get("bin_width_deg"),
             offset_deg=runtime_metadata.get("offset_deg"),

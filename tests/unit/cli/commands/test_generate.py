@@ -112,8 +112,7 @@ def test_help_and_errors(calls):
     result = CliRunner().invoke(app(), ["prompt=a fox", "guidance=2.0", "--json"])
     assert result.exit_code == 2
     assert json.loads(result.stdout)["error"] == "config_type_error"
-    # No family has a negative prompt yet, so the CLI does not offer one.
-    result = CliRunner().invoke(app(), ["prompt=a fox", "negative=blurry", "--json"])
+    result = CliRunner().invoke(app(), ["prompt=a fox", "bogus=1", "--json"])
     assert json.loads(result.stdout)["error"] == "config_unknown_key"
 
 
@@ -240,6 +239,20 @@ def test_source_turns_an_image_into_a_3d_object(calls3d):
     )
 
 
+def test_elevation_reaches_the_family(calls3d):
+    args = ["source=chair.jpg", "model=lgm", "elevation=-15"]
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 0, result.output
+    assert calls3d[1][2]["elevation"] == -15.0
+
+
+def test_resolution_reaches_the_family(calls3d):
+    args = ["source=chair.png", "model=direct3d-s2", "resolution=512"]
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 0, result.output
+    assert calls3d[1][2]["resolution"] == 512
+
+
 def test_source_conflicts_and_misuse(calls3d):
     result = CliRunner().invoke(app(), ["source=chair.jpg", "prompt=a chair", "--json"])
     assert result.exit_code == 2
@@ -274,3 +287,76 @@ def test_inputs_go_by_keyword_so_families_refuse_the_wrong_kind(monkeypatch):
     assert seen[0][0] == () and "source" in seen[0][1]
     CliRunner().invoke(app(), ["prompt=a chair", "--json", "--no-save"])
     assert seen[1][0] == () and "prompt" in seen[1][1]
+
+
+def test_negative_prompt_is_forwarded(calls):
+    result = CliRunner().invoke(
+        app(),
+        ["prompt=a red fox", "model=prx-512-sft", "negative=blurry", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert calls[1][2]["negative"] == "blurry"
+
+
+def test_texture_reaches_the_family(calls3d):
+    args = ["source=chair.png", "model=crm", "texture=true"]
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 0, result.output
+    assert calls3d[1][2]["texture"] is True
+
+
+@pytest.fixture
+def calls_depth(monkeypatch):
+    import libreyolo.models.gen as gen
+    from libreyolo.utils.results import DepthMap, Results
+
+    recorded = []
+
+    class Model:
+        task = "depth"
+
+        def __init__(self, name, **kwargs):
+            recorded.append(("load", name, kwargs))
+
+        def __call__(self, source=None, **kwargs):
+            recorded.append(("call", source, kwargs))
+            depth = DepthMap(np.zeros((8, 8), dtype=np.float32), encoding="log_depth")
+            return Results(None, (8, 8), path=source, depth_map=depth)
+
+    monkeypatch.setattr(gen, "LibreGen", Model)
+    return recorded
+
+
+def test_task_depth_turns_an_image_into_depth(calls_depth):
+    args = ["source=street.jpg", "task=depth", "ensemble=10", "imgsz=1024"]
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["task"] == "depth"
+    assert payload["model"] == "speridlabs-iris-z"
+    assert payload["results"][0]["name"] == "depth_map"
+    assert calls_depth[0] == (
+        "load",
+        "speridlabs-iris-z",
+        {"device": "auto", "dtype": "auto", "offload": False, "task": "depth"},
+    )
+    assert calls_depth[1] == (
+        "call",
+        "street.jpg",
+        {"imgsz": 1024, "seed": None, "save": False, "output_path": None, "ensemble": 10},
+    )
+
+
+@pytest.mark.parametrize(
+    "args, match",
+    [
+        (["task=depth", "prompt=a fox"], "needs source"),
+        (["task=depth", "source=a.jpg", "n=2"], "ensemble"),
+        (["task=depth", "source=a.jpg", "imgsz=512x768"], "one side"),
+        (["task=nope", "source=a.jpg"], "Unsupported task"),
+    ],
+)
+def test_task_depth_errors(calls_depth, args, match):
+    result = CliRunner().invoke(app(), [*args, "--json", "--no-save"])
+    assert result.exit_code == 2, result.output
+    assert match in result.output

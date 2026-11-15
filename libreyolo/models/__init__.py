@@ -90,6 +90,8 @@ from .centernet.model import LibreCenterNet  # noqa: E402
 from .efficientdet.model import LibreEfficientDet  # noqa: E402  (BiFPN keys are unique; inference-only)
 from .picodet.model import LibrePICODET  # noqa: E402
 from .ppyoloe.model import LibrePPYOLOE  # noqa: E402  (head.pred_cls/pred_reg + CSPResNet stem keys are unique)
+from .ppdoclayoutv3.model import LibrePPDocLayoutV3  # noqa: E402  (can_load needs the reading-order pointer + order heads + mask prototypes; RT-DETR-style checkpoints carry none)
+from .riodetrv2.model import LibreRiODETRv2  # noqa: E402  (angle head + angle LQE keys are unique; D-FINE and RT-DETR can_load reject them explicitly)
 from .rtdetr.model import LibreRTDETR  # noqa: E402  (registered before LibreRTDETRv2 so metadata-less ckpts default to v1)
 from .rtdetrv2.model import LibreRTDETRv2  # noqa: E402
 from .rtmdet.model import LibreRTMDet  # noqa: E402
@@ -104,20 +106,29 @@ from .yolo7.model import LibreYOLO7  # noqa: E402  (can_load keyed on unique imp
 from .hrnet.model import LibreHRNet  # noqa: E402,F401  (top-down pose; unique stage-fusion fingerprint)
 from .dekr.model import LibreDEKR  # noqa: E402,F401  (bottom-up pose; unique offset_final_layer stack)
 from .l2cs.model import LibreL2CS  # noqa: E402,F401  (import registers family)
+from .instanthmr.model import LibreInstantHMR  # noqa: E402,F401  (mesh-only; can_load keyed on cont_head.full_gather)
 from .fomo.model import LibreFOMO  # noqa: E402,F401  (import registers family)
+from .flowseek.model import LibreFlowSeek  # noqa: E402,F401  (flow-only; can_load keyed on bnet + merge_head + dav2)
 from .midas.model import LibreMiDaS  # noqa: E402,F401  (depth-only MiDaS museum family)
 from .depth_anything.model import (  # noqa: E402,F401  (import registers family)
     LibreDepthAnythingV2,
 )
 from .zipdepth.model import LibreZipDepth  # noqa: E402,F401  (depth-only; can_load keyed on encoder.stem_half + decoder.convex_up)
-from .moge2.model import LibreMoGe2  # noqa: E402,F401  (normal-only; official Microsoft MIT checkpoint)
+from .moge3.model import LibreMoGe3  # noqa: E402,F401  (depth + normal; can_load requires refiner., which MoGe-2 rejects)
+from .moge2.model import LibreMoGe2  # noqa: E402,F401  (normal-only; official Microsoft MIT checkpoint; rejects refiner.)
 from .marigold_v2.model import LibreMarigoldV2  # noqa: E402,F401 (heavy dependencies load only at construction)
+from .memfof.model import LibreMEMFOF  # noqa: E402,F401  (flow-only; can_load keyed on 9-channel cnet conv1 + att.to_qk)
 from .teed.model import LibreTEED  # noqa: E402,F401  (edge-only; MIT source)
 from .dexined.model import LibreDexiNed  # noqa: E402,F401  (edge-only; MIT source)
 from .depth_anything3.model import (  # noqa: E402,F401  (import registers family)
     LibreDepthAnything3,
 )
+from .video_depth_anything.model import LibreVideoDepthAnything  # noqa: E402,F401  (depth sequence family; can_load keyed on head.motion_modules)
+from .searaft.model import LibreSEARAFT  # noqa: E402,F401  (flow-only; can_load keyed on 6-channel cnet + init_conv + 6-channel flow_head)
+from .unimatch.model import LibreUniMatch  # noqa: E402,F401  (flow-only; can_load keyed on GMFlow feature_flow_attn + transformer)
+from .dpflow.model import LibreDPFlow  # noqa: E402,F401  (flow-only; can_load keyed on the bidirectional fnet GRUs + lowres_stem)
 from .nafnet.model import LibreNAFNet  # noqa: E402,F401  (restore-only)
+from .neuflowv2.model import LibreNeuFlowv2  # noqa: E402,F401  (flow-only; can_load keyed on cross_attn_s16 + refine_s8 + upsample_s8)
 from .ddcolor.model import LibreDDColor  # noqa: E402,F401  (restore-only colorization)
 from .hvi_cidnet.model import LibreHVICIDNet  # noqa: E402,F401  (restore-only low-light enhancement)
 from .lama.model import LibreLaMa  # noqa: E402,F401  (mask-guided restore/inpainting)
@@ -181,6 +192,12 @@ from .vjepa2.model import LibreVJEPA2  # noqa: E402,F401  (import registers fami
 # dense block-causal patch tokens. Its fingerprint includes a tubelet-1 Conv3d,
 # CLS token and fused qkv weights, so it cannot collide with V-JEPA 2.
 from .levjepa.model import LibreLeVJEPA  # noqa: E402,F401  (import registers family)
+
+# Optical flow families (task ``flow``), kept in alphabetical order.
+from .raft.model import LibreRAFT  # noqa: E402,F401  (flow-only; can_load needs the closed fnet/cnet/update_block key set)
+# WAFT optical flow: can_load needs warp_linear + refine_transform + refine_net
+# ViT keys together with one of the four encoder signatures.
+from .waft.model import LibreWAFT  # noqa: E402,F401  (flow-only)
 
 
 def _ensure_rfdetr():
@@ -284,6 +301,10 @@ def _needs_rfdetr_registration(weights_dict: dict) -> bool:
     if LibreDETR.can_load(weights_dict) or LibreLWDETR.can_load(weights_dict):
         return False
 
+    # InstantHMR's decoder queries are named query_embed too.
+    if LibreInstantHMR.can_load(weights_dict):
+        return False
+
     if "linear.weight" in weights_dict and any(
         k.startswith("backbone.") for k in weights_dict
     ):
@@ -381,6 +402,7 @@ def LibreYOLO(
         hub_source = model_path
         model_path = hub_checkpoint
 
+    requested_path = model_path
     model_path = _resolve_weights_path(model_path)
 
     # librefacerec-* names route to the face-embedding family regardless of
@@ -448,6 +470,19 @@ def LibreYOLO(
         from ..backends.tensorrt import TensorRTBackend
 
         return TensorRTBackend(
+            model_path, nb_classes=nb_classes, device=device, task=task
+        )
+
+    # Axelera Metis: a ``*.axm`` file, or a directory holding one next to
+    # LibreYOLO's metadata.yaml (what ``export(format="axelera")`` writes).
+    if model_path.endswith(".axm") or (
+        Path(model_path).is_dir()
+        and (Path(model_path) / "metadata.yaml").is_file()
+        and any(Path(model_path).glob("*.axm"))
+    ):
+        from ..backends.axelera import AxeleraBackend
+
+        return AxeleraBackend(
             model_path, nb_classes=nb_classes, device=device, task=task
         )
 
@@ -527,15 +562,27 @@ def LibreYOLO(
                         raise
             if size is None:
                 from ..utils.hf_hub import looks_like_repo_id
+                from ..utils.ultralytics_hints import (
+                    ultralytics_weight_hint,
+                    weight_name_message,
+                )
+
+                ultralytics_hint = ultralytics_weight_hint(model_path)
+                if ultralytics_hint is not None:
+                    raise ValueError(
+                        weight_name_message(model_path, ultralytics_hint)
+                    )
 
                 hub_hint = ""
-                if looks_like_repo_id(model_path):
+                # Test what the caller typed: a bare "name" has already become
+                # "weights/name", which looks like owner/repo but is not one.
+                if looks_like_repo_id(requested_path):
                     # A same-named local file or directory shadowed the bare
                     # owner/repo form (local always wins), so point at the
                     # explicit Hub syntax that bypasses that precedence.
                     hub_hint = (
                         f"\nIf you meant a Hugging Face Hub model, use the "
-                        f"explicit form: LibreYOLO('hf://{model_path}')."
+                        f"explicit form: LibreYOLO('hf://{requested_path}')."
                     )
                 raise ValueError(
                     f"Model weights file not found: {model_path}\n"
@@ -551,6 +598,14 @@ def LibreYOLO(
             logger.warning("Auto-download failed: %s", e)
 
     if not Path(model_path).exists():
+        from ..utils.ultralytics_hints import (
+            ultralytics_weight_hint,
+            weight_name_message,
+        )
+
+        ultralytics_hint = ultralytics_weight_hint(model_path)
+        if ultralytics_hint is not None:
+            raise FileNotFoundError(weight_name_message(model_path, ultralytics_hint))
         if download_error is not None:
             raise FileNotFoundError(
                 f"Model weights file not found: {model_path}\n"
@@ -577,6 +632,17 @@ def LibreYOLO(
                 context="model inspection",
             )
     except Exception as e:
+        # Ultralytics checkpoints pickle their own classes, so they always land
+        # here. Never hand them to the autoconverter, and drop torch's error,
+        # whose advice is to unpickle the file with weights_only=False.
+        from ..utils.ultralytics_hints import (
+            checkpoint_message,
+            is_ultralytics_checkpoint,
+        )
+
+        if is_ultralytics_checkpoint(model_path, e):
+            raise RuntimeError(checkpoint_message(model_path)) from None
+
         # Upstream flagship checkpoints can fail the safe inspection load — e.g.
         # RF-DETR embeds an argparse.Namespace that weights_only=True rejects.
         # Try auto-converting to a LibreYOLO v1.0 checkpoint and reload it.
@@ -903,19 +969,28 @@ __all__ = [
     "LibreDEKR",
     "LibreRTDETR",
     "LibreRTDETRv2",
+    "LibreRiODETRv2",
     "LibreRTDETRv4",
     "LibreFOMO",
+    "LibreFlowSeek",
     "LibreMiDaS",
     "LibreDepthAnythingV2",
     "LibreMoGe2",
+    "LibreMoGe3",
     "LibreMarigoldV2",
+    "LibreMEMFOF",
     "LibreTEED",
     "LibreDexiNed",
     "LibreDepthAnything3",
+    "LibreVideoDepthAnything",
+    "LibreUniMatch",
+    "LibreDPFlow",
     "LibreNAFNet",
+    "LibreNeuFlowv2",
     "LibreDDColor",
     "LibreHVICIDNet",
     "LibreLaMa",
+    "LibreInstantHMR",
     "LibreBiRefNet",
     "LibreFeyNobg",
     "LibreBEN2",
@@ -927,6 +1002,7 @@ __all__ = [
     "LibreEoMT",
     "LibreDeepLabv3",
     "LibrePIDNet",
+    "LibreRAFT",
     "LibreUNet",
     "LibreSegformer",
     "LibreLingBotVision",
@@ -943,8 +1019,10 @@ __all__ = [
     "LibreSigLIP2",
     "LibrePE",
     "LibrePPOCR",
+    "LibrePPDocLayoutV3",
     "LibreVJEPA2",
     "LibreLeVJEPA",
+    "LibreWAFT",
     "LibreFaceEmbedder",
     "try_ensure_rfdetr",
 ]

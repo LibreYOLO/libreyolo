@@ -100,6 +100,9 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         "libreyolo.models.dexined",
         "libreyolo.models.modus",
         "libreyolo.models.wevisone",
+        "libreyolo.models.deepseekocr",
+        "libreyolo.models.glmocr",
+        "libreyolo.models.falconocr",
     ):
         notice = importlib.resources.files(package_name).joinpath("NOTICE")
         if not notice.is_file():
@@ -119,6 +122,8 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreSmolVLM2,
         LibreVLM,
         LibreWeVisOneVL,
+        LibreDeepSeekOCR,
+        LibreGLMOCR,
     )
 
     from libreyolo import (
@@ -155,15 +160,23 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         GeneratedImage,
         LibreFlux2Klein,
         LibreGen,
+        LibrePRX,
+        LibrePRXPixel,
         LibreSanaSprint,
+        LibreLGM,
+        LibreOpenVisionBanana,
         LibreSperidlabsIdol,
+        LibreSperidlabsIrisZ,
+        LibreTRELLIS,
+        LibreTRELLIS2,
+        LibreTripoSplat,
     )
 
     if not callable(LibreGen):
         raise AssertionError("LibreGen import did not resolve to a callable")
     if not all(
         isinstance(cls, type)
-        for cls in (LibreFlux2Klein, LibreSanaSprint, LibreSperidlabsIdol, GeneratedImage, Gaussians)
+        for cls in (LibreFlux2Klein, LibreSanaSprint, LibrePRX, LibrePRXPixel, LibreSperidlabsIdol, LibreSperidlabsIrisZ, LibreOpenVisionBanana, LibreTripoSplat, LibreTRELLIS, LibreTRELLIS2, LibreLGM, GeneratedImage, Gaussians)
     ):
         raise AssertionError("LibreGen family/payload exports did not resolve to classes")
     for family in (
@@ -176,6 +189,8 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreMODUS,
         LibreMolmo2,
         LibreWeVisOneVL,
+        LibreDeepSeekOCR,
+        LibreGLMOCR,
     ):
         if not isinstance(family, type):
             raise AssertionError(

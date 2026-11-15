@@ -306,7 +306,13 @@ class Dinov2WithRegistersPatchEmbeddings(nn.Module):
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
         num_channels = pixel_values.shape[1]
-        if num_channels != self.num_channels:
+        # A grayscale projection (utils.input_channels) takes one channel or
+        # folds the three identical channels images travel with internally.
+        gray = getattr(self.projection, "folds_rgb", False) and num_channels in (
+            self.projection.in_channels,
+            3 * self.projection.in_channels,
+        )
+        if num_channels != self.num_channels and not gray:
             raise ValueError(
                 "Make sure that the channel dimension of the pixel values match with the one set in the configuration."
                 f" Expected {self.num_channels} but got {num_channels}."

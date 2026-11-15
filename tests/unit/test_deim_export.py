@@ -95,7 +95,8 @@ def test_deim_openvino_export_backend_predict(tmp_path):
     if importlib.util.find_spec("openvino") is None:
         pytest.skip("openvino not installed")
 
-    from libreyolo import LibreDEIM, LibreYOLO, SAMPLE_IMAGE
+    from libreyolo import LibreDEIM, LibreYOLO
+    from tests.fixture_images import PARKOUR_FIXTURE
 
     ckpt = Path("weights/LibreDEIMn.pt")
     if not ckpt.exists():
@@ -118,7 +119,7 @@ def test_deim_openvino_export_backend_predict(tmp_path):
 
     ov_model = LibreYOLO(exported, device="cpu")
     assert ov_model.model_family == "deim"
-    result = ov_model(SAMPLE_IMAGE, conf=0.5)
+    result = ov_model(PARKOUR_FIXTURE, conf=0.5)
     assert len(result.boxes) >= 3
 
 
@@ -142,7 +143,8 @@ def test_deim_tensorrt_metadata_is_deim():
 @pytest.mark.external_data
 def test_deim_onnx_backend_matches_torch_inference(tmp_path):
     """LibreYOLO(onnx_path)(image) should match PyTorch top-K detections."""
-    from libreyolo import LibreDEIM, LibreYOLO, SAMPLE_IMAGE
+    from libreyolo import LibreDEIM, LibreYOLO
+    from tests.fixture_images import PARKOUR_FIXTURE
 
     ckpt = Path("weights/LibreDEIMn.pt")
     if not ckpt.exists():
@@ -154,9 +156,9 @@ def test_deim_onnx_backend_matches_torch_inference(tmp_path):
         "onnx", output_path=str(out_path), simplify=False, dynamic=True, opset=17
     )
 
-    torch_res = torch_m(SAMPLE_IMAGE, conf=0.5)
+    torch_res = torch_m(PARKOUR_FIXTURE, conf=0.5)
     onnx_m = LibreYOLO(str(out_path))
-    onnx_res = onnx_m(SAMPLE_IMAGE, conf=0.5)
+    onnx_res = onnx_m(PARKOUR_FIXTURE, conf=0.5)
 
     n = min(5, len(torch_res.boxes), len(onnx_res.boxes))
     assert n >= 3, "expected at least 3 confident detections in both"

@@ -128,7 +128,7 @@ def test_official_checkpoint_onnx_predict_parity(
     # lowering this CUDA graph. CPU traces the same operators and is portable.
     device = "cpu"
     model = LibreDINODETR(str(source), size=size, device=device)
-    image = Path("libreyolo/assets/parkour.jpg")
+    image = Path("tests/data/parkour.jpg")
     input_tensor, _, _, _ = model._preprocess(image, input_size=export_size)
     exporter = OnnxExporter(model)
     with (

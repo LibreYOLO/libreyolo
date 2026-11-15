@@ -106,10 +106,6 @@ KNOWN_SOURCE_BUILDS: dict[tuple[str, str, str], str] = {
         "extensions are optional and it installs as pure Python without a "
         "compiler"
     ),
-    ("numpy", "*", "3.14"): (
-        "lerobot (vla) pins numpy<2.3, which has no Python 3.14 wheels; "
-        "builds with a C compiler"
-    ),
     ("coremltools", "linux-aarch64", "*"): (
         "ExecuTorch 1.2 itself requires coremltools on Linux, which has no "
         "aarch64 wheels"
@@ -119,6 +115,15 @@ KNOWN_SOURCE_BUILDS: dict[tuple[str, str, str], str] = {
 _NO_WHEEL = re.compile(
     r"Because ([A-Za-z0-9_.\-]+)(?:\{[^}]*\})?(?:[<>=!~][^ ]*)? has no usable wheels"
 )
+
+
+# Source builds accepted only for one extra: (extra, package, platform, python).
+KNOWN_EXTRA_SOURCE_BUILDS: dict[tuple[str, str, str, str], str] = {
+    ("vla", "numpy", "*", "3.14"): (
+        "lerobot (vla) pins numpy<2.3, which has no Python 3.14 wheels; "
+        "builds with a C compiler"
+    ),
+}
 
 
 def _known(table: dict, *key: str) -> str | None:
@@ -268,6 +273,7 @@ def main() -> int:
             pkg
             for pkg in builds
             if _known(KNOWN_SOURCE_BUILDS, pkg, platform, python) is None
+            and _known(KNOWN_EXTRA_SOURCE_BUILDS, extra, pkg, platform, python) is None
         ]
         from_source += bool(unexpected)
         if unexpected:

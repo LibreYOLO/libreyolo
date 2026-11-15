@@ -287,15 +287,17 @@ def _resolve_weights(name: str) -> Path:
     if dest.exists():
         return dest
     from ..utils.download import _get_hf_token
+    from ..utils.hf_hub import apply_hf_endpoint, hf_unreachable_hint
 
     import requests
 
-    url = _WEIGHT_URL.format(name=name)
+    url = apply_hf_endpoint(_WEIGHT_URL.format(name=name))
     logger.info("Downloading ReID weights %s from %s", name, url)
     cache_dir.mkdir(parents=True, exist_ok=True)
     headers = {}
     token = _get_hf_token()
-    if token:
+    # Only send the token to huggingface.co, never to a third-party mirror.
+    if token and url.startswith("https://huggingface.co/"):
         headers["Authorization"] = f"Bearer {token}"
     # Atomically-created temp file so concurrent cold-cache downloads (threads
     # or processes) never clobber each other's partial file; the final rename
@@ -321,7 +323,7 @@ def _resolve_weights(name: str) -> Path:
             "You can convert the upstream Torchreid checkpoint yourself with "
             "weights/convert_osnet_reid_weights.py and pass it via "
             "OSNetEmbedder(weights=...), or place it at "
-            f"{dest}."
+            f"{dest}." + hf_unreachable_hint(e, url)
         ) from e
     return dest
 

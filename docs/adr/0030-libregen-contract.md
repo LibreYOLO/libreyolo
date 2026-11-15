@@ -110,8 +110,11 @@ Family knobs:
 | --- | --- | --- | --- |
 | `flux2-klein-4b` (default) | `black-forest-labs/FLUX.2-klein-4B` | Apache-2.0 | `steps` (4), `guidance` (1.0; the distilled checkpoint runs without guidance, so any other value raises) |
 | `sana-sprint-0.6b` | `Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers` | Apache-2.0; bundled Gemma 2 text encoder under the Gemma Terms of Use | `steps` (2), `guidance` (4.5) |
+| `prx-<size>` (nine checkpoints, amendment below) | `Photoroom/prx-*` | Apache-2.0; bundled T5Gemma text encoder under the Gemma Terms of Use; FLUX.1 VAE Apache-2.0 or DC-AE MIT | `steps` (28, or 8 distilled), `guidance` (5.0, or 1.0 distilled), `negative` ("") |
+| `prxpixel-7b` | `Photoroom/prxpixel-t2i` | Apache-2.0; bundled Qwen3-VL text encoder Apache-2.0 | `steps` (28), `guidance` (5.0), `negative` ("") |
 
-Both load through `diffusers` (`Flux2KleinPipeline`, `SanaSprintPipeline`).
+All load through `diffusers` (`Flux2KleinPipeline`, `SanaSprintPipeline`,
+`PRXPipeline`, `PRXPixelPipeline`).
 A family that needs a vendored architecture implements the same two hooks
 (`_load`, `_generate`) without changing the call shape.
 
@@ -186,3 +189,30 @@ Install: `pip install "libreyolo[gen]"`.
 - `diffusers` is an optional extra, not a core dependency.
 - Adding a diffusers-backed family is a class with a repo, a pinned commit,
   a pipeline class and its knobs.
+
+## Amendment: PRX and PRXPixel (2026-11)
+
+Photoroom's PRX release is nine checkpoints of one 1.3B architecture.
+`LibrePRX` serves all of them as size codes of one family: `1024-beta`,
+`512-sft-distilled`, `512-sft`, `512`, `512-dc-ae-sft-distilled`,
+`512-dc-ae-sft`, `512-dc-ae`, `256-sft` and `256`, each pinned to a Hub
+commit. The size code also picks two things a single class constant cannot:
+the size multiple (16 for the FLUX.1 VAE, 32 for DC-AE) and the model card's
+sampling defaults (28 steps at guidance 5.0, or 8 steps at guidance 1.0 for
+the distilled checkpoints). A local PRX directory with no `size=` gets the
+`-sft` code matching its `default_sample_size` and autoencoder, or
+`1024-beta` at 1024.
+
+`LibrePRXPixel` (`prxpixel-7b`) is the 7B pixel-space variant. Its pipeline
+first shipped in diffusers 0.39, so it requires that release and names it in
+the import error; the `gen` extra keeps its 0.38 floor so it stays
+installable next to `marigold`, which pins 0.38.
+
+Unlike FLUX.2 klein and SANA-Sprint, the PRX and PRXPixel snapshots are
+mirrored, unmodified, at `LibreYOLO/LibrePRX<size>` and
+`LibreYOLO/LibrePRXPixel7b` (Apache-2.0, redistribution allowed; the PRX
+mirrors carry Photoroom's LICENSE and NOTICE and the Gemma terms), so the
+family keeps working if the upstream repos move. The classes pin the mirror
+commits in `HF_REVISIONS` and record Photoroom's repos and commits in
+`UPSTREAM_REPOS` and `UPSTREAM_REVISIONS`; every mirrored file is checked
+byte for byte against upstream.

@@ -30,6 +30,7 @@ from .molmo2 import LibreMolmo2
 from .moondream import LibreMoondream
 from .northmicro import LibreNorthMicroVision
 from .qwen3vl import LibreQwen3VL
+from .qwen3vl_embedding import LibreQwen3VLEmbedding
 from .smolvlm import LibreSmolVLM2
 
 # alias -> (family class, size)
@@ -38,6 +39,8 @@ _ALIASES: Dict[str, Tuple[Type[LibreVLMModel], str]] = {
     "qwen3-vl-2b": (LibreQwen3VL, "2b"),
     "qwen3-vl-4b": (LibreQwen3VL, "4b"),
     "qwen3-vl-8b": (LibreQwen3VL, "8b"),
+    "qwen3-vl-embedding": (LibreQwen3VLEmbedding, "2b"),
+    "qwen3-vl-embedding-2b": (LibreQwen3VLEmbedding, "2b"),
     "lfm2-vl": (LibreLFM2VL, "450m"),
     "lfm2-vl-450m": (LibreLFM2VL, "450m"),
     "lfm2-vl-1.6b": (LibreLFM2VL, "1.6b"),
@@ -103,6 +106,48 @@ _WEVISONE_ALIASES: Dict[str, str] = {
     "wevisone-vl-4b": "4b",
 }
 
+# DeepSeek-OCR lives in ``models/deepseekocr`` (vendored architecture) and
+# resolves lazily for the same reason as SenseNova.
+_DEEPSEEKOCR_ALIASES: Dict[str, str] = {
+    "deepseek-ocr": "1",
+    "deepseekocr": "1",
+    "deepseek-ocr-2": "2",
+    "deepseekocr2": "2",
+}
+
+# PaddleOCR-VL lives in ``models/paddleocrvl`` (it ports the document-parsing
+# pipeline around its two networks) and resolves lazily for the same reason.
+_PADDLEOCRVL_ALIASES: Dict[str, str] = {
+    "paddleocr-vl": "0.9b",
+    "paddleocrvl": "0.9b",
+    "paddleocr-vl-0.9b": "0.9b",
+}
+
+# GLM-OCR lives in ``models/glmocr`` (it ports the GLM-OCR SDK pipeline around
+# its two networks) and resolves lazily for the same reason.
+_GLMOCR_ALIASES: Dict[str, str] = {
+    "glm-ocr": "0.9b",
+    "glmocr": "0.9b",
+    "glm-ocr-0.9b": "0.9b",
+}
+
+# Falcon OCR lives in ``models/falconocr`` (vendored architecture) and
+# resolves lazily for the same reason as SenseNova.
+_FALCONOCR_ALIASES: Dict[str, str] = {
+    "falcon-ocr": "270m",
+    "falconocr": "270m",
+    "falcon-ocr-270m": "270m",
+}
+
+# Falcon Perception lives in ``models/falcon_perception`` (it vendors its own
+# network) and resolves lazily for the same reason as SenseNova.
+_FALCON_ALIASES: Dict[str, str] = {
+    "falcon-perception": "600m",
+    "falconperception": "600m",
+    "falcon-perception-600m": "600m",
+    "falcon-perception-300m": "300m",
+}
+
 _DEFAULT_MODEL = "qwen3-vl-4b"
 
 
@@ -157,10 +202,32 @@ def LibreVLM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreVLMModel:
         from ..wevisone import LibreWeVisOneVL
 
         return LibreWeVisOneVL(size=_WEVISONE_ALIASES[key], **kwargs)
+    if key in _DEEPSEEKOCR_ALIASES:
+        from ..deepseekocr import LibreDeepSeekOCR
+
+        return LibreDeepSeekOCR(size=_DEEPSEEKOCR_ALIASES[key], **kwargs)
+    if key in _PADDLEOCRVL_ALIASES:
+        from ..paddleocrvl import LibrePaddleOCRVL
+
+        return LibrePaddleOCRVL(size=_PADDLEOCRVL_ALIASES[key], **kwargs)
+    if key in _GLMOCR_ALIASES:
+        from ..glmocr import LibreGLMOCR
+
+        return LibreGLMOCR(size=_GLMOCR_ALIASES[key], **kwargs)
+    if key in _FALCONOCR_ALIASES:
+        from ..falconocr import LibreFalconOCR
+
+        return LibreFalconOCR(size=_FALCONOCR_ALIASES[key], **kwargs)
+    if key in _FALCON_ALIASES:
+        from ..falcon_perception import LibreFalconPerception
+
+        return LibreFalconPerception(size=_FALCON_ALIASES[key], **kwargs)
     match = _ALIASES.get(key)
     if match is None:
         known = set(_ALIASES) | set(_LAZY_ALIASES) | set(_MODUS_ALIASES)
-        known |= set(_WEVISONE_ALIASES)
+        known |= set(_WEVISONE_ALIASES) | set(_DEEPSEEKOCR_ALIASES)
+        known |= set(_PADDLEOCRVL_ALIASES) | set(_GLMOCR_ALIASES)
+        known |= set(_FALCONOCR_ALIASES) | set(_FALCON_ALIASES)
         raise ValueError(
             f"Unknown VLM model {model!r}. Known aliases: {', '.join(sorted(known))}."
         )
@@ -181,6 +248,26 @@ def __getattr__(name: str):
         from ..wevisone import LibreWeVisOneVL
 
         return LibreWeVisOneVL
+    if name == "LibreDeepSeekOCR":
+        from ..deepseekocr import LibreDeepSeekOCR
+
+        return LibreDeepSeekOCR
+    if name == "LibrePaddleOCRVL":
+        from ..paddleocrvl import LibrePaddleOCRVL
+
+        return LibrePaddleOCRVL
+    if name == "LibreGLMOCR":
+        from ..glmocr import LibreGLMOCR
+
+        return LibreGLMOCR
+    if name == "LibreFalconOCR":
+        from ..falconocr import LibreFalconOCR
+
+        return LibreFalconOCR
+    if name == "LibreFalconPerception":
+        from ..falcon_perception import LibreFalconPerception
+
+        return LibreFalconPerception
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -189,6 +276,7 @@ __all__ = [
     "LibreVLMModel",
     "LibreLFM2VL",
     "LibreQwen3VL",
+    "LibreQwen3VLEmbedding",
     "LibreSmolVLM2",
     "LibreInternVL3",
     "LibreFlorence2",
@@ -200,6 +288,11 @@ __all__ = [
     "LibreNorthMicroVision",
     "LibreSenseNovaVision",
     "LibreWeVisOneVL",
+    "LibreDeepSeekOCR",
+    "LibrePaddleOCRVL",
+    "LibreGLMOCR",
+    "LibreFalconOCR",
+    "LibreFalconPerception",
     "LibreMODUS",
     "LibreModus",
 ]

@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 
 import requests
 
+from .hf_hub import apply_hf_endpoint, hf_unreachable_hint
+
 _YOLONAS_LICENSE_NOTICE_SHOWN = False
 _DOWNLOAD_RETRIES = 3
 _DOWNLOAD_BACKOFF_SECONDS = 1.0
@@ -360,8 +362,12 @@ def download_url_to_path(url: str, path: Path, *, verify=None) -> None:
     """Download ``url`` to ``path`` with locking, resume, retries and verify.
 
     ``verify`` is an optional ``(local_path, source_url) -> None`` hook run on
-    the temporary file before it is atomically published at ``path``.
+    the temporary file before it is atomically published at ``path``. It
+    receives ``url`` as given, even when a canonical ``huggingface.co`` URL is
+    fetched from ``HF_ENDPOINT`` instead, so pinned-URL checks keep working.
     """
+    source_url = url
+    url = apply_hf_endpoint(url)
     logger.info(
         "Model weights not found at %s. Attempting download from %s...",
         path,
@@ -414,6 +420,7 @@ def download_url_to_path(url: str, path: Path, *, verify=None) -> None:
                         f"Failed to download weights from {url} after "
                         f"{_DOWNLOAD_RETRIES + 1} attempts: {e}. "
                         f"Partial download kept at {partial} ({partial_size} bytes)."
+                        + hf_unreachable_hint(e, url)
                     ) from e
 
                 partial_size = partial.stat().st_size if partial.exists() else 0
@@ -429,7 +436,7 @@ def download_url_to_path(url: str, path: Path, *, verify=None) -> None:
         # Verify the temporary file before publishing it at the final path.
         if verify is not None:
             try:
-                verify(str(partial), url)
+                verify(str(partial), source_url)
             except Exception:
                 _reset_partial(partial)
                 raise

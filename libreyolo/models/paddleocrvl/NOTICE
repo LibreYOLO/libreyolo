@@ -1,0 +1,41 @@
+LibrePaddleOCRVL - third-party attribution
+==========================================
+
+The PaddleOCR-VL family runs both of its networks through the native Hugging
+Face transformers classes (PaddleOCRVLForConditionalGeneration and
+PPDocLayoutV2ForObjectDetection, Apache-2.0) and ports the document-parsing
+pipeline around them from PaddleX.
+
+    Project:  PaddleX
+    Upstream: https://github.com/PaddlePaddle/PaddleX
+    Commit:   4c968d30b9d0d4a693d9eaaef0881c20f8d7d0e0
+    License:  Apache License 2.0
+    Copyright (c) 2024 PaddlePaddle Authors. All Rights Reserved.
+
+Ported or adapted files (each keeps an SPDX header with this provenance):
+
+  * layout.py   <- paddlex/inference/models/object_detection/processors.py
+                   (DetPostProcess, nms, check_containment, unclip_boxes),
+                   paddlex/configs/pipelines/PaddleOCR-VL.yaml (per-class
+                   thresholds, merge modes), paddlex/inference/pipelines/
+                   paddleocr_vl/uilts.py (filter_overlap_boxes); the
+                   reading-order vote follows transformers'
+                   PPDocLayoutV2ImageProcessor (Apache-2.0)
+  * blocks.py   <- paddlex/inference/pipelines/paddleocr_vl/pipeline.py
+                   (prompt routing, pixel budgets, content clean-up) and
+                   uilts.py (crop_margin, OTSL to HTML, repetition truncation)
+  * markdown.py <- paddlex/inference/common/result/converter/
+                   markdown_converter.py and markdown_format_funcs.py
+
+LibreYOLO adaptations: RGB arrays instead of BGR, polygon layout modes, seal
+and spotting recognition, adjacent-block merging, figure tokens inside tables
+and image export are not ported; markdown is the plain (non-HTML) variant.
+
+Model weights: LibreYOLO/LibrePaddleOCRVL0.9b on Hugging Face mirrors,
+unmodified,
+
+    PaddlePaddle/PaddleOCR-VL               7fa00a8c55b735ba51ba49a9058f3f9c57a99a11
+    PaddlePaddle/PP-DocLayoutV2_safetensors 880e8971b88938518611c54fc0f59ad57849c9d4
+
+both Apache-2.0, Copyright (c) PaddlePaddle Authors. PaddleOCR-VL-0.9B's
+language model is initialized from ERNIE-4.5-0.3B (Baidu, Apache-2.0).

@@ -39,6 +39,7 @@ from typing import (
 import numpy as np
 
 from ...utils.results import GeneratedImage, Results
+from ...utils.hf_hub import hf_url
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,10 @@ _SNAPSHOT_LOCKS: Dict[str, threading.Lock] = {}
 
 
 def _snapshot_lock(local_dir: Path) -> threading.Lock:
-    key = str(local_dir.resolve())
+    # abspath, not resolve(): on Windows resolve() only expands 8.3 short names
+    # (C:\Users\RUNNER~1) once the folder exists, so two threads racing on a
+    # first download could get different keys and both download.
+    key = os.path.normcase(os.path.abspath(local_dir))
     with _LOAD_LOCKS_GUARD:
         lock = _SNAPSHOT_LOCKS.get(key)
         if lock is None:
@@ -310,7 +314,7 @@ class LibreGenModel:
         if repo is None:
             return None
         revision = cls.HF_REVISIONS.get(size) or "main"
-        return f"https://huggingface.co/{repo}/tree/{revision}"
+        return hf_url(f"{repo}/tree/{revision}")
 
     @classmethod
     def _notify_license_once(cls) -> None:

@@ -91,6 +91,11 @@ def _summarize_result(result) -> tuple[str, str]:
     if obb is not None:
         return "obb", _plural(len(obb), "object")
 
+    # Mesh results carry the person boxes too.
+    meshes = getattr(result, "meshes", None)
+    if meshes is not None:
+        return "mesh", _plural(len(meshes), "body", "bodies")
+
     boxes = getattr(result, "boxes", None)
     if boxes is not None:
         n = len(boxes)
@@ -125,6 +130,9 @@ def _summarize_result(result) -> tuple[str, str]:
 
     if getattr(result, "depth_map", None) is not None:
         return "depth", "depth map"
+
+    if getattr(result, "flow", None) is not None:
+        return "flow", "optical flow"
 
     if getattr(result, "normal_map", None) is not None:
         return "normal", "normal map"
@@ -184,8 +192,10 @@ def _resolve_download_url(name: str) -> str | None:
     # registry, so it publishes its download URLs directly.
     from libreyolo.models.facerec.weights import FACEREC_WEIGHT_URLS
 
+    from libreyolo.utils.hf_hub import apply_hf_endpoint
+
     if filename in FACEREC_WEIGHT_URLS:
-        return FACEREC_WEIGHT_URLS[filename]
+        return apply_hf_endpoint(FACEREC_WEIGHT_URLS[filename])
 
     classes = list(BaseModel._registry)
     rf = try_ensure_rfdetr()
@@ -197,7 +207,7 @@ def _resolve_download_url(name: str) -> str | None:
         except Exception:
             url = None
         if url:
-            return url
+            return apply_hf_endpoint(url)
     return None
 
 

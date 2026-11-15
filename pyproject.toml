@@ -1,6 +1,6 @@
 [project]
 name = "libreyolo"
-version = "1.7.4"
+version = "1.8.0"
 description = "MIT-licensed computer vision library: one Python API for YOLO, RF-DETR, RT-DETR and dozens more model families, with training and export where a family supports them."
 keywords = [
     "yolo",
@@ -52,7 +52,9 @@ dependencies = [
     "mss>=9.0.1",
     "tqdm>=4.65.0",
     "pycocotools>=2.0.0",
-    "typer>=0.9.0",
+    # typer 0.29 vendors its own Click and breaks --help-json and error output;
+    # stay below it until the CLI is migrated.
+    "typer>=0.9.0,<0.29",
     "click>=8.0.0",
     "safetensors>=0.4.0",
     "scipy>=1.7.0",
@@ -127,6 +129,11 @@ coreai = [
 rfdetr = [
     "transformers>=5.1.0",
 ]
+rfdetr-train = [
+    "transformers>=5.1.0",
+    # Optional batched GPU matching, Apache-2.0; same release as upstream.
+    "torch-hungarian==0.1.0rc0",
+]
 eomt = [
     "transformers>=5.1.0",
 ]
@@ -160,14 +167,19 @@ vla = [
     "lerobot[smolvla,diffusion,dataset]>=0.6.1; python_version >= '3.12'",
 ]
 gen = [
-    # LibreGen loads generative image pipelines (FLUX.2 klein, SANA-Sprint)
-    # through the Apache-2.0 diffusers package; text encoders come from
-    # transformers and accelerate backs low-memory loading and offload=True.
+    # LibreGen loads generative image pipelines (FLUX.2 klein, SANA-Sprint,
+    # PRX, PRXPixel) through the Apache-2.0 diffusers package; text encoders
+    # come from transformers and accelerate backs low-memory loading and
+    # offload=True. PRXPixel needs diffusers 0.39 and says so at load time;
+    # the floor stays at 0.38 so this extra installs next to marigold. PRX
+    # and PRXPixel clean prompts with ftfy (Apache-2.0).
     # Speridlabs Idol reads DINOv3 through transformers and the FLUX.2 VAE
-    # through diffusers.
+    # through diffusers. TripoSR meshes through scikit-image's marching cubes.
     "diffusers>=0.38.0",
+    "scikit-image>=0.19",
     "transformers>=5.1.0",
     "accelerate>=1.7.0",
+    "ftfy>=6.0",
 ]
 llm = [
     # LibreLLM talks to OpenAI-compatible Responses / Chat Completions
@@ -491,6 +503,7 @@ conflicts = [
     [{ extra = "molmo2" }, { extra = "modus" }],
     [{ extra = "molmo2" }, { extra = "openvocab" }],
     [{ extra = "molmo2" }, { extra = "rfdetr" }],
+    [{ extra = "molmo2" }, { extra = "rfdetr-train" }],
     [{ extra = "molmo2" }, { extra = "sam" }],
     [{ extra = "molmo2" }, { extra = "sensenova" }],
     [{ extra = "molmo2" }, { extra = "siglip2-convert" }],
@@ -558,6 +571,11 @@ requires-dist = []
 extend-exclude = [
     "libreyolo/models/deimv2/engine",
     "libreyolo/models/depth_anything3/_vendor",
+    "libreyolo/models/waft/_vendor",
+    "libreyolo/models/unimatch/_vendor",
+    "libreyolo/models/neuflowv2/_vendor",
+    "libreyolo/models/dpflow/_vendor",
+    "libreyolo/models/video_depth_anything/_vendor",
 ]
 
 [tool.ty.rules]
@@ -629,6 +647,7 @@ markers = [
     "openvino: tests requiring OpenVINO",
     "mnn: tests requiring MNN",
     "ncnn: tests requiring ncnn",
+    "axelera: tests requiring Axelera's SDK (axelera-devkit, axelera-rt) and a Metis device",
     "tflite: tests requiring TensorFlow Lite export",
     "paddle: tests requiring PaddlePaddle export/runtime",
     "coreml: tests requiring CoreML (macOS only)",
@@ -645,6 +664,7 @@ markers = [
     "convnextv2: tests covering the ConvNeXt V2 classification family",
     "deeplabv3: tests covering the DeepLabv3 semantic segmentation family",
     "lwdetr: tests covering the LW-DETR model family",
+    "ppdoclayoutv3: tests covering the PP-DocLayoutV3 document layout family",
     "faster_rcnn: tests covering the Faster R-CNN model family",
     "retinanet: tests covering the RetinaNet model family",
     "ssd: tests covering the SSD model family",
@@ -664,6 +684,7 @@ markers = [
     "ec: tests covering the ECDet model family",
     "gtr: tests covering the GTR model family",
     "rtdetr: tests covering the RT-DETR model family",
+    "riodetrv2: tests covering the RiO-DETRv2 model family",
     "rtdetrv2: tests covering the RT-DETRv2 model family",
     "rtdetrv4: tests covering the RT-DETRv4 model family",
     "picodet: tests covering the PICODET model family",
@@ -687,6 +708,15 @@ markers = [
     "siglip2: tests covering the LibreSigLIP2 zero-shot open-vocabulary classifier family",
     "pe: tests covering the LibrePE Perception Encoder Core zero-shot / embedding family",
     "midas: tests covering the MiDaS relative-depth family",
+    "raft: tests covering the RAFT optical flow family",
+    "memfof: tests covering the MEMFOF three-frame optical flow family",
+    "video_depth_anything: tests covering the Video Depth Anything depth sequence family",
+    "searaft: tests covering the SEA-RAFT optical flow family",
+    "flowseek: tests covering the FlowSeek optical flow family",
+    "waft: tests covering the WAFT optical flow family",
+    "unimatch: tests covering the UniMatch / GMFlow optical flow family",
+    "neuflowv2: tests covering the NeuFlow v2 optical flow family",
+    "dpflow: tests covering the DPFlow optical flow family",
     "quicksrnet: tests covering the QuickSRNet super-resolution family",
     "ddcolor: tests covering the DDColor automatic-colorization family",
     "hvi_cidnet: tests covering the HVI-CIDNet low-light restoration family",

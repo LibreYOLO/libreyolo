@@ -59,7 +59,7 @@ def main():
     native = SwinBackbone(SwinDims(out_indices=(1, 2, 3), tf_order=True)).eval()
     native.load_state_dict(remap(sd), strict=False)
 
-    img = Image.open("libreyolo/assets/parkour.jpg").convert("RGB")
+    img = Image.open("tests/data/parkour.jpg").convert("RGB")
     px = proc(images=img, text="a person.", return_tensors="pt")["pixel_values"]
     with torch.no_grad():
         ref = bmod(px).feature_maps

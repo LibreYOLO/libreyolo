@@ -67,7 +67,12 @@ def _libreyolo_ddp_worker(
     if cls is None:
         cls = getattr(importlib.import_module(module_path), class_name)
 
-    model = cls(weights_path, **init_kw)
+    from ..utils.input_channels import pending_model_channels
+
+    # The bootstrap weights are a flat state dict; a grayscale model must be
+    # one-channel before they load.
+    with pending_model_channels(init_kw.pop("_input_channels", None)):
+        model = cls(weights_path, **init_kw)
     for name, value in attrs.items():
         setattr(model, name, value)
     try:
@@ -204,6 +209,10 @@ def _build_init_kw(model_instance: Any) -> dict:
     }
     if attrs:
         kw["_attrs"] = attrs
+    from ..utils.input_channels import model_channels
+
+    if model_channels(model_instance) != 3:
+        kw["_input_channels"] = model_channels(model_instance)
     if supports_kwargs and getattr(model_instance, "_training_from_scratch", False):
         # Workers rebuild the architecture before loading the temporary state
         # dict. Preserve scratch-only backbone trainability during that build.

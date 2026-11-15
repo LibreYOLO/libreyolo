@@ -503,6 +503,9 @@ class LibreDEIMv2(BaseModel):
             if state_dict_has_lora(state_dict) and not module_has_lora(self.model):
                 apply_lora_to_deimv2(self.model)
 
+            from ...utils.input_channels import restore_channels
+
+            restore_channels(self, loaded)
             self._load_state_dict_checked(state_dict)
         except RuntimeError:
             raise

@@ -17,20 +17,21 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader, RandomSampler, Sampler
 from PIL import Image, UnidentifiedImageError
+from torch.utils.data import DataLoader, Dataset, RandomSampler, Sampler
 from tqdm import tqdm
 
+from libreyolo.training.distributed import is_main_process
+from libreyolo.utils.image_size import imgsz_to_hw
+
 from .cache import ImageCacheMixin
-from .yolo_coco_api import parse_yolo_label_line
 from .obb import (
     canonicalize_xywhr,
     corners_to_xywhr,
     parse_yolo_obb_label_line,
     xywhr_to_proxy_xyxy,
 )
-from libreyolo.training.distributed import is_main_process
-from libreyolo.utils.image_size import imgsz_to_hw
+from .yolo_coco_api import parse_yolo_label_line
 
 logger = logging.getLogger(__name__)
 
@@ -264,7 +265,10 @@ class YOLODataset(ImageCacheMixin, Dataset):
                 every kept id to ``0`` instead.
         """
         from ..utils.event_histogram import validate_input_profile
+        from ..utils.input_channels import active_dataset_channels
+
         self.input_profile = validate_input_profile(input_profile)
+        self.input_channels = active_dataset_channels()
         if self.input_profile and (load_segments or load_obb):
             raise ValueError("Event histograms support detection only")
         self.img_size = imgsz_to_hw(img_size, name="img_size")
@@ -672,6 +676,9 @@ class COCODataset(ImageCacheMixin, Dataset):
         """
         if load_segments and load_obb:
             raise ValueError("COCODataset cannot load segmentation and OBB labels together")
+        from ..utils.input_channels import active_dataset_channels
+
+        self.input_channels = active_dataset_channels()
         try:
             from pycocotools.coco import COCO
         except ImportError:
@@ -1129,6 +1136,10 @@ def create_dataloader(
     sampler=None,
     min_samples: int = 0,
     class_balanced: bool = False,
+    *,
+    persistent_workers: bool = False,
+    prefetch_factor: int | None = None,
+    worker_init_fn=None,
 ):
     """
     Create a DataLoader for YOLOX training.
@@ -1215,9 +1226,17 @@ def create_dataloader(
     except TypeError:
         visible_samples = len(dataset)
     drop_last = visible_samples >= batch_size
+    loader_options = {}
+    if num_workers > 0:
+        loader_options["persistent_workers"] = persistent_workers
+        if prefetch_factor is not None:
+            loader_options["prefetch_factor"] = prefetch_factor
+        if worker_init_fn is not None:
+            loader_options["worker_init_fn"] = worker_init_fn
     return DataLoader(
         dataset,
         batch_size=batch_size,
+        **loader_options,
         shuffle=False if sampler is not None else shuffle,
         sampler=sampler,
         num_workers=num_workers,

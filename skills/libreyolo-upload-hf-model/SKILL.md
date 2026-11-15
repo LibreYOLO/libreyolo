@@ -66,6 +66,7 @@ file = name + ".pt"
 | DINO-DETR | `LibreDINODETR` | `LibreDINODETRr50.pt` (IDEA DINO detector; Apache-2.0 implied for weights; inference-only) |
 | RTDETR | `LibreRTDETR` | `LibreRTDETRr50.pt` |
 | RTDETRv2 | `LibreRTDETRv2` | `LibreRTDETRv2r50.pt` |
+| RiODETRv2 | `LibreRiODETRv2` | `LibreRiODETRv2n-obb.pt` (DOTA-v1.0), `LibreRiODETRv2n-obb-diorr.pt` (DIOR-R); Apache-2.0 initial-release code + weights; inference-only |
 | RTDETRv4 | `LibreRTDETRv4` | `LibreRTDETRv4s.pt` |
 | RTMDet | `LibreRTMDet` | `LibreRTMDets.pt` |
 | YOLONAS | `LibreYOLONAS` | `LibreYOLONASs.pt` |
@@ -85,6 +86,8 @@ file = name + ".pt"
 | V-JEPA 2 | `LibreVJEPA2` | `LibreVJEPA2l256-embed.pt` (video clip embedding), `LibreVJEPA2l256-cls-ssv2.pt` (attentive-probe video classify) |
 | LeVJEPA | `LibreLeVJEPA` | `LibreLeVJEPAl-embed.pt` (16-frame clip and patch embeddings; CC BY-NC 4.0 weights) |
 | NAFNet | `LibreNAFNet` | `LibreNAFNets-restore.pt` (restore-only; `-sidd` variant = SIDD denoise) |
+| RAFT | `LibreRAFT` | `LibreRAFTl-flow.pt` (flow-only; `-sintel` / `-kitti` variants of `l`; one HF repo per file) |
+| NeuFlowv2 | `LibreNeuFlowv2` | `LibreNeuFlowv2s-flow.pt` (flow-only; one repo per file, `-sintel` / `-things` training-data variants; Apache-2.0 implied from the upstream repo) |
 | BEN2 | `LibreBEN2` | `LibreBEN2b-matte.pt` (matte / background-removal; MIT code + weights; inference-only) |
 | BiRefNet | `LibreBiRefNet` | `LibreBiRefNetl-matte.pt` (matte / background-removal; `l` is MIT, `t`/lite has no explicit weights-license tag) |
 | FeyNobg | `LibreFeyNobg` | `LibreFeyNobgl-matte.pt` (matte / background-removal; Apache-2.0 code+weights; also ships `-fp8`/`-nvfp4` pre-quantized repos, see below) |
@@ -92,6 +95,7 @@ file = name + ".pt"
 | QuickSRNet | `LibreQuickSRNet` | `LibreQuickSRNetm2-restore.pt` (Medium 2x super-resolution; BSD-3-Clause) |
 | SwinIR | `LibreSwinIR` | `LibreSwinIRm-restore.pt` (4x super-resolution; sizes `s`/`m`/`l`; Apache-2.0) |
 | PPOCR | `LibrePPOCR` | `LibrePPOCRt-ocr.pt` (PP-OCRv5 text det+rec; sizes `t`/`l`; Apache-2.0) |
+| PPDocLayoutV3 | `LibrePPDocLayoutV3` | `LibrePPDocLayoutV3l.pt` (document layout + reading order; size `l`; Apache-2.0) |
 | PIDNet | `LibrePIDNet` | `LibrePIDNets-sem.pt` (semantic-only) |
 | PPLiteSeg | `LibrePPLiteSeg` | `LibrePPLiteSegt50-sem.pt` (semantic-only; sizes `t50`/`b50`/`t75`/`b75`, natively rectangular. Weights are **non-commercial** — Cityscapes dataset terms, see below) |
 | UNet | `LibreUNet` | `LibreUNets-sem.pt` (semantic-only; size `s`, evaluates at 1024x2048. Apache-2.0 weights, as mmsegmentation declares) |
@@ -100,10 +104,16 @@ file = name + ".pt"
 | EoMT | `LibreEoMT` | `LibreEoMTl-sem.pt` (semantic), `LibreEoMTl-seg.pt` (COCO instance), `LibreEoMTs-panoptic.pt` (COCO panoptic) |
 | DINOv2 | `LibreDINOv2` | `LibreDINOv2n.pt` (semantic default), `LibreDINOv2n-cls.pt` |
 | DepthAnythingV2 | `LibreDepthAnythingV2` | `LibreDepthAnythingV2s-depth.pt` (only `s` is Apache; b/l/g are CC-BY-NC, see below) |
+| FlowSeek | `LibreFlowSeek` | `LibreFlowSeekt-flow.pt` (Apache code; t/s embed the Apache DAv2 Small encoder, m/l the CC BY-NC 4.0 Base encoder) |
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
+| VideoDepthAnything | `LibreVideoDepthAnything` | `LibreVideoDepthAnythings-depth.pt` (only `s` is Apache; b/l are CC-BY-NC-4.0) |
+| WAFT | `LibreWAFT` | `LibreWAFTm-flow.pt` (canonical); `LibreWAFTt-flow-dinov3.pt`, `LibreWAFTs-flow-dav2.pt`, `LibreWAFTl-flow-twins.pt` (BSD-3-Clause plus the encoder licence; `t` carries the DINOv3 License) |
+| MoGe3 | `LibreMoGe3` | `LibreMoGe3l-depth.pt`, `LibreMoGe3g-normal.pt` (MIT code + weights; one tensor set per size serves both tasks) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
 | GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
+| MEMFOF | `LibreMEMFOF` | `LibreMEMFOFm-flow.pt` (three-frame optical flow; BSD-3-Clause code, weights tagged `bsd-3-clause` upstream with no licence file; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring`, one repo each) |
 | FOMO | `LibreFOMO` | `LibreFOMOs-point.pt` (hosted s/m/l are randomly initialised MIT weights; upstream FOMO weights are cc-by-nc-4.0 and not mirrored) |
+| InstantHMR | `LibreInstantHMR` | `LibreInstantHMRm-mesh.pt` (converted from upstream ONNX; n/t/s/m CC BY-NC 4.0, `-commercial` variant of m Apache-2.0; all carry the SAM License for the SAM 3D Body training labels) |
 
 Never-upload families: **L2CS** (Gaze360 terms forbid redistribution) and any
 weight whose upstream/training-data license fails the gate in
@@ -203,6 +213,12 @@ LibreRTDETRv2n-obb.pt, LibreRTDETRv2s-obb.pt,
 LibreRTDETRv2m-obb.pt, LibreRTDETRv2l-obb.pt,
 LibreRTDETRv2x-obb.pt,
 
+LibreRiODETRv2n-obb.pt, LibreRiODETRv2s-obb.pt, LibreRiODETRv2m-obb.pt,
+LibreRiODETRv2l-obb.pt, LibreRiODETRv2x-obb.pt,
+LibreRiODETRv2n-obb-diorr.pt, LibreRiODETRv2s-obb-diorr.pt,
+LibreRiODETRv2m-obb-diorr.pt, LibreRiODETRv2l-obb-diorr.pt,
+LibreRiODETRv2x-obb-diorr.pt,
+
 LibreRTDETRv4s.pt, LibreRTDETRv4m.pt, LibreRTDETRv4l.pt,
 LibreRTDETRv4x.pt,
 
@@ -299,6 +315,11 @@ LibreLeVJEPAl-embed.pt,
 LibreNAFNets-restore.pt, LibreNAFNetl-restore.pt,
 LibreNAFNetl-restore-sidd.pt,
 
+LibreRAFTs-flow.pt, LibreRAFTl-flow.pt,
+LibreRAFTl-flow-sintel.pt, LibreRAFTl-flow-kitti.pt,
+LibreNeuFlowv2s-flow.pt, LibreNeuFlowv2s-flow-sintel.pt,
+LibreNeuFlowv2s-flow-things.pt,
+
 LibreRealESRGANx4-restore.pt, LibreRealESRGANx2-restore.pt,
 LibreRealESRGANx4t-restore.pt,
 
@@ -308,6 +329,8 @@ LibreSwinIRs-restore.pt, LibreSwinIRm-restore.pt,
 LibreSwinIRl-restore.pt,
 
 LibrePPOCRt-ocr.pt, LibrePPOCRl-ocr.pt,
+
+LibrePPDocLayoutV3l.pt,
 
 LibreBEN2b-matte.pt,
 
@@ -347,11 +370,28 @@ LibreDepthAnythingV2l-depth.pt, LibreDepthAnythingV2g-depth.pt,
 
 LibreDepthAnything3l-depth.pt,
 
+LibreVideoDepthAnythings-depth.pt, LibreVideoDepthAnythingb-depth.pt,
+LibreVideoDepthAnythingl-depth.pt,
+
+LibreFlowSeekt-flow.pt, LibreFlowSeeks-flow.pt, LibreFlowSeekm-flow.pt,
+LibreFlowSeekl-flow.pt,
+LibreWAFTt-flow-dinov3.pt, LibreWAFTs-flow-dav2.pt, LibreWAFTm-flow.pt,
+LibreWAFTl-flow-twins.pt,
+
 LibreMoGe2s-normal.pt, LibreMoGe2b-normal.pt, LibreMoGe2l-normal.pt,
+
+LibreMoGe3l-depth.pt, LibreMoGe3l-normal.pt, LibreMoGe3g-depth.pt,
+LibreMoGe3g-normal.pt,
 
 LibreZipDepthb-depth.pt, LibreZipDepthbnpu-depth.pt,
 
 LibreFOMOs-point.pt, LibreFOMOm-point.pt, LibreFOMOl-point.pt
+
+LibreInstantHMRn-mesh.pt, LibreInstantHMRt-mesh.pt, LibreInstantHMRs-mesh.pt,
+LibreInstantHMRm-mesh.pt, LibreInstantHMRm-mesh-commercial.pt
+
+LibreMEMFOFm-flow.pt, LibreMEMFOFm-flow-tartan.pt, LibreMEMFOFm-flow-tartan-t.pt,
+LibreMEMFOFm-flow-kitti.pt, LibreMEMFOFm-flow-sintel.pt, LibreMEMFOFm-flow-spring.pt
 ```
 
 License caveats inside the list: BiRefNet `l` (general) weights are MIT-tagged

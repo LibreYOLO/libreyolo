@@ -3,7 +3,7 @@
 These procedural images are trivially redistributable (no third-party image
 rights) and their sharp edges, gradients, and thin protrusions exercise the
 resize/normalize + soft-edge behaviour a background-removal model must handle.
-One real photo (the in-repo ``parkour.jpg``, a person) is copied in for a
+One real photo (the test-only ``tests/data/parkour.jpg``, a person) is copied in for a
 natural-image check. Run once to (re)generate ``images/``.
 """
 

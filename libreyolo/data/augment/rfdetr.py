@@ -33,6 +33,16 @@ from .copy_paste import copy_paste as _copy_paste_instances
 logger = logging.getLogger(__name__)
 
 
+def _normalize_rgb_image(image: np.ndarray, imagenet_norm: bool = True) -> np.ndarray:
+    """Normalize owned, contiguous CHW storage with the existing FP32 arithmetic."""
+    output = image.transpose(2, 0, 1).astype(np.float32, order="C", copy=True)
+    output /= 255.0
+    if imagenet_norm:
+        output -= _IMAGENET_MEAN
+        output /= _IMAGENET_STD
+    return output
+
+
 def compute_multi_scale_scales(
     resolution: int,
     expanded_scales: bool = False,
@@ -483,10 +493,7 @@ class RFDETRSegTransform:
             padded[:n] = packed[:n]
 
         # CHW float32 in [0, 1], then ImageNet normalize.
-        img_out = img_rgb.transpose(2, 0, 1).astype(np.float32) / 255.0
-        if self.imagenet_norm:
-            img_out = (img_out - _IMAGENET_MEAN) / _IMAGENET_STD
-        img_out = np.ascontiguousarray(img_out)
+        img_out = _normalize_rgb_image(img_rgb, self.imagenet_norm)
 
         mask_shape = (target_h, target_w)
         masks = _rasterize_segments(
@@ -769,6 +776,4 @@ class RFDETRPoseTransform:
             self.box_only_classes,
         )
 
-        img_out = img_rgb.transpose(2, 0, 1).astype(np.float32) / 255.0
-        img_out = (img_out - _IMAGENET_MEAN) / _IMAGENET_STD
-        return np.ascontiguousarray(img_out), target
+        return _normalize_rgb_image(img_rgb), target

@@ -92,7 +92,7 @@ def main():
     if miss or unexp:
         raise SystemExit("state_dict key mismatch")
 
-    img = Image.open("libreyolo/assets/parkour.jpg").convert("RGB")
+    img = Image.open("tests/data/parkour.jpg").convert("RGB")
     inputs = proc(images=img, text="a person. a dog. a skateboard.", return_tensors="pt")
     with torch.no_grad():
         ref = gd(**inputs)

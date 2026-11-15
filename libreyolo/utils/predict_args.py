@@ -17,6 +17,21 @@ NOOP_PREDICT_KWARGS = {
     "verbose",
 }
 REJECTED_PREDICT_KWARGS = {"visualize", "embed"}
+#: What to type instead of predict options other YOLO libraries accept.
+_SAVE_DIR_HINT = (
+    "To choose where results are saved, use "
+    "predict(source, save=True, output_path='runs/my_run')."
+)
+_TRACK_HINT = "Tracking has its own method: model.track(source, tracker='bytetrack')."
+_SAVE_TXT_HINT = "To write detections out, use results.to_json() or results.summary()."
+PREDICT_KWARG_HINTS = {
+    "project": _SAVE_DIR_HINT,
+    "name": _SAVE_DIR_HINT,
+    "tracker": _TRACK_HINT,
+    "persist": _TRACK_HINT,
+    "save_txt": _SAVE_TXT_HINT,
+    "save_conf": _SAVE_TXT_HINT,
+}
 #: Tasks ``predict(agnostic_nms=True)`` covers: the ones that return boxes.
 AGNOSTIC_NMS_TASKS = ("detect", "segment", "pose", "obb")
 ACCEPTED_PREDICT_KWARGS = {
@@ -115,11 +130,17 @@ def normalize_predict_kwargs(kwargs: dict, passthrough: set[str] | None = None) 
             forwarded[key] = remaining.pop(key)
 
     if remaining:
+        hints = dict.fromkeys(
+            PREDICT_KWARG_HINTS[key]
+            for key in sorted(remaining)
+            if key in PREDICT_KWARG_HINTS
+        )
         raise TypeError(
             "Unsupported predict option(s): "
             f"{', '.join(sorted(remaining))}. "
             "Supported options include conf, iou, imgsz, device, classes, "
             "max_det, save, stream, and vid_stride."
+            + "".join(f"\n{hint}" for hint in hints)
         )
 
     return forwarded

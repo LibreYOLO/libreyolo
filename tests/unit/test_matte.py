@@ -145,11 +145,13 @@ def test_results_matte_summary_and_len():
     assert summary[0]["coverage"] == pytest.approx(0.5, abs=1e-6)
 
 
-def test_save_rejects_non_matte_results():
+def test_save_of_a_non_matte_result_needs_its_source_image():
+    # Non-matte results save their annotated image, so without a source
+    # image there is nothing to draw on.
     from libreyolo.utils.results import Results
 
     r = Results(boxes=None, orig_shape=(4, 4), path=None)
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError, match="source image"):
         r.save("x.png")
 
 

@@ -138,3 +138,34 @@ def deformable_attention_core_func_v2(
     weighted = torch.concat(sampling_value_list, dim=-1) * attn_weights
     output = weighted.sum(-1).reshape(bs, n_head * c, Len_q)
     return output.permute(0, 2, 1)
+
+
+def preprocess_obb_topleft(image, color_format, input_size):
+    """Aspect-preserving bilinear resize, zero pad right/bottom, scale to [0, 1].
+
+    The RiO-DETR / RiO-DETRv2 evaluation transform (``ResizeOBB`` with
+    ``keep_ratio`` and ``pad_to_size``).  Returns ``(tensor, image,
+    (orig_w, orig_h), scale)`` as ``BaseModel._preprocess`` expects.
+    """
+    import numpy as np
+    from PIL import Image
+
+    from ...utils.image_loader import ImageLoader
+
+    if isinstance(input_size, int):
+        target_h = target_w = int(input_size)
+    else:
+        target_h, target_w = int(input_size[0]), int(input_size[1])
+
+    img = ImageLoader.load(image, color_format=color_format)
+    orig_w, orig_h = img.size
+    scale = min(target_w / orig_w, target_h / orig_h)
+    new_w = max(1, int(round(orig_w * scale)))
+    new_h = max(1, int(round(orig_h * scale)))
+    resized = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+    canvas = Image.new("RGB", (target_w, target_h), color=0)
+    canvas.paste(resized, (0, 0))
+
+    array = np.asarray(canvas, dtype=np.float32) / 255.0
+    tensor = torch.from_numpy(array.transpose(2, 0, 1).copy()).unsqueeze(0)
+    return tensor, img, (orig_w, orig_h), scale

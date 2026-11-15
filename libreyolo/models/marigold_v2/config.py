@@ -1,6 +1,7 @@
 """Released Marigold V2 adapters and their numeric output contracts."""
 
 from dataclasses import dataclass
+from ...utils.hf_hub import hf_url
 
 UPSTREAM_REPO = "huawei-bayerlab/marigold-v2-0"
 UPSTREAM_REVISION = "6fd6d1ca246c9d2d99a4d8ac375a4eccc87178ad"
@@ -89,7 +90,9 @@ FILENAMES = {canonical_filename(name).lower(): name for name in VARIANTS}
 
 def upstream_url(variant):
     folder = VARIANTS[variant].subfolder
-    return f"https://huggingface.co/{UPSTREAM_REPO}/resolve/{UPSTREAM_REVISION}/{folder}/trainables.safetensors"
+    return hf_url(
+        f"{UPSTREAM_REPO}/resolve/{UPSTREAM_REVISION}/{folder}/trainables.safetensors"
+    )
 
 
 # Immutable LibreYOLO adapter mirrors; the frozen Qwen base remains separate.
@@ -138,4 +141,4 @@ def mirror_url(variant):
         return None
     filename = canonical_filename(variant)
     revision = MIRRORS[variant][0]
-    return f"https://huggingface.co/LibreYOLO/{filename[:-3]}/resolve/{revision}/{filename}"
+    return hf_url(f"LibreYOLO/{filename[:-3]}/resolve/{revision}/{filename}")

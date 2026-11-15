@@ -349,6 +349,34 @@ def val_cmd(
         out.result(data_out)
         return
 
+    if task == "flow":
+        epe = metrics.get("metrics/epe", 0.0)
+        px1 = metrics.get("metrics/px1", 0.0)
+        px3 = metrics.get("metrics/px3", 0.0)
+        fl_all = metrics.get("metrics/fl_all", 0.0)
+        data_out = {
+            "model": model,
+            "model_family": loaded_model.FAMILY,
+            "data": data,
+            "split": split,
+            "device": str(loaded_model.device),
+            "metrics": {
+                "epe": round(float(epe), 4),
+                "px1": round(float(px1), 4),
+                "px3": round(float(px3), 4),
+                "fl_all": round(float(fl_all), 4),
+            },
+        }
+        if not json_output:
+            data_out["_human_text"] = (
+                f"Validating {loaded_model.FAMILY}-{loaded_model.size} "
+                f"on {data} ({split}):\n"
+                f"  EPE: {float(epe):.4f} px  px1: {float(px1):.4f}  "
+                f"px3: {float(px3):.4f}  Fl-all: {float(fl_all):.4f}"
+            )
+        out.result(data_out)
+        return
+
     if task == "semantic":
         miou = metrics.get("metrics/mIoU", 0.0)
         pixel_acc = metrics.get("metrics/pixel_accuracy", 0.0)

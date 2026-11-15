@@ -19,7 +19,7 @@ pytestmark = pytest.mark.e2e
 
 REPO = Path(__file__).resolve().parents[2]
 FIXT = REPO / "tests" / "fixtures" / "matte8"
-_SAMPLE = REPO / "libreyolo" / "assets" / "parkour.jpg"
+_SAMPLE = REPO / "tests" / "data" / "parkour.jpg"
 _LOCAL_T = REPO / "weights" / "LibreBiRefNett-matte.pt"
 
 

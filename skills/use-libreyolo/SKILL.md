@@ -77,11 +77,15 @@ model.train(data="coco8.yaml", epochs=100, imgsz=640)
 libreyolo val model=runs/train/yolo9_exp/weights/best.pt data=coco8.yaml save_json=true save_plots=true
 ```
 
-**Export — onnx · torchscript · tensorrt · openvino · ncnn · tflite · coreml**
+**Export — onnx · torchscript · tensorrt · openvino · ncnn · tflite · coreml · axelera**
 ```bash
 libreyolo export model=runs/train/yolo9_exp/weights/best.pt format=onnx half=true
 ```
 Run `libreyolo formats` for each format's extension and FP16/INT8 support.
+`format=axelera` (INT8 for Axelera Metis AIPUs: 23 families across detect,
+pose, obb, segment, semantic, classify, restore and depth; `docs/axelera.md`)
+needs Axelera's own SDK packages rather than a LibreYOLO extra; see
+`skills/libreyolo-export-axelera/`.
 
 ## Reading results
 

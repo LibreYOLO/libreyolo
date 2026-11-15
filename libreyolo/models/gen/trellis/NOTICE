@@ -1,0 +1,45 @@
+LibreTRELLIS includes code adapted from TRELLIS:
+
+Source: https://github.com/microsoft/TRELLIS (commit 193e0502b5cb3eb5997ec457d5340e95d09b158e)
+License: MIT.
+Copyright (c) Microsoft Corporation. Authors: Jianfeng Xiang, Zelong Lv,
+Sicheng Xu, Yu Deng, Ruicheng Wang, Bowen Zhang, Dong Chen, Xin Tong,
+Jiaolong Yang.
+
+Adapted, with upstream's module and parameter names so the released
+safetensors load with strict=True: the sparse-structure flow model and
+decoder, the structured-latent flow model, the Gaussian decoder and their
+blocks (trellis/models, trellis/modules), the sparse tensor contract, the
+sparse pooling and window partition (trellis/modules/sparse), the flow
+sampler with its guidance interval (trellis/pipelines/samplers) and the
+image preprocessing (trellis/pipelines/trellis_image_to_3d.py).
+
+Written for LibreYOLO, replacing upstream's CUDA-only extensions: the
+submanifold sparse convolution (upstream: spconv SubMConv3d) as a gathered
+GEMM over the 27 neighbours, reading spconv's [out, kx, ky, kz, in] weight
+layout unchanged; the variable-length sparse attention (upstream: xformers
+or flash-attn) through torch.nn.functional.scaled_dot_product_attention per
+batch element and over padded windows with a key mask; and the activation
+of the decoder outputs into Gaussians (softplus scales, sigmoid opacities,
+normalised quaternions), written from the decoder's configuration.
+
+Not used: trellis/representations/gaussian (TRELLIS's Gaussian holder and
+its general_utils.py, which carries Inria's non-commercial Gaussian
+Splatting license); Gaussians go through LibreYOLO's own Gaussians payload
+and PLY writer. Nor rembg (background removal runs on LibreYOLO's BiRefNet
+network) nor torch.hub's DINOv2 (DINOv2 loads through transformers).
+
+Other changes from upstream: noise is drawn from an explicit CPU
+torch.Generator seeded like upstream seeds the global one, which yields the
+same numbers; the networks' torso runs in fp16 on CUDA and MPS as upstream,
+and in fp32 on CPU.
+
+Weights: microsoft/TRELLIS-image-large (MIT), redistributed unchanged by
+LibreYOLO as LibreYOLO/LibreTRELLISl together with the BiRefNet weights
+(ZhengPeng7/BiRefNet, MIT); facebook/dinov2-with-registers-large
+(Apache-2.0) is downloaded from its publisher. All at pinned revisions.
+
+TRELLIS citation:
+Jianfeng Xiang, Zelong Lv, Sicheng Xu, Yu Deng, Ruicheng Wang, Bowen Zhang,
+Dong Chen, Xin Tong, Jiaolong Yang. "Structured 3D Latents for Scalable and
+Versatile 3D Generation." CVPR 2025. arXiv:2412.01506.

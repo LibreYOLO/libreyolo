@@ -46,6 +46,39 @@ DINOv3 (Meta DINOv3 License Agreement)
     These terms apply only to the DINOv3 subtree listed above. The
     rest of LibreYOLO remains under the MIT License.
 
+    The WAFT family (libreyolo/models/waft/) builds its size t encoder
+    from this subtree; the LibreWAFTt-flow-dinov3 weights contain a
+    fine-tuned DINOv3 ViT-S/16 and carry the DINOv3 License with them.
+
+WAFT (BSD 3-Clause License)
+    Path:    libreyolo/models/waft/_vendor/
+    License: libreyolo/models/waft/_vendor/LICENSE
+    Source:  https://github.com/princeton-vl/WAFT
+    Commit:  b152ff1cad1af8c185ee7b141997c48ff3334c87
+
+    Inference-only copy of WAFT (Warping-Alone Field Transforms, Wang and
+    Deng, Princeton Vision & Learning Lab), Copyright (c) 2025. Training
+    code is dropped; xformers and timm are replaced by plain torch with
+    F.scaled_dot_product_attention. The Twins-SVT backbone in
+    _vendor/twins.py is derived from timm (Apache License 2.0, Copyright
+    2019 Ross Wightman), itself from Meituan-AutoML/Twins (Apache License
+    2.0, Copyright 2021 Meituan); see licenses/Apache-2.0.txt. The
+    Depth Anything V2 and DINOv3 encoders are reused from the
+    depth_anything and deimv2 families and keep their own licenses.
+
+Video Depth Anything (Apache License 2.0)
+    Path:    libreyolo/models/video_depth_anything/_vendor/
+    License: libreyolo/models/video_depth_anything/_vendor/LICENSE
+    Source:  https://github.com/DepthAnything/Video-Depth-Anything
+    Commit:  4f5ae23172ba60fd7bc11ef671cca678842c7072
+
+    Inference-only copy of the temporal DPT head and motion modules,
+    Copyright (2025) Bytedance Ltd. and/or its affiliates. The motion
+    module originates in AnimateDiff and the attention block in Hugging
+    Face diffusers, both Apache-2.0. EasyDict and einops are replaced by
+    plain Python/torch. The DINOv2 encoder and DPT head are reused from the
+    depth_anything family.
+
 SenseNova-Vision / Bagel (Apache License 2.0 code; CC BY-NC 4.0 weights,
 mirrored under that license)
     Path:    libreyolo/models/sensenova/
@@ -260,6 +293,22 @@ LingBot-Vision (Apache License 2.0)
     LibreLingBotVision{s,b,l}-sem checkpoints combine those backbones
     with a LibreYOLO-trained ADE20K head.
 
+FlowSeek (Apache License 2.0)
+    Path:    libreyolo/models/flowseek/_vendor/
+    License: libreyolo/models/flowseek/_vendor/LICENSE.md
+    Notice:  libreyolo/models/flowseek/_vendor/NOTICE.md
+    Source:  https://github.com/mattpoggi/flowseek
+    Commit:  ba6407370bceeb96244cad4d60d37489f6eb471e
+
+    Copyright (c) 2025 Matteo Poggi and Fabio Tosi. The FlowSeek network,
+    the SEA-RAFT parts it includes (Copyright (c) 2024, Princeton Vision &
+    Learning Lab, BSD 3-Clause License, text in the vendored NOTICE.md) and
+    its motion bases are adapted for inference only. The Depth Anything V2
+    encoder reuses libreyolo/models/depth_anything/_vendor. The hosted
+    LibreFlowSeekm-flow and LibreFlowSeekl-flow checkpoints embed the Depth
+    Anything V2 Base encoder, whose weights are CC BY-NC 4.0
+    (non-commercial); t and s embed the Apache-2.0 Small encoder.
+
 Depth Anything 3 (Apache License 2.0)
     Path:    libreyolo/models/depth_anything3/_vendor/
     License: libreyolo/models/depth_anything3/NOTICE
@@ -270,6 +319,62 @@ Depth Anything 3 (Apache License 2.0)
     Seed's Apache-2.0 implementation. DINOv2 subcomponents retain Meta
     Platforms Apache-2.0 headers. Package-relative imports and dependency-free
     tensor reshapes do not alter learned parameters or monocular outputs.
+
+RAFT (BSD 3-Clause License)
+    Path:    libreyolo/models/raft/_vendor/
+    License: libreyolo/models/raft/_vendor/LICENSE  (BSD-3-Clause)
+    Source:  https://github.com/princeton-vl/RAFT
+    Commit:  2888e15
+
+    The RAFT optical flow network (feature and context encoders, correlation
+    pyramid, recurrent update block) is vendored from princeton-vl's RAFT
+    (Copyright (c) 2020, princeton-vl). Changes are package-relative imports,
+    removal of the optional alt_cuda_corr extension and the scipy training
+    helper, and warning-free torch API calls; the computation is unchanged.
+    The released raft-things, raft-small, raft-sintel and raft-kitti
+    checkpoints are distributed in the same BSD-3-Clause repository and are
+    mirrored on the LibreYOLO Hugging Face org with that licence.
+SEA-RAFT (BSD 3-Clause License)
+    Path:    libreyolo/models/searaft/_vendor/
+    License: libreyolo/models/searaft/_vendor/LICENSE  (BSD-3-Clause)
+    Source:  https://github.com/princeton-vl/SEA-RAFT
+             (commit 9137517ba24e628442aec097d3afe71d03503b75)
+             Copyright (c) 2024, Princeton Vision & Learning Lab.
+
+    The inference subset of SEA-RAFT's core/ is vendored for the
+    LibreSEARAFT optical flow family; training code and the optional CUDA
+    correlation extension are not included. The published S and M
+    checkpoints are BSD-3-Clause and mirrored on the LibreYOLO Hugging Face
+    organisation.
+NeuFlow v2 (Apache License 2.0)
+    Path:    libreyolo/models/neuflowv2/_vendor/
+    License: libreyolo/models/neuflowv2/_vendor/LICENSE
+    Source:  https://github.com/neufieldrobotics/NeuFlow_v2
+    Commit:  204b5e3744461d90303b9ff82caa7a1bb56a2ca2
+
+    The NeuFlow v2 optical flow network (Zhiyong Zhang, Aniket Gupta, Huaizu
+    Jiang, Hanumant Singh) is vendored for inference only. Package-relative
+    imports, a plain torch.nn.Module base instead of the huggingface_hub
+    mixin, and an out-of-place input scaling do not alter learned parameters
+    or outputs. The converted mixed, sintel and things checkpoints keep the
+    upstream Apache-2.0 licence.
+DPFlow / ptlflow (Apache License 2.0 code; CC BY-NC-SA 4.0 weights,
+mirrored under that license)
+    Path:    libreyolo/models/dpflow/_vendor/
+    License: libreyolo/models/dpflow/_vendor/LICENSE
+    Source:  https://github.com/hmorimitsu/ptlflow (ptlflow/models/dpflow)
+    Commit:  43cdc2b5fc7228e7090009a66e8e28e0b48e31ba
+
+    The DPFlow network is an inference-only port of Henrique Morimitsu's
+    Apache-2.0 implementation in ptlflow, with its timm-derived local_timm
+    helpers (Ross Wightman, Apache-2.0), ptlflow's pure-PyTorch correlation
+    samplers (Apache-2.0) and ptlflow's RAFT-derived input padder
+    (princeton-vl, BSD-3-Clause). The Lightning base class, training loss
+    and registry are removed; see libreyolo/models/dpflow/_vendor/NOTICE.
+    The ptlflow-trained weights are CC BY-NC-SA 4.0, mirrored at
+    huggingface.co/LibreYOLO/LibreDPFlowm-flow (and -sintel, -kitti,
+    -spring variants); the loader prints the non-commercial notice before
+    every automatic download.
 
 NAFNet (MIT License)
     Path:    libreyolo/models/nafnet/
@@ -801,6 +906,160 @@ Speridlabs Idol (Apache License 2.0)
     LibreYOLO/LibreDINOv3vith16plus, which ships the agreement. All at
     pinned revisions.
 
+Speridlabs Iris-Z (Apache License 2.0)
+    Path:    libreyolo/models/gen/speridlabs_irisz/
+    License: libreyolo/models/gen/speridlabs_irisz/NOTICE
+    Source:  https://github.com/speridlabs/iris-z-sdk
+             (commit 6c8925f42a2a3581127609d771aa5bfece557467)
+             Copyright 2026 SperidLabs.
+
+    The Iris-Z transformer forward pass (FLUX.2 with a modality embedding
+    and per-grid noise levels), the text-to-image, image-to-depth,
+    depth-to-image and joint image-plus-depth samplers, the schedule, the
+    depth encoding and decoding and the prompt embedders are
+    ported from the Apache-2.0 Iris-Z SDK, whose model code is from FLUX.2 by
+    Black Forest Labs (Apache-2.0, https://github.com/black-forest-labs/flux2).
+    The FLUX.2 VAE runs through diffusers. Weights are not redistributed:
+    speridlabs/iris-z (FLUX Non-Commercial License), the FLUX.2 VAE from
+    FLUX.2-klein-4B (Apache-2.0) and the Mistral Small 3.2 and Qwen3 8B text
+    encoders (Apache-2.0) download from their publishers at pinned
+    revisions.
+
+LGM (MIT License)
+    Path:    libreyolo/models/gen/lgm/
+    License: libreyolo/models/gen/lgm/NOTICE
+    Source:  https://github.com/3DTopia/LGM
+             (commit fe8d12cff8c827df7bb77a3c8e8b37408cb6fe4c)
+             Copyright (c) 2024 3D Topia.
+
+    The LGM UNet, the ray embedding, the image-to-3D steps and LGM's diffusers
+    version of the ImageDream multi-view UNet and DDIM sampler are adapted
+    from the MIT LGM repository (its attention from DINOv2, Apache-2.0; its
+    camera and recenter helpers after kiuikit, Apache-2.0). xformers attention
+    is replaced by PyTorch SDPA. The renderer (diff-gaussian-rasterization,
+    Inria's non-commercial license) is not used: Gaussians go through
+    LibreYOLO's own payload. Weights: LibreYOLO's byte-identical mirrors
+    LibreYOLO/LibreLGM0.4b of ashawkey/LGM (MIT) and LibreYOLO/LibreImageDream
+    of ashawkey/imagedream-ipmv-diffusers (OpenRAIL; shipped with the
+    CreativeML OpenRAIL++-M License of its Stable Diffusion 2.1 lineage,
+    whose use restrictions apply). Pinned revisions.
+
+TRELLIS (MIT License)
+    Path:    libreyolo/models/gen/trellis/
+    License: libreyolo/models/gen/trellis/NOTICE
+    Source:  https://github.com/microsoft/TRELLIS
+             (commit 193e0502b5cb3eb5997ec457d5340e95d09b158e)
+             Copyright (c) Microsoft Corporation.
+
+    The TRELLIS networks (sparse-structure flow and decoder, structured-latent
+    flow, Gaussian decoder), the sparse tensor, pooling and window partition,
+    the flow sampler and the preprocessing are adapted from the MIT TRELLIS
+    repository. Its CUDA extensions (spconv sparse convolution, xformers or
+    flash-attn attention) are replaced by PyTorch code written for LibreYOLO.
+    TRELLIS's Gaussian representation module (trellis/representations/
+    gaussian), which derives from Inria's non-commercial Gaussian Splatting
+    code, is not used: Gaussians go through LibreYOLO's own payload.
+    Weights: LibreYOLO's byte-identical mirror of microsoft/TRELLIS-image-large
+    (MIT), LibreYOLO/LibreTRELLISl; DINOv2 from
+    facebook/dinov2-with-registers-large (Apache-2.0). Pinned revisions.
+
+TRELLIS.2 (MIT License)
+    Path:    libreyolo/models/gen/trellis2/
+    License: libreyolo/models/gen/trellis2/NOTICE
+    Source:  https://github.com/microsoft/TRELLIS.2
+             (commit 75fbf0183001ed9876c8dbb35de6b68552ee08bd)
+             Copyright (c) Microsoft Corporation.
+
+    The TRELLIS.2 geometry networks (sparse-structure flow, shape-latent
+    flows, flexible-dual-grid decoder), the 3D rotary embedding, the
+    channel-to-space upsampling, the flow sampler, the preprocessing and the
+    dual-grid meshing (o-voxel, same repository) are adapted from the MIT
+    TRELLIS.2 repository. Its CUDA extensions (FlexGEMM sparse convolution,
+    flash-attn attention, the o-voxel hash map) are replaced by PyTorch code
+    written for LibreYOLO. nvdiffrast, nvdiffrec and BRIA's RMBG-2.0
+    (non-commercial) are not used; the texture stage is not ported.
+    Weights: LibreYOLO's byte-identical mirror of the microsoft/TRELLIS.2-4B
+    geometry networks (MIT), LibreYOLO/LibreTRELLIS2-4b; the DINOv3 ViT-L/16
+    encoder (Meta DINOv3 License) from LibreYOLO's byte-identical mirror
+    LibreYOLO/LibreDINOv3vitl16, which ships the agreement. Pinned revisions.
+
+TripoSR (MIT License)
+    Path:    libreyolo/models/gen/triposr/
+    License: libreyolo/models/gen/triposr/NOTICE
+    Source:  https://github.com/VAST-AI-Research/TripoSR
+             (commit 107cefdc244c39106fa830359024f6a2f1c78871)
+             Copyright (c) 2024 Tripo AI & Stability AI.
+
+    The TripoSR networks (DINO image encoder, triplane transformer, upsampler,
+    NeRF MLP), the mesh extraction and the preprocessing are adapted from the
+    MIT TripoSR repository; its transformer files are HuggingFace diffusers
+    code (Apache-2.0) and the image encoder follows HuggingFace transformers'
+    ViT (Apache-2.0). Marching cubes runs through scikit-image (BSD-3-Clause)
+    instead of upstream's torchmcubes (MPL-2.0), which is not used.
+    Weights: LibreYOLO's byte-identical mirror of stabilityai/TripoSR (MIT),
+    LibreYOLO/LibreTripoSR; BiRefNet from LibreYOLO/LibreTRELLISl (MIT).
+    Pinned revisions.
+
+Direct3D-S2 (MIT License)
+    Path:    libreyolo/models/gen/direct3d_s2/
+    License: libreyolo/models/gen/direct3d_s2/NOTICE
+    Source:  https://github.com/DreamTechAI/Direct3D-S2
+             (commit a1cf235b2881cff04a91900060a9546b40e7ee5d)
+             Copyright (c) 2025 DreamTechAI.
+
+    The Direct3D-S2 networks (dense and sparse flow transformers with spatial
+    sparse attention, SDF decoders, voxel refiners), the sampler, the mesh
+    voxelisation and the preprocessing are adapted from the MIT Direct3D-S2
+    repository; its attention kernels derive from native-sparse-attention-
+    triton (Apache-2.0), whose computation the port re-expresses in PyTorch.
+    torchsparse, flash-attn, Triton and the CUDA UDF kernel are not used;
+    neither is upstream's optional hole filling (pymeshfix, GPL-3.0; igraph,
+    GPL-2.0+). Marching cubes runs through scikit-image (BSD-3-Clause).
+    Weights: LibreYOLO's byte-identical mirror of wushuang98/Direct3D-S2
+    (MIT, direct3d-s2-v-1-1), LibreYOLO/LibreDirect3DS2v11; BiRefNet from
+    LibreYOLO/LibreTRELLISl (MIT); DINOv2 from
+    facebook/dinov2-with-registers-large (Apache-2.0). Pinned revisions.
+
+TripoSplat (MIT License)
+    Path:    libreyolo/models/gen/triposplat/
+    License: libreyolo/models/gen/triposplat/NOTICE
+    Source:  https://github.com/VAST-AI-Research/TripoSplat
+             (commit d8db9e018b413dd9c4a9fe22463781bf98e8e68d)
+             Copyright (c) 2026 VAST.
+
+CRM (MIT License)
+    Path:    libreyolo/models/gen/crm/
+    License: libreyolo/models/gen/crm/NOTICE
+    Source:  https://github.com/thu-ml/CRM
+             (commit 4964e36a593070a3045eb0f300935a771ff5c172)
+             Copyright (c) 2024 TSAIL group.
+
+    The CRM multi-view diffusion networks (ImageDream lineage, Apache-2.0 and
+    MIT), OpenCLIP towers, DDIM sampler, reconstruction model, triplane
+    decoder and preprocessing are adapted from the MIT CRM repository.
+    FlexiCubes (libreyolo/models/gen/crm/flexicubes.py and
+    _flexicubes_tables.py) is adapted from NVIDIA's FlexiCubes,
+    https://github.com/nv-tlabs/FlexiCubes (commit
+    eac497031e5138aa544065f357d093f9f3e101e9), Apache-2.0, Copyright (c) 2025
+    NVIDIA CORPORATION & AFFILIATES; CRM's own FlexiCubes files carry
+    NVIDIA's proprietary header and are not used. nvdiffrast (NVIDIA,
+    non-commercial), xformers, rembg, kiui and pymeshlab (GPL-3.0) are not
+    used. Weights: LibreYOLO's byte-identical mirror of Zhengyi/CRM (MIT,
+    diffusion weights carrying SD 2.1's CreativeML OpenRAIL++-M use
+    restrictions), LibreYOLO/LibreCRM; BiRefNet from LibreYOLO/LibreTRELLISl
+    (MIT). Pinned revisions.
+
+    The TripoSplat denoiser, octree and Gaussian decoders, configuration
+    constants, flow sampler and Gaussian activation are ported from the MIT
+    TripoSplat repository (TripoAI). Preprocessing, encoder tokenization and
+    camera decoding are shared with Speridlabs Idol
+    (libreyolo/models/gen/image3d.py); background removal reuses LibreYOLO's
+    BiRefNet network. Weights: LibreYOLO's byte-identical mirror of
+    VAST-AI/TripoSplat (MIT), LibreYOLO/LibreTripoSplat0.6b; the FLUX.2 VAE
+    from FLUX.2-klein-4B (Apache-2.0) downloads from its publisher; the
+    DINOv3 encoder (Meta DINOv3 License) downloads from LibreYOLO's bf16
+    mirror LibreYOLO/LibreDINOv3vith16plus. All at pinned revisions.
+
 WeVisOne-VL (Apache License 2.0)
     Path:    libreyolo/models/wevisone/
     License: libreyolo/models/wevisone/NOTICE
@@ -816,6 +1075,108 @@ WeVisOne-VL (Apache License 2.0)
     tencent/WeVisOne-VL-2B and -4B (Apache-2.0, fine-tuned from
     Qwen3-VL-2B/4B-Instruct, Apache-2.0) download from Tencent at pinned
     revisions.
+
+DeepSeek-OCR (MIT License; Apache-2.0 sub-components)
+    Path:    libreyolo/models/deepseekocr/
+    License: libreyolo/models/deepseekocr/NOTICE
+    Source:  https://huggingface.co/deepseek-ai/DeepSeek-OCR
+             (commit 9f30c71f441d010e5429c532364a86705536c53a)
+             Copyright (c) 2023 DeepSeek.
+
+    The DeepEncoder (SAM ViT-B plus CLIP-L/14), the DeepSeek-V2 style MoE
+    decoder and the input/grounding handling are ported from the MIT
+    release for inference only. The decoder file carries an Apache-2.0
+    header (DeepSeek-AI and the HuggingFace team), and its attention path
+    is the transformers 4.46.3 Llama attention (Apache-2.0); the SAM encoder
+    is adapted upstream from detectron2 ViTDet (Apache-2.0). Weights (MIT)
+    download from the byte-identical LibreYOLO/LibreDeepSeekOCR1 mirror at
+    a pinned revision. DeepSeek-OCR-2 (size 2, Apache-2.0, commit
+    aaa02f3811945a91062062994c5c4a3f4c0af2b0) adds a Qwen2-based vision
+    encoder ported from its deepencoderv2.py and the transformers 4.46.3
+    Qwen2 modules (Apache-2.0); its weights (Apache-2.0) download from the
+    LibreYOLO/LibreDeepSeekOCR2 mirror.
+
+PaddleOCR-VL document-parsing pipeline (Apache License 2.0)
+    Path:    libreyolo/models/paddleocrvl/
+    License: libreyolo/models/paddleocrvl/NOTICE
+    Source:  https://github.com/PaddlePaddle/PaddleX
+             (commit 4c968d30b9d0d4a693d9eaaef0881c20f8d7d0e0)
+             Copyright (c) 2024 PaddlePaddle Authors.
+
+    The layout post-processing, region overlap filter, prompt routing,
+    content clean-up (OTSL to HTML, repetition truncation) and markdown
+    assembly are ported from PaddleX. Both networks run from Transformers
+    (Apache-2.0); no model code is copied. Weights: LibreYOLO's unmodified
+    mirror LibreYOLO/LibrePaddleOCRVL0.9b of PaddlePaddle/PaddleOCR-VL and
+    PaddlePaddle/PP-DocLayoutV2_safetensors (Apache-2.0), pinned.
+
+GLM-OCR document-parsing pipeline (Apache License 2.0)
+    Path:    libreyolo/models/glmocr/
+    License: libreyolo/models/glmocr/NOTICE
+    Source:  https://github.com/zai-org/GLM-OCR
+             (commit 0288f96bb9e78cb439883eaa725eeae90bd177c5)
+             Copyright (c) Z.ai (zai-org).
+
+    The layout post-processing, label routing, region crops and resize, and
+    the result formatter (content clean-up, block merges, markdown) are
+    ported from the GLM-OCR SDK. Both networks run from Transformers
+    (Apache-2.0); no model code is copied. Weights: LibreYOLO's unmodified
+    mirror LibreYOLO/LibreGLMOCR0.9b of zai-org/GLM-OCR (MIT, per its model
+    card) and PaddlePaddle/PP-DocLayoutV3_safetensors (Apache-2.0), pinned.
+
+Falcon OCR (Apache License 2.0)
+    Path:    libreyolo/models/falconocr/
+    License: libreyolo/models/falconocr/NOTICE
+    Source:  https://huggingface.co/tiiuae/Falcon-OCR
+             (commit 0bc28f89c90fbe8bdb063097fab144d4ce4c19b5) and
+             https://github.com/tiiuae/Falcon-Perception
+             (commit c457916c9974efbacfa91f0f6ecc2c49c6543e56)
+             Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+    The early-fusion transformer, its rotary embeddings and attention-mask
+    rules, the input pipeline and the layout crop rules are ported from the
+    Apache-2.0 release for inference only (no Triton or FlexAttention).
+    Weights (Apache-2.0) download from the byte-identical
+    LibreYOLO/LibreFalconOCR270m mirror at a pinned revision.
+
+Falcon Perception (Apache License 2.0)
+    Path:    libreyolo/models/falcon_perception/
+    License: libreyolo/models/falcon_perception/NOTICE
+    Source:  https://github.com/tiiuae/Falcon-Perception
+             (commit c457916c9974efbacfa91f0f6ecc2c49c6543e56)
+             Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+    The network, AnyUp feature upsampler, preprocessing and greedy
+    generation loop are ported from the Apache-2.0 Falcon Perception
+    repository for inference only (no triton, FlexAttention or paged
+    engine). Weights tiiuae/Falcon-Perception and
+    tiiuae/Falcon-Perception-300M (Apache-2.0) download from TII at pinned
+    revisions. Per the upstream NOTICE, public-facing work using Falcon
+    Perception should retain its NOTICE and cite the project. The AnyUp
+    upsampler inside it descends from https://github.com/wimmerth/anyup
+    (CC-BY-4.0, Wimmer et al.), and smart_resize follows the Qwen2-VL image
+    processor (Apache-2.0); see the family NOTICE.
+
+RiO-DETRv2 (Apache License 2.0)
+    Path:    libreyolo/models/riodetrv2/
+    License: libreyolo/models/riodetrv2/LICENSE
+    Source:  https://github.com/RicePasteM/RiO-DETRv2
+    Commit:  ab8b22df5d800a927774c8c67e77fd29c0fe6967 (Apache-2.0 release)
+    Copy:    https://github.com/LibreYOLO/RiO-DETRv2 tag apache-2.0-ab8b22d
+
+    Inference-only adaptation of the RiO-DETRv2 oriented-box decoder.
+    Upstream relicensed to AGPL-3.0 in a later commit with no code
+    changes; this port relies on the Apache-2.0 grant of the initial
+    release and uses nothing from later commits. See the family NOTICE.
+
+InstantHMR (Apache License 2.0)
+    Path:    libreyolo/models/instanthmr/
+    License: libreyolo/models/instanthmr/LICENSE
+    Source:  https://github.com/Naturalpad-studio/InstantHMR
+    Commit:  5437400d4b25c1972821e51916fac34bd96acce6
+
+    Native port of the InstantHMR mesh network and its exportable MHR
+    body. decode.py is a clean-room implementation. See the family NOTICE.
 
 ------------------------------------------------------------------------
 Pretrained model weights

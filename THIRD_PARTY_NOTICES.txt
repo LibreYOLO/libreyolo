@@ -131,6 +131,373 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+LGM image-to-3D networks and multi-view sampler
+-----------------------------------------------
+
+Upstream: 3D Topia, https://github.com/3DTopia/LGM
+Commit: fe8d12cff8c827df7bb77a3c8e8b37408cb6fe4c
+License: MIT
+Copyright (c) 2024 3D Topia.
+Authors: Jiaxiang Tang, Zhaoxi Chen, Xiaokang Chen, Tengfei Wang, Gang Zeng,
+         Ziwei Liu.
+Citation: Tang, J. et al. "LGM: Large Multi-View Gaussian Model for
+          High-Resolution 3D Content Creation." ECCV 2024. arXiv:2402.05054.
+Used for: the LGM family (libreyolo/models/gen/lgm/): the LGM UNet and its
+          Gaussian activations, the ray embedding, the image-to-3D steps, and
+          LGM's diffusers version of the ImageDream multi-view UNet and
+          sampler (mvdream/, distributed in the LGM repository under its MIT
+          License; after MVDream, MIT, and ImageDream, Apache-2.0, both by
+          ByteDance). core/attention.py is DINOv2's attention (Apache-2.0,
+          Copyright (c) Meta Platforms, Inc. and affiliates); the camera and
+          recenter helpers follow kiuikit v0.2.7 (Apache-2.0, Copyright (c)
+          Jiaxiang Tang). Parameter names are unchanged so the released
+          safetensors load strictly; xformers attention is replaced by PyTorch
+          SDPA. core/gs.py's renderer (diff-gaussian-rasterization, Inria's
+          non-commercial license) is not used. The full Apache License 2.0
+          text is included at licenses/Apache-2.0.txt.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+ashawkey/LGM model_fp16_fixrot.safetensors (MIT) is redistributed unchanged by
+LibreYOLO as LibreYOLO/LibreLGM0.4b with the BiRefNet weights (MIT).
+ashawkey/imagedream-ipmv-diffusers (declared "openrail" upstream, Stable
+Diffusion 2.1 lineage) is redistributed unchanged as LibreYOLO/LibreImageDream
+with the CreativeML OpenRAIL++-M License; its use restrictions apply to users.
+
+MIT License (LGM)
+
+Copyright (c) 2024 3D Topia
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+CRM image-to-mesh networks, sampler and FlexiCubes
+--------------------------------------------------
+
+Upstream: TSAIL group (Tsinghua University), https://github.com/thu-ml/CRM
+Commit: 4964e36a593070a3045eb0f300935a771ff5c172
+License: MIT. Its imagedream/ package derives from ImageDream
+         (https://github.com/bytedance/ImageDream, Apache-2.0, Copyright
+         ByteDance; text in licenses/Apache-2.0.txt) and MVDream (MIT), on
+         Stable Diffusion's latent-diffusion code and OpenAI's guided- and
+         improved-diffusion (MIT); the resampler is modified from
+         OpenFlamingo (MIT); the text and image towers follow OpenCLIP (MIT).
+Copyright (c) 2024 TSAIL group.
+Authors: Zhengyi Wang, Yikai Wang, Yifei Chen, Chendong Xiang, Shuo Chen,
+         Dajiang Yu, Chongxuan Li, Hang Su, Jun Zhu.
+Citation: Wang, Z. et al. "CRM: Single Image to 3D Textured Mesh with
+          Convolutional Reconstruction Model." ECCV 2024, arXiv:2403.05034.
+Used for: the CRM family (libreyolo/models/gen/crm/): the multi-view UNet,
+          resampler, VAE, OpenCLIP towers, camera matrices, schedule and DDIM
+          sampler, the reconstruction model, triplane decoder and export,
+          and the preprocessing. Parameter names are unchanged so the
+          released checkpoints load strictly. xformers, nvdiffrast
+          (NVIDIA Source Code License, non-commercial), rembg, kiui and
+          pymeshlab (GPL-3.0) are not used; their roles are filled by SDPA,
+          a PyTorch UV rasterizer and a NumPy mesh cleanup written for
+          LibreYOLO, and LibreYOLO's BiRefNet network.
+
+Upstream: NVIDIA, https://github.com/nv-tlabs/FlexiCubes
+Commit: eac497031e5138aa544065f357d093f9f3e101e9
+License: Apache-2.0 (text in licenses/Apache-2.0.txt).
+Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
+Used for: libreyolo/models/gen/crm/flexicubes.py and _flexicubes_tables.py
+          (voxel grid and inference-time triangle extraction). CRM's own
+          copies of the FlexiCubes files carry NVIDIA's proprietary
+          all-rights-reserved header and are not used.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+Zhengyi/CRM (MIT, revision 36283fd567b9a3120a166dfe2f2e0965d96261b0; the
+diffusion checkpoints carry Stable Diffusion 2.1's CreativeML OpenRAIL++-M use
+restrictions) is redistributed unchanged by LibreYOLO as LibreYOLO/LibreCRM
+(revision 386740e20da920f1e73f4604dbdb484a6ddee9bb). BiRefNet weights (MIT)
+load from LibreYOLO/LibreTRELLISl (revision
+75c784a8fa56ebfb76f46d9b9d830caec25826a7).
+
+MIT License (CRM)
+
+Copyright (c) 2024 TSAIL group
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+TRELLIS image-to-3D networks, sparse operations and sampler
+------------------------------------------------------------
+
+Upstream: Microsoft, https://github.com/microsoft/TRELLIS
+Commit: 193e0502b5cb3eb5997ec457d5340e95d09b158e
+License: MIT
+Copyright (c) Microsoft Corporation.
+Authors: Jianfeng Xiang, Zelong Lv, Sicheng Xu, Yu Deng, Ruicheng Wang,
+         Bowen Zhang, Dong Chen, Xin Tong, Jiaolong Yang.
+Citation: Xiang, J. et al. "Structured 3D Latents for Scalable and Versatile
+          3D Generation." CVPR 2025. arXiv:2412.01506.
+Used for: the TRELLIS family (libreyolo/models/gen/trellis/): the
+          sparse-structure flow and decoder, the structured-latent flow, the
+          Gaussian decoder, the sparse tensor, pooling and window partition,
+          the flow sampler and the preprocessing. Parameter names are
+          unchanged so the released safetensors load strictly. Upstream's
+          CUDA extensions (spconv, xformers, flash-attn) are replaced by
+          PyTorch code written for LibreYOLO. trellis/representations/gaussian
+          (which carries Inria's non-commercial Gaussian Splatting license in
+          general_utils.py) is not used.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+microsoft/TRELLIS-image-large (MIT, revision
+25e0d31ffbebe4b5a97464dd851910efc3002d96) is redistributed unchanged by
+LibreYOLO as LibreYOLO/LibreTRELLISl (revision
+75c784a8fa56ebfb76f46d9b9d830caec25826a7) with the BiRefNet weights (MIT).
+DINOv2 ViT-L/14 with registers loads from facebook/dinov2-with-registers-large
+(Apache-2.0, revision e4c89a4e05589de9b3e188688a303d0f3c04d0f3).
+
+MIT License (TRELLIS)
+
+Copyright (c) Microsoft Corporation.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+TRELLIS.2 image-to-3D networks, sampler and dual-grid meshing
+--------------------------------------------------------------
+
+Upstream: Microsoft, https://github.com/microsoft/TRELLIS.2
+Commit: 75fbf0183001ed9876c8dbb35de6b68552ee08bd
+License: MIT (the repository's single LICENSE; o-voxel sources carry
+         "Copyright (C) 2025, Jianfeng XIANG ... Licensed under The MIT License")
+Copyright (c) Microsoft Corporation.
+Authors: Jianfeng Xiang, Xiaoxue Chen, Sicheng Xu, Ruicheng Wang, Zelong Lv,
+         Yu Deng, Hongyuan Zhu, Yue Dong, Hao Zhao, Nicholas Jing Yuan,
+         Jiaolong Yang.
+Citation: Xiang, J. et al. "Native and Compact Structured Latents for 3D
+          Generation." arXiv:2512.14692.
+Used for: the TRELLIS.2 family (libreyolo/models/gen/trellis2/): the
+          sparse-structure flow, the shape-latent flows, the flexible-dual-grid
+          decoder and their blocks, the 3D rotary embedding, the
+          channel-to-space upsampling, the flow sampler, the preprocessing and
+          the dual-grid meshing (o-voxel). Parameter names are unchanged so
+          the released safetensors load strictly. Upstream's CUDA extensions
+          (FlexGEMM, MIT, https://github.com/JeffreyXiang/FlexGEMM; flash-attn;
+          o-voxel's hash map) are replaced by PyTorch code written for
+          LibreYOLO; FlexGEMM's weight layout and neighbour order are kept.
+          nvdiffrast, nvdiffrec (NVIDIA, non-commercial) and BRIA's RMBG-2.0
+          (non-commercial) are not used.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+microsoft/TRELLIS.2-4B (MIT, revision af44b45f2e35a493886929c6d786e563ec68364d)
+geometry files are redistributed unchanged by LibreYOLO as
+LibreYOLO/LibreTRELLIS2-4b. DINOv3 ViT-L/16 (Meta DINOv3 License) is
+redistributed unchanged as LibreYOLO/LibreDINOv3vitl16 (revision
+7f681024a32a03b7f56a1732455b373834d3ee76) with the agreement.
+
+MIT License (TRELLIS.2)
+
+Copyright (c) Microsoft Corporation.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+TripoSR image-to-3D networks and mesh extraction
+------------------------------------------------
+
+Upstream: Tripo AI and Stability AI, https://github.com/VAST-AI-Research/TripoSR
+Commit: 107cefdc244c39106fa830359024f6a2f1c78871
+License: MIT; tsr/models/transformer/ is HuggingFace diffusers code under
+         Apache-2.0 (Copyright 2023 The HuggingFace Team, modified 2024 by
+         Tripo AI and Stability AI; text in licenses/Apache-2.0.txt).
+Copyright (c) 2024 Tripo AI & Stability AI.
+Authors: Dmitry Tochilkin, David Pankratz, Zexiang Liu, Zixuan Huang,
+         Adam Letts, Yangguang Li, Ding Liang, Christian Laforte,
+         Varun Jampani, Yan-Pei Cao.
+Citation: Tochilkin, D. et al. "TripoSR: Fast 3D Object Reconstruction from
+          a Single Image." arXiv:2403.02151, 2024.
+Used for: the TripoSR family (libreyolo/models/gen/triposr/): the triplane
+          tokenizer, transformer, upsampler and NeRF MLP, the triplane query,
+          the mesh extraction and the input preprocessing. Parameter names
+          are unchanged so the released checkpoint loads strictly. The DINO
+          ViT-B/16 encoder follows HuggingFace transformers 4.35.0's ViT
+          (Apache-2.0), including its position-embedding interpolation.
+          torchmcubes (MPL-2.0) is not used: marching cubes runs through
+          scikit-image (BSD-3-Clause). rembg is not used: background removal
+          runs on LibreYOLO's BiRefNet network.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+stabilityai/TripoSR (MIT, revision 5b521936b01fbe1890f6f9baed0254ab6351c04a)
+is redistributed unchanged by LibreYOLO as LibreYOLO/LibreTripoSR (revision
+249e9d7749b01a89542aab66c25273cf4ce48646). BiRefNet weights (MIT) load from
+LibreYOLO/LibreTRELLISl (revision 75c784a8fa56ebfb76f46d9b9d830caec25826a7).
+
+MIT License (TripoSR)
+
+Copyright (c) 2024 Tripo AI & Stability AI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+Direct3D-S2 image-to-mesh networks, sparse operations and sampler
+-----------------------------------------------------------------
+
+Upstream: DreamTechAI, https://github.com/DreamTechAI/Direct3D-S2
+Commit: a1cf235b2881cff04a91900060a9546b40e7ee5d
+License: MIT; the spatial sparse attention kernels upstream adapts from
+         native-sparse-attention-triton
+         (https://github.com/XunhaoLai/native-sparse-attention-triton) are
+         Apache-2.0, Copyright 2025 Xunhao Lai and Jianqiao Lu (text in
+         licenses/Apache-2.0.txt).
+Copyright (c) 2025 DreamTechAI.
+Citation: Wu, S. et al. "Direct3D-S2: Gigascale 3D Generation Made Easy with
+          Spatial Sparse Attention." arXiv:2505.17412, 2025.
+Used for: the Direct3D-S2 family (libreyolo/models/gen/direct3d_s2/): the
+          dense and sparse flow transformers, spatial sparse attention, SDF
+          decoders, voxel refiners and 3D UNet, the sampling loop, the image
+          preprocessing, the block sort, mesh normalisation and mesh
+          voxelisation. Parameter names are unchanged so the released
+          checkpoints load strictly. torchsparse, flash-attn, Triton and the
+          CUDA UDF kernel are replaced by PyTorch; the attention computation
+          (not the Triton code) follows the Apache-2.0 kernels. Upstream's
+          hole filling (pymeshfix, GPL-3.0; python-igraph, GPL-2.0+) is not
+          used. Marching cubes runs through scikit-image (BSD-3-Clause).
+          rembg/BiRefNet-through-transformers is not used: background removal
+          runs on LibreYOLO's BiRefNet network.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+wushuang98/Direct3D-S2 (MIT, revision 8b04a8eddb7a56a0f4e89fe5f5b840c7d5610c00,
+folder direct3d-s2-v-1-1) is redistributed unchanged by LibreYOLO as
+LibreYOLO/LibreDirect3DS2v11. BiRefNet weights (MIT) load from
+LibreYOLO/LibreTRELLISl (revision 75c784a8fa56ebfb76f46d9b9d830caec25826a7).
+
+MIT License (Direct3D-S2)
+
+Copyright (c) 2025 DreamTechAI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+TripoSplat image-to-3D networks and sampler
+-------------------------------------------
+
+Upstream: VAST-AI-Research (TripoAI), https://github.com/VAST-AI-Research/TripoSplat
+Commit: d8db9e018b413dd9c4a9fe22463781bf98e8e68d
+License: MIT (full text above, in the Speridlabs Idol entry)
+Copyright (c) 2026 VAST.
+Authors: Runjie Yan, Yan-Pei Cao, Peng Wang, Ding Liang, Yuan-Chen Guo.
+Citation: Yan, R. et al. "Generative 3D Gaussians with Learned Density
+          Control." arXiv:2605.16355, 2026. https://arxiv.org/abs/2605.16355
+Used for: the TripoSplat family (libreyolo/models/gen/triposplat/): the
+          denoiser, the octree and Gaussian decoders, the configuration
+          constants, the flow sampler and the Gaussian activation.
+          Parameter names are unchanged so the released safetensors load
+          strictly. Upstream's DINOv3 ViT, FLUX.2 VAE encoder and BiRefNet
+          implementations are not ported: the encoders load through
+          transformers and diffusers, background removal runs on LibreYOLO's
+          BiRefNet network, and preprocessing and camera decoding are shared
+          with Speridlabs Idol (libreyolo/models/gen/image3d.py).
+
+NOTE - code vs. weights: no weights are bundled in the package.
+The denoiser, the decoder and BiRefNet are redistributed by LibreYOLO as
+LibreYOLO/LibreTripoSplat0.6b (MIT, revision dbef04688a6b3af979b735e20dbf09acbb941af7), byte-identical to
+VAST-AI/TripoSplat at revision 56a96e603204ec410c4da60c13ea4fa09a2169a9. The FLUX.2 VAE from
+black-forest-labs/FLUX.2-klein-4B (Apache-2.0, revision
+e7b7dc27f91deacad38e78976d1f2b499d76a294) download from their publishers.
+The DINOv3 ViT-H+/16 encoder (Meta DINOv3 License) is LibreYOLO's bfloat16
+mirror LibreYOLO/LibreDINOv3vith16plus (revision
+e849a3492905c6dabc89758042bf1402770fb4e6), see the Speridlabs Idol entry.
+
+--------------------------------------------------------------------
 DDColor and permissive architecture lineage
 --------------------------------------------------------------------
 Primary source: https://github.com/piddnad/DDColor
@@ -846,11 +1213,39 @@ Used for: the inference-only RT-DETRv2 OBB encoder and decoder in
           official checkpoint with weights/convert_rtdetrv2_weights.py.
 
 --------------------------------------------------------------------
+RiO-DETRv2 (RicePasteM / RiO-DETRv2)
+--------------------------------------------------------------------
+Source: https://github.com/RicePasteM/RiO-DETRv2
+Pinned commit: ab8b22df5d800a927774c8c67e77fd29c0fe6967
+Preserved copy: https://github.com/LibreYOLO/RiO-DETRv2 (tag apache-2.0-ab8b22d)
+License: Apache License 2.0 (libreyolo/models/riodetrv2/LICENSE)
+Used for: the inference-only RiO-DETRv2 decoder in
+          libreyolo/models/riodetrv2/decoder.py, adapted from
+          engine/rtv4/rtdetrv2_obb_decoder.py, engine/rtv4/dfine_utils.py
+          and engine/rtv4/utils.py; model configuration from the
+          riov2_hgnetv2_* configs. Upstream changed its LICENSE to
+          AGPL-3.0 in a later commit (3377398) without code changes; this
+          port relies on the Apache-2.0 grant of the initial release and
+          uses no later material. Official checkpoints from Hugging Face
+          RicePasteM/RiO-DETRv2 revision
+          5f578f57929aded1962ebf8c5584a4771461124f (apache-2.0) are
+          mirrored as LibreYOLO/LibreRiODETRv2{n,s,m,l,x}-obb and
+          -obb-diorr; convert a local copy with
+          weights/convert_riodetrv2_weights.py.
+
+--------------------------------------------------------------------
 RF-DETR (Roboflow)
 --------------------------------------------------------------------
 Source: https://github.com/roboflow/rf-detr
 License: Apache License 2.0
 Copyright (c) 2024-2025 Roboflow, Inc.
+Compact/batched matching, the optional GPU assignment adapter, grouped
+optimizer migration, transformer training rewrites, and numerical fixes in
+libreyolo/models/rfdetr/ are adapted from RF-DETR commit
+b49df291cdd6b8d19fb722ab402e9a018d2edcd4 (Apache-2.0).
+The optional torch-hungarian 0.1.0rc0 runtime (Apache-2.0) is installed from
+PyPI through the rfdetr-train extra; its solver source is not vendored here.
+
 Used for: RF-DETR model family (libreyolo/models/rfdetr/), LoRA
           adapter recipe helpers (libreyolo/training/lora.py), and
           COCO evaluation glue (libreyolo/data/yolo_coco_api.py).
@@ -1228,6 +1623,81 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+RAFT (princeton-vl)
+--------------------------------------------------------------------
+Source: https://github.com/princeton-vl/RAFT (commit 2888e15)
+License: BSD 3-Clause License
+Copyright (c) 2020, princeton-vl.
+Citation: Teed, Z. and Deng, J. "RAFT: Recurrent All-Pairs Field
+          Transforms for Optical Flow." ECCV 2020.
+Used for: LibreRAFT optical flow family, vendored under
+          libreyolo/models/raft/_vendor/ (raft, update, extractor, corr,
+          utils/utils). Released checkpoints (raft-things, raft-small,
+          raft-sintel, raft-kitti) are mirrored on the LibreYOLO Hugging
+          Face org under the same licence.
+
+BSD 3-Clause License
+
+Copyright (c) 2020, princeton-vl
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+MEMFOF (MSU Graphics & Media Lab)
+--------------------------------------------------------------------
+Source: https://github.com/msu-video-group/memfof
+        (commit a51de9fc59c6fe20ba08e079372c7b583d58a712)
+License: BSD 3-Clause License
+Copyright (c) 2024, Princeton Vision & Learning Lab
+Copyright (c) 2025, MSU Graphics & Media Lab
+Citation: Bargatin, V., Chistov, E., Yakovenko, A., and Vatolin, D.
+          "MEMFOF: High-Resolution Training for Memory-Efficient
+          Multi-Frame Optical Flow Estimation." ICCV 2025.
+Used for: MEMFOF optical flow family, inference code vendored under
+          libreyolo/models/memfof/_vendor/ (model, corr, extractor, gma,
+          layer, update, and the InputPadder / bilinear_sampler /
+          coords_grid helpers from utils). The BSD-3-Clause text is in
+          libreyolo/models/memfof/_vendor/LICENSE. Changes: relative
+          imports, no Hugging Face hub mixin, no torchvision ImageNet
+          download at construction, einops.rearrange written as torch
+          reshape/permute. gma.py (Attention, Aggregate) originates in
+          GMA, https://github.com/zacjiang/GMA core/gma.py, under the
+          WTFPL (text in libreyolo/models/memfof/_vendor/LICENSE-GMA);
+          upstream credits VideoFlow, whose copy is GMA's file with the
+          position-embedding branches commented out and which ships no
+          licence, so the grant relied on is GMA's.
+
+NOTE - weights: the upstream MEMFOF checkpoints (Hugging Face
+egorchistov/optical-flow-MEMFOF-*) are tagged bsd-3-clause in their card
+metadata but ship no licence file or separate weight-licence text.
+LibreYOLO mirrors the converted checkpoints (LibreYOLO/LibreMEMFOFm-flow
+and the LibreYOLO/LibreMEMFOFm-flow-<variant> repos for tartan,
+tartan-t, kitti, sintel and spring) under the BSD-3-Clause licence of the
+releasing code repository, from which the weight licence is inherited.
+
+--------------------------------------------------------------------
 Depth Anything V2 (DepthAnything / TikTok)
 --------------------------------------------------------------------
 Source: https://github.com/DepthAnything/Depth-Anything-V2
@@ -1256,6 +1726,101 @@ Giant) are for non-commercial use only. The offline conversion path
 (weights/convert_depth_anything_v2_weights.py) remains available.
 
 --------------------------------------------------------------------
+Video Depth Anything (ByteDance)
+--------------------------------------------------------------------
+Source: https://github.com/DepthAnything/Video-Depth-Anything
+Pinned commit: 4f5ae23172ba60fd7bc11ef671cca678842c7072
+License: Apache License 2.0
+Copyright (2025) Bytedance Ltd. and/or its affiliates.
+Citation: Chen, S., Guo, H., Zhu, S., Zhang, F., Huang, Z., Feng, J., and
+          Kang, B. "Video Depth Anything: Consistent Depth Estimation for
+          Super-Long Videos." CVPR 2025.
+Used for: Video Depth Anything depth family. dpt_temporal.py,
+          motion_module/{motion_module,attention}.py and utils/util.py are
+          vendored under libreyolo/models/video_depth_anything/_vendor/
+          with the Apache-2.0 LICENSE alongside; the package docstring lists
+          every change (import path, EasyDict and einops replaced by plain
+          Python/torch, xFormers notice demoted to a log). motion_module.py
+          originates in AnimateDiff (guoyww/AnimateDiff, Apache-2.0) and
+          attention.py in Hugging Face diffusers (Apache-2.0, Copyright 2022
+          The HuggingFace Team). The DINOv2 encoder and DPT head reuse the
+          identical copies vendored for Depth Anything V2.
+          libreyolo/models/video_depth_anything/utils.py adapts upstream
+          VideoDepthAnything.infer_video_depth into a streaming generator.
+
+Weight license: Video-Depth-Anything-Small is Apache-2.0; -Base and -Large
+               are CC BY-NC 4.0 (non-commercial). Mirrored as
+               LibreYOLO/LibreVideoDepthAnything{s,b,l}-depth with the
+               upstream licence; b and l lead their cards with a
+               non-commercial banner. Metric checkpoints are not hosted.
+Conversion: weights/convert_video_depth_anything_weights.py wraps the
+            unchanged tensors in the LibreYOLO checkpoint schema.
+
+--------------------------------------------------------------------
+SEA-RAFT (Princeton Vision & Learning Lab)
+--------------------------------------------------------------------
+Source: https://github.com/princeton-vl/SEA-RAFT
+Pinned commit: 9137517ba24e628442aec097d3afe71d03503b75
+License: BSD 3-Clause License
+Copyright (c) 2024, Princeton Vision & Learning Lab.
+Citation: Wang, Y., Lipson, L., and Deng, J. "SEA-RAFT: Simple,
+          Efficient, Accurate RAFT for Optical Flow." ECCV 2024.
+Used for: SEA-RAFT optical flow family, inference subset of core/
+          (raft, extractor, update, corr, layer, utils) vendored under
+          libreyolo/models/searaft/_vendor/ with the BSD-3-Clause
+          LICENSE alongside. Training code, the Hugging Face mixin, the
+          optional alt_cuda_corr extension and the ImageNet initialisation
+          are dropped; the package docstring lists every change. The
+          pretrained weights (MemorySlices/Tartan-C-T-TSKH-spring540x960-
+          {S,M}) are BSD-3-Clause as well and are mirrored as
+          LibreYOLO/LibreSEARAFT{s,m,l}-flow.
+FlowSeek (University of Bologna)
+--------------------------------------------------------------------
+Source: https://github.com/mattpoggi/flowseek
+Pinned commit: ba6407370bceeb96244cad4d60d37489f6eb471e
+License: Apache License 2.0 (includes SEA-RAFT code, BSD 3-Clause License,
+         Copyright (c) 2024, Princeton Vision & Learning Lab)
+Copyright (c) 2025 Matteo Poggi and Fabio Tosi.
+Citation: Poggi, M., and Tosi, F. "FlowSeek: Optical Flow Made Easier with
+          Depth Foundation Models and Motion Bases." ICCV 2025.
+Used for: FlowSeek optical flow family vendored under
+          libreyolo/models/flowseek/_vendor/ (flowseek, corr, extractor,
+          layer, update, utils). Training code, the torchvision ResNet
+          initialisation download and the separate DAv2 weight load are
+          removed; the Depth Anything V2 encoder reuses the vendored copy in
+          libreyolo/models/depth_anything/_vendor/.
+
+Weight source: scripts/get_weights.sh at the pinned commit
+               (flowseek_T_TartanCT_TSKH.pth, flowseek_M_TartanCT_TSKH.pth).
+Weight license: the repository's Apache-2.0 licence, applied as an implied
+               grant (no separate checkpoint licence is published). The
+               checkpoints embed the Depth Anything V2 encoder: ViT-S (t, s)
+               is Apache-2.0, ViT-B (m, l) is CC BY-NC 4.0, so the hosted
+               LibreFlowSeek{m,l}-flow weights are non-commercial.
+Conversion: weights/convert_flowseek_weights.py wraps the unchanged tensors
+            (638 for t/s, 932 for m/l) in the LibreYOLO checkpoint schema.
+NeuFlow v2 (Northeastern University Field Robotics Lab)
+--------------------------------------------------------------------
+Source: https://github.com/neufieldrobotics/NeuFlow_v2
+Pinned commit: 204b5e3744461d90303b9ff82caa7a1bb56a2ca2
+License: Apache License 2.0
+Copyright (c) 2024 Zhiyong Zhang, Aniket Gupta, Huaizu Jiang, Hanumant Singh.
+Citation: Zhang, Z., Gupta, A., Jiang, H., and Singh, H. "NeuFlow v2:
+          Push High-Efficiency Optical Flow To the Limit." arXiv:2408.10161.
+Used for: NeuFlow v2 optical flow family (libreyolo/models/neuflowv2/),
+          model code vendored under libreyolo/models/neuflowv2/_vendor/
+          with the upstream LICENSE. Changes: package-relative imports,
+          the huggingface_hub mixin base dropped, out-of-place input
+          scaling, unused commented and broken helpers removed. Training,
+          dataset and evaluation code is not vendored.
+
+Weights: upstream commits neuflow_mixed.pth, neuflow_sintel.pth and
+neuflow_things.pth in the Apache-2.0 repository root with no separate
+weight licence. LibreYOLO mirrors the converted checkpoints
+(LibreYOLO/LibreNeuFlowv2s-flow, -flow-sintel, -flow-things) under that
+Apache-2.0 licence, an implied grant from the releasing project.
+
+--------------------------------------------------------------------
 Depth Anything 3 (ByteDance Seed)
 --------------------------------------------------------------------
 Source: https://github.com/ByteDance-Seed/Depth-Anything-3
@@ -1277,6 +1842,39 @@ Conversion: weights/convert_depth_anything3_weights.py removes only the
             outer model. prefix and wraps 406 unchanged tensors in the
             LibreYOLO checkpoint schema. Only DA3MONO-LARGE is hosted.
             CC-BY-NC-4.0 Large/Giant/Nested weights are excluded.
+
+--------------------------------------------------------------------
+DPFlow (ptlflow, Henrique Morimitsu)
+--------------------------------------------------------------------
+Source: https://github.com/hmorimitsu/ptlflow (ptlflow/models/dpflow)
+Pinned commit: 43cdc2b5fc7228e7090009a66e8e28e0b48e31ba
+License: Apache License 2.0
+Copyright 2025 Henrique Morimitsu.
+Citation: Morimitsu, H., Zhu, X., Cesar Jr, R. M., Ji, X., and Yin, X.-C.
+          "DPFlow: Adaptive Optical Flow Estimation with a Dual-Pyramid
+          Framework." CVPR 2025.
+Used for: DPFlow optical flow family vendored under
+          libreyolo/models/dpflow/_vendor/ (cgu, cgu_bidir_dual_encoder,
+          conv, corr, norm, pwc_modules, res_stem, update, utils,
+          local_timm/ from timm by Ross Wightman, Apache-2.0, and
+          correlation.py from ptlflow/utils, Apache-2.0). padder.py is
+          ptlflow's input padder adapted from princeton-vl/RAFT
+          (BSD-3-Clause, Copyright (c) 2020, princeton-vl; license text
+          kept in the file header). dpflow.py is an inference-only rewrite
+          of the upstream module on torch.nn.Module; einops reshapes are
+          replaced by equivalent torch ops. Learned parameters are
+          unchanged.
+
+Weight source: https://github.com/hmorimitsu/ptlflow/releases/tag/weights1
+               (dpflow-things-2012b5d6.ckpt, dpflow-sintel-b44b072c.ckpt,
+               dpflow-kitti-4e97eac6.ckpt, dpflow-spring-69bac7fa.ckpt)
+Weight license: CC BY-NC-SA 4.0 (ptlflow README: weights trained within
+                the project). Non-commercial and share-alike; mirrored with
+                the license verbatim at huggingface.co/LibreYOLO/
+                LibreDPFlowm-flow[-sintel|-kitti|-spring].
+Conversion: weights/convert_dpflow_weights.py wraps the 498 unchanged
+            tensors of the Lightning state_dict in the LibreYOLO
+            checkpoint schema.
 
 --------------------------------------------------------------------
 ZipDepth (University of Bologna)
@@ -1750,6 +2348,27 @@ Used for: the LibrePPOCR text detection + recognition family
           tiers.
 
 --------------------------------------------------------------------
+PP-DocLayoutV3 (PaddlePaddle; Hugging Face Transformers)
+--------------------------------------------------------------------
+Port source: https://github.com/huggingface/transformers
+Tag/commit: v5.22.1 / 446a570e62b04a89ea001604ada7366baac2ea67
+Files: src/transformers/models/pp_doclayout_v3/modeling_pp_doclayout_v3.py
+       src/transformers/models/pp_doclayout_v3/image_processing_pp_doclayout_v3.py
+       src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
+License: Apache License 2.0
+Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team.
+Model: PP-DocLayoutV3, PaddleOCR project
+       (https://github.com/PaddlePaddle/PaddleOCR, Apache License 2.0).
+Used for: the LibrePPDocLayoutV3 document layout family
+          (libreyolo/models/ppdoclayoutv3/): the HGNetV2-L backbone, hybrid
+          encoder, mask-enhanced deformable decoder and global-pointer
+          reading-order head are an inference-only PyTorch port; the decode
+          and reading-order ranking in libreyolo/postprocess/ppdoclayoutv3.py
+          follow the reference image processor. Parity verified: raw class
+          logits, boxes, reading-order logits and masks match the reference
+          with max_abs_diff == 0 on identical inputs.
+
+--------------------------------------------------------------------
 DeiT (Facebook Research)
 --------------------------------------------------------------------
 Source: https://github.com/facebookresearch/deit
@@ -2009,6 +2628,100 @@ copyright notice and this permission notice. THE SOFTWARE IS PROVIDED "AS IS",
 WITHOUT WARRANTY OF ANY KIND.
 
 --------------------------------------------------------------------
+MoGe-3 (Microsoft)
+--------------------------------------------------------------------
+Source: https://github.com/microsoft/MoGe
+Commit: 74fbce054ebed49800de42d0ad0e83495065719a
+License: MIT
+Copyright (c) Microsoft Corporation.
+Used for: the MoGe-3 forward pass, log-depth voxelization, iterative sparse
+          refinement, sparse 3D UNet layout, and camera recovery in
+          libreyolo/models/moge3/. The DINOv2 encoder wrapper and decoder are
+          shared with libreyolo/models/moge2/.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+FlexGEMM (Jianfeng Xiang)
+--------------------------------------------------------------------
+Source: https://github.com/JeffreyXiang/FlexGEMM
+Commit: b2fadb29d41846c7981ade6801ffc689fae119cf
+License: MIT
+Copyright (c) 2025 Jianfeng Xiang
+Used for: the operator semantics (kernel tap order, weight layout, strided
+          mean pooling, nearest upsampling) re-expressed in plain PyTorch in
+          libreyolo/models/moge3/sparse.py. No FlexGEMM source or kernel is
+          vendored.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+utils3d (MoGe fork, EasternJournalist)
+--------------------------------------------------------------------
+Source: https://github.com/EasternJournalist/utils3d-moge
+Commit: 62f09d58509485564e24d5d9f6aac9ee9ebc0c37
+License: MIT
+Copyright (c) 2022 EasternJournalist
+Used for: the pixel-center UV map, intrinsics construction, and OpenCV
+          unprojection in libreyolo/models/moge3/utils.py.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
 MoGe-2 (Microsoft)
 --------------------------------------------------------------------
 Source: https://github.com/microsoft/MoGe
@@ -2056,6 +2769,50 @@ Used for: the native LibrePicoSAM3 ROI segmentation network in
 
 The full Apache License 2.0 text is included at
 libreyolo/models/picosam3/LICENSE.
+
+--------------------------------------------------------------------
+InstantHMR
+--------------------------------------------------------------------
+Source: https://github.com/Naturalpad-studio/InstantHMR
+Commit: 5437400d4b25c1972821e51916fac34bd96acce6
+License: Apache License 2.0
+Used for: the native LibreInstantHMR mesh network in
+          libreyolo/models/instanthmr (network layout from
+          training/train.py, the exportable MHR body from
+          training/mhr_body.py, person-crop preprocessing from
+          instanthmr/inference.py). The 447-to-204 MHR decode in decode.py
+          is a clean-room implementation; upstream's training/mhr_cont.py,
+          which transcribes SAM-licensed sam-3d-body code, is not used.
+          Released ONNX weights from Hugging Face momolesang/InstantHMR are
+          converted with weights/convert_instanthmr_weights.py.
+
+The full Apache License 2.0 text is included at
+libreyolo/models/instanthmr/LICENSE.
+
+--------------------------------------------------------------------
+SAM 3.1 / Hugging Face Transformers SAM 3 converters
+--------------------------------------------------------------------
+Converter source: https://github.com/huggingface/transformers
+Converter files and commits:
+  src/transformers/models/sam3/convert_sam3_to_hf.py
+    22278df3198c4219f033f2a4b0931da3e5c21af4
+  src/transformers/models/sam3_video/convert_sam3_video_to_hf.py
+    92d02b508707d6e190e358171c2eece10817f7e1
+License: Apache License 2.0
+Copyright 2025 The Meta AI Authors and The HuggingFace Inc. team
+Used for: the SAM 3 to Transformers key mapping, QKV split, position-embedding
+          class-token strip, CLIP projection transpose and point-embedding
+          concatenation in weights/convert_sam31_weights.py, restricted to the
+          image path. The SAM 3.1 to SAM 3 key renames are LibreYOLO's own.
+          No Meta SAM source code (facebookresearch/sam3, SAM License) is
+          copied, adapted or vendored; LibreSAM31 calls the Apache-2.0
+          Transformers SAM 3 model classes.
+Model weights: facebook/sam3.1 revision
+          daa63191845a41281374e725f4c9e51c7a824460 (sam3.1_multiplex.pt) is
+          under Meta's SAM License, which is NOT a permissive license. The
+          converted image path is mirrored at
+          huggingface.co/LibreYOLO/LibreSAM31large with the SAM License text
+          and an automatic access gate; those weights remain SAM-licensed.
 
 --------------------------------------------------------------------
 EdgeTAM / Hugging Face Transformers EdgeTAM converter
@@ -2885,6 +3642,25 @@ include the SigLIP vision backbone and their tokenizer assets. Upstream model
 cards declare Apache-2.0 for all three snapshots.
 
 --------------------------------------------------------------------
+Qwen3-VL-Embedding adapter (instruction format and last-token pooling)
+------------------------------------------------------------------
+
+Upstream: Tongyi Lab, Alibaba Group, https://github.com/QwenLM/Qwen3-VL-Embedding
+Commit: 393e2978d27852b0d0230d6994f37f9c15bed73c
+Reference file: scripts/qwen3_vl_embedding.py in Qwen/Qwen3-VL-Embedding-2B
+(Hugging Face revision 9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda)
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+
+libreyolo/models/vlm/qwen3vl_embedding.py adapts the reference embedder's
+input conventions: the system-instruction chat layout with the default
+instruction "Represent the user's input.", the trailing-punctuation rule for
+instructions, the image pixel budget (4,096 to 1,843,200 pixels on a 32-pixel
+grid), and last-non-padding-token pooling with right padding. The Qwen3-VL
+architecture runs from transformers; no model source is copied. Weights are
+the Apache-2.0 Qwen/Qwen3-VL-Embedding-2B snapshot with unmodified learned
+parameters.
+
+--------------------------------------------------------------------
 WeVisOne-VL pixel decoder, prompts and output parser
 ----------------------------------------------------
 
@@ -2909,6 +3685,160 @@ tencent/WeVisOne-VL-4B @ 4a7bed92750ac9d8b8a124cede14759036932dc2 (Apache-2.0,
 Copyright (C) 2026 Tencent). They are fine-tuned from Qwen3-VL-2B-Instruct and
 Qwen3-VL-4B-Instruct (Apache-2.0, Copyright 2024 Alibaba Cloud), whose
 architecture runs from transformers; no Qwen code is copied.
+
+--------------------------------------------------------------------
+DeepSeek-OCR vision encoder, MoE decoder and grounding parser
+-------------------------------------------------------------
+
+Upstream: DeepSeek, https://huggingface.co/deepseek-ai/DeepSeek-OCR
+(code also at https://github.com/deepseek-ai/DeepSeek-OCR)
+Commit: 9f30c71f441d010e5429c532364a86705536c53a
+License: MIT
+Copyright (c) 2023 DeepSeek
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Used for: the LibreDeepSeekOCR family (libreyolo/models/deepseekocr/).
+deepencoder.py, modeling_deepseekocr.py and conversation.py are ported for
+inference. modeling_deepseekv2.py carries an Apache-2.0 header (Copyright 2023
+DeepSeek-AI and The HuggingFace Inc. team); the attention and rotary
+embedding it selects for this checkpoint come from transformers 4.46.3
+models/llama/modeling_llama.py (Apache-2.0, The HuggingFace Inc. team). The
+SAM image encoder is adapted upstream from detectron2 ViTDet (Apache-2.0,
+Meta Platforms), with mvit relative positions (Apache-2.0) and ConvNeXt
+LayerNorm2d (MIT); conversation.py derives from FastChat (Apache-2.0).
+Apache-2.0 text: licenses/Apache-2.0.txt. See
+libreyolo/models/deepseekocr/NOTICE.
+
+DeepSeek-OCR-2 (size 2 of the same family)
+Upstream: DeepSeek, https://huggingface.co/deepseek-ai/DeepSeek-OCR-2
+Commit: aaa02f3811945a91062062994c5c4a3f4c0af2b0
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Used for: libreyolo/models/deepseekocr/encoder2.py (deepencoderv2.py: the
+Qwen2 decoder used as a vision encoder with learned queries and an
+image/query attention mask) and the version-2 branches of deepencoder.py,
+network.py and processing.py (modeling_deepseekocr2.py). The Qwen2 decoder
+layer, SDPA attention and rotary embedding that path runs are ported from
+transformers 4.46.3 models/qwen2/modeling_qwen2.py (Apache-2.0, The
+HuggingFace Inc. team).
+
+PaddleOCR-VL document-parsing pipeline
+--------------------------------------
+
+Upstream: PaddlePaddle, https://github.com/PaddlePaddle/PaddleX
+Commit: 4c968d30b9d0d4a693d9eaaef0881c20f8d7d0e0
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright (c) 2024 PaddlePaddle Authors. All Rights Reserved.
+
+Used for: the LibrePaddleOCRVL family (libreyolo/models/paddleocrvl/). The
+PP-DocLayoutV2 post-processing (object_detection/processors.py and the
+PaddleOCR-VL pipeline config), the region overlap filter, prompt routing,
+crop_margin, OTSL to HTML and repetition truncation
+(pipelines/paddleocr_vl/pipeline.py, uilts.py) and the markdown assembly
+(common/result/converter/) are ported with modifications noted in each file
+header. The reading-order vote follows transformers'
+PPDocLayoutV2ImageProcessor (Apache-2.0). See
+libreyolo/models/paddleocrvl/NOTICE.
+
+Weights: LibreYOLO/LibrePaddleOCRVL0.9b, an unmodified mirror of
+PaddlePaddle/PaddleOCR-VL @ 7fa00a8c55b735ba51ba49a9058f3f9c57a99a11 and
+PaddlePaddle/PP-DocLayoutV2_safetensors @
+880e8971b88938518611c54fc0f59ad57849c9d4 (Apache-2.0, Copyright (c)
+PaddlePaddle Authors).
+
+GLM-OCR document-parsing pipeline
+---------------------------------
+
+Upstream: Z.ai (zai-org), https://github.com/zai-org/GLM-OCR
+Commit: 0288f96bb9e78cb439883eaa725eeae90bd177c5
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright (c) Z.ai (zai-org).
+
+Used for: the LibreGLMOCR family (libreyolo/models/glmocr/). The SDK's
+layout post-processing (glmocr/utils/layout_postprocess_utils.py, the label
+routing of glmocr/layout/layout_detector.py and the layout section of
+glmocr/config.yaml), region crops and resize (glmocr/utils/image_utils.py,
+glmocr/dataloader/page_loader.py) and result formatting
+(glmocr/postprocess/result_formatter.py,
+glmocr/utils/result_postprocess_utils.py) are ported with modifications
+noted in each file header. See libreyolo/models/glmocr/NOTICE.
+
+Weights: LibreYOLO/LibreGLMOCR0.9b, an unmodified mirror of zai-org/GLM-OCR @
+2e85a62840ccac27daa451df36c736c4636b8628 (MIT, per the model card) and
+PaddlePaddle/PP-DocLayoutV3_safetensors @
+e4f489dc536556fc1be02b973ba06756e0d4a2ac (Apache-2.0, Copyright (c)
+PaddlePaddle Authors).
+
+Falcon OCR
+----------
+
+Upstream: Technology Innovation Institute (TII),
+https://huggingface.co/tiiuae/Falcon-OCR (commit
+0bc28f89c90fbe8bdb063097fab144d4ce4c19b5) and
+https://github.com/tiiuae/Falcon-Perception (commit
+c457916c9974efbacfa91f0f6ecc2c49c6543e56)
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+Used for: the LibreFalconOCR family (libreyolo/models/falconocr/). The model
+(modeling_falcon_ocr.py), rotary embeddings (rope.py), attention-mask rules
+(attention.py) and input pipeline (processing_falcon_ocr.py) are ported with
+modifications noted in each file header: dense masks instead of
+FlexAttention, PyTorch instead of the Triton kernel, single-request greedy
+decoding. Upstream NOTICE retained in libreyolo/models/falconocr/NOTICE.
+
+Weights: LibreYOLO/LibreFalconOCR270m, an unmodified mirror of
+tiiuae/Falcon-OCR @ 0bc28f89c90fbe8bdb063097fab144d4ce4c19b5 (Apache-2.0).
+
+
+--------------------------------------------------------------------
+Falcon Perception network, preprocessing and generation loop
+------------------------------------------------------------
+
+Upstream: Technology Innovation Institute (TII), https://github.com/tiiuae/Falcon-Perception
+Commit: c457916c9974efbacfa91f0f6ecc2c49c6543e56
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright 2026 Technology Innovation Institute (TII), UAE.
+
+Used for: the LibreFalconPerception family (libreyolo/models/falcon_perception/).
+The transformer with its coordinate, size and segmentation heads, the AnyUp
+feature upsampler, rotary embeddings (falcon_perception/model.py, anyup.py,
+rope.py, attention.py, kv_cache.py), the image and prompt preprocessing
+(data.py) and the greedy decode loop with mask finalization
+(batch_inference.py, aux_output.py) are ported for inference, with
+modifications noted in each file header. Upstream data.py carries a header
+naming a "BSD-style license found in the LICENSE file in the root directory";
+that root LICENSE is Apache-2.0.
+
+The AnyUp feature upsampler (falcon_perception/anyup.py, ported into nn.py)
+is a flattened copy of AnyUp by Thomas Wimmer, Prune Truong, Marie-Julie
+Rakotosaona, Michael Oechsle, Federico Tombari, Bernt Schiele and Jan Eric
+Lenssen (https://github.com/wimmerth/anyup), licensed Creative Commons
+Attribution 4.0 International (https://creativecommons.org/licenses/by/4.0/).
+Changes: windowed cross-attention evaluated eagerly in query chunks instead
+of FlexAttention. Used only by the 600m segment task. smart_resize follows the
+Qwen2-VL image processor (Hugging Face Transformers, Apache-2.0).
+
+Weights are not redistributed; they download at runtime from
+tiiuae/Falcon-Perception @ a3e21ada0abd533393776ffab8908a728f775509 and
+tiiuae/Falcon-Perception-300M @ 36993684b3ba5945b22d01e705f8ff2e048bf0b0
+(Apache-2.0, Copyright 2026 TII). See libreyolo/models/falcon_perception/NOTICE.
 
 
 GTR (Gated Token Recurrence)
@@ -2981,6 +3911,37 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------
+Speridlabs Iris-Z transformer, samplers and prompt embedders
+------------------------------------------------------------
+
+Upstream: Speridlabs, https://github.com/speridlabs/iris-z-sdk
+Commit: 6c8925f42a2a3581127609d771aa5bfece557467
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+Copyright 2026 SperidLabs.
+Used for: the Speridlabs Iris-Z family (libreyolo/models/gen/speridlabs_irisz/):
+          the transformer forward pass, the text-to-image and image-to-depth
+          samplers, the schedule, the depth decoding and the prompt
+          embedders. Parameter names are unchanged so the released
+          safetensors load strictly.
+
+The SDK's model code is from FLUX.2:
+Source: https://github.com/black-forest-labs/flux2
+License: Apache-2.0
+Copyright Black Forest Labs.
+
+NOTE - code vs. weights: no weights are bundled in the package.
+speridlabs/iris-z (FLUX Non-Commercial License, revision
+16239e1a5444c484b11a04b61d633eceb768574c), the FLUX.2 VAE from
+black-forest-labs/FLUX.2-klein-4B (Apache-2.0, revision
+e7b7dc27f91deacad38e78976d1f2b499d76a294),
+mistralai/Mistral-Small-3.2-24B-Instruct-2506 (Apache-2.0, revision
+95a6d26c4bfb886c58daf9d3f7332c857cb27b43) with the processor of
+mistralai/Mistral-Small-3.1-24B-Instruct-2503 (Apache-2.0, revision
+68faf511d618ef198fef186659617cfd2eb8e33a) and Qwen/Qwen3-8B-FP8
+(Apache-2.0, revision 220b46e3b2180893580a4454f21f22d3ebb187d3) download
+from their publishers.
+
+--------------------------------------------------------------------
 Speridlabs Idol image-to-3D networks and pipeline
 -------------------------------------------------
 
@@ -3041,3 +4002,32 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+--------------------------------------------------------------------
+UniMatch / GMFlow (autonomousvision)
+--------------------------------------------------------------------
+Source: https://github.com/autonomousvision/unimatch
+Pinned commit: 943a99006950ab6c84ea72a72beb147fdd03c19a
+License: MIT
+Copyright (c) 2022 autonomousvision.
+Citation: Xu, H., Zhang, J., Cai, J., Rezatofighi, H., Yu, F., Tao, D.,
+          and Geiger, A. "Unifying Flow, Stereo and Depth Estimation."
+          IEEE TPAMI 2023.
+Used for: UniMatch optical flow family (LibreUniMatch). The upstream
+          unimatch/ package (unimatch, backbone, trident_conv,
+          transformer, attention, matching, geometry, reg_refine, utils,
+          position) is vendored verbatim under
+          libreyolo/models/unimatch/_vendor/ with its LICENSE. Training,
+          dataloaders and the DepthSplat modules are not vendored. The
+          LibreYOLO wrapper (libreyolo/models/unimatch/{model,utils}.py)
+          adds the flow-task preprocessing and postprocessing.
+
+Weight source: upstream MODEL_ZOO.md (gmflow-scale1-things,
+               gmflow-scale2-regrefine6-{mixdata,sintelft,kitti15}).
+Weight license: upstream publishes no separate weight licence; LibreYOLO
+                hosts the converted checkpoints on its Hugging Face org
+                under the releasing project's MIT licence. The grant is
+                implied by the releasing project and is LibreYOLO's
+                disclosed interpretation, not publisher-confirmed.
+Conversion: weights/convert_unimatch_weights.py wraps the unchanged
+            upstream tensors in the LibreYOLO checkpoint schema.

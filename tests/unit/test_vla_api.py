@@ -137,7 +137,7 @@ class TestResultsWithActions:
 
     def test_slice_moves_and_update(self):
         r = self._result()
-        first = r[0]
+        first = r[:1]
         assert first.actions.horizon == 1 and first.actions.names == ["a", "b"]
         assert isinstance(r.numpy().actions.data, np.ndarray)
         r2 = self._result()

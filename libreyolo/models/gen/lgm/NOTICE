@@ -1,0 +1,60 @@
+LibreLGM includes code adapted from LGM:
+
+Source: https://github.com/3DTopia/LGM (commit fe8d12cff8c827df7bb77a3c8e8b37408cb6fe4c)
+License: MIT.
+Copyright (c) 2024 3D Topia. Authors: Jiaxiang Tang, Zhaoxi Chen, Xiaokang
+Chen, Tengfei Wang, Gang Zeng, Ziwei Liu.
+
+Adapted, with upstream's module and parameter names so the released
+safetensors load with strict=True: the LGM UNet, its blocks and the Gaussian
+activations (core/unet.py, core/models.py), the ray embedding
+(core/utils.py get_rays, core/models.py prepare_default_rays), the
+image-to-3D steps of app.py and infer.py, and LGM's diffusers version of the
+ImageDream multi-view UNet and sampler (mvdream/mv_unet.py,
+mvdream/pipeline_mvdream.py). Within the LGM repository those mvdream files
+are distributed under its MIT License; they follow MVDream
+(https://github.com/bytedance/MVDream, MIT, Copyright (c) 2023 ByteDance)
+and ImageDream (https://github.com/bytedance/ImageDream, Apache-2.0,
+Copyright ByteDance), and the sampler follows the Apache-2.0 diffusers
+Stable Diffusion pipeline.
+
+The LGM attention module (core/attention.py) is from DINOv2:
+Copyright (c) Meta Platforms, Inc. and affiliates. Licensed under the Apache
+License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
+
+The camera helpers orbit_camera / look_at and the recenter step follow
+kiuikit (https://github.com/ashawkey/kiuikit, v0.2.7), Apache-2.0,
+Copyright (c) Jiaxiang Tang, which upstream LGM imports.
+
+Written for LibreYOLO: every attention runs through
+torch.nn.functional.scaled_dot_product_attention instead of xformers'
+memory_efficient_attention (CUDA only), so the family runs on CUDA, MPS and
+CPU; noise is drawn from an explicit generator on the model's device; the
+conversion of LGM's Gaussians (y up, [-1, 1]^3) into LibreYOLO's object frame.
+
+Not used: core/gs.py's renderer, which needs diff-gaussian-rasterization
+(Inria's non-commercial Gaussian Splatting license); Gaussians go through
+LibreYOLO's own Gaussians payload and PLY writer. Nor rembg (background
+removal runs on LibreYOLO's BiRefNet network), nor plyfile, nor the
+training, mesh-conversion and GUI code.
+
+Weights:
+- ashawkey/LGM model_fp16_fixrot.safetensors (MIT), redistributed unchanged
+  by LibreYOLO as LibreYOLO/LibreLGM0.4b together with the BiRefNet weights
+  (ZhengPeng7/BiRefNet, MIT).
+- ashawkey/imagedream-ipmv-diffusers (ImageDream by Peng Wang and Yichun
+  Shi, fine-tuned from MVDream and Stable Diffusion 2.1 base, with the
+  OpenCLIP ViT-H/14 text encoder and the LAION CLIP-ViT-H-14 image encoder),
+  declared "openrail" upstream, redistributed unchanged by LibreYOLO as
+  LibreYOLO/LibreImageDream with the CreativeML OpenRAIL++-M License of its
+  Stable Diffusion 2.1 lineage. Its use-based restrictions apply to users.
+All at pinned revisions.
+
+LGM citation:
+Jiaxiang Tang, Zhaoxi Chen, Xiaokang Chen, Tengfei Wang, Gang Zeng, Ziwei
+Liu. "LGM: Large Multi-View Gaussian Model for High-Resolution 3D Content
+Creation." ECCV 2024. arXiv:2402.05054.
+
+ImageDream citation:
+Peng Wang, Yichun Shi. "ImageDream: Image-Prompt Multi-view Diffusion for 3D
+Generation." arXiv:2312.02201.

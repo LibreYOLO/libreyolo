@@ -30,7 +30,7 @@ from typing import Dict, Tuple, Type
 from .base import LibreSAMModel
 from .edgetam import LibreEdgeTAM
 from .sam2 import LibreSAM2
-from .sam3 import LibreSAM3
+from .sam3 import LibreSAM3, LibreSAM31
 
 
 class LibreSAM1(LibreSAMModel):
@@ -87,6 +87,10 @@ _ALIASES: Dict[str, Tuple[Type[LibreSAMModel] | str, str]] = {
     "sam3": (LibreSAM3, "large"),
     "sam-3": (LibreSAM3, "large"),
     "sam3-large": (LibreSAM3, "large"),
+    "sam3.1": (LibreSAM31, "large"),
+    "sam-3.1": (LibreSAM31, "large"),
+    "sam31": (LibreSAM31, "large"),
+    "sam3.1-large": (LibreSAM31, "large"),
     "mobilesam": (_MOBILE_SAM, "tiny"),
     "mobilesam-tiny": (_MOBILE_SAM, "tiny"),
     "mobilesam_t": (_MOBILE_SAM, "tiny"),
@@ -111,6 +115,7 @@ def LibreSAM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreSAMModel:
             ``"sam2-tiny"`` / ``"sam2_t"``.
             EdgeTAM uses ``"edgetam"`` / ``"edge-tam"``.
             SAM 3 uses ``"sam3"`` / ``"sam-3"`` / ``"sam3-large"``.
+            SAM 3.1 (image path) uses ``"sam3.1"`` / ``"sam-3.1"`` / ``"sam31"``.
             MobileSAM aliases resolve to its single ``"tiny"`` size.
         **kwargs: Forwarded to the family constructor: ``device``, and
             ``multimask`` (when True, ``predict`` returns all of SAM's ambiguity
@@ -141,4 +146,11 @@ def LibreSAM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreSAMModel:
     return family_cls(size=size, **kwargs)
 
 
-__all__ = ["LibreSAM", "LibreSAM1", "LibreSAM2", "LibreEdgeTAM", "LibreSAM3"]
+__all__ = [
+    "LibreSAM",
+    "LibreSAM1",
+    "LibreSAM2",
+    "LibreEdgeTAM",
+    "LibreSAM3",
+    "LibreSAM31",
+]

@@ -23,7 +23,7 @@ def test_clip_embed_text_gallery_and_batch_smoke(tmp_path):
     result = model.predict(SAMPLE_IMAGE)
     image_vector = result.embeddings.data
     text_vectors = model.embed_text(
-        ["people doing parkour outdoors", "a close-up photograph of a dog"]
+        ["a person doing a flip in front of a museum", "a close-up photograph of a dog"]
     )
 
     assert result.boxes is None
@@ -43,7 +43,7 @@ def test_clip_embed_text_gallery_and_batch_smoke(tmp_path):
     assert "embedding" in result.summary(embeddings=True)[0]
 
     gallery = Gallery(model)
-    assert gallery.enroll("parkour", SAMPLE_IMAGE) == 1
+    assert gallery.enroll("guggenheim", SAMPLE_IMAGE) == 1
     gallery_path = tmp_path / "images.gallery.npz"
     gallery.save(gallery_path)
     restored = Gallery.load(gallery_path, model=model)
@@ -53,4 +53,4 @@ def test_clip_embed_text_gallery_and_batch_smoke(tmp_path):
         gallery=restored,
         threshold=0.99,
     )
-    assert identified.identities.name == ["parkour"]
+    assert identified.identities.name == ["guggenheim"]

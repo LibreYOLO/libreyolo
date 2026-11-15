@@ -43,7 +43,13 @@ size marked with `*`. The authoritative alias tables are in
 | `molmo2`, `-4b`*, `-8b`, `-o-7b` | Molmo2 | Apache-2.0 | point-only; pinned LibreYOLO mirrors; separate `molmo2` extra |
 | `sensenova-vision`, `-7b`*                    | SenseNova-Vision | Apache-2.0 code, CC BY-NC 4.0 weights | unified multimodal; 7 tasks, vendored port, heavy |
 | `wevisone-vl`, `-2b`*, `-4b`                  | WeVisOne-VL | Apache-2.0        | Qwen3-VL perception fine-tune; 5 tasks; ported pixel decoder |
+| `paddleocr-vl`, `-0.9b`*, `paddleocrvl`       | PaddleOCR-VL | Apache-2.0       | `ocr` only: layout regions plus per-region recognition and page markdown; needs transformers>=5.3 |
+| `glm-ocr`, `-0.9b`*, `glmocr`                 | GLM-OCR | MIT weights, Apache-2.0 SDK and layout | `ocr` only: PP-DocLayoutV3 regions plus per-region recognition and page markdown; needs transformers>=5.3 |
+| `falcon-perception`, `-600m`*, `-300m`        | Falcon Perception | Apache-2.0 | text-query detect and segment; vendored network; `-300m` is detect only |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
+| `deepseek-ocr`*, `deepseekocr`, `deepseek-ocr-2` | DeepSeek-OCR | MIT (`1`), Apache-2.0 (`2`) | document OCR, `ocr` task only; vendored port, mirrored weights |
+| `qwen3-vl-embedding`, `-2b`*                 | Qwen3-VL-Embedding | Apache-2.0  | `embed` only: image and text vectors in one space; mirrored weights |
+| `falcon-ocr`*, `falconocr`, `falcon-ocr-270m` | Falcon OCR | Apache-2.0 | document OCR, `ocr` task only; 0.27B early-fusion; vendored port, mirrored weights |
 
 Florence-2 and Kosmos-2 do not use a chat template: they are driven by task /
 grounding prompts and decode boxes via the processor's `post_process_generation`,
@@ -309,6 +315,29 @@ precision tiers, and terms distinction are documented in
 [`libremodus.md`](libremodus.md) and
 [`adr/0016-libremodus-analysis-contract.md`](adr/0016-libremodus-analysis-contract.md).
 
+### Falcon Perception
+
+Falcon Perception (TII, Apache-2.0 code and weights) is an early-fusion
+transformer: image patches and text share one sequence, and for each matching
+instance the model emits `<|coord|>`, `<|size|>` and `<|seg|>` tokens. Small
+heads on the hidden state decode the box centre and extent; the `<|seg|>`
+embedding is dotted with AnyUp-upsampled image features to give the mask. The
+network is vendored in `libreyolo/models/falcon_perception/` (no remote code,
+pinned `HF_REVISIONS`); see that package's `NOTICE`.
+
+```python
+model = LibreVLM("falcon-perception", names=["cat", "the dog on the left"])
+model.predict("image.jpg")                    # Results.boxes
+model.set_task("segment").predict("image.jpg")  # Results.boxes + Results.masks
+LibreVLM("falcon-perception-300m", names=["cat"])  # detect only, no mask head
+```
+
+Each vocabulary entry is one query and one generation, so cost grows with the
+number of entries; every instance found for an entry gets that entry's class
+id. `set_classes` (or `names=`) is required. Confidence is a constant 1.0 and
+there is no NMS (upstream's coordinate de-duplication runs inside decoding).
+On MPS the family runs on CPU because the RoPE tables are complex64.
+
 ### WeVisOne-VL
 
 WeVisOne-VL (Tencent, Apache-2.0 code and weights) is Qwen3-VL fine-tuned to
@@ -377,6 +406,231 @@ FP32, and the ported decoder loads the released sidecar strictly and matches
 the upstream module's logits to within 1e-4. The 4B decoder sidecar loads
 strictly against the 4B config and tokenizer, but the 4B backbone and CUDA
 were not run.
+
+### DeepSeek-OCR
+
+DeepSeek-OCR (deepseek-ai, MIT code and weights) is a 3B mixture-of-experts
+document OCR model: a SAM ViT-B plus CLIP-L encoder compresses the page into a
+few hundred visual tokens and a DeepSeek-V2 style decoder (about 570M active
+parameters) writes the text. LibreYOLO runs a vendored PyTorch port of the
+release's inference path (`libreyolo/models/deepseekocr/`, no remote code),
+loaded strictly from the byte-identical mirror `LibreYOLO/LibreDeepSeekOCR1`
+at a pinned revision. It serves the `ocr` task only.
+
+```python
+model = LibreVLM("deepseek-ocr")                       # resolution="gundam"
+result = model.predict("page.png")                    # Results.ocr, one region per line
+LibreVLM("deepseek-ocr", prompt="markdown").predict("page.png").ocr.markdown
+model.set_prompt("free").predict("page.png").ocr.markdown   # plain text, no regions
+model.chat("page.png", "Parse the figure.")           # any prompt, raw text
+model.val(data="ocr_dataset/")                        # det hmean, e2e F1, 1-NED
+```
+
+| `prompt` | Release prompt | `Results.ocr` |
+|---|---|---|
+| `"ocr"` (default) | `<|grounding|>OCR this image.` | one region per text line, `labels` all `text`, `markdown` empty |
+| `"markdown"` | `<|grounding|>Convert the document to markdown.` | one region per layout block (block markdown as transcript, layout category in `labels`; figures dropped) and the page in `markdown` |
+| `"free"` | `Free OCR.` | no regions, the page text in `markdown` |
+| any other string | as given (`<image>` is prepended if missing) | whatever grounding it emits, plus `markdown` |
+
+- Boxes come on a 0 to 999 grid and are scaled with `x / 999 * width` to
+  original-image pixels as axis-aligned quads, then sorted top to bottom and
+  left to right as the OCR contract specifies. `markdown` keeps the model's
+  own reading order.
+- `resolution`: `tiny` (512), `small` (640), `base` (1024), `large` (1280),
+  or `gundam` (default: a 1024 global view plus 2 to 9 local 640 crops for
+  pages larger than 640 px), as documented by the release.
+- Decoding follows the release: greedy, up to 8192 new tokens,
+  `no_repeat_ngram_size=20` (constructor option).
+- Confidence is a constant 1.0. `train()` and `export()` raise.
+- CUDA runs bf16 weights under `torch.autocast`, as the release does (fp16 on
+  GPUs without bf16). CPU and MPS run float32 with eager attention (about 13
+  GB of memory); MPS has not been run on hardware.
+- DeepSeek-OCR-2 (`LibreVLM("deepseek-ocr-2")`, size `2`, Apache-2.0 code and
+  weights, mirror `LibreYOLO/LibreDeepSeekOCR2`) keeps the decoder and the SAM
+  stage and replaces CLIP with a 24-layer Qwen2 encoder that reads the SAM
+  tokens bidirectionally and emits one learned query per visual token
+  causally. Its views are 1024 px global plus up to 6 local 768 px crops
+  (`resolution="gundam"`, default) or a single 1024 view (`"base"`); the
+  other resolutions have no learned queries and raise. Same prompts, same
+  outputs.
+- EXIF orientation is not applied (LibreYOLO's image loader convention); the
+  release transposes EXIF-rotated photos first.
+
+Validation: on an RTX 3090 the port reproduces the release (transformers
+4.46.3 remote code, bf16 autocast, greedy) token for token on 17 cases: six
+synthetic pages with the OCR and markdown prompts in Gundam mode, one page at
+each of the other four resolutions, and the free prompt; the parsed boxes are
+identical. DeepSeek-OCR-2 reproduces its release the same way on 14 cases (the
+six pages with both prompts in Gundam mode, one Base page, the free prompt).
+Upstream-reported benchmark numbers are in the release papers (arXiv
+2510.18234, 2601.20552) and are not reproduced here.
+
+### PaddleOCR-VL
+
+PaddleOCR-VL (PaddlePaddle, Apache-2.0 code and weights) is a two-stage
+document parser serving the `ocr` task only. PP-DocLayoutV2 finds 25 kinds of
+layout region and their reading order; PaddleOCR-VL-0.9B (NaViT-style vision
+encoder plus ERNIE-4.5-0.3B) then reads each region from a task prompt:
+`OCR:` for text and titles, `Table Recognition:` (OTSL, returned as HTML),
+`Formula Recognition:` (LaTeX) and, with `use_chart_recognition=True`,
+`Chart Recognition:`. Both networks load through native transformers classes
+(no remote code) from one pinned mirror, `LibreYOLO/LibrePaddleOCRVL0.9b`. The
+pipeline around them (layout thresholds, NMS and merges, overlap filter,
+prompt routing, pixel budgets, content clean-up, markdown) is ported from
+PaddleX in `libreyolo/models/paddleocrvl/`; see that package's `NOTICE`.
+
+```python
+model = LibreVLM("paddleocr-vl")
+result = model.predict("page.png")
+result.ocr.texts, result.ocr.labels   # one transcript and layout class per region
+result.ocr.markdown                   # the page as markdown, reading order
+model.val(data="ocr_dataset/")        # OCR validator: hmean, end-to-end F1, 1-NED
+LibreVLM("paddleocr-vl", use_layout_detection=False, prompt_label="formula")
+```
+
+- Regions are axis-aligned layout boxes written as 4-point quads, one per
+  recognized block (a paragraph, a title, a table), not one per text line.
+  Pictures, and charts and seals by default, are not recognized and are left
+  out of `Results.ocr` and the markdown.
+- `Results.ocr.conf` is the geometric mean of the generated tokens'
+  probabilities; `det_conf` is the layout score. `conf=` does not gate
+  regions; the layout keeps the upstream per-class thresholds (override with
+  `layout_threshold=`).
+- Recognition is greedy with up to 4096 new tokens and no repetition penalty,
+  as upstream runs it locally, and each region is resized within
+  `min_pixels`/`max_pixels` (default 112896 / 1003520). The image processor
+  uses the PIL backend, which matches upstream's resize exactly.
+- Not ported: adjacent text-block merging, figures embedded in tables, seal
+  and spotting recognition, polygon layout shapes, document unwarping and
+  image export. The markdown is the plain variant (no HTML centering).
+- `train()` and `export()` raise.
+
+### Qwen3-VL-Embedding
+
+Qwen3-VL-Embedding-2B (Qwen, Apache-2.0) is Qwen3-VL-2B-Instruct fine-tuned
+into an embedder. It serves the `embed` task only (ADR 0015) and is the first
+VLM-based embed family. It joins this tier rather than the checkpoint factory
+because it shares the Qwen3-VL snapshot download and transformers loader; its
+output is the same embed contract as CLIP, SigLIP2 and PE.
+
+```python
+model = LibreVLM("qwen3-vl-embedding-2b")
+pages = model.embed("pages/")                  # (N, 2048), one row per page image
+r = model.predict("page.png")                  # r.embeddings is (1, 2048)
+q = model.embed_text(
+    ["total due on the invoice"],
+    prompt="Retrieve images or text relevant to the user's query.",
+)                                              # (1, 2048)
+scores = q @ pages.T                           # rows are unit length
+```
+
+- Each input is a chat: a system instruction, then the user's image or text.
+  The model's hidden state at the last token, L2-normalized, is the vector.
+- `prompt` is that instruction. The default is upstream's
+  `"Represent the user's input."`; set `prompt=` at construction to change it
+  for images and texts, or pass `prompt=` to `embed_text` per call. For
+  retrieval, give queries a task instruction and keep the default for
+  documents. A missing final punctuation mark gets a period, as upstream does.
+- Images are resized on a 32-pixel grid to between 4,096 and 1,843,200 pixels
+  with PIL bicubic, matching upstream's reference embedder
+  (`scripts/qwen3_vl_embedding.py`). The sentence-transformers path in the
+  model card caps images at 1,310,720 pixels instead, so its vectors for
+  larger images differ slightly (cosine 0.989 on a 1.8 MP photo).
+- Weights download from `LibreYOLO/LibreQwen3VLEmbedding2b`, a mirror of the
+  upstream snapshot with unchanged parameters. Install `libreyolo[vlm]`.
+- Not supported: `chat()`, `set_classes()`, `train()`, `val()`, `export()`,
+  combined image-plus-text inputs, video clips (a video is embedded frame by
+  frame), and Matryoshka truncation as an option (slice the first `k`
+  columns and re-normalize). The 8B size is not wrapped.
+
+### GLM-OCR
+
+GLM-OCR (Z.ai; MIT weights per the model card, Apache-2.0 SDK) is a two-stage
+document parser serving the `ocr` task only. PP-DocLayoutV3 finds 25 kinds of
+layout region and their reading order; GLM-OCR-0.9B (CogViT encoder plus a
+GLM-0.5B decoder) then reads each region from a task prompt:
+`Text Recognition:` for text, titles and seals, `Table Recognition:` (HTML)
+and `Formula Recognition:` (LaTeX). Both networks load through native
+transformers classes (no remote code) from one pinned mirror,
+`LibreYOLO/LibreGLMOCR0.9b`. The pipeline around them (layout NMS and merges,
+label routing, crops, resize and JPEG round trip, decoding settings, content
+clean-up, formula-number and hyphen merges, markdown) is ported from the
+official GLM-OCR SDK in `libreyolo/models/glmocr/`; see that package's
+`NOTICE`.
+
+```python
+model = LibreVLM("glm-ocr")
+result = model.predict("page.png")
+result.ocr.texts, result.ocr.labels   # one transcript and layout class per block
+result.ocr.markdown                   # the page as markdown, reading order
+LibreVLM("glm-ocr", use_layout_detection=False, prompt_label="table")
+model.chat("id.png", 'Extract as JSON: {"name": "", "date": ""}')  # information extraction
+```
+
+- Regions are axis-aligned layout boxes written as 4-point quads, one per
+  recognized block. Headers, footers, page numbers, footnotes and side text
+  are dropped, as upstream does; pictures and charts are not read and are
+  left out of `Results.ocr` and the markdown.
+- Decoding follows the SDK request: greedy, repetition penalty 1.1, up to
+  8192 new tokens. Each crop is resized to multiples of 28 pixels and
+  round-tripped through JPEG before recognition, as the SDK sends it
+  (`image_format=None` skips the round trip).
+- `Results.ocr.conf` is the geometric mean of the generated tokens'
+  probabilities; `det_conf` is the layout score. `conf=` does not gate
+  regions; the layout uses the upstream threshold 0.3 (override with
+  `layout_threshold=`).
+- Not ported: PDF input, polygon crops, picture export and the hosted-API
+  client. `use_layout_detection=False` is a LibreYOLO convenience with no SDK
+  counterpart.
+- `train()` and `export()` raise.
+
+### Falcon OCR
+
+Falcon OCR (TII, Apache-2.0 code and weights, version 1.5) is a 0.27B
+early-fusion model: one 22-layer transformer reads 16-pixel image patches
+and text tokens together, patches attending to each other bidirectionally
+and text decoding causally. It serves the `ocr` task only and writes the page
+as text, with LaTeX for formulas and HTML for tables. The release runs on
+FlexAttention and a Triton kernel through remote code; LibreYOLO runs a
+PyTorch port in `libreyolo/models/falconocr/` (dense masks, float32
+attention-sink math) from the byte-identical mirror
+`LibreYOLO/LibreFalconOCR270m`. See that package's `NOTICE`.
+
+```python
+model = LibreVLM("falcon-ocr")
+result = model.predict("page.png")
+result.ocr.markdown                   # the page text
+LibreVLM("falcon-ocr", prompt="table").predict("table.png")
+LibreVLM("falcon-ocr", layout=True).predict("page.png").ocr.labels
+```
+
+- Default (upstream `generate`): one pass over the whole page, one
+  `Results.ocr` region covering the image with label `plain`, and the same
+  text in `markdown`.
+- `layout=True` (upstream `generate_with_layout`): LibreYOLO's PP-DocLayoutV3
+  port at `layout_threshold=0.3`, nested boxes dropped, each crop read with
+  its category prompt; regions keep the layout's reading order, `det_conf` is
+  the layout score. Classes without an upstream prompt category
+  (`display_formula`, `inline_formula`, `vertical_text`, `header_image`,
+  `footer_image`) and pictures are skipped, as upstream skips them.
+- `prompt=` takes a category (`plain`, `text`, `table`, `formula`, ...) or an
+  instruction. Upstream `generate` ignores its `category` argument and always
+  sends `plain`; here the category is applied.
+- Pages are resized so both sides fall in `[64, 1536]` and snapped to
+  multiples of 16. Greedy decoding, budget `max_new_tokens` (8192) rounded up
+  to a 128-token block as upstream. `conf` is a constant 1.0.
+- CUDA runs bf16 weights under `torch.autocast`; CPU and MPS run float32
+  (about 1.1 GB of weights). Batches of one; upstream's batched left-padded
+  engine and temperature/top-k sampling are not ported. `train()` and
+  `export()` raise.
+
+Validation: on CPU in float32 the port reproduces the release code
+(tiiuae/Falcon-OCR @ 0bc28f89, run eagerly with the Triton kernel replaced by
+its PyTorch expression) token for token on six OCR fixtures and a synthetic
+1100x1400 report page; token ids, positions and pixel patches are
+bit-identical. In float64 both implementations agree on prefill logits to
+1e-6. CUDA bf16 and the layout mode were not compared against upstream.
 
 ## Known limitations (v1)
 

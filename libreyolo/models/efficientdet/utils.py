@@ -16,9 +16,19 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def preprocess_numpy(
-    img_rgb_hwc: np.ndarray, input_size: int = 512
+    img_rgb_hwc: np.ndarray, input_size: int | tuple[int, int] = 512
 ) -> Tuple[np.ndarray, float]:
-    """Match ``effdet`` eval resize: keep aspect, pad at bottom/right."""
+    """Match ``effdet`` eval resize: keep aspect, pad at bottom/right.
+
+    ``input_size`` is the square canvas side; a square ``(h, w)`` pair, as
+    calibration and export-verification loaders pass it, is accepted too.
+    """
+    if isinstance(input_size, (tuple, list)):
+        if len(input_size) != 2 or int(input_size[0]) != int(input_size[1]):
+            raise ValueError(
+                f"EfficientDet preprocessing needs a square canvas, got {input_size}."
+            )
+        input_size = int(input_size[0])
     image = Image.fromarray(img_rgb_hwc)
     width, height = image.size
     scale = min(input_size / height, input_size / width)

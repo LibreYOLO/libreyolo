@@ -44,7 +44,7 @@ def main():
     print("unexpected (non-buffer):", unexp)
     assert not miss and not unexp, "state_dict key mismatch"
 
-    img = Image.open("libreyolo/assets/parkour.jpg").convert("RGB")
+    img = Image.open("tests/data/parkour.jpg").convert("RGB")
     inputs = proc(text=[["a photo of a person", "a photo of a dog", "a photo of a skateboard"]],
                   images=img, return_tensors="pt")
 

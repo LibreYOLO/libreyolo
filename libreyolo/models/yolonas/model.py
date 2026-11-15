@@ -373,10 +373,22 @@ class LibreYOLONAS(BaseModel):
         self.num_keypoints = new_num_keypoints
         self.model.to(self.device)
 
-    @staticmethod
-    def _get_preprocess_numpy():
-        from .utils import preprocess_numpy
+    def _get_preprocess_numpy(self):
+        """Numpy preprocessing for this checkpoint's task.
 
+        Used by INT8 calibration, so calibration images match what
+        ``_preprocess`` feeds the model at inference time.
+        """
+        from ...preprocess.yolonas import (
+            preprocess_numpy,
+            preprocess_obb_numpy,
+            preprocess_pose_numpy,
+        )
+
+        if self.task == "obb":
+            return preprocess_obb_numpy
+        if self.task == "pose":
+            return preprocess_pose_numpy
         return preprocess_numpy
 
     def _preprocess(
@@ -617,6 +629,9 @@ class LibreYOLONAS(BaseModel):
                 if ckpt_names is not None:
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
 
+            from ...utils.input_channels import restore_channels
+
+            restore_channels(self, loaded)
             self._load_state_dict_logged(state_dict, source=str(model_path))
         except Exception as e:
             raise RuntimeError(

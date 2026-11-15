@@ -26,8 +26,8 @@ def export_cmd(
         "onnx",
         help=(
             "Export format: onnx, torchscript, executorch, tensorrt, openvino, "
-            "paddle, mnn, rknn, ncnn, tflite (alias: litert), coreml, coreai "
-            "(Apple, macOS only)"
+            "paddle, mnn, rknn, axelera (Metis, INT8), ncnn, tflite (alias: "
+            "litert), coreml, coreai (Apple, macOS only)"
         ),
     ),
     name: Optional[str] = typer.Option(
@@ -70,7 +70,10 @@ def export_cmd(
     verbose: bool = typer.Option(False, help="Verbose export logging"),
     verify: bool = typer.Option(
         False,
-        help="Run RKNN Toolkit2's PC simulator and compare with ONNX Runtime",
+        help=(
+            "RKNN: compare Toolkit2's PC simulator with ONNX Runtime. Axelera: "
+            "compare the quantized model with FP32 and write <stem>.parity.json"
+        ),
     ),
     help_json: bool = typer.Option(
         False,
@@ -90,6 +93,15 @@ def export_cmd(
 
     fmt = format.lower()
     fmt = BaseExporter._aliases.get(fmt, fmt)
+
+    if fmt == "axelera" and (half or (quantize is not None and quantize.strip() != "8")):
+        requested = "half" if half else f"quantize={quantize}"
+        exit_with_error(
+            out,
+            "format_precision_unsupported",
+            f"Axelera export is INT8 only; {requested} is not supported. Omit it "
+            "(INT8 calibration is applied automatically).",
+        )
 
     if quantize is not None:
         precision = {"16": "fp16", "8": "int8", "32": "fp32"}.get(quantize.strip())
@@ -134,12 +146,15 @@ def export_cmd(
             "config_unsupported",
             "--name is currently an RKNN target option; use it with --format rknn.",
         )
-    if verify and fmt != "rknn":
+    if verify and fmt not in {"rknn", "axelera"}:
         exit_with_error(
             out,
             "config_unsupported",
-            "--verify is currently supported only with --format rknn.",
+            "--verify is currently supported only with --format rknn or axelera.",
         )
+    if fmt == "axelera":
+        # The format is INT8-only; report what is actually exported.
+        int8 = True
 
     model_path = resolve_model_or_exit(out, model)
 
@@ -172,6 +187,8 @@ def export_cmd(
             export_kwargs["max_det"] = max_det
     if fmt == "rknn":
         export_kwargs["name"] = name or "rk3588"
+        export_kwargs["verify"] = verify
+    if fmt == "axelera":
         export_kwargs["verify"] = verify
     parsed_imgsz = None
     if imgsz is not None:
@@ -242,7 +259,13 @@ def export_cmd(
         else:
             input_h = input_w = native
 
-    channels = 2 if isinstance(getattr(loaded_model, "input_profile", None), dict) else 3
+    from ...utils.input_channels import model_channels
+
+    channels = (
+        2
+        if isinstance(getattr(loaded_model, "input_profile", None), dict)
+        else model_channels(loaded_model)
+    )
     data_out = {
         "source_model": model,
         "model_family": loaded_model.FAMILY,
@@ -256,6 +279,9 @@ def export_cmd(
     }
     if fmt == "rknn":
         data_out["target"] = name or "rk3588"
+        data_out["verified"] = verify
+    if fmt == "axelera":
+        data_out["target"] = "metis"
         data_out["verified"] = verify
 
     if not json_output:

@@ -14,7 +14,7 @@ import warnings
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import ClassVar, Optional, Tuple, Union
 
 import torch
 
@@ -28,7 +28,14 @@ from .onnx import (
     export_onnx,
     quantize_onnx_int8,
 )
-from .support import INT8_EXPORTS, get_support, validated_alternatives
+from .support import (
+    BLOCKED_SIZES,
+    UNMEASURED_SIZES,
+    INT8_EXPORTS,
+    SIZE_ACCURACY_NOTES,
+    get_support,
+    validated_alternatives,
+)
 from .torchscript import export_torchscript
 
 logger = logging.getLogger(__name__)
@@ -226,6 +233,9 @@ _FIXED_SQUARE_EXPORT_FAMILIES = {
     "ec",
     "lwdetr",
     "moge2",
+    "moge3",
+    "ppdoclayoutv3",
+    "riodetrv2",
     "rtdetr",
     "rtdetrv2",
     "rtdetrv4",
@@ -356,8 +366,401 @@ class _YOLONASExportWrapper(torch.nn.Module):
         return output
 
 
+class _YOLONASRawHeadsWrapper(torch.nn.Module):
+    """YOLO-NAS graph cut right after the head's last convolutions.
+
+    Returns the raw outputs of each level's final convolutions, level by level
+    (stride 8, 16, 32), in the order of ``output_layout``. The DFL decode,
+    anchors, sigmoids and keypoint / rotated-box geometry are left to the host
+    (``libreyolo.postprocess.yolonas_raw``), which rebuilds exactly the tensors
+    the decoded export emits. Integer accelerators handle the convolutions
+    well but quantize pixel-range boxes and post-sigmoid scores poorly.
+
+    ``output_windows`` (``{part: (low, high)}``, default per task from
+    ``YOLONAS_RAW_OUTPUT_WINDOWS_BY_TASK``) emits those parts through
+    :func:`_relu6_window`, so each gets an int8 range of ``[low, high]``
+    instead of its full calibrated range; the host maps them back.
+    """
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str,
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import (
+            YOLONAS_RAW_LAYOUT_BY_TASK,
+            YOLONAS_RAW_OUTPUT_WINDOWS_BY_TASK,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        if task not in YOLONAS_RAW_LAYOUT_BY_TASK:
+            raise ValueError(
+                f"YOLO-NAS raw-head export supports tasks "
+                f"{sorted(YOLONAS_RAW_LAYOUT_BY_TASK)}, got {task!r}."
+            )
+        self.model = model
+        self.task = task
+        heads = model.heads
+        self.output_layout = YOLONAS_RAW_LAYOUT_BY_TASK[task]
+        self.strides = tuple(int(stride) for stride in heads.fpn_strides)
+        self.reg_max = int(heads.reg_max)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        if output_windows is None:
+            output_windows = YOLONAS_RAW_OUTPUT_WINDOWS_BY_TASK.get(task, {})
+        self.output_windows = check_output_windows(self.output_layout, output_windows)
+        if self.output_windows and task != "pose":
+            raise ValueError(
+                f"YOLO-NAS output windows are implemented for pose heads only, "
+                f"not {task!r}."
+            )
+
+    def _pose_head_raw(self, head, x):
+        # YoloNASPoseDFLHead.forward up to its last convolutions, without the
+        # class/visibility split and keypoint reshape done after them.
+        x = head.stem(x)
+        pose_features = head.pose_stem(x)
+        bbox_features = head.bbox_stem(x)
+        return (
+            self._final_conv("reg", head.reg_pred, head.reg_dropout_rate(head.reg_convs(bbox_features))),
+            self._final_conv("cls", head.cls_pred, head.cls_dropout_rate(head.cls_convs(bbox_features))),
+            self._final_conv("pose", head.pose_pred, head.reg_dropout_rate(head.pose_convs(pose_features))),
+        )
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+    def forward(self, x):
+        feats = self.model.neck(self.model.backbone(x))
+        heads = self.model.heads
+        outputs = []
+        for index, feat in enumerate(feats[: heads.num_heads]):
+            head = getattr(heads, f"head{index + 1}")
+            if self.task == "pose":
+                outputs.extend(self._pose_head_raw(head, feat))
+            else:
+                # Detect heads return (reg, cls); rotated heads return
+                # (reg, cls, offset, rot): both already stop at the convs.
+                outputs.extend(head(feat))
+        return tuple(outputs)
+
+
+#: Pre-activation bound for YOLO9 class towers in raw-head exports.
+_YOLO9_CLASS_ACTIVATION_BOUND = 32.0
+
+
+def _bounded_conv_bn_act(block: torch.nn.Module, x: torch.Tensor, bound: float) -> torch.Tensor:
+    """``block(x)`` for a Conv -> BatchNorm -> activation block, with the
+    pre-activation clamped to ``[-bound, bound]``.
+
+    BatchNorm and ``1 / bound`` are folded into the convolution and the clamp
+    is ``Clip(-1, 1)`` (HardTanh), which integer converters fuse into the
+    convolution, so no int8 tensor carries the unbounded range. The scale is
+    restored before the activation; SiLU of a bounded input is bounded.
+    """
+    conv, bn = block.conv, block.bn
+    scale = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+    weight = conv.weight * (scale / bound).reshape(-1, 1, 1, 1)
+    bias = (bn.bias - bn.running_mean * scale) / bound
+    if conv.bias is not None:
+        bias = bias + conv.bias * scale / bound
+    z = torch.nn.functional.conv2d(
+        x, weight, bias, conv.stride, conv.padding, conv.dilation, conv.groups
+    )
+    return block.act(z.clamp(-1.0, 1.0) * bound)
+
+
+class _YOLO9RawHeadsWrapper(torch.nn.Module):
+    """YOLO9 graph cut right after each level's last box and class convs.
+
+    Returns ``reg`` (``4 * reg_max`` distance-bin logits) and ``cls`` (class
+    logits) per level, stride 8, 16, 32, as layout ``yolo9_raw_heads_v1``.
+    The host rebuilds the decoded export's ``(B, 4 + nc, N)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_yolo9_raw`).
+    ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`; the
+    default is ``YOLO9_RAW_OUTPUT_WINDOWS``.
+
+    ``class_activation_bound`` caps the pre-activation of each class tower's
+    second convolution at +-bound (:func:`_bounded_conv_bn_act`). Its SiLU
+    output reaches about +540 on YOLO9-t while 99.9% of values stay below
+    about 50, so one per-tensor int8 scale leaves the class evidence a few
+    steps; the large values only push background logits further down, and
+    bounding them at 32 changes no float32 detection (COCO). ``None`` keeps
+    the plain tower.
+    """
+
+    output_layout = "yolo9_raw_heads_v1"
+    #: Anchors sit at cell centres (``k * stride + stride // 2``).
+    grid_cell_offset = 0.5
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str = "detect",
+        output_windows: dict[str, tuple[float, float]] | None = None,
+        class_activation_bound: float | None = _YOLO9_CLASS_ACTIVATION_BOUND,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import (
+            YOLO9_RAW_OUTPUT_WINDOWS,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        if task != "detect":
+            raise ValueError(f"YOLO9 raw-head export supports detect only, got {task!r}.")
+        self.model = model
+        self.task = task
+        head = model.head
+        self.strides = tuple(int(stride) for stride in head.strides)
+        self.reg_max = int(head.reg_max)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        if output_windows is None:
+            output_windows = YOLO9_RAW_OUTPUT_WINDOWS
+        self.output_windows = check_output_windows(self.output_layout, output_windows)
+        if class_activation_bound is not None and not class_activation_bound > 0:
+            raise ValueError(
+                f"class_activation_bound must be positive, got {class_activation_bound!r}."
+            )
+        self.class_activation_bound = class_activation_bound
+
+    def forward(self, x):
+        feats = self.model.neck(*self.model.backbone(x))
+        head = self.model.head
+        outputs = []
+        for box_tower, class_tower, feat in zip(head.anchor_convs, head.class_convs, feats):
+            outputs.append(self._final_conv("reg", box_tower[-1], box_tower[:-1](feat)))
+            hidden = class_tower[0](feat)
+            if self.class_activation_bound is None:
+                hidden = class_tower[1](hidden)
+            else:
+                hidden = _bounded_conv_bn_act(class_tower[1], hidden, self.class_activation_bound)
+            outputs.append(self._final_conv("cls", class_tower[2], hidden))
+        return tuple(outputs)
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+
+def _fused_yolonas_copy(model: torch.nn.Module, *, full_fusion: bool = True):
+    """Deep-copied YOLO-NAS network with its QARepVGG branches fused.
+
+    ``full_fusion`` also folds each block's post-BatchNorm into the fused
+    convolution. The caller's model is left untouched.
+    """
+    fused = copy.deepcopy(model).eval()
+    fused.fuse_reparam(full_fusion=full_fusion)
+    return fused
+
+
+#: Exponent of the pose-head activation equalization (0: none, 1: full).
+_POSE_EQUALIZATION_ALPHA = 0.4
+
+
+#: (last ConvBNReLU block, following 1x1 conv) pairs equalized in pose heads.
+#: The class tower is left alone: equalizing it too measured 0.6973 against
+#: 0.7061 keypoint mAP50-95 on the device (YOLO-NAS-pose-s, COCO persons 300).
+_POSE_EQUALIZED_PAIRS = (("pose_convs", "pose_pred"),)
+
+
+def _pose_head_input_ranges(model: torch.nn.Module, samples) -> dict:
+    """Per-channel maximum feeding each equalized conv, ``{(head, pair): tensor}``."""
+    heads = model.heads
+    ranges: dict = {}
+    handles = []
+    for index in range(int(heads.num_heads)):
+        head = getattr(heads, f"head{index + 1}")
+        for pair, (tower, _) in enumerate(_POSE_EQUALIZED_PAIRS):
+
+            def record(_module, _inputs, output, key=(index, pair)):
+                peak = output.detach().amax(dim=(0, 2, 3))
+                ranges[key] = peak if key not in ranges else torch.maximum(ranges[key], peak)
+
+            handles.append(getattr(head, tower)[-1].register_forward_hook(record))
+    wrapper = _YOLONASRawHeadsWrapper(model, "pose", output_windows={}).eval()
+    device = next(model.parameters()).device
+    try:
+        with torch.no_grad():
+            for sample in samples:
+                wrapper(torch.as_tensor(sample, dtype=torch.float32, device=device))
+    finally:
+        for handle in handles:
+            handle.remove()
+    return ranges
+
+
+def _equalize_yolonas_pose_heads(
+    model: torch.nn.Module, samples=None, alpha: float = _POSE_EQUALIZATION_ALPHA
+) -> torch.nn.Module:
+    """Even out the channel ranges feeding each pose head's final convs.
+
+    Per-tensor INT8 gives the input of ``pose_pred`` (keypoint offsets) one
+    scale, set by the widest channels (about 14x the median on
+    YOLO-NAS-pose-s), so the narrow channels keep only a few levels; on a
+    Metis device that cost most of the keypoint-mAP loss. Channel ``c`` of
+    the last ``pose_convs`` block is scaled by ``1 / s_c`` (its BatchNorm
+    scale and shift) and ``pose_pred``'s matching input weights by ``s_c``;
+    ReLU is positively homogeneous, so the FP32 outputs are unchanged. ``s_c = (r_c / max r) ** alpha``, with ``r_c`` the
+    channel's largest value over ``samples`` (calibration images) or, without
+    samples, the estimate ``relu(beta_c + 3 |gamma_c|)`` from that
+    BatchNorm. Works in place on ``model`` (an export copy); a model without
+    pose heads is returned unchanged.
+    """
+    heads = model.heads
+    if not hasattr(heads, "head1") or not hasattr(heads.head1, "pose_pred"):
+        return model
+    measured = _pose_head_input_ranges(model, samples) if samples else {}
+    with torch.no_grad():
+        for index in range(int(heads.num_heads)):
+            head = getattr(heads, f"head{index + 1}")
+            for pair, (tower, conv_name) in enumerate(_POSE_EQUALIZED_PAIRS):
+                bn = getattr(head, tower)[-1].seq.bn
+                ranges = measured.get((index, pair))
+                if ranges is None:
+                    ranges = torch.relu(bn.bias + 3.0 * bn.weight.abs())
+                ranges = ranges.to(bn.weight.dtype).clamp_min(1e-3 * float(ranges.max()))
+                scale = (ranges / ranges.max()) ** float(alpha)
+                bn.weight.div_(scale)
+                bn.bias.div_(scale)
+                getattr(head, conv_name).weight.mul_(scale[None, :, None, None])
+    return model
+
+
+#: Calibration percentile at which the pose head's final-conv inputs are bounded.
+_POSE_BOUND_PERCENTILE = 99.5
+#: ConvBNReLU towers whose output gets the bound, with the conv each one feeds.
+#: Only the class tower: capping the keypoint tower too cost keypoint mAP50-95
+#: on n, m and l (-4.61 vs -1.30, -1.68 vs -0.64, -3.81 vs -0.38 against FP32;
+#: its large activations carry keypoint detail) and helped only s.
+_POSE_BOUNDED_TOWERS = (("cls_convs", "cls_pred"),)
+
+
+def _bound_yolonas_pose_inputs(
+    model: torch.nn.Module,
+    samples,
+    percentile: float = _POSE_BOUND_PERCENTILE,
+    towers=_POSE_BOUNDED_TOWERS,
+) -> dict:
+    """Cap the inputs of each pose head's final convs at a calibration percentile.
+
+    The last block of each tower ends in a ReLU whose rare large values set
+    the INT8 scale of the next conv's input. Its BatchNorm is scaled by
+    ``6 / cap`` and the ReLU becomes a ReLU6, so the block emits
+    ``min(x, cap) * 6 / cap``; the next conv's input weights are scaled by
+    ``cap / 6``. Values below ``cap`` are unchanged; the integer converter
+    fuses the ReLU6 into the conv. Unlike the equalization this changes FP32
+    outputs where an activation exceeds ``cap``, so it runs after the
+    fusion parity check and its effect is measured with val, not parity.
+    Returns ``{"head<i>.<tower>": cap}``.
+    """
+    heads = model.heads
+    values: dict = {}
+    handles = []
+    for index in range(int(heads.num_heads)):
+        head = getattr(heads, f"head{index + 1}")
+        for tower, _ in towers:
+
+            def record(_module, _inputs, output, key=(index, tower)):
+                values.setdefault(key, []).append(output.detach().flatten())
+
+            handles.append(getattr(head, tower)[-1].register_forward_hook(record))
+    wrapper = _YOLONASRawHeadsWrapper(model, "pose", output_windows={}).eval()
+    device = next(model.parameters()).device
+    try:
+        with torch.no_grad():
+            for sample in samples:
+                wrapper(torch.as_tensor(sample, dtype=torch.float32, device=device))
+    finally:
+        for handle in handles:
+            handle.remove()
+    caps = {}
+    generator = torch.Generator().manual_seed(0)
+    with torch.no_grad():
+        for (index, tower), chunks in values.items():
+            flat = torch.cat(chunks)
+            if flat.numel() > 2_000_000:  # torch.quantile's input limit; a fixed subsample
+                flat = flat[torch.randperm(flat.numel(), generator=generator)[:2_000_000]]
+            cap = float(torch.quantile(flat.float(), percentile / 100.0))
+            if cap <= 0:
+                continue
+            head = getattr(heads, f"head{index + 1}")
+            block = getattr(head, tower)[-1]
+            scale = 6.0 / cap
+            block.seq.bn.weight.mul_(scale)
+            block.seq.bn.bias.mul_(scale)
+            block.seq.act = torch.nn.ReLU6()
+            getattr(head, dict(towers)[tower]).weight.div_(scale)
+            caps[f"head{index + 1}.{tower}"] = cap
+    return caps
+
+
+def _check_yolonas_fusion_parity(
+    reference: torch.nn.Module,
+    fused: torch.nn.Module,
+    task: str,
+    imgsz: tuple[int, int],
+    *,
+    rtol: float = 1e-4,
+    atol: float = 1e-4,
+    seed: int = 0,
+) -> float:
+    """Assert fused and unfused raw head outputs agree on one random input.
+
+    The tolerance is relative to each output's magnitude:
+    ``max|a - b| <= atol + rtol * max|a|``. Returns the worst ratio of error
+    to tolerance (below 1 passes).
+    """
+    generator = torch.Generator(device="cpu").manual_seed(seed)
+    device = next(reference.parameters()).device
+    sample = torch.rand((1, 3, *imgsz), generator=generator).to(device)
+    with torch.no_grad():
+        expected = _YOLONASRawHeadsWrapper(reference, task).eval()(sample)
+        actual = _YOLONASRawHeadsWrapper(fused, task).eval()(sample)
+    worst = 0.0
+    for index, (a, b) in enumerate(zip(expected, actual)):
+        error = float((a - b).abs().max())
+        tolerance = atol + rtol * float(a.abs().max())
+        worst = max(worst, error / tolerance)
+        if error > tolerance:
+            raise AssertionError(
+                f"YOLO-NAS fusion changed raw output {index}: max abs error "
+                f"{error:.3g} exceeds {tolerance:.3g}."
+            )
+    return worst
+
+
 # Logits beyond this bound are scores below 0.0004 or above 0.9996.
 _INT8_LOGIT_BOUND = 8.0
+
+
+def _relu6_window(
+    conv: torch.nn.Conv2d, x: torch.Tensor, low: float, high: float
+) -> torch.Tensor:
+    """``conv(x)`` mapped from ``[low, high]`` onto ``[0, 6]`` and clamped.
+
+    The map is folded into the conv's weights and bias, so integer converters
+    lower the clamp to a RELU6 fused into the conv and give the output an int8
+    range of ``[low, high]`` only.
+    """
+    k = 6.0 / (high - low)
+    z = torch.nn.functional.conv2d(
+        x,
+        conv.weight * k,
+        (conv.bias - low) * k,
+        conv.stride,
+        conv.padding,
+        conv.dilation,
+        conv.groups,
+    )
+    return z.clamp(0.0, 6.0)
 
 
 def _bounded_sigmoid(conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
@@ -372,16 +775,7 @@ def _bounded_sigmoid(conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
     """
     bound = _INT8_LOGIT_BOUND
     k = 6.0 / (2.0 * bound)
-    z = torch.nn.functional.conv2d(
-        x,
-        conv.weight * k,
-        (conv.bias + bound) * k,
-        conv.stride,
-        conv.padding,
-        conv.dilation,
-        conv.groups,
-    )
-    return (z.clamp(0.0, 6.0) / k - bound).sigmoid()
+    return (_relu6_window(conv, x, -bound, bound) / k - bound).sigmoid()
 
 
 class _YOLOXSplitOutputWrapper(torch.nn.Module):
@@ -436,6 +830,788 @@ class _YOLOXSplitOutputWrapper(torch.nn.Module):
                 torch.cat([obj_prob, cls_prob], 1).flatten(2).permute(0, 2, 1)
             )
         return torch.cat(boxes, 2), torch.cat(scores, 1)
+
+
+def _has_depthwise_convs(module: torch.nn.Module) -> bool:
+    """True when ``module`` contains a depthwise convolution (groups == in_channels > 1)."""
+    return any(
+        isinstance(m, torch.nn.Conv2d) and m.groups > 1 and m.groups == m.in_channels
+        for m in module.modules()
+    )
+
+
+#: How the CSPNeXt pointwise-input equalization is exported: ``"conv"`` (a 1x1
+#: depthwise conv, whose input the depthwise rule quantizes per channel),
+#: ``"mul"`` (a constant Mul), or ``None`` to skip it.
+CSPNEXT_POINTWISE_EQUALIZATION: str | None = "conv"
+#: Per-channel factor: ``"act"`` (activation peak / mean peak) or ``"cle"``
+#: (sqrt(activation peak / weight peak), geometric-mean normalized, which
+#: balances the activation and the pointwise weight columns). ``None`` picks
+#: the measured best per task (``CSPNEXT_POINTWISE_EQUALIZATION_METHOD_BY_TASK``).
+CSPNEXT_POINTWISE_EQUALIZATION_METHOD: str | None = None
+#: RTMDet on a Metis, 1000 COCO images: detect-t ``cle`` -2.29 vs ``act``
+#: -2.84 mAP50-95; RTMDet-Ins-s collapses with ``act`` (mask 0.08 vs 0.40 on
+#: 300) and holds with ``cle``; RTMDet-Ins-t ties (-1.44 vs -1.40 mask).
+CSPNEXT_POINTWISE_EQUALIZATION_METHOD_BY_TASK: dict[str, str] = {
+    "detect": "cle",
+    "segment": "cle",
+}
+
+
+class _ChannelScale(torch.nn.Module):
+    """Multiply each channel by a constant: a 1x1 depthwise conv, or a Mul."""
+
+    def __init__(self, scale: torch.Tensor, as_conv: bool = True):
+        super().__init__()
+        channels = int(scale.numel())
+        if as_conv:
+            self.op = torch.nn.Conv2d(channels, channels, 1, groups=channels, bias=False)
+            with torch.no_grad():
+                self.op.weight.copy_(scale.reshape(channels, 1, 1, 1))
+        else:
+            self.op = None
+            self.register_buffer("scale", scale.reshape(1, channels, 1, 1).clone())
+
+    def forward(self, x):
+        return self.op(x) if self.op is not None else x * self.scale
+
+
+def _equalize_cspnext_pointwise_inputs(
+    model: torch.nn.Module, samples: list, mode: str = "conv", method: str = "act"
+) -> int:
+    """Equalize the per-channel ranges of every CSPNeXt pointwise-conv input, in place.
+
+    The input of a depthwise-separable block's pointwise conv (the SiLU output
+    of its depthwise conv) mixes channels of very different size (RTMDet-t
+    stage 2: peaks up to 14.2 against a median of 2.7); with one int8 scale for
+    the whole tensor that single tensor cost RTMDet-t about 4.4 mAP50-95 on a
+    Metis. Channel ``c`` is scaled by ``1 / s_c`` just before the pointwise conv
+    and the conv's input weights by ``s_c`` (``s_c`` = the channel's peak over
+    ``samples`` divided by the mean peak), which leaves FP32 outputs unchanged
+    up to rounding. Returns the number of blocks equalized. ``model`` must be a
+    copy the caller owns.
+    """
+    from ..models.rtmdet.nn import DepthwiseSeparableConv
+
+    blocks = [m for m in model.modules() if isinstance(m, DepthwiseSeparableConv)]
+    if not blocks or not samples or mode is None:
+        return 0
+    peaks: dict[int, torch.Tensor] = {}
+
+    def record(key):
+        def hook(_module, inputs):
+            peak = inputs[0].detach().abs().amax(dim=(0, 2, 3))
+            peaks[key] = peak if key not in peaks else torch.maximum(peaks[key], peak)
+
+        return hook
+
+    handles = [
+        block.pointwise_conv.register_forward_pre_hook(record(id(block))) for block in blocks
+    ]
+    try:
+        with torch.no_grad():
+            for sample in samples:
+                model(torch.as_tensor(sample, dtype=torch.float32))
+    finally:
+        for handle in handles:
+            handle.remove()
+    if method not in ("act", "cle"):
+        raise ValueError(f"Unknown equalization method {method!r}; use 'act' or 'cle'.")
+    for block in blocks:
+        peak = peaks[id(block)].clamp_min(1e-6)
+        if method == "cle":
+            weight_peak = (
+                block.pointwise_conv.conv.weight.detach().abs().amax(dim=(0, 2, 3)).clamp_min(1e-9)
+            )
+            scale = torch.sqrt(peak / weight_peak)
+            scale = scale / torch.exp(torch.log(scale).mean())
+        else:
+            scale = peak / peak.mean()
+        with torch.no_grad():
+            block.pointwise_conv.conv.weight.mul_(scale.reshape(1, -1, 1, 1))
+        block.pointwise_conv = torch.nn.Sequential(
+            _ChannelScale(1.0 / scale, as_conv=(mode == "conv")), block.pointwise_conv
+        )
+    return len(blocks)
+
+
+class _YOLOXRawHeadsWrapper(torch.nn.Module):
+    """YOLOX graph cut right after each level's last convolutions.
+
+    Returns ``reg`` (x/y cell offsets and log width/height), ``obj`` and
+    ``cls`` logits per level, stride 8, 16, 32, as layout
+    ``yolox_raw_heads_v1``. The host rebuilds the decoded export's
+    ``(B, N, 5 + nc)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_yolox_raw`).
+    ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`; the
+    default is ``YOLOX_RAW_OUTPUT_WINDOWS``.
+    """
+
+    output_layout = "yolox_raw_heads_v1"
+    #: Anchors sit at the top-left corner of each cell (``k * stride``).
+    grid_cell_offset = 0.0
+    #: YOLOX regresses boxes directly: no distribution bins.
+    reg_max = None
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str = "detect",
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import (
+            YOLOX_RAW_OUTPUT_WINDOWS,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        if task != "detect":
+            raise ValueError(f"YOLOX raw-head export supports detect only, got {task!r}.")
+        self.model = model
+        self.task = task
+        self.strides = tuple(int(stride) for stride in model.head.strides)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        if output_windows is None:
+            output_windows = YOLOX_RAW_OUTPUT_WINDOWS
+        self.output_windows = check_output_windows(self.output_layout, output_windows)
+
+    def forward(self, x):
+        head = self.model.head
+        outputs = []
+        for k, feat in enumerate(self.model.backbone(x)):
+            feat = head.stems[k](feat)
+            reg_feat = head.reg_convs[k](feat)
+            outputs.append(self._final_conv("reg", head.reg_preds[k], reg_feat))
+            outputs.append(self._final_conv("obj", head.obj_preds[k], reg_feat))
+            outputs.append(self._final_conv("cls", head.cls_preds[k], head.cls_convs[k](feat)))
+        return tuple(outputs)
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+
+def _split_anchor_head(
+    weight: torch.Tensor, bias: torch.Tensor, anchors: int, num_classes: int
+) -> dict[str, torch.nn.Conv2d]:
+    """An ``A * (5 + nc)`` channel head conv as three convs with the same weights:
+    ``reg`` (4 per anchor), ``obj`` (1 per anchor), ``cls`` (``nc`` per anchor)."""
+    per_anchor = 5 + num_classes
+    index = torch.arange(anchors * per_anchor).view(anchors, per_anchor)
+    rows = {
+        "reg": index[:, :4].reshape(-1),
+        "obj": index[:, 4].reshape(-1),
+        "cls": index[:, 5:].reshape(-1),
+    }
+    convs = {}
+    for part, selected in rows.items():
+        conv = torch.nn.Conv2d(weight.shape[1], len(selected), tuple(weight.shape[2:]))
+        with torch.no_grad():
+            conv.weight.copy_(weight[selected])
+            conv.bias.copy_(bias[selected])
+        convs[part] = conv
+    return convs
+
+
+class _PassThrough(torch.nn.Module):
+    def forward(self, x):
+        return x
+
+
+class _AnchorYOLORawHeadsWrapper(torch.nn.Module):
+    """Anchor-based YOLO graph (Darknet YOLOv3/v4, YOLOv7) cut before the box decode.
+
+    ``model`` returns the inputs of each level's final 1x1 head convolution.
+    That convolution is split into ``reg`` (four box terms per anchor),
+    ``obj`` (one logit per anchor) and ``cls`` (``nc`` logits per anchor), so
+    box terms and logits get separate INT8 scales; the host rebuilds the
+    decoded export's ``(B, 4 + nc, N)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_anchor_yolo_raw`).
+    ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`.
+    """
+
+    #: Cells are indexed from their top-left corner.
+    grid_cell_offset = 0.0
+    reg_max = None
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        heads,
+        *,
+        layout: str,
+        strides,
+        anchors,
+        num_classes: int,
+        scale_x_y=None,
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import check_output_windows, raw_head_output_names
+
+        self.model = model
+        self.task = "detect"
+        self.output_layout = layout
+        self.strides = tuple(int(stride) for stride in strides)
+        self.anchors = [[[float(w), float(h)] for w, h in level] for level in anchors]
+        self.scale_x_y = None if scale_x_y is None else [float(s) for s in scale_x_y]
+        self.output_names = raw_head_output_names(layout, self.strides)
+        self.output_windows = check_output_windows(layout, output_windows or {})
+        self.heads = torch.nn.ModuleList(
+            torch.nn.ModuleDict(_split_anchor_head(weight, bias, len(level), num_classes))
+            for (weight, bias), level in zip(heads, self.anchors)
+        )
+
+    def forward(self, x):
+        outputs = []
+        for feat, head in zip(self.model(x), self.heads):
+            for part in ("reg", "obj", "cls"):
+                window = self.output_windows.get(part)
+                conv = head[part]
+                outputs.append(conv(feat) if window is None else _relu6_window(conv, feat, *window))
+        return tuple(outputs)
+
+
+def _conv_output_rows(conv: torch.nn.Conv2d, rows) -> torch.nn.Conv2d:
+    """A copy of ``conv`` that computes only the output channels ``rows``."""
+    rows = list(rows)
+    part = torch.nn.Conv2d(
+        conv.in_channels,
+        len(rows),
+        conv.kernel_size,
+        stride=conv.stride,
+        padding=conv.padding,
+        dilation=conv.dilation,
+        groups=conv.groups,
+        bias=conv.bias is not None,
+    ).to(conv.weight.device)
+    with torch.no_grad():
+        part.weight.copy_(conv.weight[rows])
+        if conv.bias is not None:
+            part.bias.copy_(conv.bias[rows])
+    return part
+
+
+class _PicoDetRawHeadsWrapper(torch.nn.Module):
+    """PicoDet graph cut before its box decode (layout ``picodet_raw_heads_v1``).
+
+    When the head shares one final convolution between the class logits and
+    the box distribution (``share_cls_reg``), it is split into a ``reg`` and a
+    ``cls`` convolution with the same weights, so the two get separate INT8
+    scales. The host rebuilds the decoded export's ``(B, N, 4 + nc)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_picodet_raw`).
+    """
+
+    output_layout = "picodet_raw_heads_v1"
+    grid_cell_offset = 0.5
+
+    def __init__(self, model: torch.nn.Module, output_windows=None):
+        super().__init__()
+        from ..postprocess.yolonas_raw import (
+            PICODET_RAW_OUTPUT_WINDOWS,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        self.output_windows = check_output_windows(
+            self.output_layout,
+            PICODET_RAW_OUTPUT_WINDOWS if output_windows is None else output_windows,
+        )
+
+        model = copy.deepcopy(model).eval()
+        head = model.head
+        self.backbone = model.backbone
+        self.neck = model.neck
+        self.cls_convs = head.cls_convs
+        self.reg_convs = None if head.share_cls_reg else head.reg_convs
+        self.strides = tuple(int(stride) for stride in head.strides)
+        self.reg_max = int(head.reg_max)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        classes, bins = int(head.num_classes), 4 * (self.reg_max + 1)
+        self.reg_heads = torch.nn.ModuleList()
+        self.cls_heads = torch.nn.ModuleList()
+        for level in range(len(self.strides)):
+            if head.share_cls_reg:  # PicoHead splits [classes, distribution]
+                shared = head.gfl_cls[level]
+                self.cls_heads.append(_conv_output_rows(shared, range(classes)))
+                self.reg_heads.append(
+                    _conv_output_rows(shared, range(classes, classes + bins))
+                )
+            else:
+                self.cls_heads.append(head.gfl_cls[level])
+                self.reg_heads.append(head.gfl_reg[level])
+
+    def forward(self, x):
+        outputs = []
+        for level, feat in enumerate(self.neck(self.backbone(x))):
+            cls_feat = feat
+            for conv in self.cls_convs[level]:
+                cls_feat = conv(cls_feat)
+            reg_feat = cls_feat
+            if self.reg_convs is not None:
+                reg_feat = feat
+                for conv in self.reg_convs[level]:
+                    reg_feat = conv(reg_feat)
+            for part, conv, part_feat in (
+                ("reg", self.reg_heads[level], reg_feat),
+                ("cls", self.cls_heads[level], cls_feat),
+            ):
+                window = self.output_windows.get(part)
+                outputs.append(
+                    conv(part_feat)
+                    if window is None
+                    else _relu6_window(conv, part_feat, *window)
+                )
+        return tuple(outputs)
+
+
+def _fuse_darknet_batchnorms(net: torch.nn.Module) -> int:
+    """Fold each Darknet convolution's batch norm into its weights and bias, in place.
+
+    Darknet's norm is ``(x - mean) / (sqrt(var) + eps) * weight + bias``
+    (:class:`~libreyolo.models.darknet.blocks.DarknetBatchNorm2d`), so with
+    ``scale = weight / (sqrt(var) + eps)`` the fused convolution has weights
+    ``W * scale`` and bias ``(b - mean) * scale + bias``: the same outputs up to
+    float rounding. Unfused, every convolution exports as Conv -> Sub -> Div ->
+    Mul -> Add, and the Axelera compiler stops on YOLOv3 in its in-core
+    replication pass ("more than one ODR op in outlined composite"). Returns
+    the number of fused layers.
+    """
+    from libreyolo.models.darknet.blocks import DarknetConv
+
+    fused_count = 0
+    for module in net.modules():
+        if not isinstance(module, DarknetConv) or module.bn is None:
+            continue
+        conv, norm = module.conv, module.bn
+        scale = norm.weight / (torch.sqrt(norm.running_var) + norm.eps)
+        fused = torch.nn.Conv2d(
+            conv.in_channels,
+            conv.out_channels,
+            conv.kernel_size,
+            stride=conv.stride,
+            padding=conv.padding,
+            dilation=conv.dilation,
+            groups=conv.groups,
+            bias=True,
+        ).to(conv.weight.device)
+        with torch.no_grad():
+            fused.weight.copy_(conv.weight * scale.view(-1, 1, 1, 1))
+            base = conv.bias if conv.bias is not None else torch.zeros_like(scale)
+            fused.bias.copy_((base - norm.running_mean) * scale + norm.bias)
+        module.conv = fused
+        module.bn = None
+        fused_count += 1
+    return fused_count
+
+
+class _ReorgConv(torch.nn.Module):
+    """Darknet's ``[reorg]`` as one convolution with one-hot weights.
+
+    The layer is local (each output pixel reads only its own ``stride x stride``
+    input block) but Darknet interleaves the channels with three reshapes and
+    transposes, which an accelerator would have to run as layout transforms.
+    A ``stride x stride`` convolution with stride ``stride`` and 0/1 weights,
+    read off the reference layer on a basis input, computes the same tensor
+    exactly (and its weights are exact in INT8).
+    """
+
+    def __init__(self, reorg: torch.nn.Module, channels: int):
+        super().__init__()
+        s = int(reorg.stride)
+        cells = channels * s * s
+        basis = torch.eye(cells).reshape(cells, channels, s, s)
+        with torch.no_grad():
+            picks = reorg(basis).reshape(cells, cells)  # picks[j, o] = 1 if output o reads input cell j
+        self.conv = torch.nn.Conv2d(channels, cells, s, stride=s, bias=False)
+        with torch.no_grad():
+            self.conv.weight.copy_(picks.t().reshape(cells, channels, s, s))
+        self.stride = s
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+def _reorg_layers_to_conv(net: torch.nn.Module) -> int:
+    """Replace every Darknet ``[reorg]`` layer of ``net`` by a :class:`_ReorgConv`, in place."""
+    from libreyolo.models.darknet.blocks import Reorg
+
+    targets = [i for i, layer in enumerate(net.layers) if isinstance(layer, Reorg)]
+    if not targets:
+        return 0
+    channels: dict[int, int] = {}
+    hooks = [
+        net.layers[i].register_forward_pre_hook(
+            lambda _module, inputs, i=i: channels.__setitem__(i, int(inputs[0].shape[1]))
+        )
+        for i in targets
+    ]
+    try:
+        side = 32 * max(int(net.layers[i].stride) for i in targets) * 2
+        with torch.no_grad():
+            net(torch.zeros(1, 3, side, side))
+    finally:
+        for hook in hooks:
+            hook.remove()
+    for i in targets:
+        net.layers[i] = _ReorgConv(net.layers[i], channels[i])
+    return len(targets)
+
+
+def _darknet_raw_heads_wrapper(
+    holder: torch.nn.Module, task: str = "detect", output_windows=None
+):
+    """Raw-head wrapper for a Darknet ``[yolo]`` (LibreYOLO3, LibreYOLO4) or ``[region]`` (LibreYOLO2) detector.
+
+    ``[region]`` heads (YOLOv2) use layout ``darknet_region_raw_heads_v1``: the
+    same head split, anchors converted from grid cells to pixels, and a softmax
+    over the classes on the host. ``[reorg]`` passthrough layers become one-hot
+    convolutions (:class:`_ReorgConv`).
+    """
+    if task != "detect":
+        raise ValueError(f"Darknet raw-head export supports detect only, got {task!r}.")
+    net = copy.deepcopy(holder.net).eval()
+    _fuse_darknet_batchnorms(net)
+    _reorg_layers_to_conv(net)
+    specs = net.detection_specs()
+    kinds = {spec.kind for spec in specs}
+    if kinds not in ({"yolo"}, {"region"}):
+        raise ValueError("Raw-head export supports Darknet [yolo] or [region] heads only.")
+    region = kinds == {"region"}
+    heads = []
+    for spec in specs:
+        head = net.layers[spec.layer_index - 1]
+        if head.bn is not None or head.conv.bias is None:
+            raise ValueError("Darknet detection heads end in a linear conv with bias.")
+        heads.append((head.conv.weight.detach(), head.conv.bias.detach()))
+        net.layers[spec.layer_index - 1] = _PassThrough()
+    anchors = [
+        [(w * spec.stride, h * spec.stride) for w, h in spec.anchors] if region else spec.anchors
+        for spec in specs
+    ]
+    return _AnchorYOLORawHeadsWrapper(
+        net,
+        heads,
+        layout="darknet_region_raw_heads_v1" if region else "darknet_raw_heads_v1",
+        strides=[spec.stride for spec in specs],
+        anchors=anchors,
+        num_classes=specs[0].num_classes,
+        scale_x_y=[spec.scale_x_y for spec in specs],
+        output_windows=output_windows,
+    )
+
+
+class _InputsOf(torch.nn.Module):
+    def forward(self, xs):
+        return xs
+
+
+class _FusedRepConv(torch.nn.Module):
+    def __init__(self, conv: torch.nn.Conv2d, act: torch.nn.Module):
+        super().__init__()
+        self.conv = conv
+        self.act = act
+
+    def forward(self, x):
+        return self.act(self.conv(x))
+
+
+def _fuse_yolo7_repconvs(net: torch.nn.Module) -> int:
+    """Replace each YOLOv7 ``RepConv`` (3x3 and 1x1 Conv-BN branches, summed)
+    by one 3x3 convolution with bias, in place; exact in FP32. Returns the count."""
+    from torch.nn.utils.fusion import fuse_conv_bn_eval
+
+    from ..models.yolo7.blocks import RepConv
+
+    targets = [(name, m) for name, m in net.named_modules() if isinstance(m, RepConv)]
+    for name, rep in targets:
+        k3 = fuse_conv_bn_eval(rep.conv1.conv, rep.conv1.bn)
+        k1 = fuse_conv_bn_eval(rep.conv2.conv, rep.conv2.bn)
+        if k3.stride != k1.stride or k3.groups != 1 or k1.groups != 1:
+            raise ValueError(f"Cannot fuse RepConv {name!r}: branch strides or groups differ.")
+        pad = (k3.kernel_size[0] - 1) // 2
+        fused = torch.nn.Conv2d(
+            k3.in_channels, k3.out_channels, k3.kernel_size, k3.stride, k3.padding, bias=True
+        )
+        with torch.no_grad():
+            fused.weight.copy_(k3.weight + torch.nn.functional.pad(k1.weight, [pad] * 4))
+            fused.bias.copy_(k3.bias + k1.bias)
+        parent_name, _, child = name.rpartition(".")
+        parent = net.get_submodule(parent_name) if parent_name else net
+        setattr(parent, child, _FusedRepConv(fused, rep.act))
+    return len(targets)
+
+
+def _yolo7_raw_heads_wrapper(net: torch.nn.Module, task: str = "detect"):
+    """Raw-head wrapper for LibreYOLO7: RepConv branches fused, and the
+    implicit add / multiply of each ``IDetection`` head folded exactly into its
+    split 1x1 convolutions."""
+    if task != "detect":
+        raise ValueError(f"YOLOv7 raw-head export supports detect only, got {task!r}.")
+    net = copy.deepcopy(net).eval()
+    _fuse_yolo7_repconvs(net)
+    detection = net.layers[net._head_index]
+    heads = []
+    for idet in detection.heads:
+        weight = idet.head_conv.weight.detach()
+        add = idet.implicit_a.implicit.detach().reshape(-1)
+        mul = idet.implicit_m.implicit.detach().reshape(-1)
+        bias = (idet.head_conv.bias.detach() + weight[:, :, 0, 0] @ add) * mul
+        heads.append((weight * mul.view(-1, 1, 1, 1), bias))
+    net.layers[net._head_index] = _InputsOf()
+    return _AnchorYOLORawHeadsWrapper(
+        net,
+        heads,
+        layout="yolo7_raw_heads_v1",
+        strides=net.strides,
+        anchors=[list(zip(flat[0::2], flat[1::2])) for flat in net.anchors],
+        num_classes=net.num_classes,
+    )
+
+
+class _PPYOLOERawHeadsWrapper(torch.nn.Module):
+    """PP-YOLOE graph cut right after each level's class and distribution convs.
+
+    Returns ``reg`` (``4 * (reg_max + 1)`` distribution logits) and ``cls``
+    (class logits) per level in the head's stride order (32, 16, 8), as layout
+    ``ppyoloe_raw_heads_v1``; the host decodes them like YOLO-NAS heads
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_yolonas_raw`). RepVGG
+    blocks are fused into single 3x3 convolutions (exact) on a copy.
+    ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`; the
+    default is ``PPYOLOE_RAW_OUTPUT_WINDOWS``.
+    """
+
+    output_layout = "ppyoloe_raw_heads_v1"
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str = "detect",
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..models.ppyoloe.nn import RepVGGBlock
+        from ..postprocess.yolonas_raw import (
+            PPYOLOE_RAW_OUTPUT_WINDOWS,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        if task != "detect":
+            raise ValueError(f"PP-YOLOE raw-head export supports detect only, got {task!r}.")
+        model = copy.deepcopy(model).eval()
+        for module in model.modules():
+            if isinstance(module, RepVGGBlock):
+                module.fuse_block_residual_branches()
+        self.model = model
+        self.task = task
+        head = model.head
+        self.strides = tuple(int(stride) for stride in head.fpn_strides)
+        self.reg_max = int(head.reg_max)
+        self.grid_cell_offset = float(head.grid_cell_offset)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        if output_windows is None:
+            output_windows = PPYOLOE_RAW_OUTPUT_WINDOWS
+        self.output_windows = check_output_windows(self.output_layout, output_windows)
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+    def forward(self, x):
+        model = self.model
+        head = model.head
+        outputs = []
+        for i, feat in enumerate(model.neck(model.backbone(x))):
+            avg_feat = torch.nn.functional.adaptive_avg_pool2d(feat, (1, 1))
+            outputs.append(self._final_conv("reg", head.pred_reg[i], head.stem_reg[i](feat, avg_feat)))
+            outputs.append(
+                self._final_conv("cls", head.pred_cls[i], head.stem_cls[i](feat, avg_feat) + feat)
+            )
+        return tuple(outputs)
+
+
+class _RTMDetRawHeadsWrapper(torch.nn.Module):
+    """RTMDet graph cut right after each level's ``rtm_reg`` and ``rtm_cls`` convs.
+
+    Returns ``reg`` (raw l/t/r/b distance terms, before the stride scale and
+    the optional exp) and ``cls`` (class logits) per level, stride 8, 16, 32,
+    as layout ``rtmdet_raw_heads_v1``. The host rebuilds the decoded export's
+    ``(B, N, 4 + nc)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_rtmdet_raw`).
+    ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`; the
+    default is ``RTMDET_RAW_OUTPUT_WINDOWS``.
+    """
+
+    output_layout = "rtmdet_raw_heads_v1"
+    #: mmdet's MlvlPointGenerator(offset=0): points on cell corners.
+    grid_cell_offset = 0.0
+    #: RTMDet regresses distances directly: no distribution bins.
+    reg_max = None
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str = "detect",
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import (
+            RTMDET_RAW_OUTPUT_WINDOWS,
+            check_output_windows,
+            raw_head_output_names,
+        )
+
+        if task != "detect":
+            raise ValueError(f"RTMDet raw-head export supports detect only, got {task!r}.")
+        self.model = model
+        self.task = task
+        head = model.head
+        self.strides = tuple(int(stride) for stride in head.strides)
+        self.exp_on_reg = bool(head.exp_on_reg)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        if output_windows is None:
+            output_windows = RTMDET_RAW_OUTPUT_WINDOWS
+        self.output_windows = check_output_windows(self.output_layout, output_windows)
+
+    def forward(self, x):
+        model = self.model
+        head = model.head
+        outputs = []
+        for idx, feat in enumerate(model.neck(model.backbone(x))):
+            cls_feat = reg_feat = feat
+            for layer in head.cls_convs[idx]:
+                cls_feat = layer(cls_feat)
+            for layer in head.reg_convs[idx]:
+                reg_feat = layer(reg_feat)
+            outputs.append(self._final_conv("reg", head.rtm_reg[idx], reg_feat))
+            outputs.append(self._final_conv("cls", head.rtm_cls[idx], cls_feat))
+        return tuple(outputs)
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+
+class _RTMDetInsRawHeadsWrapper(torch.nn.Module):
+    """RTMDet-Ins graph cut after each level's ``rtm_reg``/``rtm_cls``/``rtm_kernel``.
+
+    Per level, stride 8, 16, 32: ``reg`` (ReLU'd l/t/r/b distances, before
+    the stride scale), ``cls`` (class logits) and ``kernel`` (169 dynamic
+    mask-conv parameters); then ``mask_feat`` (the stride-8 mask feature).
+    Layout ``rtmdet_ins_raw_heads_v1``; the host rebuilds the head's native
+    outputs (:func:`libreyolo.postprocess.yolonas_raw.decode_rtmdet_ins_raw`)
+    and runs LibreYOLO's RTMDet-Ins postprocess. ``output_windows`` works as in
+    :class:`_YOLONASRawHeadsWrapper` for the per-level parts; a ``reg`` window
+    must start at 0, where it also replaces the ReLU.
+    """
+
+    output_layout = "rtmdet_ins_raw_heads_v1"
+    grid_cell_offset = 0.0
+    reg_max = None
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        task: str = "segment",
+        output_windows: dict[str, tuple[float, float]] | None = None,
+    ):
+        super().__init__()
+        from ..postprocess.yolonas_raw import check_output_windows, raw_head_output_names
+
+        if task != "segment":
+            raise ValueError(f"RTMDet-Ins raw-head export supports segment only, got {task!r}.")
+        self.model = model
+        self.task = task
+        head = model.head
+        self.strides = tuple(int(stride) for stride in head.strides)
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        self.output_windows = check_output_windows(self.output_layout, output_windows or {})
+        reg_window = self.output_windows.get("reg")
+        if reg_window is not None and reg_window[0] != 0.0:
+            raise ValueError(f"RTMDet-Ins reg window must start at 0 (ReLU), got {reg_window}.")
+
+    def forward(self, x):
+        model = self.model
+        head = model.head
+        feats = model.neck(model.backbone(x))
+        outputs = []
+        for idx, feat in enumerate(feats):
+            cls_feat = reg_feat = kernel_feat = feat
+            for layer in head.cls_convs[idx]:
+                cls_feat = layer(cls_feat)
+            for layer in head.reg_convs[idx]:
+                reg_feat = layer(reg_feat)
+            for layer in head.kernel_convs[idx]:
+                kernel_feat = layer(kernel_feat)
+            reg_window = self.output_windows.get("reg")
+            if reg_window is None:
+                outputs.append(torch.nn.functional.relu(head.rtm_reg[idx](reg_feat)))
+            else:
+                outputs.append(_relu6_window(head.rtm_reg[idx], reg_feat, *reg_window))
+            outputs.append(self._final_conv("cls", head.rtm_cls[idx], cls_feat))
+            outputs.append(self._final_conv("kernel", head.rtm_kernel[idx], kernel_feat))
+        outputs.append(head.mask_head(feats))
+        return tuple(outputs)
+
+    def _final_conv(self, part: str, conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+        window = self.output_windows.get(part)
+        if window is None:
+            return conv(x)
+        return _relu6_window(conv, x, *window)
+
+
+class _RetinaNetRawHeadsWrapper(torch.nn.Module):
+    """RetinaNet graph cut right after each level's box-delta and class convs.
+
+    Returns ``reg`` (``4 * A`` box deltas) and ``cls`` (``A * nc`` logits)
+    per level P3-P7, as layout ``retinanet_raw_heads_v1``. The host rebuilds
+    the anchors and the decoded export's ``(B, N, 4 + nc)`` tensor
+    (:func:`libreyolo.postprocess.yolonas_raw.decode_retinanet_raw`). Exports
+    take one fixed square canvas (the image fitted inside, padded
+    bottom/right), so the anchors are fixed too.
+    """
+
+    output_layout = "retinanet_raw_heads_v1"
+    grid_cell_offset = 0.0
+    reg_max = None
+    strides = (8, 16, 32, 64, 128)
+
+    def __init__(self, model: torch.nn.Module, task: str = "detect"):
+        super().__init__()
+        from ..models.retinanet.nn import _ASPECT_RATIOS, _ANCHOR_SIZES, _COCO91_SOURCE_INDICES
+        from ..postprocess.yolonas_raw import raw_head_output_names
+
+        if task != "detect":
+            raise ValueError(f"RetinaNet raw-head export supports detect only, got {task!r}.")
+        self.model = model
+        self.task = task
+        self.output_names = raw_head_output_names(self.output_layout, self.strides)
+        self.output_windows: dict[str, tuple[float, float]] = {}
+        self.anchor_sizes = [list(sizes) for sizes in _ANCHOR_SIZES]
+        self.aspect_ratios = [list(ratios) for ratios in _ASPECT_RATIOS]
+        self.class_index_map = (
+            list(_COCO91_SOURCE_INDICES) if model.num_classes == 91 else None
+        )
+
+    def forward(self, x):
+        model = self.model
+        head = model.head
+        outputs = []
+        for feature in model.backbone(x).values():
+            reg = head.regression_head
+            cls = head.classification_head
+            outputs.append(reg.bbox_reg(reg.conv(feature)))
+            outputs.append(cls.cls_logits(cls.conv(feature)))
+        return tuple(outputs)
+
 
 
 class _YOLO9SplitOutputWrapper(torch.nn.Module):
@@ -569,9 +1745,13 @@ class BaseExporter(ABC):
         key = format.lower()
         key = cls._aliases.get(key, key)
         if key not in cls._registry:
+            from libreyolo.utils.ultralytics_hints import export_format_hint
+
             valid = ", ".join(sorted(cls._registry))
+            hint = export_format_hint(key)
             raise ValueError(
                 f"Unsupported export format: {format!r}. Must be one of: {valid}"
+                + (f". {hint}" if hint else "")
             )
         if model is not None and getattr(model, "FAMILY", None) == "domedetr":
             raise NotImplementedError(_DOMEDETR_EXPORT_MESSAGE)
@@ -844,6 +2024,11 @@ class BaseExporter(ABC):
         finally:
             if onnx_path and Path(onnx_path).exists():
                 Path(onnx_path).unlink()
+            # Intermediate graphs a subclass registers before writing them, so
+            # they go even when their export fails before onnx_path is set.
+            for extra in getattr(self, "_intermediate_paths", ()):
+                if Path(extra).exists():
+                    Path(extra).unlink()
 
         self._print_summary(result, precision, imgsz)
         return result
@@ -930,6 +2115,26 @@ class BaseExporter(ABC):
                 f"{family} {task} export to {self.format_name} is blocked: "
                 f"{support.reason}{alternatives_text}"
             )
+        size = str(getattr(self.model, "size", "") or "")
+        structural = BLOCKED_SIZES.get((family, task, self.format_name), {}).get(size)
+        if structural:
+            raise NotImplementedError(
+                f"{family}-{size} {task} export to {self.format_name} is blocked: "
+                f"it {structural}."
+            )
+        unmeasured = UNMEASURED_SIZES.get((family, task, self.format_name), {}).get(size)
+        if unmeasured:
+            raise NotImplementedError(
+                f"{family}-{size} {task} export to {self.format_name} is not "
+                f"available yet: it {unmeasured}."
+            )
+        note = SIZE_ACCURACY_NOTES.get((family, task, self.format_name), {}).get(size)
+        if note:
+            # Supported, not validated: export anyway and say what was measured.
+            logger.warning(
+                "%s-%s %s export to %s is supported but not validated: %s.",
+                family, size, task, self.format_name, note,
+            )
         if kwargs.get("nms") and not self.supports_embedded_nms:
             raise NotImplementedError(
                 f"{self.format_name.upper()} embedded NMS export is not supported."
@@ -956,7 +2161,7 @@ class BaseExporter(ABC):
             return imgsz
         if (
             model_name in _RECTANGULAR_EXPORT_FAMILIES
-            and self.format_name in _RECTANGULAR_EXPORT_FORMATS
+            and self._rectangular_imgsz_supported()
         ):
             return imgsz
         family_default = self.model._get_task_input_sizes().get(self.model.size)
@@ -1097,7 +2302,7 @@ class BaseExporter(ABC):
             )
         if (
             _is_rectangular_imgsz(imgsz)
-            and self.format_name not in _RECTANGULAR_EXPORT_FORMATS
+            and not self._rectangular_imgsz_supported()
         ):
             raise NotImplementedError(
                 f"Rectangular imgsz export is not validated for format "
@@ -1153,6 +2358,10 @@ class BaseExporter(ABC):
             ) from exc
         return f"-{suffix}" if suffix else ""
 
+    def _rectangular_imgsz_supported(self) -> bool:
+        """Whether this format keeps a natively rectangular family's canvas."""
+        return self.format_name in _RECTANGULAR_EXPORT_FORMATS
+
     @contextmanager
     def _model_context(self, device, half, int8, batch, imgsz):
         """Setup model for export and restore state afterwards."""
@@ -1181,7 +2390,7 @@ class BaseExporter(ABC):
         rfdetr_inner = None
         family = self.model._get_model_name()
         task = getattr(self.model, "task", "detect")
-        moge2_onnx_mode = family == "moge2" and hasattr(
+        moge2_onnx_mode = family in ("moge2", "moge3") and hasattr(
             root_model, "set_onnx_compatible_mode"
         )
         original_moge2_onnx_mode = bool(
@@ -1266,6 +2475,25 @@ class BaseExporter(ABC):
             # the decoded (boxes, scores) pair and drops the training-only
             # auxiliaries.
             nn_model = _YOLONASExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "ppdoclayoutv3":
+            from ..models.ppdoclayoutv3.nn import PPDocLayoutV3ExportWrapper
+
+            nn_model = PPDocLayoutV3ExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "riodetrv2":
+            # The encoder position embedding and decoder anchors are fixed-canvas
+            # constants. At the native canvas the trained anchor buffers stay;
+            # any other square size retargets both on a copy.
+            from ..utils.image_size import imgsz_to_hw
+
+            canvas = imgsz_to_hw(imgsz)
+            if tuple(canvas) != tuple(nn_model.eval_spatial_size):
+                nn_model = copy.deepcopy(nn_model)
+                nn_model.set_eval_spatial_size(canvas)
+            nn_model = _RTDETRExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
         elif family in {"rtdetr", "rtdetrv2", "rtdetrv4"}:
@@ -1512,7 +2740,13 @@ class BaseExporter(ABC):
             # geometry are fixed per graph; only batch may be dynamic.
             dummy = torch.randn(batch, video_export_frames, 3, h, w, device=device)
         else:
-            channels = 2 if isinstance(getattr(self.model, "input_profile", None), dict) else 3
+            from ..utils.input_channels import model_channels
+
+            channels = (
+                2
+                if isinstance(getattr(self.model, "input_profile", None), dict)
+                else model_channels(self.model)
+            )
             dummy = torch.randn(batch, channels, h, w, device=device)
 
         if apply_half:
@@ -1561,6 +2795,11 @@ class BaseExporter(ABC):
         from .calibration import get_calibration_dataloader
 
         preprocess_fn = self.model._get_preprocess_numpy()
+        from ..utils.input_channels import gray_preprocess_fn, model_channels
+
+        if model_channels(self.model) == 1:
+            # Grayscale graphs calibrate on the one-channel input they consume.
+            preprocess_fn = gray_preprocess_fn(preprocess_fn)
         calibration_data = get_calibration_dataloader(
             data=data,
             imgsz=imgsz,
@@ -1649,6 +2888,9 @@ class BaseExporter(ABC):
         if onnx_path is not None:
             meta["exported_from"] = str(Path(onnx_path).name)
         meta.update(_letterbox_pad_metadata(self.model))
+        from ..utils.input_channels import channels_metadata
+
+        meta.update(channels_metadata(self.model))
         # Classification eval preprocessing must travel with every artifact,
         # not just ONNX. Exported-backend predict() otherwise falls back to
         # crop_pct=0.875 and bilinear resize, which changes classifier logits
@@ -1725,6 +2967,10 @@ class BaseExporter(ABC):
         from ..utils.event_histogram import input_metadata
         for key, value in input_metadata(self.model).items():
             meta[key] = json.dumps(value) if isinstance(value, dict) else str(value)
+        from ..utils.input_channels import channels_metadata
+
+        for key, value in channels_metadata(self.model).items():
+            meta[key] = str(value)
         meta.update(_letterbox_pad_metadata(self.model))
         # Classification eval preprocessing — lets exported-backend inference
         # and validation match native predict()/val() (#886).
@@ -1953,6 +3199,8 @@ class OnnxExporter(BaseExporter):
                 meta["deepstream"] = "true"
             return meta
 
+        from ..utils.input_channels import model_channels
+
         def _write_deepstream_sidecars(onnx_result_path: str) -> None:
             if not deepstream:
                 return
@@ -1971,6 +3219,7 @@ class OnnxExporter(BaseExporter):
                 iou=iou,
                 task=ds_task,
                 letterbox_pad=_letterbox_pad_metadata(self.model).get("letterbox_pad"),
+                channels=model_channels(self.model),
             )
 
         if int8:
@@ -2619,6 +3868,977 @@ class RknnExporter(BaseExporter):
         return str(destination)
 
 
+class _ClassifyLogitsWrapper(torch.nn.Module):
+    """A classifier's full graph ending at its logits (layout ``classify_logits_v1``).
+
+    Integer NPU exports of classifiers need no graph cut or host decode: the
+    single output is the ``[B, nc]`` logits, and the backend applies the
+    softmax of the shared classification path.
+    """
+
+    output_layout = "classify_logits_v1"
+    output_names = ("logits",)
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        logits = self.model(x)
+        if isinstance(logits, (list, tuple)):
+            logits = logits[0]
+        return (logits,)
+
+
+#: Dense tasks whose whole graph runs on Metis (layout ``graph_outputs_v1``), with
+#: the output names of their ONNX export so both artifacts decode the same way.
+_AXELERA_GRAPH_OUTPUTS = {
+    ("fcn", "semantic"): ("semantic_logits",),
+    ("quicksrnet", "restore"): ("restored",),
+    ("midas", "depth"): ("depth",),
+    ("deeplabv3", "semantic"): ("semantic_logits",),
+    # EfficientDet's decoded export; the top-candidate decode (TopK, Gather,
+    # Exp) lands in the compiled model's host postamble.
+    ("efficientdet", "detect"): ("output",),
+}
+
+
+class _GraphOutputsWrapper(torch.nn.Module):
+    """A dense model's full graph ending at its ONNX outputs (``graph_outputs_v1``).
+
+    The device returns the same tensors as the family's ONNX export (super-
+    resolved image, inverse depth, class logits, keypoint heatmaps), and the
+    shared backend parsers turn them into results on the host.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+
+    def forward(self, x):
+        output = self.model(x)
+        if not isinstance(output, (list, tuple)):
+            output = (output,)
+        return tuple(output)[: len(self.output_names)]
+
+
+#: Exact ONNX rewrites applied before the Axelera compile, per family (see
+#: ``libreyolo.export.axelera.GRAPH_PASSES``). PicoDet's ESNet channel
+#: shuffles become fixed 1x1 permutation convolutions: left as
+#: Reshape/Transpose they are layout transforms inside the AIPU core, more
+#: than the compiler accepts.
+_AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
+    "picodet": ("channel_shuffle_to_conv",),
+    "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
+    # VGG's fc6 (Gemm over 7x7x512) as row convolutions.
+    "vgg": ("fc_rowconv",),
+    # BiFPN weighted fusion and squeeze-excite averages in AIPU-runnable form.
+    "efficientdet": (
+        "float_div_to_mul",
+        "stack_sum_to_add",
+        "mean_hw_to_gap",
+        "gap_staged",
+    ),
+}
+
+
+class _RestoreBodyWrapper(torch.nn.Module):
+    """Real-ESRGAN compact trunk up to its last convolution (``restore_shuffle_skip_v1``).
+
+    The pixel shuffle and the nearest-upsampled input skip run on the host: a
+    graph whose output depends directly on its input cannot be split into a
+    host preamble and an accelerated core.
+    """
+
+    output_layout = "restore_shuffle_skip_v1"
+    output_names = ("body",)
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        self.upscale = int(model.upscale)
+
+    def forward(self, x):
+        out = x
+        for layer in self.model.body:
+            out = layer(out)
+        return (out,)
+
+
+class _SSDPartAWrapper(torch.nn.Module):
+    """SSD300, part 1 of a two-part Axelera export (layout ``ssd_raw_heads_v1``).
+
+    conv4_3's L2Norm (a per-pixel division by the channel norm) has no form on
+    the Metis AIPU, and only the level-0 heads read its output. Part 1 runs the
+    VGG trunk and returns conv4_3 as it is (``conv4_3``), then the five extra
+    blocks and their box and class convolutions (levels 1-5). The host
+    normalizes conv4_3 (``HOST_OPS["l2norm"]`` in the Axelera backend) and part
+    2 (:class:`_SSDPartBWrapper`) runs the level-0 convolutions.
+    """
+
+    output_layout = "ssd_raw_heads_v1"
+    grid_cell_offset = 0.5
+    reg_max = None
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        from ..postprocess.yolonas_raw import SSD_STEPS, raw_head_output_names
+        from ..utils.coco import COCO91_CATEGORY_IDS
+
+        self.model = model
+        self.strides = tuple(SSD_STEPS)
+        #: The decoded heads' names, level by level (part 2 makes the first two).
+        self.layout_names = raw_head_output_names(self.output_layout, self.strides)
+        self.output_names = ["conv4_3", *self.layout_names[2:]]
+        self.output_windows: dict = {}
+        num_classes = int(model.num_classes)
+        self.class_index_map = (
+            list(COCO91_CATEGORY_IDS) if num_classes == 91 else list(range(1, num_classes))
+        )
+        self.l2norm_scale = [float(v) for v in model.backbone.scale_weight.detach().flatten()]
+
+    def forward(self, x):
+        backbone, head = self.model.backbone, self.model.head
+        features = backbone.features(x)
+        outputs = [features]
+        level = features
+        for index, block in enumerate(backbone.extra, start=1):
+            level = block(level)
+            outputs.append(head.regression_head.module_list[index](level))
+            outputs.append(head.classification_head.module_list[index](level))
+        return tuple(outputs)
+
+
+class _SSDPartBWrapper(torch.nn.Module):
+    """SSD300, part 2: the level-0 box and class convolutions on the host-normalized conv4_3.
+
+    The graph input first goes through an identity 1x1 depthwise convolution:
+    a graph input that fans out straight into two convolutions is cut into two
+    AIPU functions by the compiler's lowering ("Expected 1 AIPU function, got
+    2"), while one entry op followed by the fan-out compiles.
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = list(output_names)
+        channels = int(model.head.regression_head.module_list[0].in_channels)
+        self.entry = _ChannelScale(torch.ones(channels), as_conv=True)
+
+    def forward(self, normalized):
+        head = self.model.head
+        features = self.entry(normalized)
+        return (
+            head.regression_head.module_list[0](features),
+            head.classification_head.module_list[0](features),
+        )
+
+
+def _efficientdet_at_canvas(model, canvas: int):
+    """A copy of ``model`` (a LibreEfficientDet) that runs at a smaller square canvas.
+
+    The BiFPN sizes its resampling from the configured image size when it is
+    built; its weights do not depend on the spatial size, so the copy gets a
+    BiFPN built for ``canvas`` with the original weights loaded. The caller's
+    model is left untouched.
+    """
+    from ..models.efficientdet.config import SCALE_CONFIGS
+    from ..models.efficientdet.nn import BiFpn
+
+    net = copy.deepcopy(model.model).eval()
+    cfg = SCALE_CONFIGS[model.size]
+    fpn = BiFpn(
+        int(canvas), net.backbone.feature_channels, cfg.fpn_channels, cfg.fpn_repeats
+    )
+    fpn.load_state_dict(net.fpn.state_dict())
+    net.fpn = fpn.to(next(net.parameters()).device).eval()
+    net.image_size = int(canvas)
+    clone = copy.copy(model)
+    clone.model = net
+    clone.input_size = int(canvas)
+    return clone
+
+
+class AxeleraExporter(BaseExporter):
+    """INT8 export for Axelera Metis AIPUs: a ``<stem>_axelera_model/`` directory.
+
+    The directory holds ``<stem>.axm`` (the compiled model),
+    ``compiler_config_final.toml`` and ``metadata.yaml``. For YOLO-NAS the
+    graph is cut after the head convolutions and LibreYOLO decodes on the
+    host (``libreyolo.postprocess.yolonas_raw``); classifiers export their
+    whole graph up to the logits. Compiling needs Axelera's
+    ``axelera-devkit`` on Linux, installed by the user.
+    """
+
+    format_name = "axelera"
+    suffix = "_axelera_model"
+    requires_onnx = True
+    supports_int8 = True
+    supports_fp16 = False
+    apply_model_half = False
+    supports_embedded_nms = False
+    default_int8_calibration_data = True
+
+    #: Calibration images used when ``data`` is omitted. OBB has no default:
+    #: it needs aerial imagery, which LibreYOLO does not bundle.
+    _CALIBRATION_DEFAULTS: ClassVar[dict[str, str]] = {
+        "detect": "coco128.yaml",
+        "pose": "coco128.yaml",
+        "classify": "coco128.yaml",
+    }
+    _RECOMMENDED_CALIBRATION = (100, 400)
+    _OPSET_RANGE = (14, 17)
+
+    def __call__(
+        self,
+        *,
+        dynamic: bool | None = None,
+        half: bool = False,
+        int8: bool = False,
+        quantize: int | str | None = None,
+        opset: int | None = None,
+        batch: int = 1,
+        **kwargs,
+    ) -> str:
+        if half:
+            raise ValueError(
+                "Axelera export is INT8 only; half=True is not supported. Omit "
+                "half (INT8 calibration is applied automatically)."
+            )
+        if quantize is not None and str(quantize).strip() != "8":
+            raise ValueError(
+                f"Axelera export is INT8 only; quantize={quantize!r} is not "
+                "supported. Omit quantize or pass quantize=8."
+            )
+        if dynamic:
+            raise ValueError(
+                "Axelera export compiles fixed input shapes; dynamic=True is not "
+                "supported. Choose the input size with imgsz=."
+            )
+        if opset is None:
+            opset = self._OPSET_RANGE[1]
+        low, high = self._OPSET_RANGE
+        if not low <= int(opset) <= high:
+            raise ValueError(
+                f"Axelera export supports ONNX opset {low}-{high}, got opset={opset}."
+            )
+        if int(batch) < 1:
+            raise ValueError(f"batch must be >= 1, got {batch}.")
+        if not int8:
+            logger.info(
+                "Axelera export is INT8: calibrating post-training quantization "
+                "(int8=True)."
+            )
+        # The compiled graph takes one image; ``batch`` only sizes the
+        # calibration loader.
+        self._calibration_batch = int(batch)
+        return super().__call__(
+            dynamic=False,
+            half=False,
+            int8=True,
+            opset=int(opset),
+            batch=1,
+            **kwargs,
+        )
+
+    def _task(self) -> str:
+        task = getattr(self.model, "task", "detect")
+        return task if isinstance(task, str) else "detect"
+
+
+    def _size_recipe(self) -> dict:
+        """The per-size recipe (``AXELERA_SIZE_RECIPES``) for this model, if any."""
+        from .axelera import size_recipe
+
+        recipe = size_recipe(
+            self.model._get_model_name(),
+            self._task(),
+            str(getattr(self.model, "size", "") or ""),
+        )
+        if recipe and not getattr(self, "_recipe_logged", False):
+            logger.info("Axelera: using the measured per-size recipe %s", recipe)
+            self._recipe_logged = True
+        return recipe
+    def _preflight(self, **kwargs):
+        # Support tier first, so a blocked family fails before any SDK check.
+        super()._preflight(**kwargs)
+        from .axelera import (
+            check_compile_platform,
+            normalize_compiler_overrides,
+            require_axelera_devkit,
+        )
+
+        check_compile_platform()
+        self._devkit_version = require_axelera_devkit()
+        self._compiler_overrides = normalize_compiler_overrides(
+            kwargs.get("compiler_config")
+        )
+        canvas = self._size_recipe().get("canvas")
+        if (
+            canvas
+            and self.model._get_model_name() == "efficientdet"
+            and int(self.model.input_size) != int(canvas)
+        ):
+            logger.warning(
+                "EfficientDet-%s exports for Axelera at a fixed %dx%d canvas: at "
+                "its native %d no tiling fits the AIPU's L1 memory. Images are "
+                "resized to the smaller canvas, which costs accuracy on small "
+                "objects (docs/axelera.md).",
+                self.model.size,
+                int(canvas),
+                int(canvas),
+                int(self.model.input_size),
+            )
+            self._source_model = self.model
+            self.model = _efficientdet_at_canvas(self.model, int(canvas))
+
+    def _resolve_calibration_data(self, int8: bool, data: str | None):
+        if data is not None:
+            return data
+        task = self._task()
+        if task not in self._CALIBRATION_DEFAULTS:
+            raise ValueError(
+                f"Axelera {task} export needs calibration images from your own "
+                "domain: pass data= pointing at your dataset YAML (for YOLO-NAS-R, "
+                "an aerial OBB dataset such as a DOTA-format one). LibreYOLO bundles "
+                f"no default calibration set for {task}."
+            )
+        default = self._CALIBRATION_DEFAULTS[task]
+        if task == "classify":
+            logger.warning(
+                "Axelera calibration: data= not given, using %s. Classifiers keep "
+                "more top-1 accuracy when calibrated on their own domain: pass a "
+                "dataset YAML whose train split holds %d-%d images spread over the "
+                "classes (on ImageNet, ResNet-18 loses about 1.1 top-1 points with "
+                "%s and 0.6 with ImageNet images).",
+                default,
+                *self._RECOMMENDED_CALIBRATION,
+                default,
+            )
+            return default
+        logger.info(
+            "Axelera calibration: data= not given, using %s. For a fine-tuned "
+            "model, calibrate with %d-%d images from its own domain.",
+            default,
+            *self._RECOMMENDED_CALIBRATION,
+        )
+        return default
+
+    def _auto_output_path(self, half: bool, int8: bool) -> str:
+        return str(Path("weights") / f"{self._auto_output_stem()}{self.suffix}")
+
+    def _resolve_params(self, output_path, imgsz, device, half, int8):
+        canvas = self._size_recipe().get("canvas")
+        if imgsz is None and canvas:
+            # The measured per-size canvas (e.g. RetinaNet-R50 at 1024x1024);
+            # an explicit imgsz= still wins.
+            imgsz = int(canvas)
+            logger.info(
+                "Axelera: %s-%s exports at its measured %dx%d canvas; pass imgsz= "
+                "to choose another (docs/axelera.md).",
+                self.model._get_model_name(),
+                getattr(self.model, "size", ""),
+                imgsz,
+                imgsz,
+            )
+        imgsz, device, output_path = super()._resolve_params(
+            output_path, imgsz, device, half, int8
+        )
+        # Graph preparation, calibration, output matching and verification all
+        # feed host (CPU) tensors, and the Axelera toolchain runs on the host:
+        # export on CPU. _model_context moves the model back afterwards.
+        device = torch.device("cpu")
+        if hasattr(self, "_source_model"):
+            # The caller's model, not the canvas copy, reports what was exported.
+            self._source_model._last_export_imgsz = imgsz
+        stride = 32  # largest YOLO-NAS feature stride; the host decode needs whole cells
+        raw_heads = (
+            self._task() != "classify"
+            and not self._graph_outputs()
+            and not self._shuffle_skip_restore()
+            # SSD300's default boxes are built for its fixed 300 x 300 canvas.
+            and self.model._get_model_name() != "ssd"
+        )
+        if raw_heads and (imgsz[0] % stride or imgsz[1] % stride):
+            raise ValueError(
+                f"Axelera export needs imgsz to be a multiple of {stride}, got "
+                f"{imgsz[0] if imgsz[0] == imgsz[1] else imgsz}."
+            )
+        return imgsz, device, output_path
+
+    def _rectangular_imgsz_supported(self) -> bool:
+        # Whole-graph dense exports (HRNet's 256x192 person crop) keep their
+        # canvas; the YOLO-NAS raw-head path stays square.
+        return bool(self._graph_outputs())
+
+    def _shuffle_skip_restore(self) -> bool:
+        """Real-ESRGAN's compact network (x4t): trunk on Metis, tail on the host."""
+        net = self.model.model
+        return (
+            self.model._get_model_name() == "realesrgan"
+            and self._task() == "restore"
+            and all(hasattr(net, name) for name in ("body", "upsampler", "upscale"))
+        )
+
+    def _graph_outputs(self) -> tuple[str, ...]:
+        """ONNX output names when the whole dense graph runs on Metis, else ``()``."""
+        return _AXELERA_GRAPH_OUTPUTS.get((self.model._get_model_name(), self._task()), ())
+
+    def _calibration_preprocess(self):
+        """``(rgb_hwc, imgsz) -> (chw, ratio)`` matching what the exported model sees.
+
+        Calibration and ``verify`` images must go through the preprocessing the
+        Axelera backend applies at predict time, which for fixed-canvas dense
+        exports differs from the native model's: depth stretches to the canvas,
+        super-resolution pads a crop to it.
+        """
+        import numpy as np
+
+        from ..backends.base import _DEPTH_CUBIC_RESIZE_FAMILIES, BaseBackend
+
+        task = self._task()
+        if task == "depth":
+            cubic = self.model._get_model_name() in _DEPTH_CUBIC_RESIZE_FAMILIES
+
+            def depth(rgb, imgsz):
+                tensor = BaseBackend._preprocess_depth(rgb, imgsz, "rgb", cubic=cubic)[0]
+                return tensor[0].numpy(), 1.0
+
+            return depth
+        if task == "restore":
+
+            def restore(rgb, imgsz):
+                h, w = (imgsz, imgsz) if isinstance(imgsz, int) else imgsz
+                top = max(0, (rgb.shape[0] - h) // 2)
+                left = max(0, (rgb.shape[1] - w) // 2)
+                crop = np.ascontiguousarray(rgb[top : top + h, left : left + w])
+                return BaseBackend._preprocess_restore(crop, (h, w), "rgb")[0][0].numpy(), 1.0
+
+            return restore
+        preprocess = self.model._get_preprocess_numpy()
+        if self.model._get_model_name() == "retinanet":
+            # RetinaNet's own preprocessing gives every image its own shape;
+            # the compiled graph takes one square canvas, so images are fitted
+            # into it (the backend does the same for fixed-shape artifacts).
+            import functools
+
+            return functools.partial(preprocess, fixed_canvas=True)
+        return preprocess
+
+    def _prepare_quicksrnet(self, net) -> None:
+        """Equalize QuickSRNet's hidden channels for per-channel INT8 weights."""
+        from ..models.quicksrnet.quantize import prepare_for_int8
+
+        samples = [torch.as_tensor(x) for x in self._equalization_samples()]
+        if not samples:
+            return
+        summary = prepare_for_int8(net, samples)
+        logger.info(
+            "Axelera: QuickSRNet hidden channels equalized through their Hardtanh "
+            "bounds (smallest calibration peak per layer %s); %d biases corrected "
+            "for INT8 weight rounding.",
+            ", ".join(f"{v:.3f}" for v in summary["layer_min_peaks"]),
+            summary["bias_corrected"],
+        )
+
+    def _prepare_mobilenetv4(self, net, dummy) -> None:
+        """Equalize and bound MobileNetV4's residual streams for per-tensor INT8."""
+        from ..models.mobilenetv4.quantize import prepare_for_int8
+
+        samples = [torch.as_tensor(x) for x in self._equalization_samples()]
+        if not samples:
+            return
+        with torch.no_grad():
+            before = [net(x) for x in samples[:4]]
+        summary = prepare_for_int8(net, samples)
+        with torch.no_grad():
+            drift = max(float((net(x) - b).abs().max()) for x, b in zip(samples[:4], before))
+        logger.info(
+            "Axelera: MobileNetV4 residual streams equalized (stages %s) and bounded "
+            "(%s); largest FP32 logit change on calibration images %.3g.",
+            summary["equalized_stages"],
+            ", ".join(f"stage {k} at {v:.1f}" for k, v in summary["stage_bounds"].items()) or "none",
+            drift,
+        )
+
+    def _pointwise_method(self) -> str:
+        """CSPNeXt pointwise equalization factor: the override, else the per-task best."""
+        if CSPNEXT_POINTWISE_EQUALIZATION_METHOD is not None:
+            return CSPNEXT_POINTWISE_EQUALIZATION_METHOD
+        return CSPNEXT_POINTWISE_EQUALIZATION_METHOD_BY_TASK.get(self._task(), "act")
+
+    def _equalization_samples(self, limit: int = 32) -> list:
+        """Up to ``limit`` calibration images (``[1, C, H, W]``), or ``[]``."""
+        loader = getattr(self, "_calibration_loader", None)
+        samples = []
+        for batch in loader or ():
+            for image in batch:
+                samples.append(image[None])
+                if len(samples) >= limit:
+                    return samples
+        return samples
+
+    def _load_calibration(self, data, imgsz, batch, fraction, allow_download_scripts=False):
+        from .calibration import CalibrationDataLoader
+
+        loader = CalibrationDataLoader(
+            data,
+            imgsz=imgsz,
+            batch=getattr(self, "_calibration_batch", 1),
+            fraction=fraction,
+            preprocess_fn=self._calibration_preprocess(),
+            allow_download_scripts=allow_download_scripts,
+        )
+        self._calibration_loader = loader
+        count = int(loader.num_samples)
+        low, high = self._RECOMMENDED_CALIBRATION
+        if count < 2:
+            raise ValueError(
+                f"Axelera calibration needs at least 2 images; {data!r} with "
+                f"fraction={fraction} gives {count}."
+            )
+        if count < low:
+            logger.warning(
+                "Axelera calibration uses %d images from %s; %d-%d representative "
+                "images are recommended.",
+                count,
+                data,
+                low,
+                high,
+            )
+        self._calibration_files = {str(Path(f)) for f in loader.img_files[:count]}
+        self._calibration_info = {
+            "data": str(data),
+            "num_images": count,
+            "fraction": float(fraction),
+            "batch": int(loader.batch),
+            "preprocess": self._task(),
+        }
+        logger.info("Axelera calibration: %d images from %s", count, data)
+        return _single_image_samples(loader, count)
+
+    def _export_intermediate_onnx(
+        self, nn_model, dummy, output_path, opset, simplify, dynamic
+    ):
+        from .onnx import _export_onnx_graph
+
+        imgsz = (int(dummy.shape[-2]), int(dummy.shape[-1]))
+        out = Path(output_path)
+        onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        part2_output = str(out.with_name(f"{out.name}.export_intermediate.part2.onnx"))
+        self._intermediate_paths = [onnx_output, part2_output]
+        if self._shuffle_skip_restore():
+            self._raw_wrapper = _RestoreBodyWrapper(nn_model).eval()
+            logger.info("Step 1/2: Exporting restore trunk ONNX (%s)", onnx_output)
+            return _export_onnx_graph(
+                self._raw_wrapper,
+                dummy,
+                output_path=onnx_output,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=["images"],
+                output_names=list(self._raw_wrapper.output_names),
+                dynamic_axes=None,
+            )
+        graph_outputs = self._graph_outputs()
+        if graph_outputs:
+            if self.model._get_model_name() == "quicksrnet":
+                nn_model = copy.deepcopy(nn_model).eval()
+                self._prepare_quicksrnet(nn_model)
+            self._raw_wrapper = _GraphOutputsWrapper(nn_model, graph_outputs).eval()
+            logger.info("Step 1/2: Exporting %s ONNX (%s)", self._task(), onnx_output)
+            return _export_onnx_graph(
+                self._raw_wrapper,
+                dummy,
+                output_path=onnx_output,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=["images"],
+                output_names=list(graph_outputs),
+                dynamic_axes=None,
+            )
+        if self._task() == "classify":
+            net = copy.deepcopy(self.model.model).eval()
+            if self.model._get_model_name() == "mobilenetv4" and self._size_recipe().get(
+                "stream_transform", True
+            ):
+                self._prepare_mobilenetv4(net, dummy)
+            self._raw_wrapper = _ClassifyLogitsWrapper(net).eval()
+            logger.info("Step 1/2: Exporting classifier ONNX (%s)", onnx_output)
+            return _export_onnx_graph(
+                self._raw_wrapper,
+                dummy,
+                output_path=onnx_output,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=["images"],
+                output_names=list(self._raw_wrapper.output_names),
+                dynamic_axes=None,
+            )
+        live = self.model.model
+        self._chain_tail = None
+        if self.model._get_model_name() == "ssd":
+            # Two parts: conv4_3's L2Norm runs on the host between them.
+            self._pose_bounds = {}
+            net = copy.deepcopy(live).eval()
+            self._raw_wrapper = _SSDPartAWrapper(net).eval()
+            self._chain_tail = _SSDPartBWrapper(net, self._raw_wrapper.layout_names[:2]).eval()
+        elif self.model._get_model_name() == "retinanet":
+            self._pose_bounds = {}
+            self._raw_wrapper = _RetinaNetRawHeadsWrapper(
+                copy.deepcopy(live).eval(), self._task()
+            ).eval()
+        elif self.model._get_model_name() == "ppyoloe":
+            self._pose_bounds = {}
+            self._raw_wrapper = _PPYOLOERawHeadsWrapper(live, self._task()).eval()
+        elif self.model._get_model_name() == "yolo7":
+            self._pose_bounds = {}
+            self._raw_wrapper = _yolo7_raw_heads_wrapper(live, self._task()).eval()
+        elif self.model._get_model_name() in ("yolo2", "yolo3", "yolo4"):
+            self._pose_bounds = {}
+            self._raw_wrapper = _darknet_raw_heads_wrapper(
+                live, self._task(), output_windows=self._size_recipe().get("output_windows")
+            ).eval()
+        elif self.model._get_model_name() == "picodet":
+            if self._task() != "detect":
+                raise ValueError(
+                    f"PicoDet raw-head export supports detect only, got {self._task()!r}."
+                )
+            self._pose_bounds = {}
+            self._raw_wrapper = _PicoDetRawHeadsWrapper(live).eval()
+        elif self.model._get_model_name() == "yolo9":
+            # No reparameterization step; BatchNorm folds into the convs
+            # during the ONNX export.
+            self._pose_bounds = {}
+            self._raw_wrapper = _YOLO9RawHeadsWrapper(
+                copy.deepcopy(live).eval(), self._task()
+            ).eval()
+        elif self.model._get_model_name() == "yolox":
+            self._pose_bounds = {}
+            self._raw_wrapper = _YOLOXRawHeadsWrapper(
+                copy.deepcopy(live).eval(), self._task()
+            ).eval()
+        elif self.model._get_model_name() == "rtmdet":
+            # Like YOLOX: BatchNorm folds into the convs during the ONNX
+            # export; the copy keeps RTMDet's shared head convs shared.
+            self._pose_bounds = {}
+            copy_ = copy.deepcopy(live).eval()
+            self._pointwise_equalized = _equalize_cspnext_pointwise_inputs(
+                copy_,
+                self._equalization_samples(),
+                CSPNEXT_POINTWISE_EQUALIZATION,
+                self._pointwise_method(),
+            )
+            wrapper_cls = (
+                _RTMDetInsRawHeadsWrapper
+                if self._task() == "segment"
+                else _RTMDetRawHeadsWrapper
+            )
+            self._raw_wrapper = wrapper_cls(copy_, self._task()).eval()
+        else:
+            fused = _fused_yolonas_copy(live, full_fusion=True)
+            samples = self._equalization_samples() if self._task() == "pose" else []
+            if self._task() == "pose":
+                _equalize_yolonas_pose_heads(fused, samples)
+            # Fusion and equalization must leave the FP32 raw outputs unchanged.
+            self._fusion_parity = _check_yolonas_fusion_parity(
+                live, fused, self._task(), imgsz
+            )
+            self._pose_bounds = (
+                _bound_yolonas_pose_inputs(
+                    fused,
+                    samples,
+                    towers=self._size_recipe().get("pose_bounded_towers", _POSE_BOUNDED_TOWERS),
+                )
+                if samples
+                else {}
+            )
+            self._raw_wrapper = _YOLONASRawHeadsWrapper(fused, self._task()).eval()
+        out = Path(output_path)
+        onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        logger.info("Step 1/2: Exporting raw-head ONNX (%s)", onnx_output)
+        exported = _export_onnx_graph(
+            self._raw_wrapper,
+            dummy,
+            output_path=onnx_output,
+            opset=opset,
+            simplify=simplify,
+            half=False,
+            metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+            input_names=["images"],
+            output_names=list(self._raw_wrapper.output_names),
+            dynamic_axes=None,
+        )
+        if self._chain_tail is not None:
+            with torch.no_grad():
+                tail_input = torch.zeros_like(self._raw_wrapper(dummy)[0])
+            self._chain_tail_onnx = _export_onnx_graph(
+                self._chain_tail,
+                tail_input,
+                output_path=part2_output,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=["conv4_3_norm"],
+                output_names=list(self._chain_tail.output_names),
+                dynamic_axes=None,
+            )
+        return exported
+
+    def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
+        meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
+        wrapper = self._raw_wrapper
+        if isinstance(wrapper, _RestoreBodyWrapper):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": list(wrapper.output_names),
+                    "upscale": wrapper.upscale,
+                }
+            )
+            return meta
+        if isinstance(wrapper, _GraphOutputsWrapper):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": list(wrapper.output_names),
+                    # Graph order; ``output_names`` becomes the device order.
+                    "graph_outputs": list(wrapper.output_names),
+                }
+            )
+            return meta
+        if isinstance(wrapper, _ClassifyLogitsWrapper):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": list(wrapper.output_names),
+                }
+            )
+            return meta
+        heads = (  # YOLO-NAS heads
+            wrapper.model.heads if isinstance(wrapper, _YOLONASRawHeadsWrapper) else None
+        )
+        grid_cell_offset = (
+            heads.grid_cell_offset if heads is not None else wrapper.grid_cell_offset
+        )
+        meta.update(
+            {
+                "format": "axelera",
+                "precision": "int8",
+                "dynamic": False,
+                "batch": 1,
+                "output_layout": wrapper.output_layout,
+                "output_names": list(wrapper.output_names),
+                "strides": list(wrapper.strides),
+                "grid_cell_offset": float(grid_cell_offset),
+            }
+        )
+        if isinstance(wrapper, _SSDPartAWrapper):
+            # The backend assembles the decoded heads from both parts.
+            meta["output_names"] = list(wrapper.layout_names)
+            meta["class_index_map"] = list(wrapper.class_index_map)
+        if wrapper.reg_max is not None:
+            meta["reg_max"] = int(wrapper.reg_max)
+        if getattr(wrapper, "anchors", None) is not None:
+            meta["anchors"] = [[list(pair) for pair in level] for level in wrapper.anchors]
+        if getattr(wrapper, "scale_x_y", None) is not None:
+            meta["scale_x_y"] = list(wrapper.scale_x_y)
+        if getattr(wrapper, "exp_on_reg", None) is not None:
+            meta["exp_on_reg"] = bool(wrapper.exp_on_reg)
+        if getattr(self, "_pointwise_equalized", 0):
+            meta["pointwise_equalized"] = {
+                "blocks": int(self._pointwise_equalized),
+                "mode": str(CSPNEXT_POINTWISE_EQUALIZATION),
+                "method": self._pointwise_method(),
+            }
+        if getattr(wrapper, "anchor_sizes", None) is not None:  # RetinaNet
+            meta["anchor_sizes"] = [list(sizes) for sizes in wrapper.anchor_sizes]
+            meta["aspect_ratios"] = [list(r) for r in wrapper.aspect_ratios]
+            if wrapper.class_index_map is not None:
+                meta["class_index_map"] = list(wrapper.class_index_map)
+        if getattr(self, "_pose_bounds", None):
+            meta["pose_head_bounds"] = {
+                name: round(float(cap), 4) for name, cap in self._pose_bounds.items()
+            }
+        if wrapper.output_windows:
+            meta["output_windows"] = {
+                part: [float(low), float(high)]
+                for part, (low, high) in wrapper.output_windows.items()
+            }
+        if self._task() == "pose":
+            meta["pose_offset_multiplier"] = float(heads.pose_offset_multiplier)
+            meta["compensate_grid_cell_offset"] = bool(
+                heads.compensate_grid_cell_offset
+            )
+        if self.model._get_model_name() == "yolonas":
+            meta["weights_license"] = (
+                "YOLO-NAS pretrained weights are Deci's, under "
+                "LICENSE.YOLONAS.md (non-commercial, no redistribution). "
+                "Artifacts compiled from them carry the same terms."
+            )
+        return meta
+
+    def _export(
+        self,
+        nn_model,
+        dummy,
+        *,
+        output_path,
+        metadata,
+        calibration_data,
+        onnx_path,
+        verbose,
+        compiler_config=None,
+        verify=False,
+        **kwargs,
+    ):
+        from .axelera import (
+            DEFAULT_QUANTIZATION_SCHEME_BY_MODEL,
+            DEPTHWISE_QUANTIZATION_SCHEME,
+            default_quantization_scheme,
+            export_axelera,
+        )
+
+        family, task = self.model._get_model_name(), self._task()
+        # A per-model exception wins; otherwise graphs with depthwise
+        # convolutions get per-channel ranges for the depthwise inputs.
+        recipe_scheme = self._size_recipe().get("quantization_scheme")
+        if recipe_scheme:
+            quantization_scheme = recipe_scheme
+        elif (family, task) not in DEFAULT_QUANTIZATION_SCHEME_BY_MODEL and (
+            _has_depthwise_convs(self._raw_wrapper)
+        ):
+            quantization_scheme = DEPTHWISE_QUANTIZATION_SCHEME
+        else:
+            quantization_scheme = default_quantization_scheme(family, task)
+
+        if getattr(self, "_chain_tail", None) is not None:
+            from .axelera import export_axelera_chain
+
+            logger.info("Step 2/2: Quantizing and compiling for Axelera Metis (2 parts)")
+            return export_axelera_chain(
+                onnx_paths=[onnx_path, self._chain_tail_onnx],
+                output_path=output_path,
+                stem=Path(output_path).name.removesuffix(self.suffix) or "model",
+                metadata=metadata,
+                calibration=calibration_data,
+                quantization_scheme=quantization_scheme,
+                calibration_info=getattr(self, "_calibration_info", {}),
+                compiler_overrides=getattr(self, "_compiler_overrides", {}),
+                devkit_version=getattr(self, "_devkit_version", None),
+                references=[self._raw_wrapper, self._chain_tail],
+                host_step={
+                    "host": "l2norm",
+                    "input": "conv4_3",
+                    "output": "conv4_3_norm",
+                    "scale": list(self._raw_wrapper.l2norm_scale),
+                },
+                verify=bool(verify),
+                verify_samples=self._verify_samples(dummy.shape[-2:]) if verify else None,
+            )
+        logger.info("Step 2/2: Quantizing and compiling for Axelera Metis")
+        return export_axelera(
+            onnx_path=onnx_path,
+            output_path=output_path,
+            stem=Path(output_path).name.removesuffix(self.suffix) or "model",
+            metadata=metadata,
+            calibration=calibration_data,
+            quantization_scheme=quantization_scheme,
+            calibration_info=getattr(self, "_calibration_info", {}),
+            compiler_overrides=getattr(self, "_compiler_overrides", {}),
+            devkit_version=getattr(self, "_devkit_version", None),
+            verify=bool(verify),
+            reference_model=self._raw_wrapper,
+            verify_samples=self._verify_samples(dummy.shape[-2:]) if verify else None,
+            verify_source=getattr(self, "_verify_source", "images"),
+            graph_passes=_AXELERA_GRAPH_PASSES.get(self.model._get_model_name(), ()),
+        )
+
+    def _verify_samples(self, imgsz, limit: int = 32):
+        """Held-out images for ``verify=True``: never the calibration images.
+
+        Taken from the calibration dataset's val/test split; when that split
+        has nothing left (coco128's val is its train split), the bundled
+        sample images are used and the report says so.
+        """
+        import cv2
+        import numpy as np
+
+        from ..data.utils import get_img_files, load_data_config
+
+        used = getattr(self, "_calibration_files", set())
+        files: list[Path] = []
+        try:
+            config = load_data_config(self._calibration_info["data"], autodownload=False)
+            root = str(config.get("path", "."))
+            for split in ("val", "test"):
+                listed = config.get(f"{split}_img_files")
+                if listed is None and config.get(split):
+                    listed = get_img_files(config[split], prefix=root)
+                files.extend(Path(f) for f in (listed or []) if str(Path(f)) not in used)
+        except Exception as exc:  # noqa: BLE001 - verification must not fail the export
+            logger.warning("Axelera verify: could not list held-out images: %s", exc)
+        files = sorted(dict.fromkeys(files))[:limit]
+        source = "held-out dataset images"
+        if not files:
+            assets = Path(__file__).resolve().parents[1] / "assets"
+            files = sorted(p for p in assets.glob("*.jpg") if not p.stem.endswith("_result"))
+            source = "bundled sample images (no held-out dataset images)"
+        preprocess = self._calibration_preprocess()
+        size = tuple(int(v) for v in imgsz)
+        samples = []
+        for path in files:
+            image = cv2.imread(str(path))
+            if image is None:
+                continue
+            chw, _ = preprocess(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), size)
+            samples.append(np.ascontiguousarray(chw[None], dtype=np.float32))
+        self._verify_source = source
+        return samples
+
+
+def _single_image_samples(loader, count: int):
+    """Yield ``count`` calibration images one at a time as ``[1, 3, H, W]``.
+
+    The loader pads its last batch by repeating images; those repeats are
+    dropped so each image weighs once in the quantization statistics.
+    """
+    import numpy as np
+
+    remaining = count
+    for batch in loader:
+        for image in batch:
+            if remaining <= 0:
+                return
+            remaining -= 1
+            yield np.ascontiguousarray(image[None], dtype=np.float32)
+
+
 class NcnnExporter(BaseExporter):
     format_name = "ncnn"
     suffix = "_ncnn"
@@ -2689,6 +4909,29 @@ class TFLiteExporter(BaseExporter):
             check_tflite_export_available,
             check_tflite_int8_available,
         )
+
+        # Validate the INT8 options before anything can touch the live model
+        # (e.g. merging LoRA adapters), so a rejected request leaves it as is.
+        int8_backend = kwargs.get("int8_backend", "converter")
+        int8_output_dtype = kwargs.get("int8_output_dtype", "int8")
+        if int8_backend not in {"converter", "onnx2tf"}:
+            raise ValueError(
+                f"int8_backend must be 'converter' or 'onnx2tf', got {int8_backend!r}"
+            )
+        if int8_output_dtype not in {"int8", "float32"}:
+            raise ValueError(
+                "int8_output_dtype must be 'int8' or 'float32', "
+                f"got {int8_output_dtype!r}"
+            )
+        if (
+            kwargs.get("int8")
+            and int8_backend == "onnx2tf"
+            and int8_output_dtype != "int8"
+        ):
+            raise ValueError(
+                "int8_backend='onnx2tf' always writes int8 input and output tensors; "
+                "int8_output_dtype='float32' requires the default in-process backend."
+            )
 
         family = self.model._get_model_name()
         task = getattr(self.model, "task", "detect")

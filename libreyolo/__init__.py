@@ -42,8 +42,10 @@ _MODEL_EXPORTS = (
     "LibreGTR",
     "LibrePICODET",
     "LibrePPYOLOE",
+    "LibrePPDocLayoutV3",
     "LibreRTDETR",
     "LibreRTDETRv2",
+    "LibreRiODETRv2",
     "LibreRTDETRv4",
     "LibreRTMDet",
     "LibreYOLO3",
@@ -54,16 +56,25 @@ _MODEL_EXPORTS = (
     "LibreHRNet",
     "LibreDEKR",
     "LibreL2CS",
+    "LibreInstantHMR",
     "LibreFOMO",
+    "LibreFlowSeek",
     "LibreMiDaS",
     "LibreDepthAnythingV2",
     "LibreZipDepth",
     "LibreMoGe2",
+    "LibreMoGe3",
     "LibreMarigoldV2",
+    "LibreMEMFOF",
     "LibreTEED",
     "LibreDexiNed",
     "LibreDepthAnything3",
+    "LibreVideoDepthAnything",
+    "LibreSEARAFT",
+    "LibreUniMatch",
+    "LibreDPFlow",
     "LibreNAFNet",
+    "LibreNeuFlowv2",
     "LibreDDColor",
     "LibreHVICIDNet",
     "LibreLaMa",
@@ -78,6 +89,7 @@ _MODEL_EXPORTS = (
     "LibreEoMT",
     "LibreDeepLabv3",
     "LibrePIDNet",
+    "LibreRAFT",
     "LibrePPLiteSeg",
     "LibreUNet",
     "LibreSegformer",
@@ -98,6 +110,7 @@ _MODEL_EXPORTS = (
     "LibrePPOCR",
     "LibreVJEPA2",
     "LibreLeVJEPA",
+    "LibreWAFT",
 )
 _RESULTS_EXPORTS = (
     "Results",
@@ -113,6 +126,7 @@ _RESULTS_EXPORTS = (
     "SemanticMask",
     "PanopticSegmentation",
     "DepthMap",
+    "FlowField",
     "AlbedoMap",
     "EdgeMap",
     "NormalMap",
@@ -126,7 +140,7 @@ _RESULTS_EXPORTS = (
     "Identities",
 )
 
-SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
+SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "guggenheim-bilbao.jpg")
 
 try:
     __version__ = version("libreyolo")
@@ -141,6 +155,18 @@ _DEPRECATED_ALIASES = {
     "LibreYOLORFDETR": "LibreRFDETR",
 }
 
+# Pre-1.0 all-caps names, renamed to PascalCase on 2026-03-01 and still used
+# by dataset cards and old tutorials. Deprecated like the names above, with
+# the import line to use in the warning.
+_DEPRECATED_CAPS_ALIASES = {
+    "LIBREYOLO": "LibreYOLO",
+    "LIBREYOLOX": "LibreYOLOX",
+    "LIBREYOLO9": "LibreYOLO9",
+    "LIBREYOLORFDETR": "LibreRFDETR",
+    "LIBREYOLONCNN": "NcnnBackend",
+}
+_DEPRECATED_ALIASES.update(_DEPRECATED_CAPS_ALIASES)
+
 
 # Lazy imports for optional/heavy modules
 def __getattr__(name):
@@ -149,12 +175,18 @@ def __getattr__(name):
         import sys
         import warnings
 
-        warnings.warn(
-            f"{name} has been renamed to {new_name}. Update your imports — "
-            "the old name will be removed in a future release.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        if name in _DEPRECATED_CAPS_ALIASES:
+            message = (
+                f"{name} is deprecated and will be removed in a future "
+                f"release. Use {new_name} instead: "
+                f"from libreyolo import {new_name}"
+            )
+        else:
+            message = (
+                f"{name} has been renamed to {new_name}. Update your imports — "
+                "the old name will be removed in a future release."
+            )
+        warnings.warn(message, DeprecationWarning, stacklevel=2)
         # ``getattr`` on the module object resolves both eager imports
         # (``LibreRTDETR`` in globals) and the lazy ``__getattr__`` path
         # (``LibreRFDETR``); recursing into ``__getattr__`` directly would
@@ -180,6 +212,7 @@ def __getattr__(name):
         "ExternalDetector": (".ensemble", "ExternalDetector"),
         "OnnxBackend": (".backends.onnx", "OnnxBackend"),
         "OpenVINOBackend": (".backends.openvino", "OpenVINOBackend"),
+        "AxeleraBackend": (".backends.axelera", "AxeleraBackend"),
         "PaddleBackend": (".backends.paddle", "PaddleBackend"),
         "TensorRTBackend": (".backends.tensorrt", "TensorRTBackend"),
         "TritonBackend": (".backends.triton", "TritonBackend"),
@@ -210,10 +243,22 @@ def __getattr__(name):
         "LibreGen": (".models.gen", "LibreGen"),
         "LibreFlux2Klein": (".models.gen", "LibreFlux2Klein"),
         "LibreSanaSprint": (".models.gen", "LibreSanaSprint"),
+        "LibrePRX": (".models.gen", "LibrePRX"),
+        "LibrePRXPixel": (".models.gen", "LibrePRXPixel"),
+        "LibreOpenVisionBanana": (".models.gen", "LibreOpenVisionBanana"),
         "LibreSperidlabsIdol": (".models.gen", "LibreSperidlabsIdol"),
+        "LibreSperidlabsIrisZ": (".models.gen", "LibreSperidlabsIrisZ"),
+        "LibreTripoSplat": (".models.gen", "LibreTripoSplat"),
+        "LibreTRELLIS": (".models.gen", "LibreTRELLIS"),
+        "LibreLGM": (".models.gen", "LibreLGM"),
+        "LibreTripoSR": (".models.gen", "LibreTripoSR"),
+        "LibreCRM": (".models.gen", "LibreCRM"),
+        "LibreTRELLIS2": (".models.gen", "LibreTRELLIS2"),
+        "LibreDirect3DS2": (".models.gen", "LibreDirect3DS2"),
         "LibreVLM": (".models.vlm", "LibreVLM"),
         "LibreLFM2VL": (".models.vlm", "LibreLFM2VL"),
         "LibreQwen3VL": (".models.vlm", "LibreQwen3VL"),
+        "LibreQwen3VLEmbedding": (".models.vlm", "LibreQwen3VLEmbedding"),
         "LibreSmolVLM2": (".models.vlm", "LibreSmolVLM2"),
         "LibreInternVL3": (".models.vlm", "LibreInternVL3"),
         "LibreFlorence2": (".models.vlm", "LibreFlorence2"),
@@ -229,6 +274,11 @@ def __getattr__(name):
         "LibreNorthMicroVision": (".models.vlm", "LibreNorthMicroVision"),
         "LibreSenseNovaVision": (".models.sensenova", "LibreSenseNovaVision"),
         "LibreWeVisOneVL": (".models.wevisone", "LibreWeVisOneVL"),
+        "LibreDeepSeekOCR": (".models.deepseekocr", "LibreDeepSeekOCR"),
+        "LibrePaddleOCRVL": (".models.paddleocrvl", "LibrePaddleOCRVL"),
+        "LibreGLMOCR": (".models.glmocr", "LibreGLMOCR"),
+        "LibreFalconOCR": (".models.falconocr", "LibreFalconOCR"),
+        "LibreFalconPerception": (".models.falcon_perception", "LibreFalconPerception"),
         "LibreMODUS": (".models.modus", "LibreMODUS"),
         "LibreModus": (".models.modus", "LibreModus"),
         "LibreDetAny3D": (".models.detany3d", "LibreDetAny3D"),
@@ -240,6 +290,7 @@ def __getattr__(name):
         "LibreSAM2": (".models.sam", "LibreSAM2"),
         "LibreEdgeTAM": (".models.sam", "LibreEdgeTAM"),
         "LibreSAM3": (".models.sam", "LibreSAM3"),
+        "LibreSAM31": (".models.sam", "LibreSAM31"),
         "LibreMobileSAM": (".models.mobilesam", "LibreMobileSAM"),
         "LibrePicoSAM3": (".models.picosam3", "LibrePicoSAM3"),
         "LibreOpenVocab": (".models.openvocab", "LibreOpenVocab"),
@@ -266,6 +317,14 @@ def __getattr__(name):
         module_path, attr = _lazy[name]
         mod = importlib.import_module(module_path, package=__name__)
         return getattr(mod, attr)
+
+    # Ultralytics class names (YOLO, RTDETR, ...) get the LibreYOLO spelling
+    # in the error. Not an alias: the name still does not resolve.
+    from .utils.ultralytics_hints import class_name_hint, raise_class_name_hint
+
+    hint = class_name_hint(name)
+    if hint is not None:
+        raise_class_name_hint(name, __name__, __file__, hint)
     raise AttributeError(f"module 'libreyolo' has no attribute '{name}'")
 
 
@@ -286,6 +345,7 @@ __all__ = [
     "LibreYOLOX",
     "LibreRTDETR",
     "LibreRTDETRv2",
+    "LibreRiODETRv2",
     "LibreRTDETRv4",
     "LibreRFDETR",
     "LibreDFINE",
@@ -308,6 +368,7 @@ __all__ = [
     "LibreGTR",
     "LibrePICODET",
     "LibrePPYOLOE",
+    "LibrePPDocLayoutV3",
     "LibreRTMDet",
     "LibreYOLO3",
     "LibreYOLO4",
@@ -317,16 +378,25 @@ __all__ = [
     "LibreHRNet",
     "LibreDEKR",
     "LibreL2CS",
+    "LibreInstantHMR",
     "LibreFOMO",
+    "LibreFlowSeek",
     "LibreMiDaS",
     "LibreDepthAnythingV2",
     "LibreZipDepth",
     "LibreMoGe2",
+    "LibreMoGe3",
     "LibreMarigoldV2",
+    "LibreMEMFOF",
     "LibreTEED",
     "LibreDexiNed",
     "LibreDepthAnything3",
+    "LibreVideoDepthAnything",
+    "LibreSEARAFT",
+    "LibreUniMatch",
+    "LibreDPFlow",
     "LibreNAFNet",
+    "LibreNeuFlowv2",
     "LibreDDColor",
     "LibreHVICIDNet",
     "LibreLaMa",
@@ -341,6 +411,7 @@ __all__ = [
     "LibreEoMT",
     "LibreDeepLabv3",
     "LibrePIDNet",
+    "LibreRAFT",
     "LibrePPLiteSeg",
     "LibreUNet",
     "LibreSegformer",
@@ -361,11 +432,13 @@ __all__ = [
     "LibrePPOCR",
     "LibreVJEPA2",
     "LibreLeVJEPA",
+    "LibreWAFT",
     "LibreDINOv2",
     # VLM-as-detector tier (optional, requires libreyolo[vlm])
     "LibreVLM",
     "LibreLFM2VL",
     "LibreQwen3VL",
+    "LibreQwen3VLEmbedding",
     "LibreSmolVLM2",
     "LibreInternVL3",
     "LibreFlorence2",
@@ -381,6 +454,11 @@ __all__ = [
     "LibreMolmo2",
     "LibreNorthMicroVision",
     "LibreWeVisOneVL",
+    "LibreDeepSeekOCR",
+    "LibrePaddleOCRVL",
+    "LibreGLMOCR",
+    "LibreFalconOCR",
+    "LibreFalconPerception",
     "LibreMODUS",
     "LibreModus",
     # OpenAI-compatible LLM client (optional, requires libreyolo[llm])
@@ -394,7 +472,18 @@ __all__ = [
     "LibreGen",
     "LibreFlux2Klein",
     "LibreSanaSprint",
+    "LibrePRX",
+    "LibrePRXPixel",
+    "LibreOpenVisionBanana",
     "LibreSperidlabsIdol",
+    "LibreSperidlabsIrisZ",
+    "LibreTripoSplat",
+    "LibreTRELLIS",
+    "LibreLGM",
+    "LibreTripoSR",
+    "LibreCRM",
+    "LibreTRELLIS2",
+    "LibreDirect3DS2",
     # Calibrated native monocular 3D detection
     "LibreFCOS3D",
     # Promptable 3D detection (separately installed upstream runtime)
@@ -407,6 +496,7 @@ __all__ = [
     "LibreSAM2",
     "LibreEdgeTAM",
     "LibreSAM3",
+    "LibreSAM31",
     "LibreMobileSAM",
     "LibrePicoSAM3",
     # Open-vocabulary detector tier (optional, requires libreyolo[openvocab])
@@ -428,6 +518,7 @@ __all__ = [
     "SemanticMask",
     "PanopticSegmentation",
     "DepthMap",
+    "FlowField",
     "AlbedoMap",
     "EdgeMap",
     "NormalMap",
@@ -457,6 +548,7 @@ __all__ = [
     # Lazy-loaded
     "OnnxBackend",
     "OpenVINOBackend",
+    "AxeleraBackend",
     "PaddleBackend",
     "TensorRTBackend",
     "TritonBackend",

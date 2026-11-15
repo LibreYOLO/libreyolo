@@ -178,7 +178,7 @@ class TestPredict:
 
     def test_predict_basic(self, app):
         result = runner.invoke(
-            app, ["predict", "source=libreyolo/assets/parkour.jpg", "model=yolox-s"]
+            app, ["predict", "source=tests/data/parkour.jpg", "model=yolox-s"]
         )
         assert result.exit_code == 0
         assert "person" in result.output
@@ -188,7 +188,7 @@ class TestPredict:
             app,
             [
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "model=yolox-s",
                 "--json",
             ],
@@ -205,7 +205,7 @@ class TestPredict:
             app,
             [
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "model=yolox-s",
                 "conf=0.9",
                 "--json",
@@ -222,7 +222,7 @@ class TestPredict:
             app,
             [
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "model=yolox-s",
                 "conf=0.5",
             ],
@@ -237,7 +237,7 @@ class TestPredict:
             [
                 "predict",
                 "--source",
-                "libreyolo/assets/parkour.jpg",
+                "tests/data/parkour.jpg",
                 "--model",
                 "yolox-s",
                 "--conf",
@@ -253,7 +253,7 @@ class TestPredict:
             app,
             [
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "--model",
                 "yolox-s",
                 "conf=0.5",
@@ -270,7 +270,7 @@ class TestPredict:
             app,
             [
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "model=yolox-s",
                 "half",
                 "save",
@@ -287,7 +287,7 @@ class TestPredict:
             app,
             [
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "model=yolox-s",
                 "save",
                 "--json",
@@ -303,7 +303,7 @@ class TestPredict:
             app,
             [
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "model=weights/LibreYOLOXs.pt",
                 "--json",
             ],
@@ -320,7 +320,7 @@ class TestPredict:
             app,
             [
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "model=weights/LibreYOLOXs.pt",
                 "imgsz=320",
                 "--json",
@@ -367,7 +367,7 @@ class TestPredict:
                 "libreyolo",
                 "detect",
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "model=yolox-s",
                 "--json",
             ],
@@ -505,7 +505,7 @@ class TestPredictMultiFamily:
             app,
             [
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "model=yolo9-t",
                 "--json",
             ],
@@ -525,7 +525,7 @@ class TestPredictMultiFamily:
             app,
             [
                 "predict",
-                "source=libreyolo/assets/parkour.jpg",
+                "source=tests/data/parkour.jpg",
                 "model=rfdetr-n",
                 "--json",
             ],

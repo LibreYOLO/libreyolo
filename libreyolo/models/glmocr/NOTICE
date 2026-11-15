@@ -1,0 +1,40 @@
+LibreGLMOCR - third-party attribution
+=====================================
+
+The GLM-OCR family runs both of its networks through the native Hugging Face
+transformers classes (GlmOcrForConditionalGeneration and
+PPDocLayoutV3ForObjectDetection with PPDocLayoutV3ImageProcessor, Apache-2.0)
+and ports the document-parsing pipeline around them from the official GLM-OCR
+SDK.
+
+    Project:  GLM-OCR SDK (glmocr)
+    Upstream: https://github.com/zai-org/GLM-OCR
+    Commit:   0288f96bb9e78cb439883eaa725eeae90bd177c5
+    License:  Apache License 2.0
+    Copyright (c) Z.ai (zai-org)
+
+Ported or adapted files (each keeps an SPDX header with this provenance):
+
+  * layout.py    <- glmocr/utils/layout_postprocess_utils.py (iou, nms,
+                    check_containment, unclip_boxes, apply_layout_postprocess),
+                    glmocr/layout/layout_detector.py (per-class thresholds,
+                    label to task routing, 0-1000 boxes) and the layout
+                    section of glmocr/config.yaml
+  * regions.py   <- glmocr/utils/image_utils.py (smart_resize,
+                    load_image_to_base64, crop_image_region) and
+                    glmocr/dataloader/page_loader.py (task prompts and
+                    request defaults)
+  * formatter.py <- glmocr/postprocess/result_formatter.py (ResultFormatter)
+                    and glmocr/utils/result_postprocess_utils.py
+
+LibreYOLO adaptations: the model server request is replaced by in-process
+transformers generation with the SDK's decoding settings; the JPEG round trip
+is done in memory; picture regions are not exported as image files and carry
+no markdown line; PDF loading, polygon crops, the MaaS client and the
+visualization helpers are not ported. The no-layout mode
+(use_layout_detection=False) is a LibreYOLO addition.
+
+Model weights: LibreYOLO/LibreGLMOCR0.9b on Hugging Face mirrors, unmodified,
+
+    zai-org/GLM-OCR                          2e85a62840ccac27daa451df36c736c4636b8628  (MIT, per the model card)
+    PaddlePaddle/PP-DocLayoutV3_safetensors  e4f489dc536556fc1be02b973ba06756e0d4a2ac  (Apache-2.0, under layout/)

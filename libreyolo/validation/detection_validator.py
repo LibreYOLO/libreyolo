@@ -99,6 +99,10 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
     confusion_matrix = None
     #: ``results.box`` curve arrays (#928), set by ``_compute_metrics``.
     confidence_curves = None
+    #: ``results.box.maps`` / ``results.seg.maps``: AP50-95 per class index,
+    #: set by ``_compute_metrics``.
+    per_class_ap = None
+    mask_per_class_ap = None
 
     def __init__(
         self,
@@ -1435,6 +1439,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         metrics.update(self._validation_loss_metrics())
         metrics.update(self._best_conf_metrics())
         self.confidence_curves = self._confidence_curves(self.coco_evaluator)
+        self.per_class_ap = self._per_class_ap(self.coco_evaluator)
         return metrics
 
     @staticmethod
@@ -1453,6 +1458,18 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             return curves_fn()
         except Exception as exc:
             logger.debug("Confidence curves unavailable: %s", exc)
+            return None
+
+    @staticmethod
+    def _per_class_ap(evaluator) -> Optional[Dict[int, float]]:
+        """AP50-95 per class index for ``results.box.maps`` / ``seg.maps``."""
+        per_class_fn = getattr(evaluator, "per_class_ap", None)
+        if not callable(per_class_fn):
+            return None
+        try:
+            return per_class_fn()
+        except Exception as exc:
+            logger.debug("Per-class AP unavailable: %s", exc)
             return None
 
     def _class_display_name(self, label: int) -> str:
@@ -1680,6 +1697,8 @@ class SegmentationValidator(DetectionValidator):
         # getattr: tests substitute lightweight evaluator stubs.
         self.eval_backend = getattr(self.bbox_evaluator, "last_backend", None)
         self.confidence_curves = self._confidence_curves(self.bbox_evaluator)
+        self.per_class_ap = self._per_class_ap(self.bbox_evaluator)
+        self.mask_per_class_ap = self._per_class_ap(self.mask_evaluator)
 
         return {
             "metrics/mAP50-95": mask["mAP"],
@@ -1700,8 +1719,10 @@ class SegmentationValidator(DetectionValidator):
             "metrics/recall(B)": bbox["recall"],
             "metrics/mAP50(B)": bbox["mAP50"],
             "metrics/mAP50-95(B)": bbox["mAP"],
+            "metrics/mAP75(B)": bbox["mAP75"],
             "metrics/precision(M)": mask["precision"],
             "metrics/recall(M)": mask["recall"],
             "metrics/mAP50(M)": mask["mAP50"],
             "metrics/mAP50-95(M)": mask["mAP"],
+            "metrics/mAP75(M)": mask["mAP75"],
         }

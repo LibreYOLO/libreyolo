@@ -1,0 +1,31 @@
+DPFlow vendored code
+--------------------
+
+Derived from ptlflow (https://github.com/hmorimitsu/ptlflow), directory
+ptlflow/models/dpflow, commit 43cdc2b5fc7228e7090009a66e8e28e0b48e31ba.
+Copyright 2025 Henrique Morimitsu. Licensed under the Apache License,
+Version 2.0 (see LICENSE in this directory, copied verbatim from
+ptlflow/models/dpflow/LICENSE).
+
+Files and changes:
+- cgu.py, cgu_bidir_dual_encoder.py, conv.py, norm.py, pwc_modules.py,
+  res_stem.py, update.py, utils.py, local_timm/: verbatim (local_timm is
+  derived from timm by Ross Wightman, Apache-2.0; an empty __init__.py was
+  added to local_timm/).
+- corr.py: imports point at the vendored correlation.py; einops
+  rearrange calls replaced by equivalent torch permute/reshape.
+- correlation.py: ptlflow/utils/correlation.py (Copyright 2021 Henrique
+  Morimitsu, Apache-2.0); einops rearrange replaced by torch ops.
+- padder.py: ptlflow's InputPadder (ptlflow/utils/external/raft.py and
+  ptlflow/utils/utils.py), adapted from princeton-vl/RAFT, BSD-3-Clause,
+  Copyright (c) 2020 princeton-vl; the BSD license text is in the header.
+- dpflow.py: inference-only rewrite of ptlflow/models/dpflow/dpflow.py on
+  torch.nn.Module. Removed: Lightning BaseModel, SequenceLoss, registry
+  decorators, loguru, warm start (prev_preds), training outputs, and the
+  corr modes other than "allpairs" and "torch". The "torch" engine is
+  called with chunk_size=9 (exact, lower peak memory). ptlflow's
+  preprocess_images and postprocess_predictions are inlined for the
+  settings DPFlow uses.
+
+Weights: the ptlflow-trained DPFlow checkpoints are CC BY-NC-SA 4.0 and are
+not covered by the Apache License above.

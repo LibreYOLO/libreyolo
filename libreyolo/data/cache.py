@@ -80,6 +80,17 @@ class ImageCacheMixin:
     cache: str | None = None
     _ram_cache: list | None = None
     _resized_ram_cache: list | None = None
+    # 1 converts every image to three identical gray channels (dataset YAML
+    # ``channels: 1``). Applied after the caches, which always hold the
+    # decoded colour image, so RGB and grayscale runs can share them.
+    input_channels: int = 3
+
+    def _to_input_channels(self, img: np.ndarray) -> np.ndarray:
+        if self.input_channels == 3:
+            return img
+        from ..utils.input_channels import apply_dataset_channels
+
+        return apply_dataset_channels(img, self.input_channels)
 
     def enable_image_cache(self, cache) -> None:
         """Configure caching from a user ``cache`` flag. Idempotent; safe with False."""
@@ -95,6 +106,9 @@ class ImageCacheMixin:
             )
 
     def load_image(self, index: int) -> np.ndarray:
+        return self._to_input_channels(self._load_image_cached(index))
+
+    def _load_image_cached(self, index: int) -> np.ndarray:
         cache = getattr(self, "cache", None)
         if cache == "ram":
             img = self._ram_cache[index]
@@ -116,6 +130,9 @@ class ImageCacheMixin:
         double the footprint for no reuse, since families that consume the
         resized frame never read the decoded one again.
         """
+        return self._to_input_channels(self._load_resized_cached(index))
+
+    def _load_resized_cached(self, index: int) -> np.ndarray:
         cache = getattr(self, "cache", None)
         if cache == "ram":
             img = self._resized_ram_cache[index]

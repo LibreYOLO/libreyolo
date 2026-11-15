@@ -8,6 +8,11 @@ from typing import Any, Dict, Iterable, List, Type, Union
 
 import torch
 
+
+class OptimizerStateMigrationError(ValueError):
+    """A checkpoint cannot be migrated safely; never resume with fresh moments."""
+
+
 ParamsLike = Iterable[Union[torch.Tensor, Dict[str, Any]]]
 
 #: Optimizers that must never take the fused path. torch's fused SGD (2.11

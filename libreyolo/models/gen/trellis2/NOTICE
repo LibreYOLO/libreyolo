@@ -1,0 +1,56 @@
+LibreTRELLIS2 includes code adapted from TRELLIS.2:
+
+Source: https://github.com/microsoft/TRELLIS.2 (commit 75fbf0183001ed9876c8dbb35de6b68552ee08bd)
+License: MIT.
+Copyright (c) Microsoft Corporation. Authors: Jianfeng Xiang, Xiaoxue Chen,
+Sicheng Xu, Ruicheng Wang, Zelong Lv, Yu Deng, Hongyuan Zhu, Yue Dong, Hao
+Zhao, Nicholas Jing Yuan, Jiaolong Yang.
+
+Adapted, with upstream's module and parameter names so the released
+safetensors load with strict=True: the sparse-structure flow model, the
+shape-latent flow model, the flexible-dual-grid VAE decoder and their blocks
+(trellis2/models, trellis2/modules), the 3D rotary position embedding, the
+channel-to-space upsampling (trellis2/modules/sparse/spatial), the flow
+sampler with guidance interval and rescale (trellis2/pipelines/samplers),
+the image preprocessing, DINOv3 feature extraction and the geometry stages
+of trellis2/pipelines/trellis2_image_to_3d.py, and the dual-grid meshing of
+o-voxel/o_voxel/convert/flexible_dual_grid.py (o-voxel is part of the same
+MIT repository; Copyright (C) 2025 Jianfeng Xiang).
+
+Reused from LibreYOLO's TRELLIS family (libreyolo/models/gen/trellis/,
+adapted from the MIT TRELLIS repository): the sparse tensor, the
+submanifold convolution as a gathered GEMM, sparse attention through
+PyTorch SDPA, and TRELLIS's sparse-structure decoder, which TRELLIS.2 uses
+unchanged.
+
+Written for LibreYOLO, replacing upstream's CUDA-only extensions: the
+submanifold convolution (upstream: FlexGEMM, MIT,
+https://github.com/JeffreyXiang/FlexGEMM, whose weight layout
+[out, kx, ky, kz, in] and neighbour order are kept) runs as the gathered
+GEMM above, with its neighbours found by binary search in sorted voxel keys
+on grids too large for a dense lookup table; the variable-length attention
+(upstream: flash-attn) runs through scaled_dot_product_attention; the
+o-voxel CUDA hash map of the meshing is a binary search in sorted keys.
+
+Not used: nvdiffrast and nvdiffrec (NVIDIA Source Code Licenses,
+non-commercial) and BRIA's RMBG-2.0 background remover (non-commercial
+licence); background removal runs on LibreYOLO's BiRefNet network. Not
+ported: the texture stage, CuMesh post-processing (MIT) and the encoders.
+
+Other changes from upstream: noise is drawn from an explicit CPU
+torch.Generator seeded like upstream seeds the global one, which yields the
+same numbers; the networks run in their published precision on CUDA and
+MPS, and in fp32 on CPU; on MPS the rotary embedding is computed in real
+arithmetic (MPS has no complex multiply).
+
+Weights: microsoft/TRELLIS.2-4B (MIT), the geometry networks redistributed
+unchanged by LibreYOLO as LibreYOLO/LibreTRELLIS2-4b; TRELLIS's
+sparse-structure decoder and the BiRefNet weights (ZhengPeng7/BiRefNet, MIT)
+from LibreYOLO/LibreTRELLISl; facebook/dinov3-vitl16-pretrain-lvd1689m
+(Meta DINOv3 License) redistributed unchanged as LibreYOLO/LibreDINOv3vitl16
+with the agreement. All at pinned revisions.
+
+TRELLIS.2 citation:
+Jianfeng Xiang, Xiaoxue Chen, Sicheng Xu, Ruicheng Wang, Zelong Lv, Yu Deng,
+Hongyuan Zhu, Yue Dong, Hao Zhao, Nicholas Jing Yuan, Jiaolong Yang.
+"Native and Compact Structured Latents for 3D Generation." arXiv:2512.14692.

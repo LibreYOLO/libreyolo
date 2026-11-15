@@ -161,6 +161,7 @@ class CoreMLBackend(BaseBackend):
             supported_tasks=supported_tasks,
             default_task=default_task,
             letterbox_pad=meta.get("letterbox_pad"),
+            channels=meta.get("channels"),
             **pose_metadata,
         )
 
@@ -288,6 +289,8 @@ class CoreMLBackend(BaseBackend):
         canonical RGB uint8 image directly and let the traced wrapper do its job.
         """
         img = ImageLoader.load(image, color_format=color_format)
+        if getattr(self, "input_channels", 3) == 1:
+            img = img.convert("L").convert("RGB")
         original_size = img.size  # (W, H)
         original_img = img.copy()
         input_h, input_w = _imgsz_hw(effective_imgsz)
@@ -298,8 +301,14 @@ class CoreMLBackend(BaseBackend):
             # the traced graph applies those transforms internally).
             arr = np.array(img)
             orig_h, orig_w = arr.shape[:2]
+            if orig_h == 0 or orig_w == 0:
+                raise ValueError(
+                    f"Image has an empty dimension: {orig_w}x{orig_h} (WxH)."
+                )
             ratio = min(input_h / orig_h, input_w / orig_w)
-            new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
+            # Clamp so extreme aspect ratios (e.g. 1x2000) don't truncate to a 0-px side.
+            new_w = max(1, int(orig_w * ratio))
+            new_h = max(1, int(orig_h * ratio))
             resized = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
             padded = Image.new("RGB", (input_w, input_h), (114, 114, 114))
             padded.paste(resized, (0, 0))
@@ -409,7 +418,8 @@ class CoreMLBackend(BaseBackend):
 
         hwc = np.transpose(blob[0], (1, 2, 0))
         uint8 = np.ascontiguousarray(np.clip(hwc, 0, 255).astype(np.uint8))
-        pil = Image.fromarray(uint8)
+        # Grayscale packages (``channels: 1``) take an "L" image.
+        pil = Image.fromarray(uint8[..., 0] if uint8.shape[2] == 1 else uint8)
 
         out = self.model.predict({"image": pil})
         return [np.asarray(out[name]) for name in self.output_names if name in out]

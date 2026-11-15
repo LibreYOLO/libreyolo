@@ -342,10 +342,12 @@ class DINOv2Encoder(nn.Module):
             "dinov2_vits14": ("vits", 384),
             "dinov2_vitb14": ("vitb", 768),
             "dinov2_vitl14": ("vitl", 1024),
+            # Used by MoGe-3 ViT-g (libreyolo.models.moge3).
+            "dinov2_vitg14": ("vitg", 1536),
         }
         if backbone not in backbone_configs:
             raise ValueError(
-                f"Unsupported MoGe-2 backbone {backbone!r}; expected one of "
+                f"Unsupported MoGe backbone {backbone!r}; expected one of "
                 f"{sorted(backbone_configs)}."
             )
         encoder_name, feature_dim = backbone_configs[backbone]

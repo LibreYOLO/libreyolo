@@ -20,9 +20,17 @@ MAX_SIZE_RATIO = 1333 / 800
 SIZE_DIVISIBLE = 32
 
 
-def resize_scale(original_size: Tuple[int, int], input_size: int) -> float:
-    """Return the upstream continuous aspect-preserving resize factor."""
+def resize_scale(
+    original_size: Tuple[int, int], input_size: int, fixed_canvas: bool = False
+) -> float:
+    """Return the upstream continuous aspect-preserving resize factor.
+
+    ``fixed_canvas`` fits the whole image into an ``input_size`` square instead
+    (longer side = ``input_size``), for fixed-shape exports.
+    """
     original_width, original_height = original_size
+    if fixed_canvas:
+        return min(input_size / original_height, input_size / original_width)
     max_size = round(input_size * MAX_SIZE_RATIO)
     return min(
         input_size / min(original_height, original_width),
@@ -30,8 +38,13 @@ def resize_scale(original_size: Tuple[int, int], input_size: int) -> float:
     )
 
 
-def preprocess_tensor(image: torch.Tensor, input_size: int = 800) -> torch.Tensor:
+def preprocess_tensor(
+    image: torch.Tensor, input_size: int = 800, fixed_canvas: bool = False
+) -> torch.Tensor:
     """Normalize, aspect-resize, and bottom/right-pad one RGB CHW tensor.
+
+    ``fixed_canvas`` fits the image into an ``input_size`` square and pads to
+    exactly that square (fixed-shape exports such as Axelera).
 
     ``image`` must be floating point in the [0, 1] range. The interpolation
     call deliberately uses ``scale_factor`` plus ``recompute_scale_factor`` to
@@ -46,7 +59,9 @@ def preprocess_tensor(image: torch.Tensor, input_size: int = 800) -> torch.Tenso
     mean = torch.as_tensor(IMAGE_MEAN, dtype=image.dtype, device=image.device)
     std = torch.as_tensor(IMAGE_STD, dtype=image.dtype, device=image.device)
     normalized = (image - mean[:, None, None]) / std[:, None, None]
-    scale = resize_scale((int(image.shape[2]), int(image.shape[1])), input_size)
+    scale = resize_scale(
+        (int(image.shape[2]), int(image.shape[1])), input_size, fixed_canvas
+    )
     resized = F.interpolate(
         normalized.unsqueeze(0),
         scale_factor=scale,
@@ -55,13 +70,16 @@ def preprocess_tensor(image: torch.Tensor, input_size: int = 800) -> torch.Tenso
         align_corners=False,
     )[0]
     height, width = resized.shape[-2:]
-    padded_height = math.ceil(height / SIZE_DIVISIBLE) * SIZE_DIVISIBLE
-    padded_width = math.ceil(width / SIZE_DIVISIBLE) * SIZE_DIVISIBLE
+    if fixed_canvas:
+        padded_height = padded_width = int(input_size)
+    else:
+        padded_height = math.ceil(height / SIZE_DIVISIBLE) * SIZE_DIVISIBLE
+        padded_width = math.ceil(width / SIZE_DIVISIBLE) * SIZE_DIVISIBLE
     return F.pad(resized, (0, padded_width - width, 0, padded_height - height))
 
 
 def preprocess_numpy(
-    img_rgb_hwc: np.ndarray, input_size: int = 800
+    img_rgb_hwc: np.ndarray, input_size: int = 800, fixed_canvas: bool = False
 ) -> Tuple[np.ndarray, float]:
     """Return normalized padded CHW float32 pixels and the resize factor."""
     array = np.asarray(img_rgb_hwc)
@@ -70,9 +88,14 @@ def preprocess_numpy(
             f"RetinaNet expects an RGB HWC image, got {tuple(array.shape)}"
         )
     tensor = torch.from_numpy(np.ascontiguousarray(array.transpose(2, 0, 1)))
+    if isinstance(input_size, (tuple, list)):  # (h, w) from export calibration
+        height, width = (int(v) for v in input_size)
+        if height != width:
+            raise ValueError(f"RetinaNet needs a square size, got {height}x{width}.")
+        input_size = height
     tensor = tensor.to(torch.float32) / 255.0
-    processed = preprocess_tensor(tensor, input_size=input_size)
-    ratio = resize_scale((array.shape[1], array.shape[0]), input_size)
+    processed = preprocess_tensor(tensor, input_size=input_size, fixed_canvas=fixed_canvas)
+    ratio = resize_scale((array.shape[1], array.shape[0]), input_size, fixed_canvas)
     return np.ascontiguousarray(processed.numpy()), ratio
 
 
@@ -80,11 +103,12 @@ def preprocess_image(
     image: ImageInput,
     input_size: int = 800,
     color_format: str = "auto",
+    fixed_canvas: bool = False,
 ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
     """Load and apply RetinaNet's upstream inference transform once."""
     loaded = ImageLoader.load(image, color_format=color_format)
     original_size = loaded.size
-    image_chw, ratio = preprocess_numpy(np.asarray(loaded), input_size)
+    image_chw, ratio = preprocess_numpy(np.asarray(loaded), input_size, fixed_canvas)
     return torch.from_numpy(image_chw).unsqueeze(0), loaded, original_size, ratio
 
 

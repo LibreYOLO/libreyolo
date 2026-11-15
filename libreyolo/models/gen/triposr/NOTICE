@@ -1,0 +1,37 @@
+LibreTripoSR includes code adapted from TripoSR:
+
+Source: https://github.com/VAST-AI-Research/TripoSR (commit 107cefdc244c39106fa830359024f6a2f1c78871)
+License: MIT.
+Copyright (c) 2024 Tripo AI & Stability AI.
+
+Adapted, with upstream's module and parameter names so the released
+model.ckpt loads with strict=True: the triplane tokenizer
+(tsr/models/tokenizers/triplane.py), the triplane upsampler and NeRF MLP
+(tsr/models/network_utils.py), the triplane query (tsr/models/nerf_renderer.py),
+the mesh extraction (tsr/system.py, tsr/models/isosurface.py) and the input
+preprocessing (run.py, tsr/utils.py).
+
+Upstream's transformer (tsr/models/transformer/: transformer_1d.py,
+basic_transformer_block.py, attention.py) is HuggingFace diffusers code,
+Apache-2.0, Copyright 2023 The HuggingFace Team, modified 2024 by Tripo AI
+and Stability AI. The port's Transformer1D, attention and GEGLU feed-forward
+are adapted from it. The DINO ViT-B/16 image encoder follows the ViT of
+HuggingFace transformers 4.35.0 (Apache-2.0, Copyright The HuggingFace
+Team), which upstream loads (src/transformers/models/vit/modeling_vit.py),
+including its position-embedding interpolation. The Apache-2.0 license text
+is in licenses/Apache-2.0.txt.
+
+Not used: torchmcubes (MPL-2.0; marching cubes runs through scikit-image,
+BSD-3-Clause), rembg (background removal runs on LibreYOLO's BiRefNet
+network), and upstream's texture baking (tsr/bake_texture.py, xatlas and
+moderngl) and NeRF video rendering.
+
+Weights: stabilityai/TripoSR (MIT), redistributed unchanged by LibreYOLO as
+LibreYOLO/LibreTripoSR; BiRefNet weights (ZhengPeng7/BiRefNet, MIT) from
+LibreYOLO/LibreTRELLISl. Both at pinned revisions.
+
+TripoSR citation:
+Dmitry Tochilkin, David Pankratz, Zexiang Liu, Zixuan Huang, Adam Letts,
+Yangguang Li, Ding Liang, Christian Laforte, Varun Jampani, Yan-Pei Cao.
+"TripoSR: Fast 3D Object Reconstruction from a Single Image."
+arXiv:2403.02151, 2024.

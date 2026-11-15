@@ -18,6 +18,9 @@ Applies to `detect`, `segment`, `pose`, and `obb`.
 - `download`: optional; Python download scripts require explicit opt-in.
 - `annotations`: optional mapping of split names to native COCO JSON files for
   detection, instance segmentation, and OBB.
+- `channels`: optional, `1` or `3` (default). `1` trains a grayscale model;
+  see [Grayscale input](#grayscale-input). `2` is reserved for event
+  histograms with an `input_profile`.
 
 `train`, `val`, and `test` may be image directories, image-list `.txt` files,
 or lists of those values. Label paths follow:
@@ -43,6 +46,36 @@ class names; those names define the model label IDs. Without `names`, COCO
 category IDs are sorted and mapped densely to `0..N-1`.
 
 Do not require `task` in dataset YAML. Explicit model/task selection wins.
+
+### Grayscale input
+
+`channels: 1` is the same key Ultralytics uses. Images stay ordinary files,
+colour or gray: every image is converted to luma when it is read, for
+training, validation and prediction, so no separate grayscale copy of the
+dataset is needed. The image caches hold the decoded colour image, so RGB and
+grayscale runs can share a dataset folder.
+
+The model's input convolution is replaced with a one-channel convolution.
+Starting from pretrained weights, its weights are the RGB weights summed.
+For families that only divide by 255 this gives exactly the RGB model's
+response to a gray image; for families with per-channel mean and std it is
+a close starting point that training adapts. The checkpoint stores
+`channels: 1`; loading it restores the one-channel model, and `predict()`
+converts every input image to gray. Exports trace with a one-channel input,
+so the exported graph consumes `(N, 1, H, W)` and its metadata carries
+`channels: 1`. Preprocessing is otherwise the family's usual one, applied to
+the gray plane. Runtimes outside LibreYOLO feed the luma plane
+(`0.299 R + 0.587 G + 0.114 B`) with the family's scaling. Families that
+divide by 255 take `gray / 255`. Families with per-channel mean and std take
+the average of the three normalized planes, which is one mean and std: for
+ImageNet statistics, `(gray / 255 - 0.4488) / 0.2260`.
+
+Supported on YOLO9 (and YOLO9-E2E, YOLO9-P2), YOLO7, YOLOX, YOLO-NAS,
+RTMDet, PP-YOLOE, PicoDet, D-FINE, DEIM, DEIMv2, RT-DETR, RT-DETRv2,
+RT-DETRv4, RF-DETR, EC and FOMO, for every task, training mode and export
+format each family already supports.
+A dataset declaring `channels: 3` cannot train a grayscale model; omit the
+key to keep the model's channels.
 
 Common label rules:
 
@@ -224,6 +257,43 @@ YAML adds two optional keys on top of the common contract:
 Float `.npy` maps are used as-is and do not apply `depth_scale`.
 
 Canonical loader: `libreyolo.data.DepthDataset`.
+
+## flow
+
+Optical flow pairs consecutive frames of a sequence with a dense two-channel
+displacement field instead of a `.txt` label file. Frames live in one folder
+per sequence and are ordered by file name. The flow stored for a frame points
+from that frame to the next one, so the last frame of a sequence has no flow
+file:
+
+```text
+images/<split>/<sequence>/frame_0001.png -> <flows_dir>/<split>/<sequence>/frame_0001.flo
+```
+
+Flow rules:
+
+- Middlebury `.flo` (default), KITTI 16-bit PNG (`flow_format: kitti`, three
+  channels: `dx` and `dy` stored as `value * 64 + 2^15`, plus a valid bit) or
+  `.npy` `(H, W, 2)` float32, selected by `flow_format`;
+- field resolution must equal the paired frame resolution;
+- values are pixel displacements on the frame canvas, `+x` right, `+y` down;
+- non-finite values, KITTI invalid bits and an optional `<stem>_valid.png`
+  mask next to the flow file (zero means invalid) exclude pixels from loss
+  and metrics.
+
+YAML adds two optional keys on top of the common contract:
+
+- `flows_dir`: flow directory name substituted for `images` in each frame
+  path (default `flows`).
+- `flow_format`: `flo` (default), `kitti` or `npy`.
+- `flow_valid_suffix`: suffix of the optional validity mask stored next to
+  each flow file as `<stem><suffix>.png` (default `_valid`).
+
+Validation reports `metrics/epe` (mean end-point error), `metrics/px1` and
+`metrics/px3` (fraction of valid pixels under 1 and 3 px of error) and
+`metrics/fl_all` (KITTI outlier rate); fitness is `metrics/px1`. See ADR 0032.
+
+Canonical loader: `libreyolo.data.FlowDataset`.
 
 ## edge
 
@@ -438,9 +508,19 @@ Two layouts are accepted:
 
 The class-like YAML fields are schema placeholders: use `nc: 1` and
 `names: {0: text}`. OCR models expose `Results.ocr`, not detections.
+Document models may also fill two prediction-side extras on `Results.ocr`:
+`labels` (per-region layout category, `None` for line-level OCR) and
+`markdown` (the whole page as text, `""` when absent; a page-text-only
+prediction has zero regions). Validation scores regions only.
 
 Validation is inference-only in v1 (OCR training is out of scope). Canonical
 sample resolver: `libreyolo.data.ocr_dataset.resolve_ocr_samples`.
+
+Predictions may carry two optional extras on `Results.ocr`: `labels`, one
+layout class per region (for example `text`, `table`, `display_formula`), and
+`markdown`, the page-level document the regions assemble into. Line-level OCR
+families leave them as `None` and `""`. Validation ignores both; block-level
+parsers are scored against ground truth whose regions are blocks.
 
 ## pose
 

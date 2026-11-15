@@ -22,6 +22,7 @@ import torch
 
 from ...utils.image_loader import SUPPORTED_EXTENSIONS, ImageLoader
 from ...utils.results import Boxes, Boxes3D, Results
+from ...utils.hf_hub import hf_url
 
 logger = logging.getLogger(__name__)
 UPSTREAM_REVISION = "1b8aa52b6ff3f00d0ebfa07175efc0c0c440964a"
@@ -130,7 +131,7 @@ class LibreWildDet3D:
         """Return the immutable byte-identical checkpoint mirror URL."""
         if filename not in (None, WEIGHT_FILE):
             return None
-        return f"https://huggingface.co/{HF_REPO}/resolve/{HF_REVISION}/{WEIGHT_FILE}"
+        return hf_url(f"{HF_REPO}/resolve/{HF_REVISION}/{WEIGHT_FILE}")
 
     @classmethod
     def _resolve_checkpoint(cls, model_path):

@@ -1,0 +1,44 @@
+RiO-DETRv2 provenance
+=====================
+
+The RiO-DETRv2 decoder in this directory is adapted from:
+
+  Repository: https://github.com/RicePasteM/RiO-DETRv2
+  Commit:     ab8b22df5d800a927774c8c67e77fd29c0fe6967
+              (initial commit, 2026-10-22 14:37:56 UTC)
+  License:    Apache License 2.0 (LICENSE in this directory, verbatim
+              from that commit)
+  Preserved:  https://github.com/LibreYOLO/RiO-DETRv2, tag apache-2.0-ab8b22d
+
+  Source files: engine/rtv4/rtdetrv2_obb_decoder.py
+                engine/rtv4/dfine_utils.py
+                engine/rtv4/utils.py
+  LibreYOLO files: decoder.py (adapted), convert.py, nn.py and model.py
+                   (configuration and wiring from configs/rio-dota_1_ss/
+                   and configs/rio-diorr/riov2_hgnetv2_*.yml)
+
+Those upstream files carry the copyright lines of their own lineage:
+Copyright (c) 2023 lyuwenyu (RT-DETR), Copyright (c) 2024 The D-FINE
+Authors, Copyright (c) 2024 The DEIM Authors, Copyright (c) 2025 The
+RT-DETRv4 Authors, all Apache License 2.0, with RiO-DETRv2 modifications
+by RicePasteM.
+
+Relicensing note: about 33 minutes after the initial commit, upstream
+changed its LICENSE file to AGPL-3.0 (commit 3377398). Later upstream
+commits change only README.md and LICENSE; the code is unchanged. This
+port relies on the Apache License 2.0 grant of the initial release and
+uses no material from any later commit.
+
+The HGNetv2 backbone, RT-DETRv2 OBB hybrid encoder, D-FINE distribution
+helpers and RT-DETRv2 decoder blocks are reused from LibreYOLO's existing
+dfine and rtdetrv2 families; see their notices.
+
+Official checkpoints: https://huggingface.co/RicePasteM/RiO-DETRv2 at
+revision 5f578f57929aded1962ebf8c5584a4771461124f (license: apache-2.0;
+its LICENSE file is identical to the one in this directory). They are
+trained on DOTA-v1.0 and DIOR-R, whose own terms apply to the data.
+Converted mirrors are published as LibreYOLO/LibreRiODETRv2{n,s,m,l,x}-obb
+(DOTA-v1.0) and LibreYOLO/LibreRiODETRv2{n,s,m,l,x}-obb-diorr (DIOR-R).
+Conversion renames the encoder input projection keys and drops the
+training-only distillation projector; learned tensors are unchanged.
+No checkpoints are bundled with this source repository.

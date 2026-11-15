@@ -27,6 +27,24 @@ from libreyolo.utils.amp import (
     torch_amp_dtype,
 )
 
+from ..data import (
+    build_class_remap,
+    get_coco_annotation_file,
+    get_coco_image_dir,
+    get_img_files,
+    img2label_paths,
+    load_data_config,
+    resolve_default_coco_image_dir,
+)
+from ..data.dataset import COCODataset, YOLODataset, create_dataloader
+from ..utils.image_size import imgsz_to_hw, round_imgsz_to_stride
+from ..utils.serialization import (
+    SCHEMA_VERSION,
+    build_class_names,
+    load_trusted_torch_file,
+    validate_checkpoint_metadata,
+    wrap_libreyolo_checkpoint,
+)
 from .artifacts import TrainingArtifactsCallback, TrainingStatusCallback
 from .callbacks import (
     TrainCallbackList,
@@ -37,7 +55,6 @@ from .callbacks import (
     TrainStartEvent,
 )
 from .config import TrainConfig
-from .loggers import resolve_loggers
 from .distributed import (
     barrier,
     get_local_rank,
@@ -54,28 +71,14 @@ from .distributed import (
     wants_distributed,
 )
 from .ema import ModelEMA
-from .optim import build_optimizer, restore_optimizer_state
 from .freezing import FreezeGroup, apply_freeze, default_freeze_groups
+from .loggers import resolve_loggers
+from .optim import (
+    OptimizerStateMigrationError,
+    build_optimizer,
+    restore_optimizer_state,
+)
 from .qat_defaults import apply_qat_training_guards
-from ..data.dataset import YOLODataset, COCODataset, create_dataloader
-from ..data import (
-    build_class_remap,
-    get_coco_annotation_file,
-    get_coco_image_dir,
-    get_img_files,
-    img2label_paths,
-    load_data_config,
-    resolve_default_coco_image_dir,
-)
-from ..utils.image_size import imgsz_to_hw, round_imgsz_to_stride
-from ..utils.serialization import (
-    SCHEMA_VERSION,
-    build_class_names,
-    load_trusted_torch_file,
-    validate_checkpoint_metadata,
-    wrap_libreyolo_checkpoint,
-)
-
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +184,17 @@ def log_classes_subset_notice(
             len(kept),
             num_classes,
         )
+
+
+def _channels_metadata(trainer) -> Dict[str, Any]:
+    """Grayscale ``channels`` for checkpoints.
+
+    Written next to the family hook rather than inside it, because several
+    trainers override ``_checkpoint_extra_metadata`` without ``super()``.
+    """
+    from ..utils.input_channels import channels_metadata
+
+    return channels_metadata(getattr(trainer, "wrapper_model", None))
 
 
 class BaseTrainer(ABC):
@@ -892,6 +906,10 @@ class BaseTrainer(ABC):
         save_dir.mkdir(parents=True, exist_ok=True)
         return save_dir
 
+    def _dataloader_options(self):
+        """Family-specific loader settings; other families keep their defaults."""
+        return {}
+
     def _setup_data(self):
         wrapper_task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         if wrapper_task == "classify":
@@ -1124,8 +1142,8 @@ class BaseTrainer(ABC):
             batch_size=per_rank_batch,
             num_workers=self.config.workers,
             shuffle=True,
-            pin_memory=self.device.type == "cuda",
             sampler=sampler,
+            **{"pin_memory": self.device.type == "cuda", **self._dataloader_options()},
             min_samples=int(getattr(self.config, "min_samples", 0) or 0),
             class_balanced=bool(getattr(self.config, "class_balanced", False)),
         )
@@ -1790,7 +1808,10 @@ class BaseTrainer(ABC):
         self.on_setup()
 
         if getattr(self.config, "batch", 16) == -1:
-            from libreyolo.training.autobatch import resolve_auto_batch, _DEFAULT_FRACTION
+            from libreyolo.training.autobatch import (
+                _DEFAULT_FRACTION,
+                resolve_auto_batch,
+            )
 
             probe = self.autobatch_probe()
             self.config.batch = resolve_auto_batch(
@@ -1852,7 +1873,10 @@ class BaseTrainer(ABC):
                     self.world_size,
                 )
 
-        self._setup_data()
+        from ..utils.input_channels import dataset_input_channels, model_channels
+
+        with dataset_input_channels(model_channels(self.wrapper_model)):
+            self._setup_data()
         self._assert_class_balanced_honored()
 
         # DDP loader invariant: trainers that own their data pipeline must
@@ -1875,6 +1899,8 @@ class BaseTrainer(ABC):
             try:
                 restore_optimizer_state(self.optimizer, self._resume_optimizer_state)
                 logger.info("Optimizer state restored from resume checkpoint")
+            except OptimizerStateMigrationError:
+                raise
             except Exception as e:
                 logger.warning(f"Could not load deferred optimizer state: {e}")
             finally:
@@ -2460,6 +2486,14 @@ class BaseTrainer(ABC):
                 scalars[str(name)] = scalar
         return scalars
 
+    def _training_loss_values(self, outputs, total_loss):
+        return float(total_loss.item()), self._scalar_mapping(
+            self.get_loss_components(outputs)
+        )
+
+    def _progress_refresh_interval(self):
+        return 1
+
     def _current_lrs(self) -> Dict[str, float]:
         if self.optimizer is None:
             return {}
@@ -2853,8 +2887,9 @@ class BaseTrainer(ABC):
             # Logging captures the pre-scale value so single-GPU and DDP
             # report identical magnitudes (single-GPU semantics). ``.item()``
             # already returns a Python float and detaches from autograd.
-            loss_val = float(total_loss_raw.item())
-            loss_components = self._scalar_mapping(self.get_loss_components(outputs))
+            loss_val, loss_components = self._training_loss_values(
+                outputs, total_loss_raw
+            )
             if distiller is not None:
                 loss_components["distill"] = self._distill_loss_val
             total_loss += loss_val
@@ -2875,7 +2910,11 @@ class BaseTrainer(ABC):
             # Progress bar
             postfix = {"loss": f"{loss_val:.4f}", "lr": f"{lr:.6f}"}
             postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
-            pbar.set_postfix(postfix)
+            if (
+                num_batches % self._progress_refresh_interval() == 0
+                or num_batches == len(self.train_loader)
+            ):
+                pbar.set_postfix(postfix)
 
             if prof is not None:
                 prof.step()
@@ -3044,8 +3083,9 @@ class BaseTrainer(ABC):
                 lr = self._apply_scheduler(opt_step + 1)
 
             # Logging uses the raw pre-scale value (single-GPU semantics).
-            loss_val = float(total_loss_raw.detach().item())
-            loss_components = self._scalar_mapping(self.get_loss_components(outputs))
+            loss_val, loss_components = self._training_loss_values(
+                outputs, total_loss_raw
+            )
             if distiller is not None:
                 loss_components["distill"] = self._distill_loss_val
             total_loss += loss_val
@@ -3060,7 +3100,11 @@ class BaseTrainer(ABC):
             # Progress bar
             postfix = {"loss": f"{loss_val:.4f}", "lr": f"{lr:.6f}"}
             postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
-            pbar.set_postfix(postfix)
+            if (
+                num_batches % self._progress_refresh_interval() == 0
+                or num_batches == len(self.train_loader)
+            ):
+                pbar.set_postfix(postfix)
 
             if prof is not None:
                 prof.step()
@@ -3872,6 +3916,7 @@ class BaseTrainer(ABC):
                     extra_checkpoint_meta["imgsz_h"] = cp_h
                     extra_checkpoint_meta["imgsz_w"] = cp_w
             extra_checkpoint_meta.update(self._checkpoint_extra_metadata())
+            extra_checkpoint_meta.update(_channels_metadata(self))
             checkpoint_task = extra_checkpoint_meta.pop(
                 "task", getattr(getattr(self, "wrapper_model", None), "task", "detect")
             )
@@ -4141,6 +4186,7 @@ class BaseTrainer(ABC):
             **extra_checkpoint_meta,
         )
         checkpoint.update(self._checkpoint_extra_metadata())
+        checkpoint.update(_channels_metadata(self))
         quant_manifest = getattr(self.wrapper_model, "_quant_manifest", None)
         if quant_manifest:
             # QAT/QAD checkpoints must be self-describing so LibreYOLO(path)
@@ -4308,6 +4354,8 @@ class BaseTrainer(ABC):
                 try:
                     restore_optimizer_state(self.optimizer, checkpoint["optimizer"])
                     logger.info("Optimizer state restored")
+                except OptimizerStateMigrationError:
+                    raise
                 except Exception as e:
                     logger.warning(f"Could not load optimizer state: {e}")
             else:

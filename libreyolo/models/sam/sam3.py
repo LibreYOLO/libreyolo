@@ -8,6 +8,7 @@ PCS model from the same gated checkpoint snapshot.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, ClassVar, Dict
 
 import torch
@@ -17,10 +18,6 @@ from .base import _INSTALL_HINT, _is_empty_prompt, LibreSAMModel
 logger = logging.getLogger(__name__)
 
 _GATED_REPO = "facebook/sam3"
-_GATED_HELP = (
-    "SAM 3 weights are gated. Visit https://huggingface.co/facebook/sam3, "
-    "accept the terms, then run `hf auth login` (or set HF_TOKEN) and retry."
-)
 
 
 def _http_status(exc: BaseException) -> int | None:
@@ -51,6 +48,10 @@ class LibreSAM3(LibreSAMModel):
         "LibreYOLO's MIT license. Use is subject to the terms accepted at "
         "https://huggingface.co/facebook/sam3."
     )
+    _GATED_HELP: ClassVar[str] = (
+        "SAM 3 weights are gated. Visit https://huggingface.co/facebook/sam3, "
+        "accept the terms, then run `hf auth login` (or set HF_TOKEN) and retry."
+    )
     SNAPSHOT_IGNORE_PATTERNS: ClassVar[tuple[str, ...]] = (
         *LibreSAMModel.SNAPSHOT_IGNORE_PATTERNS,
         "*.pt",
@@ -69,7 +70,7 @@ class LibreSAM3(LibreSAMModel):
             return super()._ensure_weights()
         except Exception as exc:
             if _http_status(exc) in (401, 403):
-                raise RuntimeError(_GATED_HELP) from exc
+                raise RuntimeError(self._GATED_HELP) from exc
             raise
 
     def _load_pretrained(self, snapshot_dir: str) -> tuple:
@@ -77,7 +78,8 @@ class LibreSAM3(LibreSAMModel):
             from transformers import Sam3TrackerModel, Sam3TrackerProcessor
         except ImportError as exc:
             raise ImportError(_INSTALL_HINT) from exc
-        self._snapshot_dir = snapshot_dir
+        # Absolute: the PCS model loads lazily, possibly after a cwd change.
+        self._snapshot_dir = str(Path(snapshot_dir).resolve())
         model = Sam3TrackerModel.from_pretrained(
             snapshot_dir, dtype=self._resolve_dtype()
         )
@@ -219,4 +221,39 @@ class LibreSAM3(LibreSAMModel):
         )
 
 
-__all__ = ["LibreSAM3"]
+class LibreSAM31(LibreSAM3):
+    """SAM 3.1 image segmenter on the SAM 3 path.
+
+    SAM 3.1 keeps the SAM 3 image architecture with retrained detector and
+    interactive-head weights; its Object Multiplex addition is video-only.
+    Meta publishes only an original-format checkpoint, so LibreYOLO mirrors
+    its image path converted to the Transformers SAM 3 layout
+    (``weights/convert_sam31_weights.py``). Everything else, including text
+    prompts, is inherited from ``LibreSAM3``. The mirror is gated and the
+    weights stay under Meta's SAM License.
+    """
+
+    FAMILY = "sam31"
+    FILENAME_PREFIX = "LibreSAM31"
+    HF_REPOS: ClassVar[Dict[str, str]] = {"large": "LibreYOLO/LibreSAM31large"}
+    INPUT_SIZES: ClassVar[Dict[str, int]] = {"large": 1008}
+    _LICENSE_NOTICE_SHOWN: ClassVar[bool] = False
+    _LICENSE_NOTICE: ClassVar[str] = (
+        "SAM 3.1 weights are provided by Meta under the custom SAM License, not "
+        "LibreYOLO's MIT license. Use is subject to the terms accepted at "
+        "https://huggingface.co/LibreYOLO/LibreSAM31large."
+    )
+    _GATED_HELP: ClassVar[str] = (
+        "SAM 3.1 weights are gated. Visit "
+        "https://huggingface.co/LibreYOLO/LibreSAM31large, accept the SAM "
+        "License, then run `hf auth login` (or set HF_TOKEN) and retry."
+    )
+
+    def track(self, *args, **kwargs):
+        raise NotImplementedError(
+            "LibreSAM31 supports image inference only; SAM 3.1 Object Multiplex "
+            "video tracking is outside the LibreSAM image contract."
+        )
+
+
+__all__ = ["LibreSAM3", "LibreSAM31"]
