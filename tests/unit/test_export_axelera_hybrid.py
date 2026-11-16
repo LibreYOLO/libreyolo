@@ -591,3 +591,28 @@ def test_dfine_segment_mask_convolution_parts_reproduce_the_host_mask_decoder():
         masks = _MaskLogits(md.bn1)(md.up_conv(up_in), embed)
     for actual, want in zip((logits, boxes, masks), expected):
         assert torch.allclose(actual, want, atol=1e-5)
+
+
+def test_dinodetr_hybrid_is_backbone_only_and_reproduces_the_native_model():
+    from libreyolo.export.exporter import (
+        AxeleraExporter,
+        _DINODETRBackboneWrapper,
+        _DINODETRHostTailWrapper,
+        _unfrozen_batchnorms,
+    )
+    from libreyolo.export.support import BLOCKED_SIZES, get_support
+    from libreyolo.models.dinodetr.model import LibreDINODETR
+
+    assert get_support("dinodetr", "detect", "axelera").tier == "hybrid"
+    assert "swinl" in BLOCKED_SIZES[("dinodetr", "detect", "axelera")]
+    model = LibreDINODETR._from_scratch(size="r50", device="cpu", seed=0)
+    assert AxeleraExporter(model)._hybrid_split() == "backbone"
+    net = model.model.eval()
+    x = torch.rand(1, 3, 256, 256)
+    with torch.no_grad():
+        expected = net(x)
+        copy_ = _unfrozen_batchnorms(copy.deepcopy(net).eval())
+        actual = _DINODETRHostTailWrapper(copy_, OUTPUTS)(*_DINODETRBackboneWrapper(copy_)(x))
+    _assert_same_queries(
+        [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
+    )

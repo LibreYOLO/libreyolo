@@ -4943,6 +4943,26 @@ _add(
 )
 _add(
     "hybrid",
+    ("dinodetr",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "Hybrid INT8 export: the ResNet-50 backbone is compiled with Axelera's "
+        "toolchain and runs on the Metis AIPU; the input projections (GroupNorm), "
+        "the deformable transformer with its two-stage query selection and the "
+        "prediction heads run on the host CPU as an FP32 ONNX graph through ONNX "
+        "Runtime (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and "
+        "metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed square input"
+    ),
+)
+_add(
+    "hybrid",
     ("deformable_detr",),
     ("detect",),
     ("axelera",),
@@ -5339,6 +5359,12 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
 #: format, each with its structural reason. Accuracy never lands a size here
 #: (that is SIZE_ACCURACY_NOTES); the export raises for these.
 BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("dinodetr", "detect", "axelera"): {
+        "swinl": (
+            "out of scope: its backbone is a Swin-L vision transformer, so a hybrid "
+            "export would leave almost nothing on the Metis (docs/axelera.md section 11)"
+        ),
+    },
     ("deimv2", "detect", "axelera"): {
         size: (
             "out of scope: its backbone is a DINOv3 vision transformer, so a hybrid "
@@ -5404,6 +5430,9 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("dinodetr", "detect", "axelera"): {
+        size: "has not been measured on a Metis yet" for size in ("r50s5",)
+    },
     ("deformable_detr", "detect", "axelera"): {
         size: "has not been measured on a Metis yet"
         for size in ("r50ss", "r50ssdc5", "r50refine", "r50twostage")

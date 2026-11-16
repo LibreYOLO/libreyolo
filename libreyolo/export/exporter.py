@@ -4450,10 +4450,11 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("mask_rcnn", "segment"): ("boxes", "scores", "labels", "masks"),
     ("ppdoclayoutv3", "detect"): ("pred_logits", "pred_boxes", "order_votes"),
     ("deformable_detr", "detect"): ("pred_logits", "pred_boxes"),
+    ("dinodetr", "detect"): ("pred_logits", "pred_boxes"),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
-_HYBRID_BACKBONE_ONLY = frozenset({"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr"})
+_HYBRID_BACKBONE_ONLY = frozenset({"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr"})
 
 
 def _unfrozen_batchnorms(module: torch.nn.Module) -> torch.nn.Module:
@@ -4775,9 +4776,53 @@ class _DeformableDETRHostTailWrapper(torch.nn.Module):
         return logits, delta.sigmoid()
 
 
+class _DINODETRBackboneWrapper(_DeformableDETRBackboneWrapper):
+    """Part 1 of a hybrid DINO-DETR export: the ResNet body, as Deformable DETR.
+
+    DINO-DETR projects its levels with GroupNorm too, so the cut is the same.
+    """
+
+    def __init__(self, model: torch.nn.Module):
+        torch.nn.Module.__init__(self)
+        self.model = model
+        self.output_names = tuple(f"feat{i}" for i in range(len(model.backbone.num_channels)))
+
+
+class _DINODETRHostTailWrapper(_DeformableDETRHostTailWrapper):
+    """Host step of a hybrid DINO-DETR export: everything after the ResNet body.
+
+    The padding masks are all False at LibreYOLO's fixed square; the
+    transformer call and the last decoder layer's heads follow the model's own
+    forward (no denoising queries at inference).
+    """
+
+    def forward(self, *levels):
+        from ..models.dinodetr.common import NestedTensor, inverse_sigmoid
+
+        model = self.model
+
+        def no_padding(f):
+            return torch.zeros((f.shape[0], f.shape[-2], f.shape[-1]), dtype=torch.bool, device=f.device)
+
+        masks = [no_padding(f) for f in levels]
+        positions = [model.backbone[1](NestedTensor(f, m)).to(f.dtype) for f, m in zip(levels, masks)]
+        srcs = [model.input_proj[i](f) for i, f in enumerate(levels)]
+        for level in range(len(levels), model.num_feature_levels):
+            src = model.input_proj[level](levels[-1] if level == len(levels) else srcs[-1])
+            mask = no_padding(src)
+            positions.append(model.backbone[1](NestedTensor(src, mask)).to(src.dtype))
+            srcs.append(src)
+            masks.append(mask)
+        hidden, references, _, _, _ = model.transformer(srcs, masks, None, positions, None, None)
+        last = len(hidden) - 1
+        boxes = (model.bbox_embed[last](hidden[last]) + inverse_sigmoid(references[last])).sigmoid()
+        return model.class_embed[last](hidden[last]), boxes
+
+
 #: Backbone-only hybrid families: (part-1 wrapper, host tail wrapper).
 _HYBRID_BACKBONE_WRAPPERS = {
     "deformable_detr": ("_DeformableDETRBackboneWrapper", "_DeformableDETRHostTailWrapper"),
+    "dinodetr": ("_DINODETRBackboneWrapper", "_DINODETRHostTailWrapper"),
     "detr": ("_VanillaDETRBackboneWrapper", "_VanillaDETRHostTailWrapper"),
     "faster_rcnn": ("_RCNNBackboneWrapper", "_RCNNHostTailWrapper"),
     "mask_rcnn": ("_RCNNBackboneWrapper", "_MaskRCNNHostTailWrapper"),
