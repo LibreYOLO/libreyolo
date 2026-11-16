@@ -1174,6 +1174,9 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"),
         ("fcos", "detect", "r50"),
+        # Hybrid neck pinned to the scheme its numbers were measured with
+        # (test_export_axelera_hybrid covers neck_quantization_scheme).
+        ("rtdetrv2", "detect", "r18"), ("rtdetrv2", "detect", "r34"),
     }
     assert recipes == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
