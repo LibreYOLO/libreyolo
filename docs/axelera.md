@@ -126,7 +126,7 @@ a separate size:
 | FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated | `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | m2 | restore 2x (PSNR, dB) | COCO crops from 128 px, 296 | 29.12 | 28.92 | -0.20 | validated | `quicksrnet/restore/m2/2026-11-16/5` |
 | Real-ESRGAN | x4 | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.44 | -0.05 | validated | `realesrgan/restore/x4/2026-11-16` |
-| Real-ESRGAN | x4t | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.00 | -0.49 | supported | `realesrgan/restore/x4t/2026-11-12` |
+| Real-ESRGAN | x4t | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.30 | -0.19 | validated | `realesrgan/restore/x4t/2026-11-16` |
 | Real-ESRGAN | x2 | restore 2x (PSNR, dB; three compiled parts) | COCO crops from 128 px, 296 | 25.07 | 24.73 | -0.34 | supported | `realesrgan/restore/x2/2026-11-16` |
 | MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported | `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
@@ -160,7 +160,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | AlexNet | classify | b | see `docs/export_support.md` | b `alexnet/classify/b/2026-11-13` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | restore | m2 (learned INT8 rounding; held-out half -0.17 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-16/5`, held-out `quicksrnet/restore/m2/2026-11-16/6` |
-| Real-ESRGAN | restore | x4 (three compiled parts + a host add), x4t (supported with a measured drop; bar 0.3 dB); x2 (three compiled parts, supported with a measured drop) | see `docs/export_support.md` | x4 `realesrgan/restore/x4/2026-11-16`; x4t `realesrgan/restore/x4t/2026-11-12`; x2 `realesrgan/restore/x2/2026-11-16` |
+| Real-ESRGAN | restore | x4 (three compiled parts + a host add), x4t (equalized trunk; held-out half -0.20 dB); x2 (three compiled parts, supported with a measured drop) | see `docs/export_support.md` | x4 `realesrgan/restore/x4/2026-11-16`; x4t `realesrgan/restore/x4t/2026-11-16`, held-out `realesrgan/restore/x4t/2026-11-16/2`; x2 `realesrgan/restore/x2/2026-11-16` |
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops; r50/r101 run their ASPP as per-tap 1x1 convolutions plus shifts) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-14/3`; r101 `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | semantic | s (supported with a measured fidelity; whole graph at the 512x1024 training crop, compile about 12.7 h) | see `docs/export_support.md` | s `unet/semantic/s/2026-11-16` |
@@ -767,10 +767,12 @@ nearest-upsampled copy of the input to the pixel-shuffled trunk, and a graph
 whose output depends directly on its input cannot be split into a host
 preamble and an accelerated core. The device runs the convolution trunk up to
 its last convolution (layout `restore_shuffle_skip_v1`); the host applies the
-pixel shuffle and adds the upsampled input. On 296 COCO crops upscaled 4x from
-64 px, PSNR is 22.00 dB on a Metis M.2 Max vs 22.49 dB FP32 (-0.49 dB; SSIM
-0.606 vs 0.658), so x4t is supported with that measured drop (the validated
-bar for restoration is 0.3 dB).
+pixel shuffle and adds the upsampled input. Before calibration the export
+equalizes the trunk's 33 conv+PReLU pairs (cross-layer equalization; PReLU is
+positively homogeneous, so FP32 outputs are unchanged). On 296 COCO crops
+upscaled 4x from 64 px, PSNR is 22.30 dB on a Metis M.2 Max vs 22.49 dB FP32
+(-0.19 dB; SSIM 0.621 vs 0.658), and -0.20 dB on a held-out half of the crops;
+without the equalization it was 22.00 dB (-0.49 dB).
 
 Real-ESRGAN-x4 (the RRDB network) does not fit as one graph: its constants overflow the Metis DDR pool. It runs as three compiled parts: `conv_first` and RRDB blocks 0-11 (returning the trunk skip and the block output), blocks 12-22 and `conv_body`, then the upsampling tail; the host adds the skip to the body between parts 2 and 3. On the same 296 crops PSNR is 22.44 dB vs 22.49 dB FP32 (-0.05 dB; SSIM 0.622). The library export reproduces it exactly: 22.4383 dB, SSIM 0.622 (ledger `realesrgan/restore/x4/2026-11-16`; first measured on a prototype of the same parts, `realesrgan/restore/x4/2026-11-15/2`).
 

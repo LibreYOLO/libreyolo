@@ -1126,8 +1126,8 @@ def test_support_matrix_rows_for_axelera():
         assert all(note.startswith("measured ") and " vs FP32 " in note for note in notes.values())
     esrgan = get_support("realesrgan", "restore", "axelera")
     assert esrgan.tier == "validated" and "validated sizes: x4 " in esrgan.constraint
-    assert "supported sizes: x4t and x2 " in esrgan.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("realesrgan", "restore", "axelera")]) == ["x2", "x4t"]
+    assert "and x4t (equalized trunk" in esrgan.constraint and "supported sizes: x2 " in esrgan.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("realesrgan", "restore", "axelera")]) == ["x2"]
     assert ("realesrgan", "restore", "axelera") not in UNMEASURED_SIZES
     assert ("realesrgan", "restore") in INT8_EXPORTS["axelera"]
     alexnet = get_support("alexnet", "classify", "axelera")

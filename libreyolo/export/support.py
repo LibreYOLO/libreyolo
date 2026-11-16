@@ -4165,15 +4165,17 @@ _add(
         "gives the same 22.44 dB as the first measurement). For the compact "
         "network (x4t) the convolution "
         "trunk runs on the Metis AIPU and the host applies the pixel shuffle and "
-        "the nearest-upsampled input skip (layout restore_shuffle_skip_v1); it "
-        "keeps PSNR 0.49 dB below FP32. Real-ESRGAN-x2 runs the same three "
+        "the nearest-upsampled input skip (layout restore_shuffle_skip_v1); with "
+        "its conv+PReLU trunk equalized before calibration (exact) it keeps PSNR "
+        "0.19 dB below FP32. Real-ESRGAN-x2 runs the same three "
         "parts after an exact pixel-unshuffle convolution and keeps PSNR 0.34 dB "
         "below FP32 on 296 COCO crops, 2x from 128 px (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "validated sizes: x4 (three compiled parts); supported sizes: x4t and x2 "
-        "(three compiled parts; measured drops, SIZE_ACCURACY_NOTES). "
+        "validated sizes: x4 (three compiled parts) and x4t (equalized trunk, "
+        "AXELERA_SIZE_RECIPES); supported sizes: x2 (three compiled parts; "
+        "measured drop, SIZE_ACCURACY_NOTES). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed input canvas, 64x64 for x4/x4t and 128x128 for x2 (smaller images "
         "are padded)"
@@ -5032,11 +5034,6 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
         ),
     },
     ("realesrgan", "restore", "axelera"): {
-        "x4t": (
-            "measured PSNR drop 0.49 dB vs FP32 (22.00 vs 22.49 dB, SSIM 0.606 vs "
-            "0.658, on 296 COCO crops upscaled 4x from 64 px; the validated bar "
-            "for restoration is 0.3 dB)"
-        ),
         "x2": (
             "measured PSNR drop 0.34 dB vs FP32 (24.73 vs 25.07 dB, SSIM 0.717, on "
             "296 COCO crops upscaled 2x from 128 px, three compiled parts; the "

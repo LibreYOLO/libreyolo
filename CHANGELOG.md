@@ -121,6 +121,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: Real-ESRGAN-x4t is validated with an equalized trunk.** Before calibration the export equalizes the compact network's 33 conv+PReLU pairs (cross-layer equalization, exact in FP32) through the new per-size recipe key `weight_equalization`. PSNR is 0.19 dB below FP32 on 296 COCO crops (was 0.49 dB) and 0.20 dB on a held-out half of them.
+
 - **Axelera Metis: QuickSRNet-m2 is validated with learned INT8 rounding.** After the Hardtanh equalization the export now learns each weight's rounding direction on the per-channel INT8 grid (AdaRound-style, one convolution at a time, 300 steps with a fixed seed, on up to 128 calibration images) and corrects the biases, through the new per-size recipe key `learned_rounding`. PSNR is 0.20 dB below FP32 on 296 COCO crops (was 0.46 dB with nearest rounding) and 0.17 dB on a held-out half of them; the export takes about 12 minutes instead of 3.
 
 - **Axelera Metis: DEKR-w32 is blocked with its measured failures.** The default compile fails on output paging after 8.3 h; with paging off it compiles in 11.6 h but loses the device when run.

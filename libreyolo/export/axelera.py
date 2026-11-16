@@ -156,7 +156,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # FP32 on 296 COCO crops (-0.17 held-out) instead of -0.46 dB.
     ("quicksrnet", "restore", "m2"): {"learned_rounding": True},
     # Real-ESRGAN-x4t (SRVGGNetCompact): exact cross-layer equalization of the
-    # conv+PReLU trunk before calibration (nearest rounding: -0.49 dB).
+    # conv+PReLU trunk before calibration: PSNR -0.19 dB vs FP32 on 296 COCO
+    # crops (-0.20 held-out) instead of -0.49 dB.
     ("realesrgan", "restore", "x4t"): {"weight_equalization": True},
 }
 
