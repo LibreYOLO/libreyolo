@@ -4436,6 +4436,7 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("rtdetrv2", "detect"): ("pred_logits", "pred_boxes"),
     ("dfine", "detect"): ("pred_logits", "pred_boxes"),
     ("deim", "detect"): ("pred_logits", "pred_boxes"),
+    ("rtdetrv4", "detect"): ("pred_logits", "pred_boxes"),
     ("detr", "detect"): ("pred_logits", "pred_boxes"),
     ("faster_rcnn", "detect"): ("boxes", "scores", "labels"),
 }

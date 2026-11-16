@@ -141,7 +141,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | rtdetr | detect | ✓ | ✓ | ✓ | available | ✓ |  | ✓ |  | hybrid |  |  | available | ✓ |
 | rtdetrv2 | detect | ✓ | ✓ | ✓ | available | available |  | ✓ |  | hybrid |  |  |  | ✓ |
 | rtdetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
-| rtdetrv4 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |
+| rtdetrv4 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | hybrid |  |  |  | ✓ |
 | rtmdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  | ✓ |
 | rtmdet | segment |  |  |  |  |  |  |  |  | available |  |  |  |  |
 | sam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -754,6 +754,7 @@ rest on the host CPU; each entry names the split.
 - `faster_rcnn` / `detect` / `axelera`: Hybrid INT8 export at a fixed square canvas: the input normalization, the backbone and the FPN are compiled with Axelera's toolchain and run on the Metis AIPU; the region proposal network, RoIAlign, the box head and NMS run on the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square canvas (images are stretched to it)
 - `rtdetr` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
 - `rtdetrv2` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
+- `rtdetrv4` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
 
 ## Blocked combinations
 
@@ -2072,7 +2073,6 @@ rest on the host CPU; each entry names the split.
 - `rtdetrv2` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rtdetrv2` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
 - `rtdetrv4` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtdetrv4` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `rtdetrv4` / `detect` / `ncnn`: NCNN export is not supported for RT-DETRv4: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv4` / `detect` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError at the native 640x640 canvas.
 - `rtdetrv4` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.

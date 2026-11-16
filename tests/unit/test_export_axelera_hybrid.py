@@ -271,7 +271,7 @@ def test_detr_hybrid_is_backbone_only_and_reproduces_the_native_model(sdk, tmp_p
         AxeleraExporter(model)._hybrid_split()
 
 
-@pytest.mark.parametrize("family", ["dfine", "deim"])
+@pytest.mark.parametrize("family", ["dfine", "deim", "rtdetrv4"])
 def test_dfine_line_is_hybrid_and_its_parts_reproduce_the_native_model(family):
     from libreyolo.export.exporter import _AXELERA_HYBRID_OUTPUTS, _DETRBackboneWrapper, _detr_neck_parts
     from libreyolo.export.exporter import _unfrozen_batchnorms
@@ -281,8 +281,10 @@ def test_dfine_line_is_hybrid_and_its_parts_reproduce_the_native_model(family):
 
     assert get_support(family, "detect", "axelera").tier == "hybrid"
     assert _AXELERA_HYBRID_OUTPUTS[(family, "detect")] == OUTPUTS
-    cls = LibreDFINE if family == "dfine" else LibreDEIM
-    net = cls._from_scratch(size="n", device="cpu", seed=0).model.eval()
+    from libreyolo.models.rtdetrv4.model import LibreRTDETRv4
+
+    cls = {"dfine": LibreDFINE, "deim": LibreDEIM, "rtdetrv4": LibreRTDETRv4}[family]
+    net = cls._from_scratch(size="s" if family == "rtdetrv4" else "n", device="cpu", seed=0).model.eval()
     # D-FINE-n has two levels (strides 16 and 32): 320 px gives 500 positions for its 300 queries.
     size = 320
     x = torch.rand(1, 3, size, size)
