@@ -101,6 +101,7 @@ a separate size:
 | Faster R-CNN | s | detect (hybrid as n; 800x800 canvas) | COCO val2017, 300 | 0.2907 | 0.2867 | -0.40 | hybrid | `faster_rcnn/detect/s/2026-11-16` |
 | Faster R-CNN | m | detect (hybrid as n; ResNet-50-FPN; 800x800 canvas) | COCO val2017, 300 | 0.3472 | 0.3456 | -0.16 (canvas -3.12 more) | hybrid | `faster_rcnn/detect/m/2026-11-16` |
 | Faster R-CNN | l | detect (hybrid as n; ResNet-50-FPN v2; 800x800 canvas) | COCO val2017, 300 | 0.4468 | 0.4489 | +0.21 | hybrid | `faster_rcnn/detect/l/2026-11-16` |
+| Mask R-CNN | r50 | detect (hybrid: the segment export's Metis part, the host stops before the mask branch; 800x800 canvas) | COCO val2017, 300 | 0.4476 | 0.4481 | +0.05 | hybrid | `mask_rcnn/detect/r50/2026-11-16` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
 | EfficientDet | d2 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3744 | 0.3606 | -1.38 (canvas -5.31 more) | supported | `efficientdet/detect/d2/2026-11-14` |
@@ -174,7 +175,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
 | RTMDet | detect | t, s, m, l (supported with a measured drop; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x blocked `rtmdet/detect/x/2026-11-12/2` |
 | RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -7.26, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-12/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
-| Mask R-CNN | segment | r50 (hybrid at a fixed 800x800 canvas, as Faster R-CNN plus the mask head and mask paste on the host; the detect task is not measured yet) | see `docs/export_support.md` | r50 `mask_rcnn/segment/r50/2026-11-16` |
+| Mask R-CNN | detect, segment | r50 (hybrid at a fixed 800x800 canvas, as Faster R-CNN; for segment the host adds the mask head and mask paste) | see `docs/export_support.md` | r50 segment `mask_rcnn/segment/r50/2026-11-16`; detect `mask_rcnn/detect/r50/2026-11-16` |
 | FCOS | detect | r50 (supported with a measured drop; six compiled parts, GroupNorm and the decode on the host) | see `docs/export_support.md` | r50 `fcos/detect/r50/2026-11-15/3` |
 | RetinaNet | detect | r50 (supported: 1024x1024 canvas by default, -1.11 end to end; imgsz=800 is about 1.64x less compute at -2.25; r50v2 blocked, section 11) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-14/4` |
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
@@ -435,6 +436,7 @@ table at the top of this page.
 | Faster R-CNN-m (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.3472 | 0.3456 | -0.16 (hybrid; canvas -3.12 vs the native 0.3784) |
 | Faster R-CNN-l (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.4468 | 0.4489 | +0.21 (hybrid) |
 | Mask R-CNN-r50 (hybrid, 800x800 canvas) | segment | COCO val2017, 300 images | 64 coco128 | 0.4045 | 0.4039 | -0.06 mask, +0.02 box (hybrid; FP32 at the same canvas) |
+| Mask R-CNN-r50 (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.4476 | 0.4481 | +0.05 (hybrid; same Metis part as segment) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
 | EfficientDet-d2 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3744 | 0.3606 | -1.38 (supported; canvas -5.31 more) |
@@ -806,7 +808,7 @@ and `labels`. The stretch costs accuracy against the native aspect-preserving
 resize, so section 7 gives the INT8 drop against FP32 at the same canvas and
 the canvas cost separately.
 
-Mask R-CNN-r50 shares Faster R-CNN-l's ResNet-50-FPN v2 and runs the same Metis part. Its host graph adds the mask branch: RoIAlign at 14x14 on the kept boxes, four convolutions, the mask predictor, and the paste of each soft mask onto the canvas; the backend resizes the masks to the image with the boxes. On 300 COCO val2017 images at the 800x800 canvas the device gives mask mAP50-95 0.4039 vs 0.4045 FP32 (box 0.4323 vs 0.4321; ledger `mask_rcnn/segment/r50/2026-11-16`).
+Mask R-CNN-r50 shares Faster R-CNN-l's ResNet-50-FPN v2 and runs the same Metis part. Its host graph adds the mask branch: RoIAlign at 14x14 on the kept boxes, four convolutions, the mask predictor, and the paste of each soft mask onto the canvas; the backend resizes the masks to the image with the boxes. On 300 COCO val2017 images at the 800x800 canvas the device gives mask mAP50-95 0.4039 vs 0.4045 FP32 (box 0.4323 vs 0.4321; ledger `mask_rcnn/segment/r50/2026-11-16`). The detect task compiles the same Metis part (identical graph and calibration) and its host graph stops before the mask branch: box mAP50-95 0.4481 vs 0.4476 FP32 at the same canvas (ledger `mask_rcnn/detect/r50/2026-11-16`).
 
 DETR (the original, single-level detector) has no convolutional neck: its
 hybrid export is two steps, the ResNet backbone and the 1x1 input projection

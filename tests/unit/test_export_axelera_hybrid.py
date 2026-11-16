@@ -421,9 +421,9 @@ def test_mask_rcnn_hybrid_segment_export_runs_the_chain(sdk, tmp_path, monkeypat
     from libreyolo.models.mask_rcnn.model import LibreMaskRCNN
 
     assert get_support("mask_rcnn", "segment", "axelera").tier == "hybrid"
-    # r50 segment is measured (docs/axelera.md); detect is not measured yet.
+    # r50 is measured for both tasks (docs/axelera.md).
     assert ("mask_rcnn", "segment", "axelera") not in support.UNMEASURED_SIZES
-    assert "r50" in support.UNMEASURED_SIZES[("mask_rcnn", "detect", "axelera")]
+    assert ("mask_rcnn", "detect", "axelera") not in support.UNMEASURED_SIZES
     model = LibreMaskRCNN._from_scratch(size="r50", task="segment", device="cpu", seed=0)
     # A small canvas keeps the test light; the export takes the model's min_size as its canvas.
     model.model.transform.min_size, model.model.transform.max_size = (256,), 256

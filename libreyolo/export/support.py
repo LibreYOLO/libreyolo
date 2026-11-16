@@ -5313,7 +5313,6 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("detr", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("r50dc5", "r101", "r101dc5")
     },
-    ("mask_rcnn", "detect", "axelera"): {"r50": "has not been measured on a Metis yet"},
 }
 
 #: Formats whose INT8 export is limited to these (family, task) pairs.
