@@ -77,6 +77,12 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: default on) and ``pose_bounded_towers`` (YOLO-NAS-pose towers whose input is
 #: bounded). Results with these recipes are in docs/axelera.md.
 AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
+    # RT-DETRv2's neck part defaults to histogram ranges (exporter
+    # _HYBRID_NECK_QUANTIZATION_SCHEMES); r18 and r34 were measured with the
+    # per-tensor min-max neck (-1.25 / -2.03 on cocoval300) and keep it until
+    # they are re-measured.
+    ("rtdetrv2", "detect", "r18"): {"neck_quantization_scheme": "per_tensor_min_max"},
+    ("rtdetrv2", "detect", "r34"): {"neck_quantization_scheme": "per_tensor_min_max"},
     # EfficientDet-d1 at its native 640 finds no L1 tiling (3.42 MB needed at
     # one-row tiles, 2.82 MB available); at d0's 512 canvas it compiles. The
     # exporter rebuilds the BiFPN for the canvas (same weights).

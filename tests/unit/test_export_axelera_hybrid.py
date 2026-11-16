@@ -330,3 +330,16 @@ def test_faster_rcnn_hybrid_export_runs_the_chain(sdk, tmp_path, monkeypatch):
         model.export(
             format="axelera", imgsz=256, data=data, output_path=str(tmp_path / "bad_axelera_model")
         )
+
+
+def test_hybrid_neck_scheme_is_per_family_with_a_recipe_override(sdk, monkeypatch):
+    from libreyolo.export import axelera
+    from libreyolo.export.exporter import AxeleraExporter
+    from libreyolo.models.rtdetrv2.model import LibreRTDETRv2
+
+    assert AxeleraExporter(_rtdetr())._hybrid_neck_scheme() == "per_tensor_min_max"
+    v2 = LibreRTDETRv2._from_scratch(size="r18", device="cpu", seed=0)
+    # r18 keeps the min-max neck it was measured with (a per-size recipe).
+    assert AxeleraExporter(v2)._hybrid_neck_scheme() == "per_tensor_min_max"
+    monkeypatch.setitem(axelera.AXELERA_SIZE_RECIPES, ("rtdetrv2", "detect", "r18"), {})
+    assert AxeleraExporter(v2)._hybrid_neck_scheme() == "per_tensor_histogram"

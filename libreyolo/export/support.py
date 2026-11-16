@@ -5196,7 +5196,7 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         ),
     },
     ("rtdetrv2", "detect", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("r50", "r50m", "r101")
+        size: "has not been measured on a Metis yet" for size in ("r50m", "r101")
     },
     ("dfine", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("s", "m", "l", "x")

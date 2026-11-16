@@ -4362,6 +4362,11 @@ class _SSDPartBWrapper(torch.nn.Module):
 #: Quantization scheme of a hybrid export's compiled neck part (see _export_hybrid_onnx).
 _HYBRID_NECK_QUANTIZATION_SCHEME = "per_tensor_min_max"
 
+#: Per-family neck-part scheme where per-tensor min-max loses accuracy: RT-DETRv2-r50's
+#: neck part reaches a 0.68 lowest held-out cosine with min-max and 0.91 with histogram
+#: ranges (a per-size recipe ``neck_quantization_scheme`` wins over both).
+_HYBRID_NECK_QUANTIZATION_SCHEMES = {"rtdetrv2": "per_tensor_histogram"}
+
 _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("rtdetr", "detect"): ("pred_logits", "pred_boxes"),
     ("rtdetrv2", "detect"): ("pred_logits", "pred_boxes"),
@@ -5480,6 +5485,14 @@ class AxeleraExporter(BaseExporter):
             )
         return exported
 
+    def _hybrid_neck_scheme(self) -> str:
+        """Quantization scheme of the compiled neck part: recipe, then family, then per tensor."""
+        recipe = self._size_recipe().get("neck_quantization_scheme")
+        if recipe:
+            return str(recipe)
+        family = self.model._get_model_name()
+        return _HYBRID_NECK_QUANTIZATION_SCHEMES.get(family, _HYBRID_NECK_QUANTIZATION_SCHEME)
+
     def _hybrid_split(self) -> str:
         """Where a hybrid export stops running on Metis: ``"neck"`` (default) or ``"backbone"``."""
         family = self.model._get_model_name()
@@ -5576,7 +5589,7 @@ class AxeleraExporter(BaseExporter):
                 "reference": neck,
                 "input": "canvas",
                 "merge_pad": False,
-                "quantization_scheme": _HYBRID_NECK_QUANTIZATION_SCHEME,
+                "quantization_scheme": self._hybrid_neck_scheme(),
             },
             {"host_onnx": host2, "inputs": list(neck.output_names), "outputs": list(outputs)},
         ]
@@ -5657,7 +5670,7 @@ class AxeleraExporter(BaseExporter):
                                 round(float(v), 6)
                                 for v in getattr(self, "_hybrid_canvas_scales", ())
                             ],
-                            "neck_quantization_scheme": _HYBRID_NECK_QUANTIZATION_SCHEME,
+                            "neck_quantization_scheme": self._hybrid_neck_scheme(),
                         }
                     ),
                 }
