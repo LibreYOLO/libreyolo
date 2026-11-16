@@ -109,6 +109,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: CenterNet stays blocked after a measured multi-part attempt.** ResDCN-18 with its deformable convolutions on the host compiles and runs but scores 0.098 vs 0.282 FP32 mAP50-95 (INT8 drift in the ResNet-18 trunk); DLA-34 would need about 17 parts.
+
 - **Axelera Metis: PIDNet-s is blocked with its measured cause.** It now compiles (10.3 h) after exact rewrites of its DAPPM pools, but INT8 collapses the output (cosine about 0 vs FP32 on the device and on the CPU-quantized model, min-max and hybrid alike).
 
 - **Axelera Metis: EfficientDet-d4 is blocked with its measured cause.** It finds no L1 tiling at 1024 or at a 512 canvas; prefix cuts place the overflow in the EfficientNet-B4 backbone's 272-channel stage (3.12 MB of L1 needed, 2.47 MB available). Use d2.

@@ -2341,3 +2341,11 @@ def test_efficientdet_class_head_part_is_opt_in_per_size():
 
     for size in ("d1", "d2"):
         assert "class_head_part" not in size_recipe("efficientdet", "detect", size)
+
+
+def test_centernet_block_records_the_multi_part_attempt():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("centernet", "detect", "axelera")
+    assert entry.tier == "blocked" and "deformable" in entry.reason
+    assert "four compiled parts" in entry.reason and "17 parts" in entry.reason

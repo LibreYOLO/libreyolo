@@ -4600,8 +4600,13 @@ _add(
         "Both CenterNet sizes (ResDCN-18 and DLA-34) upsample with modulated "
         "deformable convolutions, which sample the feature map at learned "
         "per-pixel offsets (exported as grid_sample); Axelera's 1.9 quantizer "
-        "has no converter for GridSample, and the host can only run operators "
-        "before or after the accelerated graph."
+        "has no converter for GridSample. Measured multi-part route: ResDCN-18 "
+        "as four compiled parts with its three deformable convolutions and the "
+        "top-k decode on the host compiles and runs, but scores 0.098 mAP50-95 "
+        "against FP32's 0.282 on 300 COCO val2017 images (0.081 with histogram "
+        "ranges): the INT8 ResNet-18 trunk drifts (device vs quantized cosine "
+        "0.91) and the deformable sampling amplifies it. DLA-34 has 16 "
+        "deformable convolutions, about 17 parts, and was not attempted."
     ),
 )
 _add(
