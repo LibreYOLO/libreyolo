@@ -4593,6 +4593,24 @@ _add(
 )
 _add(
     "blocked",
+    ("zipdepth",),
+    ("depth",),
+    ("axelera",),
+    reason=(
+        "ZipDepth's GCNet context block weights its 576 stage-3 positions with "
+        "a softmax, which has no AIPU form within SDK 1.9's limits. Measured "
+        "on ZipDepth-bnpu at 384 px: after exact rewrites of its channel and "
+        "strip mean reductions the graph quantizes, but the softmax over "
+        "positions either needs a reshape pair (4 layout transforms, at most "
+        "3 allowed), a one-hot transposed convolution (5184 reduction blocks, "
+        "too many for the MVM unit) or, written as an exponential-weighted "
+        "pooling, Exp and Reciprocal, which the quantizer does not support. "
+        "Running only the division on the host would need a compiled part "
+        "with two inputs."
+    ),
+)
+_add(
+    "blocked",
     ("centernet",),
     ("detect",),
     ("axelera",),

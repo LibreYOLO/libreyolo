@@ -2686,7 +2686,7 @@ rest on the host CPU; each entry names the split.
 - `zipdepth` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `zipdepth` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `zipdepth` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `zipdepth` / `depth` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `zipdepth` / `depth` / `axelera`: ZipDepth's GCNet context block weights its 576 stage-3 positions with a softmax, which has no AIPU form within SDK 1.9's limits. Measured on ZipDepth-bnpu at 384 px: after exact rewrites of its channel and strip mean reductions the graph quantizes, but the softmax over positions either needs a reshape pair (4 layout transforms, at most 3 allowed), a one-hot transposed convolution (5184 reduction blocks, too many for the MVM unit) or, written as an exponential-weighted pooling, Exp and Reciprocal, which the quantizer does not support. Running only the division on the host would need a compiled part with two inputs.
 - `zipdepth` / `depth` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct conversion does not support the edge-mode Pad operation in ZipDepth's convex upsampler.
 - `zipdepth` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `trellis2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).

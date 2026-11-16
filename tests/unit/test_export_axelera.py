@@ -2349,3 +2349,10 @@ def test_centernet_block_records_the_multi_part_attempt():
     entry = get_support("centernet", "detect", "axelera")
     assert entry.tier == "blocked" and "deformable" in entry.reason
     assert "four compiled parts" in entry.reason and "17 parts" in entry.reason
+
+
+def test_zipdepth_block_names_the_softmax_limit():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("zipdepth", "depth", "axelera")
+    assert entry.tier == "blocked" and "softmax" in entry.reason and "two inputs" in entry.reason

@@ -109,6 +109,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: ZipDepth's block names its measured limit.** Its GCNet softmax over 576 positions has no AIPU form within SDK 1.9 (reshape pair over the layout-transform limit, one-hot transposed conv too large for the MVM unit, Exp/Reciprocal unsupported).
+
 - **Axelera Metis: CenterNet stays blocked after a measured multi-part attempt.** ResDCN-18 with its deformable convolutions on the host compiles and runs but scores 0.098 vs 0.282 FP32 mAP50-95 (INT8 drift in the ResNet-18 trunk); DLA-34 would need about 17 parts.
 
 - **Axelera Metis: PIDNet-s is blocked with its measured cause.** It now compiles (10.3 h) after exact rewrites of its DAPPM pools, but INT8 collapses the output (cosine about 0 vs FP32 on the device and on the CPU-quantized model, min-max and hybrid alike).
