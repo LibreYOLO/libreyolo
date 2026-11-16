@@ -345,3 +345,11 @@ def test_hybrid_neck_scheme_is_per_family_with_a_recipe_override(sdk, monkeypatc
     assert AxeleraExporter(v2)._hybrid_neck_scheme() == "per_tensor_min_max"
     monkeypatch.setitem(axelera.AXELERA_SIZE_RECIPES, ("rtdetrv2", "detect", "r18"), {})
     assert AxeleraExporter(v2)._hybrid_neck_scheme() == "per_tensor_histogram"
+
+
+def test_faster_rcnn_measured_sizes_leave_the_unmeasured_list():
+    from libreyolo.export.support import UNMEASURED_SIZES
+
+    unmeasured = UNMEASURED_SIZES.get(("faster_rcnn", "detect", "axelera"), {})
+    assert "n" not in unmeasured and "s" not in unmeasured
+

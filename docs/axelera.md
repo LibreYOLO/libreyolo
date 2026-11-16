@@ -93,6 +93,7 @@ a separate size:
 | RT-DETRv4 | l | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5699 | 0.5679 | -0.20 | hybrid | `rtdetrv4/detect/l/2026-11-16` |
 | DETR | r50 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.3879 | 0.3852 | -0.27 | hybrid | `detr/detect/r50/2026-11-15` |
 | Faster R-CNN | n | detect (hybrid: backbone and FPN on the Metis, RPN and RoI heads on the host; 320x320 canvas) | COCO val2017, 300 | 0.2005 | 0.1896 | -1.09 (canvas -3.30 more) | hybrid | `faster_rcnn/detect/n/2026-11-15` |
+| Faster R-CNN | s | detect (hybrid as n; 800x800 canvas) | COCO val2017, 300 | 0.2907 | 0.2867 | -0.40 | hybrid | `faster_rcnn/detect/s/2026-11-16` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
 | EfficientDet | d2 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3744 | 0.3606 | -1.38 (canvas -5.31 more) | supported | `efficientdet/detect/d2/2026-11-14` |
@@ -176,7 +177,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | DEIM | detect | n, s, m, l, x (hybrid, as D-FINE; s with a measured drop of 5.51) | see `docs/export_support.md` | n `deim/detect/n/2026-11-15`; s `deim/detect/s/2026-11-16`; m `deim/detect/m/2026-11-16`; l `deim/detect/l/2026-11-16`; x `deim/detect/x/2026-11-16` |
 | RT-DETRv4 | detect | s, m, l (hybrid, as D-FINE; x not measured yet) | see `docs/export_support.md` | s `rtdetrv4/detect/s/2026-11-16`; m `rtdetrv4/detect/m/2026-11-16`; l `rtdetrv4/detect/l/2026-11-16` |
 | DETR | detect | r50 (hybrid: ResNet-50 backbone and input projection on the Metis, transformer encoder, decoder and heads on the host; r50dc5, r101 and r101dc5 not measured yet) | see `docs/export_support.md` | r50 `detr/detect/r50/2026-11-15` |
-| Faster R-CNN | detect | n (hybrid at a fixed 320x320 canvas: backbone and FPN on the Metis, RPN, RoIAlign, box head and NMS on the host; s, m and l not measured yet) | see `docs/export_support.md` | n `faster_rcnn/detect/n/2026-11-15` |
+| Faster R-CNN | detect | n, s (hybrid at a fixed canvas, 320x320 for n and 800x800 for s: backbone and FPN on the Metis, RPN, RoIAlign, box head and NMS on the host; m and l not measured yet) | see `docs/export_support.md` | n `faster_rcnn/detect/n/2026-11-15`; s `faster_rcnn/detect/s/2026-11-16` |
 | RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
 
 The tiers in `docs/export_support.md` are generated from
@@ -415,6 +416,7 @@ table at the top of this page.
 | RT-DETRv4-l (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5699 | 0.5679 | -0.20 (hybrid; backbone part per channel, neck part per tensor) |
 | DETR-r50 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.3879 | 0.3852 | -0.27 (hybrid) |
 | Faster R-CNN-n (hybrid, 320x320 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2005 | 0.1896 | -1.09 (hybrid; canvas -3.30 vs the native 0.2335) |
+| Faster R-CNN-s (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2907 | 0.2867 | -0.40 (hybrid; FP32 at the same canvas) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
 | EfficientDet-d2 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3744 | 0.3606 | -1.38 (supported; canvas -5.31 more) |
@@ -853,7 +855,6 @@ Blocked for structural reasons (accuracy never blocks an export):
 - RTMDet-x: at 640x640 the compiler's LowerTIR pass still overflows its on-chip buffers after 4 iterations (2 h 21 min, 7 GB peak RSS; ledger `rtmdet/detect/x/2026-11-12/2`). Use RTMDet-l.
 - CenterNet (ResDCN-18, DLA-34): the upsampling uses modulated deformable convolutions (grid_sample at learned offsets), which the quantizer has no converter for (ledger `centernet/detect/dla34/2026-11-11`). Multi-part route measured on ResDCN-18: four compiled parts with the three deformable convolutions and the decode on the host compile and run, but give 0.098 mAP50-95 vs FP32 0.282 (300 COCO images; 0.081 with histogram ranges), from INT8 drift in the ResNet-18 trunk (device vs quantized cosine 0.91) that the sampling amplifies (ledgers `centernet/detect/resdcn18/2026-11-15`, `/2026-11-16`, `/2026-11-16/2`). DLA-34 would need about 17 parts (16 deformable convolutions) and was not attempted.
 - ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them. The channel mean and variance have exact AIPU forms, but the per-pixel reciprocal square root feeding ConvNeXt's GELU has none; a host split at every LayerNorm would need about 23 parts for ConvNeXt-t, so a hybrid export (convolutions on the Metis, LayerNorms on the host) is the route if ConvNeXt is ever needed (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).
-- Faster R-CNN: a two-stage graph (run-time proposals with If/NonZero/TopK, then RoIAlign before the second network); the host can only run operators before or after one accelerated graph (ledger `faster_rcnn/detect/n/2026-11-11/2`).
 - EC and TinyFormer: gather-based deformable attention in the decoder; no quantizer converter for its GreaterOrEqual bounds masks (ledgers `ec/detect/s/2026-11-11`, `tinyformer/detect/s/2026-11-11`).
 - TEED: the Smish activation takes a logarithm, which quantization stops on; no trained weights are published (ledger `teed/edge/t/2026-11-11/2`).
 
