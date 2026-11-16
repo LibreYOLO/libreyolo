@@ -1183,7 +1183,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     assert recipes == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
         ("mobilenetv4", "classify", "l"), ("yolonas", "pose", "s"),
-        ("vgg", "classify", "16bn"),
+        ("vgg", "classify", "16bn"), ("quicksrnet", "restore", "m2"),
     }
     assert size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
     # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default.
@@ -1212,6 +1212,16 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
                        output_path=str(tmp_path / "mn4s_axelera_model"))
     meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
     assert calls == [] and meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+    # QuickSRNet-m2: learned INT8 rounding of the equalized weights.
+    from libreyolo import LibreQuickSRNet
+    import libreyolo.models.quicksrnet.quantize as srq
+
+    seen = []
+    original_sr = srq.prepare_for_int8
+    monkeypatch.setattr(srq, "prepare_for_int8", lambda *a, **k: seen.append(k) or original_sr(*a, **k))
+    sr = LibreQuickSRNet(None, size="m2", device="cpu")
+    sr.export(format="axelera", data=data, imgsz=32, output_path=str(tmp_path / "sr_axelera_model"))
+    assert len(seen) == 1 and seen[0]["learned_rounding"] is True and len(seen[0]["rounding_samples"]) > 0
 
 
 def _pad_maxpool_graph(pad_value):
