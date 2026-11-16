@@ -1262,7 +1262,7 @@ rest on the host CPU; each entry names the split.
 - `fomo` / `point` / `paddle`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `mnn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `rknn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
-- `fomo` / `point` / `axelera`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `fomo` / `point` / `axelera`: Not available yet: the published LibreFOMO checkpoints (s, m, l) are architecture-only, randomly initialised weights, so there is no trained model to export and measure on a Metis. The network is a small MobileNetV2-style CNN with a 1x1 head, with no operator known to block the Axelera toolchain.
 - `fomo` / `point` / `tflite`: LiteRT 2.1.2 cannot invoke the onnx2tf 2.6.7 graph because a DEPTHWISE_CONV_2D reports 16 filter channels versus zero input channels.
 - `fomo` / `point` / `coreml`: The CoreML wrapper does not implement the raw point-heatmap contract.
 - `gemma4` / `detect` / `onnx`: Generative VLM export is out of scope for v1.

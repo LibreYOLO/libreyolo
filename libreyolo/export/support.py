@@ -4748,6 +4748,19 @@ _add(
 )
 _add(
     "blocked",
+    ("fomo",),
+    ("point",),
+    ("axelera",),
+    reason=(
+        "Not available yet: the published LibreFOMO checkpoints (s, m, l) are "
+        "architecture-only, randomly initialised weights, so there is no trained "
+        "model to export and measure on a Metis. The network is a small "
+        "MobileNetV2-style CNN with a 1x1 head, with no operator known to block "
+        "the Axelera toolchain."
+    ),
+)
+_add(
+    "blocked",
     ("teed",),
     ("edge",),
     ("axelera",),

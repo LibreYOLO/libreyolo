@@ -2425,3 +2425,11 @@ def test_dekr_block_records_the_paging_failure_and_the_device_loss():
     entry = get_support("dekr", "pose", "axelera")
     assert entry.tier == "blocked" and "output_mmio" in entry.reason and "DEVICE_LOST" in entry.reason
 
+
+def test_fomo_is_not_available_yet_without_trained_weights():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("fomo", "point", "axelera")
+    assert entry.tier == "blocked" and entry.reason.startswith("Not available yet")
+    assert "randomly initialised" in entry.reason
+

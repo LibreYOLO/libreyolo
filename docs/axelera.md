@@ -893,6 +893,7 @@ Blocked for structural reasons (accuracy never blocks an export):
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
 
 - NAFNet: no trained LibreYOLO weights are published, so nothing can be exported or measured. When weights exist, the input skip around the whole graph runs on the host (as for Real-ESRGAN), and the per-pixel LayerNorms have the same reciprocal square root as ConvNeXt's (ledger `nafnet/restore/s/2026-11-11`).
+- FOMO (point): the published checkpoints (s, m, l) are architecture-only random weights, so nothing trained can be exported or measured; it is a small MobileNetV2-style CNN with no operator known to block.
 - YOLO9-P2-t: no trained checkpoint is published (P2-s is validated on VisDrone; its checkpoint is a non-commercial research preview).
 - PP-LiteSeg (t50, b50, t75, b75): compiles and runs after exact rewrites, but the device labels agree with FP32 on only 48-56% of pixels (fidelity mIoU 0.17-0.19, 1000 COCO val2017 images; 41% on 131 street scenes), with min-max or hybrid ranges alike. Device prefix cuts show the STDC backbone drifting stage by stage (cosine 0.996 at stride 4, 0.985 at stride 8, 0.975 at stride 16, 0.951 at the stride-32 output, the largest step) (ledgers `ppliteseg/semantic/t50/2026-11-15/3` to `/6`, `ppliteseg/semantic/b50/2026-11-15`, `ppliteseg/semantic/t75/2026-11-15/2`, `ppliteseg/semantic/b75/2026-11-15/2`).
 - Other families.
