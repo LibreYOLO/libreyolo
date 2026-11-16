@@ -843,7 +843,19 @@ left on the Metis. This covers ViT, DeiT, Swin, DINOv2, CLIP, SigLIP2, PE,
 SegFormer, EoMT, Depth Anything (1, 3 and video), the SAM family (SAM,
 MobileSAM), the detectors built on such backbones (RF-DETR and LW-DETR on
 DINOv2/ViT, Grounding DINO on Swin, OWLv2 on ViT), vision-language models,
-generative models and 3D models.
+generative models and 3D models. Checked against LibreYOLO's own model code
+(2026-11-16):
+
+- EC (EdgeCrafter, detect/pose/segment): its backbone is ECViT, a
+  DINOv3-style ViT with RoPE attention (embed 192-384, all sizes), with an
+  adapter resampling its tokens to three pyramid levels; only the hybrid
+  encoder's fusion neck is convolutional.
+- OV-DEIM: a DINOv3 ViT backbone with a spatial-tuning adapter (vit_tiny,
+  vit_tinyplus, dinov3_vits16 for s, m, l) and a CLIP text transformer.
+- OmDet-Turbo: a Swin-T backbone and a CLIP text encoder, loaded through
+  transformers; LibreYOLO has no runtime export for it in any format.
+- GTR: a ViT backbone whose blocks use gated linear attention, with an
+  adapter to multi-scale features.
 
 Other known limits:
 
