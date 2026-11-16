@@ -1215,7 +1215,7 @@ rest on the host CPU; each entry names the split.
 - `feynobg` / `matte` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `feynobg` / `matte` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `feynobg` / `matte` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `feynobg` / `matte` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `feynobg` / `matte` / `axelera`: Out of scope: FeyNobg (BiRefNet) runs a Swin-L transformer backbone; Axelera Metis support covers CNN backbones (docs/axelera.md section 11).
 - `feynobg` / `matte` / `ncnn`: BiRefNet's decoder requires torchvision deformable convolution, which PNNX/NCNN cannot lower to a runnable graph.
 - `feynobg` / `matte` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `feynobg` / `matte` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.

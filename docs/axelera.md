@@ -898,7 +898,7 @@ Not measured on a Metis yet (nothing is known to fail; the export raises until a
 - PP-LiteSeg (t50, b50, t75, b75): compiles and runs after exact rewrites, but the device labels agree with FP32 on only 48-56% of pixels (fidelity mIoU 0.17-0.19, 1000 COCO val2017 images; 41% on 131 street scenes), with min-max or hybrid ranges alike. Device prefix cuts show the STDC backbone drifting stage by stage (cosine 0.996 at stride 4, 0.985 at stride 8, 0.975 at stride 16, 0.951 at the stride-32 output, the largest step) (ledgers `ppliteseg/semantic/t50/2026-11-15/3` to `/6`, `ppliteseg/semantic/b50/2026-11-15`, `ppliteseg/semantic/t75/2026-11-15/2`, `ppliteseg/semantic/b75/2026-11-15/2`).
 - Other families.
 
-Out of scope (not attempted): models whose backbone is itself a transformer.
+Out of scope (not attempted): models whose backbone is itself a transformer. FeyNobg (BiRefNet, Swin-L) is one of them.
 A hybrid export runs a convolutional backbone on the Metis and the attention
 layers on the host CPU; with an attention backbone almost nothing would be
 left on the Metis. This covers ViT, DeiT, Swin, DINOv2, CLIP, SigLIP2, PE,

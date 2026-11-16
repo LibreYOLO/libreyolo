@@ -2433,3 +2433,10 @@ def test_fomo_is_not_available_yet_without_trained_weights():
     assert entry.tier == "blocked" and entry.reason.startswith("Not available yet")
     assert "randomly initialised" in entry.reason
 
+
+def test_feynobg_is_out_of_scope_for_its_swin_backbone():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("feynobg", "matte", "axelera")
+    assert entry.tier == "blocked" and entry.reason.startswith("Out of scope") and "Swin" in entry.reason
+

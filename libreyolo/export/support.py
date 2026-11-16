@@ -4748,6 +4748,16 @@ _add(
 )
 _add(
     "blocked",
+    ("feynobg",),
+    ("matte",),
+    ("axelera",),
+    reason=(
+        "Out of scope: FeyNobg (BiRefNet) runs a Swin-L transformer backbone; "
+        "Axelera Metis support covers CNN backbones (docs/axelera.md section 11)."
+    ),
+)
+_add(
+    "blocked",
     ("fomo",),
     ("point",),
     ("axelera",),
