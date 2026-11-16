@@ -350,6 +350,5 @@ def test_hybrid_neck_scheme_is_per_family_with_a_recipe_override(sdk, monkeypatc
 def test_faster_rcnn_measured_sizes_leave_the_unmeasured_list():
     from libreyolo.export.support import UNMEASURED_SIZES
 
-    unmeasured = UNMEASURED_SIZES.get(("faster_rcnn", "detect", "axelera"), {})
-    assert not {"n", "s", "m"} & set(unmeasured)
+    assert ("faster_rcnn", "detect", "axelera") not in UNMEASURED_SIZES
 

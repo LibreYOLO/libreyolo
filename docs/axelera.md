@@ -96,6 +96,7 @@ a separate size:
 | Faster R-CNN | n | detect (hybrid: backbone and FPN on the Metis, RPN and RoI heads on the host; 320x320 canvas) | COCO val2017, 300 | 0.2005 | 0.1896 | -1.09 (canvas -3.30 more) | hybrid | `faster_rcnn/detect/n/2026-11-15` |
 | Faster R-CNN | s | detect (hybrid as n; 800x800 canvas) | COCO val2017, 300 | 0.2907 | 0.2867 | -0.40 | hybrid | `faster_rcnn/detect/s/2026-11-16` |
 | Faster R-CNN | m | detect (hybrid as n; ResNet-50-FPN; 800x800 canvas) | COCO val2017, 300 | 0.3472 | 0.3456 | -0.16 (canvas -3.12 more) | hybrid | `faster_rcnn/detect/m/2026-11-16` |
+| Faster R-CNN | l | detect (hybrid as n; ResNet-50-FPN v2; 800x800 canvas) | COCO val2017, 300 | 0.4468 | 0.4489 | +0.21 | hybrid | `faster_rcnn/detect/l/2026-11-16` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
 | EfficientDet | d2 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3744 | 0.3606 | -1.38 (canvas -5.31 more) | supported | `efficientdet/detect/d2/2026-11-14` |
@@ -179,7 +180,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | DEIM | detect | n, s, m, l, x (hybrid, as D-FINE; s with a measured drop of 5.51) | see `docs/export_support.md` | n `deim/detect/n/2026-11-15`; s `deim/detect/s/2026-11-16`; m `deim/detect/m/2026-11-16`; l `deim/detect/l/2026-11-16`; x `deim/detect/x/2026-11-16` |
 | RT-DETRv4 | detect | s, m, l, x (hybrid, as D-FINE) | see `docs/export_support.md` | s `rtdetrv4/detect/s/2026-11-16`; m `rtdetrv4/detect/m/2026-11-16`; l `rtdetrv4/detect/l/2026-11-16`; x `rtdetrv4/detect/x/2026-11-16` |
 | DETR | detect | r50 (hybrid: ResNet-50 backbone and input projection on the Metis, transformer encoder, decoder and heads on the host; r50dc5, r101 and r101dc5 not measured yet) | see `docs/export_support.md` | r50 `detr/detect/r50/2026-11-15` |
-| Faster R-CNN | detect | n, s, m (hybrid at a fixed canvas, 320x320 for n and 800x800 for s and m: backbone and FPN on the Metis, RPN, RoIAlign, box head and NMS on the host; l not measured yet) | see `docs/export_support.md` | n `faster_rcnn/detect/n/2026-11-15`; s `faster_rcnn/detect/s/2026-11-16`; m `faster_rcnn/detect/m/2026-11-16` |
+| Faster R-CNN | detect | n, s, m, l (hybrid at a fixed canvas, 320x320 for n and 800x800 for s, m and l: backbone and FPN on the Metis, RPN, RoIAlign, box head and NMS on the host) | see `docs/export_support.md` | n `faster_rcnn/detect/n/2026-11-15`; s `faster_rcnn/detect/s/2026-11-16`; m `faster_rcnn/detect/m/2026-11-16`; l `faster_rcnn/detect/l/2026-11-16` |
 | RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
 
 The tiers in `docs/export_support.md` are generated from
@@ -421,6 +422,7 @@ table at the top of this page.
 | Faster R-CNN-n (hybrid, 320x320 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2005 | 0.1896 | -1.09 (hybrid; canvas -3.30 vs the native 0.2335) |
 | Faster R-CNN-s (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2907 | 0.2867 | -0.40 (hybrid; FP32 at the same canvas) |
 | Faster R-CNN-m (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.3472 | 0.3456 | -0.16 (hybrid; canvas -3.12 vs the native 0.3784) |
+| Faster R-CNN-l (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.4468 | 0.4489 | +0.21 (hybrid) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
 | EfficientDet-d2 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3744 | 0.3606 | -1.38 (supported; canvas -5.31 more) |
