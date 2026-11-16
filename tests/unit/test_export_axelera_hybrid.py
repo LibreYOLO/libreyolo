@@ -501,3 +501,26 @@ def test_ppdoclayout_hybrid_export_runs_the_chain(sdk, tmp_path, monkeypatch):
     result = LibreYOLO(str(artifact))(_image(shape=(240, 320, 3)), conf=0.0)
     assert result.boxes.xyxy.shape[-1] == 4
 
+
+def test_deformable_detr_hybrid_is_backbone_only_and_reproduces_the_native_model():
+    from libreyolo.export.exporter import (
+        AxeleraExporter,
+        _DeformableDETRBackboneWrapper,
+        _DeformableDETRHostTailWrapper,
+        _unfrozen_batchnorms,
+    )
+    from libreyolo.export.support import get_support
+    from libreyolo.models.deformable_detr.model import LibreDeformableDETR
+
+    assert get_support("deformable_detr", "detect", "axelera").tier == "hybrid"
+    model = LibreDeformableDETR._from_scratch(size="r50", device="cpu", seed=0)
+    assert AxeleraExporter(model)._hybrid_split() == "backbone"
+    net = model.model.eval()
+    x = torch.rand(1, 3, 256, 256)
+    with torch.no_grad():
+        expected = net(x)
+        copy_ = _unfrozen_batchnorms(copy.deepcopy(net).eval())
+        actual = _DeformableDETRHostTailWrapper(copy_, OUTPUTS)(*_DeformableDETRBackboneWrapper(copy_)(x))
+    _assert_same_queries(
+        [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
+    )

@@ -4445,10 +4445,11 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("mask_rcnn", "detect"): ("boxes", "scores", "labels"),
     ("mask_rcnn", "segment"): ("boxes", "scores", "labels", "masks"),
     ("ppdoclayoutv3", "detect"): ("pred_logits", "pred_boxes", "order_votes"),
+    ("deformable_detr", "detect"): ("pred_logits", "pred_boxes"),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
-_HYBRID_BACKBONE_ONLY = frozenset({"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3"})
+_HYBRID_BACKBONE_ONLY = frozenset({"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr"})
 
 
 def _unfrozen_batchnorms(module: torch.nn.Module) -> torch.nn.Module:
@@ -4699,8 +4700,70 @@ class _MaskRCNNHostTailWrapper(_RCNNHostTailWrapper):
         return tuple(outputs[name] for name in self.output_names)
 
 
+class _DeformableDETRBackboneWrapper(torch.nn.Module):
+    """Part 1 of a hybrid Deformable DETR export: the ResNet body (C3, C4, C5).
+
+    The input projections that follow normalize with GroupNorm, which the Metis
+    has no form for, so they run on the host with the transformer.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    hybrid_aipu = "ResNet backbone"
+    hybrid_host = "input projections (GroupNorm), positions, deformable transformer, heads (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(f"feat{i}" for i in range(len(model.backbone.strides)))
+
+    def forward(self, x):
+        features = self.model.backbone[0].body(x)
+        return tuple(features[key] for key in sorted(features))
+
+
+class _DeformableDETRHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid Deformable DETR export: everything after the ResNet body.
+
+    LibreYOLO feeds one fixed square without padding, so every padding mask is
+    all False; the rest follows the model's own forward.
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+
+    def forward(self, *levels):
+        from ..models.deformable_detr.common import NestedTensor, inverse_sigmoid
+
+        model = self.model
+        masks = [torch.zeros((f.shape[0], f.shape[-2], f.shape[-1]), dtype=torch.bool, device=f.device) for f in levels]
+        positions = [model.backbone[1](NestedTensor(f, m)).to(f.dtype) for f, m in zip(levels, masks)]
+        srcs = [model.input_proj[i](f) for i, f in enumerate(levels)]
+        for level in range(len(levels), model.num_feature_levels):
+            src = model.input_proj[level](levels[-1] if level == len(levels) else srcs[-1])
+            mask = torch.zeros((src.shape[0], src.shape[-2], src.shape[-1]), dtype=torch.bool, device=src.device)
+            positions.append(model.backbone[1](NestedTensor(src, mask)).to(src.dtype))
+            srcs.append(src)
+            masks.append(mask)
+        query_embeds = None if model.two_stage else model.query_embed.weight
+        hidden, init_reference, inter_references, _, _ = model.transformer(srcs, masks, positions, query_embeds)
+        level = hidden.shape[0] - 1
+        reference = init_reference if level == 0 else inter_references[level - 1]
+        reference = inverse_sigmoid(reference)
+        logits = model.class_embed[level](hidden[level])
+        delta = model.bbox_embed[level](hidden[level])
+        if reference.shape[-1] == 4:
+            delta = delta + reference
+        else:
+            delta = torch.cat([delta[..., :2] + reference, delta[..., 2:]], dim=-1)
+        return logits, delta.sigmoid()
+
+
 #: Backbone-only hybrid families: (part-1 wrapper, host tail wrapper).
 _HYBRID_BACKBONE_WRAPPERS = {
+    "deformable_detr": ("_DeformableDETRBackboneWrapper", "_DeformableDETRHostTailWrapper"),
     "detr": ("_VanillaDETRBackboneWrapper", "_VanillaDETRHostTailWrapper"),
     "faster_rcnn": ("_RCNNBackboneWrapper", "_RCNNHostTailWrapper"),
     "mask_rcnn": ("_RCNNBackboneWrapper", "_MaskRCNNHostTailWrapper"),
@@ -6007,6 +6070,7 @@ class AxeleraExporter(BaseExporter):
                 _RCNNBackboneWrapper,
                 _DETRConvEncoderWrapper,
                 _DocLayoutBackboneWrapper,
+                _DeformableDETRBackboneWrapper,
             ),
         ):
             outputs = list(self._hybrid_outputs())
