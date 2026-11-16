@@ -2396,3 +2396,11 @@ def test_rrdb_x2_parts_unshuffle_exactly_and_compose_to_the_network():
         whole = net(x)
     assert chained.shape == whole.shape == (1, 3, 32, 32)
     np.testing.assert_allclose(chained.numpy(), whole.numpy(), rtol=1e-5, atol=1e-5)
+
+
+def test_dekr_block_records_the_paging_failure_and_the_device_loss():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("dekr", "pose", "axelera")
+    assert entry.tier == "blocked" and "output_mmio" in entry.reason and "DEVICE_LOST" in entry.reason
+

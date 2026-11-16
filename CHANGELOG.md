@@ -112,6 +112,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: DEKR-w32 is blocked with its measured failures.** The default compile fails on output paging after 8.3 h; with paging off it compiles in 11.6 h but loses the device when run.
+
 - **Axelera Metis: RetinaNet-r50v2 stays blocked after the measured multi-part attempt.** With its GroupNorm head on the host (as FCOS) it compiles and runs but scores 0.033 vs 0.396 FP32 mAP50-95: its ResNet-50 v2 trunk does not survive INT8.
 
 - **Axelera Metis: HRNet's block records its measured device drift and the multi-part assessment.** The device drifts from the quantized model through stage 4's fusion modules (cosine 0.946, 0.78, 0.21) while the CPU-quantized model stays at 0.993 or better; a per-stage split would need four-branch packed parts.

@@ -4610,6 +4610,21 @@ _add(
 )
 _add(
     "blocked",
+    ("dekr",),
+    ("pose",),
+    ("axelera",),
+    reason=(
+        "DEKR-w32 has no working Metis build with SDK 1.9 (whole graph at "
+        "640x640, raw heatmap logits and offsets). With the compiler's default "
+        "output paging the compile fails after 8.3 hours in the backend: an "
+        "output_mmio access of 1,083,392 bytes spans three pages of a buffer "
+        "paged into one. With page_memory disabled it compiles (11.6 hours), but "
+        "running the compiled model loses the device (ZE_RESULT_ERROR_DEVICE_LOST, "
+        "twice; a known-good model runs right after, so the Metis recovers)."
+    ),
+)
+_add(
+    "blocked",
     ("hrnet",),
     ("pose",),
     ("axelera",),

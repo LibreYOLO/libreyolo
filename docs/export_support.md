@@ -920,7 +920,7 @@ rest on the host CPU; each entry names the split.
 - `dekr` / `pose` / `paddle`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `mnn`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `rknn`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
-- `dekr` / `pose` / `axelera`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
+- `dekr` / `pose` / `axelera`: DEKR-w32 has no working Metis build with SDK 1.9 (whole graph at 640x640, raw heatmap logits and offsets). With the compiler's default output paging the compile fails after 8.3 hours in the backend: an output_mmio access of 1,083,392 bytes spans three pages of a buffer paged into one. With page_memory disabled it compiles (11.6 hours), but running the compiled model loses the device (ZE_RESULT_ERROR_DEVICE_LOST, twice; a known-good model runs right after, so the Metis recovers).
 - `dekr` / `pose` / `ncnn`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `tflite`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `coreml`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
