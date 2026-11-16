@@ -74,8 +74,13 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: ``quantization_scheme`` (wins over the per-model, depthwise and task
 #: defaults), ``output_windows`` (raw-head part -> (low, high), anchor heads),
 #: ``stream_transform`` (MobileNetV4 residual-stream equalization and bound,
-#: default on) and ``pose_bounded_towers`` (YOLO-NAS-pose towers whose input is
-#: bounded). Results with these recipes are in docs/axelera.md.
+#: default on), ``pose_bounded_towers`` (YOLO-NAS-pose towers whose input is
+#: bounded) and ``class_head_part`` (EfficientDet, opt-in: the class predictor's
+#: pointwise conv as a second compiled part with this quantization scheme, e.g.
+#: ``"per_tensor_min_max"``; under the family's histogram ranges the single-part
+#: class logits cannot represent logits above about 0 on p3/p4/p7. Measured on
+#: d0, cocoval300: -0.62 vs -1.00 single-part, not adopted). Results with these
+#: recipes are in docs/axelera.md.
 AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # RT-DETRv2's neck part defaults to histogram ranges (exporter
     # _HYBRID_NECK_QUANTIZATION_SCHEMES); r18 and r34 were measured with the

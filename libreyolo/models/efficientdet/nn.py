@@ -760,6 +760,10 @@ class EfficientDetExportWrapper(nn.Module):
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         class_outputs, box_outputs = self.model(images)
+        return self.decode(class_outputs, box_outputs)
+
+    def decode(self, class_outputs: List[torch.Tensor], box_outputs: List[torch.Tensor]) -> torch.Tensor:
+        """The export tensor from the per-level class logits and box regressions."""
         batch = class_outputs[0].shape[0]
         logits = torch.cat(
             [

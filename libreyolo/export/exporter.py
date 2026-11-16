@@ -4261,6 +4261,56 @@ def _fcos_parts(net: torch.nn.Module, canvas: int):
     return _FCOSTrunk(net).eval(), layers, final, arrays, canvas_hw, int(cg[0].num_groups), float(cg[0].eps), n_cls, width
 
 
+class _EfficientDetTrunk(torch.nn.Module):
+    """EfficientDet part 1 on Metis: backbone, BiFPN, the box net, and the class net up to its last pointwise conv.
+
+    Returns the five box regressions (``box_p3`` .. ``box_p7``) and the five class-tower outputs after the
+    predictor's depthwise conv (``cls_dw_p3`` .. ``cls_dw_p7``). The predictor's pointwise conv runs as its own
+    compiled part with min-max ranges (``class_head_part`` recipe): under the family's histogram ranges the class
+    logits of the single-part build cannot represent logits above about 0 on p3, p4 and p7 (scores capped near 0.5).
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, net: torch.nn.Module):
+        super().__init__()
+        self.net = net
+        levels = int(net.class_net.num_levels)
+        self.output_names = tuple(
+            [f"box_p{3 + i}" for i in range(levels)] + [f"cls_dw_p{3 + i}" for i in range(levels)]
+        )
+
+    def forward(self, x):
+        net = self.net
+        feats = net.fpn(net.backbone(x))
+        boxes = net.box_net(feats)
+        head = net.class_net
+        dws = []
+        for level in range(head.num_levels):
+            t = feats[level]
+            for conv, bn_levels in zip(head.conv_rep, head.bn_rep):
+                t = head.act(bn_levels[level](conv(t)))
+            dws.append(head.predict.conv_dw(t))
+        return (*boxes, *dws)
+
+
+class _EfficientDetCanvasDecode(torch.nn.Module):
+    """Host ONNX tail of the EfficientDet parts export: per-level class logits cut from the packed canvas, then
+    EfficientDetExportWrapper's decode (``output``)."""
+
+    output_names = ("output",)
+
+    def __init__(self, wrapper: torch.nn.Module, boxes):
+        super().__init__()
+        self.wrapper = wrapper
+        self.boxes = [tuple(int(v) for v in b) for b in boxes]
+
+    def forward(self, cls_logits, *box_levels):
+        class_outputs = [cls_logits[:, :, y : y + h, x : x + w] for y, x, h, w in self.boxes]
+        return self.wrapper.decode(class_outputs, list(box_levels))
+
+
 class _RestoreBodyWrapper(torch.nn.Module):
     """Real-ESRGAN compact trunk up to its last convolution (``restore_shuffle_skip_v1``).
 
@@ -5120,6 +5170,108 @@ class AxeleraExporter(BaseExporter):
         self._hybrid_host_arrays = arrays
         return first
 
+    def _export_efficientdet_parts_onnx(self, out: Path, imgsz, dummy, onnx_output, opset, simplify) -> str:
+        """EfficientDet as two compiled parts: the network up to the class predictor's pointwise conv (family
+        scheme), then that 1x1 conv on the five levels packed on one canvas with the recipe's scheme (min-max), so
+        the class-logit outputs keep their top tail; the decode runs on the host as ONNX."""
+        from ..models.efficientdet.nn import EfficientDetExportWrapper
+        from .onnx import _export_onnx_graph
+
+        if int(imgsz[0]) != int(imgsz[1]):
+            raise ValueError(f"EfficientDet exports for Axelera at a square canvas, got {imgsz[0]}x{imgsz[1]}.")
+        import numpy as np
+
+        net = copy.deepcopy(self.model.model).eval()
+        for p in net.parameters():
+            p.requires_grad_(False)
+        trunk = _EfficientDetTrunk(net).eval()
+        decode_wrapper = EfficientDetExportWrapper(
+            net,
+            input_size=int(imgsz[0]),
+            max_candidates=5000,
+            sparse_coco=(
+                getattr(self.model, "nb_classes", None) == 80
+                and getattr(self.model, "_arch_num_classes", None) == 90
+            ),
+        ).eval()
+        x0 = torch.zeros(1, 3, *imgsz)
+        with torch.no_grad():
+            outs = trunk(x0)
+        levels = len(outs) // 2
+        boxes, canvas = _fcos_level_boxes([tuple(t.shape[-2:]) for t in outs[levels:]])
+        predict = _NamedPart(net.class_net.predict.conv_pw, ["cls_logits"]).eval()
+        tail = _EfficientDetCanvasDecode(decode_wrapper, boxes).eval()
+        work = out.with_name(f"{out.name}.export_intermediate")
+        self._intermediate_paths = []
+
+        def onnx_of(module, args, tag, in_names):
+            path = f"{work}.{tag}.onnx"
+            self._intermediate_paths.append(path)
+            torch.onnx.export(
+                module.eval(),
+                tuple(args),
+                path,
+                input_names=list(in_names),
+                output_names=list(module.output_names),
+                opset_version=17,
+                dynamic_axes=None,
+                dynamo=False,
+            )
+            return path
+
+        scheme = self._size_recipe()["class_head_part"]
+        logger.info(
+            "Step 1/2: Exporting EfficientDet as 2 compiled parts (network up to the class predictor's pointwise "
+            "conv; that conv on the packed %dx%d level canvas with %s ranges); the decode runs on the host",
+            canvas[0],
+            canvas[1],
+            scheme,
+        )
+        # The trunk goes through the same ONNX export (simplify, shape inference) as the single-part graph, so the
+        # family's graph passes (BiFPN fusion, staged global pools) find what they rewrite.
+        first = _export_onnx_graph(
+            trunk,
+            dummy,
+            output_path=onnx_output,
+            opset=opset,
+            simplify=simplify,
+            half=False,
+            metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+            input_names=["images"],
+            output_names=list(trunk.output_names),
+            dynamic_axes=None,
+        )
+        width = int(outs[levels].shape[1])
+        cls_shape = (1, int(net.class_net.predict.conv_pw.out_channels), *canvas)
+        tail_args = [torch.zeros(cls_shape), *[torch.zeros_like(t) for t in outs[:levels]]]
+        tail_inputs = ["cls_logits", *trunk.output_names[:levels]]
+        steps = [
+            {
+                "host": "pack_levels",
+                "inputs": list(trunk.output_names[levels:]),
+                "output": "cls_packed",
+                "boxes": "@npz:boxes",
+                "canvas": [int(v) for v in canvas],
+            },
+            {
+                "compile": onnx_of(predict, [torch.zeros(1, width, *canvas)], "cls_head", ["cls_packed"]),
+                "reference": predict,
+                "input": "cls_packed",
+                "merge_pad": False,
+                "quantization_scheme": scheme,
+            },
+            {
+                "host_onnx": onnx_of(tail, tail_args, "decode", tail_inputs),
+                "inputs": tail_inputs,
+                "outputs": ["output"],
+            },
+        ]
+        self._raw_wrapper = trunk
+        self._hybrid_parts = steps
+        self._hybrid_host_arrays = {"boxes": np.asarray(boxes, dtype=np.int64)}
+        self._hybrid_first_passes = _AXELERA_GRAPH_PASSES.get("efficientdet", ())
+        return first
+
     def _graph_outputs(self) -> tuple[str, ...]:
         """ONNX output names when the whole dense graph runs on Metis, else ``()``."""
         return _AXELERA_GRAPH_OUTPUTS.get((self.model._get_model_name(), self._task()), ())
@@ -5311,6 +5463,8 @@ class AxeleraExporter(BaseExporter):
             return self._export_rrdb_parts_onnx(out, imgsz, opset)
         if self.model._get_model_name() == "fcos" and self._task() == "detect":
             return self._export_fcos_parts_onnx(out, imgsz)
+        if self.model._get_model_name() == "efficientdet" and self._size_recipe().get("class_head_part"):
+            return self._export_efficientdet_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
         graph_outputs = self._graph_outputs()
         if graph_outputs:
             if self.model._get_model_name() == "quicksrnet":
@@ -5625,6 +5779,19 @@ class AxeleraExporter(BaseExporter):
                 }
             )
             return meta
+        if isinstance(wrapper, _EfficientDetTrunk):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": ["output"],
+                    "graph_outputs": ["output"],
+                }
+            )
+            return meta
         if isinstance(wrapper, _FCOSTrunk):
             meta.update(
                 {
@@ -5810,7 +5977,16 @@ class AxeleraExporter(BaseExporter):
             )
             return export_axelera_parts(
                 parts=[
-                    {"compile": onnx_path, "reference": self._raw_wrapper, "input": "images"},
+                    {
+                        "compile": onnx_path,
+                        "reference": self._raw_wrapper,
+                        "input": "images",
+                        **(
+                            {"graph_passes": list(self._hybrid_first_passes)}
+                            if getattr(self, "_hybrid_first_passes", None)
+                            else {}
+                        ),
+                    },
                     *self._hybrid_parts,
                 ],
                 output_path=output_path,

@@ -2289,3 +2289,55 @@ def test_fcos_level_boxes_leave_one_pixel_gutters():
     boxes, canvas = _fcos_level_boxes([(8, 8), (4, 4), (2, 2)])
     assert boxes == [[0, 0, 8, 8], [9, 0, 4, 4], [9, 5, 2, 2]]
     assert canvas == [13, 8]
+
+
+def test_efficientdet_class_head_parts_chain_matches_the_export_wrapper():
+    """EfficientDet two-part export in FP32: trunk -> host pack of the class-tower levels -> the predictor's
+    pointwise conv on the canvas -> host decode reproduces EfficientDetExportWrapper's tensor."""
+    torch = pytest.importorskip("torch")
+    np = pytest.importorskip("numpy")
+    import copy
+
+    from libreyolo import LibreEfficientDet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import (
+        _EfficientDetCanvasDecode,
+        _EfficientDetTrunk,
+        _fcos_level_boxes,
+    )
+    from libreyolo.models.efficientdet.nn import EfficientDetExportWrapper
+
+    torch.manual_seed(0)
+    net = LibreEfficientDet(None, size="d0", device="cpu").model.eval()
+    ref = EfficientDetExportWrapper(copy.deepcopy(net), input_size=512).eval()
+    trunk = _EfficientDetTrunk(copy.deepcopy(net)).eval()
+    x = torch.rand(1, 3, 512, 512, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = ref(x).numpy()
+        outs = trunk(x)
+        levels = len(outs) // 2
+        assert trunk.output_names[:levels] == tuple(f"box_p{3 + i}" for i in range(5))
+        boxes, canvas = _fcos_level_boxes([tuple(t.shape[-2:]) for t in outs[levels:]])
+        packed = HOST_OPS["pack_levels"](*[t.numpy() for t in outs[levels:]], boxes=np.asarray(boxes), canvas=canvas)
+        logits = trunk.net.class_net.predict.conv_pw(torch.from_numpy(packed))
+        tail = _EfficientDetCanvasDecode(EfficientDetExportWrapper(trunk.net, input_size=512), boxes).eval()
+        got = tail(logits, *outs[:levels]).numpy()
+        want_cls, want_box = net(x)
+    # The raw per-level tensors the decode reads are the network's own (exact up to float rounding)...
+    for level, (y0, x0, h, w) in enumerate(boxes):
+        np.testing.assert_allclose(
+            logits[:, :, y0 : y0 + h, x0 : x0 + w].numpy(), want_cls[level].numpy(), rtol=1e-4, atol=1e-4
+        )
+        np.testing.assert_allclose(outs[level].numpy(), want_box[level].numpy(), rtol=1e-4, atol=1e-4)
+    # ... and the decoded tensor matches; random weights tie many scores, so TopK may pick other anchors among
+    # equal scores: compare scores and classes, not box rows.
+    assert got.shape == want.shape
+    np.testing.assert_allclose(got[..., 4], want[..., 4], rtol=1e-5, atol=1e-6)
+    assert np.array_equal(got[..., 5], want[..., 5])
+
+
+def test_efficientdet_class_head_part_is_opt_in_per_size():
+    from libreyolo.export.axelera import size_recipe
+
+    for size in ("d1", "d2"):
+        assert "class_head_part" not in size_recipe("efficientdet", "detect", size)
