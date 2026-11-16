@@ -4436,6 +4436,7 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("rtdetrv2", "detect"): ("pred_logits", "pred_boxes"),
     ("dfine", "detect"): ("pred_logits", "pred_boxes"),
     ("deim", "detect"): ("pred_logits", "pred_boxes"),
+    ("deimv2", "detect"): ("pred_logits", "pred_boxes"),
     ("rtdetrv4", "detect"): ("pred_logits", "pred_boxes"),
     ("detr", "detect"): ("pred_logits", "pred_boxes"),
     ("faster_rcnn", "detect"): ("boxes", "scores", "labels"),
@@ -4740,6 +4741,71 @@ class _DETRNeckWrapper(torch.nn.Module):
         features = [pick(x[:, c * i : c * (i + 1)]) for i, pick in enumerate(self.picks)]
         fused = self.encoder(features)
         return tuple(self.projections[i](f) for i, f in enumerate(fused))
+
+
+def _has_attention_encoder(model: torch.nn.Module) -> bool:
+    """Whether a DETR-style model's encoder runs attention layers (RT-DETR's AIFI) or is all convolutions.
+
+    DEIMv2's small sizes (atto, femto, pico) use a LiteEncoder: projections,
+    pooling and CSP blocks only, so the whole encoder can run on the Metis.
+    """
+    encoder = model.encoder
+    return hasattr(encoder, "use_encoder_idx") or hasattr(encoder, "num_encoder_layers")
+
+
+class _GapFusionWithIdentity(torch.nn.Module):
+    """DEIMv2 LiteEncoder's ``x + GAP(x) -> conv`` with a 1x1 identity conv on the pooled branch.
+
+    A global pool feeding an Add that feeds a conv fails the Metis lowering
+    ("Expecting all blocks to have the same iter_values", F77); an identity
+    1x1 conv between the pool and the Add compiles. Exact.
+    """
+
+    def __init__(self, fusion: torch.nn.Module):
+        super().__init__()
+        channels = fusion.cv.conv.in_channels
+        self.identity = torch.nn.Conv2d(channels, channels, 1, bias=False)
+        with torch.no_grad():
+            self.identity.weight.zero_()
+            index = torch.arange(channels)
+            self.identity.weight[index, index, 0, 0] = 1.0
+        self.cv = fusion.cv
+
+    def forward(self, x):
+        return self.cv(x + self.identity(torch.nn.functional.adaptive_avg_pool2d(x, 1)))
+
+
+class _DETRConvEncoderWrapper(torch.nn.Module):
+    """Part 1 of an "encoder" hybrid split: backbone, the all-convolutional encoder and the decoder's input projections."""
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    hybrid_aipu = "backbone, convolutional encoder and decoder input projections"
+    hybrid_host = "decoder (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.backbone = model.backbone
+        self.encoder = model.encoder
+        for name, child in list(self.encoder.named_children()):
+            if type(child).__name__ == "GAP_Fusion":
+                setattr(self.encoder, name, _GapFusionWithIdentity(child))
+        self.projections = model.decoder.input_proj
+        # One memory map per decoder level (LiteEncoder lists one input level in
+        # out_channels but returns two maps, FPN and PAN).
+        self.output_names = tuple(f"memory{i}" for i in range(len(model.decoder.input_proj)))
+
+    def forward(self, x):
+        memory = self.encoder(self.backbone(x))
+        return tuple(self.projections[i](m) for i, m in enumerate(memory))
+
+
+def _detr_conv_encoder_parts(model: torch.nn.Module, output_names):
+    """``(head, decoder)`` of an "encoder" hybrid split; each gets its own copy of what it runs."""
+    head = _DETRConvEncoderWrapper(copy.deepcopy(model)).eval()
+    decoder = copy.deepcopy(model.decoder)
+    decoder.input_proj = torch.nn.ModuleList(torch.nn.Identity() for _ in decoder.input_proj)
+    return head, _DETRDecoderWrapper(decoder, output_names).eval()
 
 
 class _DETRDecoderWrapper(torch.nn.Module):
@@ -5666,6 +5732,8 @@ class AxeleraExporter(BaseExporter):
     def _hybrid_split(self) -> str:
         """Where a hybrid export stops running on Metis: ``"neck"`` (default) or ``"backbone"``."""
         family = self.model._get_model_name()
+        if family not in _HYBRID_BACKBONE_ONLY and not _has_attention_encoder(self.model.model):
+            return "encoder"
         default = "backbone" if family in _HYBRID_BACKBONE_ONLY else "neck"
         split = self._size_recipe().get("hybrid_split", default)
         if split not in ("neck", "backbone"):
@@ -5690,8 +5758,11 @@ class AxeleraExporter(BaseExporter):
         head_cls, tail_cls = (
             (globals()[own[0]], globals()[own[1]]) if own else (_DETRBackboneWrapper, _DETRHostTailWrapper)
         )
-        self._raw_wrapper = head_cls(net).eval()
         split = self._hybrid_split()
+        if split == "encoder":
+            self._raw_wrapper, conv_encoder_tail = _detr_conv_encoder_parts(net, outputs)
+        else:
+            self._raw_wrapper = head_cls(net).eval()
         features = list(self._raw_wrapper.output_names)
         onnx_meta = self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz)
 
@@ -5719,8 +5790,8 @@ class AxeleraExporter(BaseExporter):
         exported = export(self._raw_wrapper, dummy, part1, ["images"], features)
         with torch.no_grad():
             sample = tuple(self._raw_wrapper(dummy))
-        if split == "backbone":
-            tail = tail_cls(net, outputs).eval()
+        if split in ("backbone", "encoder"):
+            tail = conv_encoder_tail if split == "encoder" else tail_cls(net, outputs).eval()
             if hasattr(tail, "canvas"):
                 canvas = tuple(int(v) for v in dummy.shape[-2:])
                 min_size = int(net.transform.min_size[-1])
@@ -5821,7 +5892,10 @@ class AxeleraExporter(BaseExporter):
                 }
             )
             return meta
-        if isinstance(wrapper, (_DETRBackboneWrapper, _VanillaDETRBackboneWrapper, _RCNNBackboneWrapper)):
+        if isinstance(
+            wrapper,
+            (_DETRBackboneWrapper, _VanillaDETRBackboneWrapper, _RCNNBackboneWrapper, _DETRConvEncoderWrapper),
+        ):
             outputs = list(self._hybrid_outputs())
             own_split = hasattr(wrapper, "hybrid_aipu")
             meta.update(
@@ -5835,7 +5909,7 @@ class AxeleraExporter(BaseExporter):
                     "graph_outputs": outputs,
                     "hybrid": (
                         {
-                            "split": "backbone",
+                            "split": self._hybrid_split(),
                             "aipu": wrapper.hybrid_aipu
                             if own_split
                             else "backbone and encoder input projections",
@@ -5843,7 +5917,7 @@ class AxeleraExporter(BaseExporter):
                             if own_split
                             else "attention encoder, fusion neck and decoder (FP32 ONNX)",
                         }
-                        if self._hybrid_split() == "backbone"
+                        if self._hybrid_split() in ("backbone", "encoder")
                         else {
                             "split": "neck",
                             "aipu": "backbone, encoder input projections, fusion neck and "

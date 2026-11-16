@@ -4812,7 +4812,7 @@ _add(
 )
 _add(
     "hybrid",
-    ("rtdetr", "rtdetrv2", "dfine", "deim", "rtdetrv4"),
+    ("rtdetr", "rtdetrv2", "dfine", "deim", "deimv2", "rtdetrv4"),
     ("detect",),
     ("axelera",),
     reason=(
@@ -5208,6 +5208,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
 #: format, each with its structural reason. Accuracy never lands a size here
 #: (that is SIZE_ACCURACY_NOTES); the export raises for these.
 BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("deimv2", "detect", "axelera"): {
+        size: (
+            "out of scope: its backbone is a DINOv3 vision transformer, so a hybrid "
+            "export would leave almost nothing on the Metis (docs/axelera.md section 11)"
+        )
+        for size in ("s", "m", "l", "x")
+    },
     ("efficientdet", "detect", "axelera"): {
         "d3": (
             "does not compile for Metis with the 1.9 SDK: lowering finds no L1 "

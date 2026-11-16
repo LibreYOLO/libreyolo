@@ -352,3 +352,24 @@ def test_faster_rcnn_measured_sizes_leave_the_unmeasured_list():
 
     assert ("faster_rcnn", "detect", "axelera") not in UNMEASURED_SIZES
 
+
+def test_deimv2_small_sizes_take_the_encoder_split_and_reproduce_the_native_model():
+    from libreyolo.export.exporter import AxeleraExporter, _detr_conv_encoder_parts, _unfrozen_batchnorms
+    from libreyolo.export.support import BLOCKED_SIZES, get_support
+    from libreyolo.models.deimv2.model import LibreDEIMv2
+
+    assert get_support("deimv2", "detect", "axelera").tier == "hybrid"
+    assert "DINOv3" in BLOCKED_SIZES[("deimv2", "detect", "axelera")]["s"]
+    model = LibreDEIMv2._from_scratch(size="atto", device="cpu", seed=0)
+    assert AxeleraExporter(model)._hybrid_split() == "encoder"
+    net = model.model.eval()
+    x = torch.rand(1, 3, 320, 320)
+    with torch.no_grad():
+        expected = net(x)
+        head, tail = _detr_conv_encoder_parts(_unfrozen_batchnorms(copy.deepcopy(net).eval()), OUTPUTS)
+        memory = head(x)
+        assert len(memory) == len(head.output_names) == 2
+        actual = tail(*memory)
+    _assert_same_queries(
+        [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
+    )
