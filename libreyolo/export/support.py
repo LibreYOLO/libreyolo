@@ -5029,9 +5029,9 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("unet", "semantic", "axelera"): {
         "s": (
-            "measured fidelity to FP32: device labels against FP32 labels give "
-            "mIoU 0.777 and 91.3% pixel agreement on 1000 COCO val2017 images at "
-            "512x1024 (UNet is Cityscapes-trained; no Cityscapes masks were used)"
+            "measured fidelity mIoU 0.777 vs FP32 labels (91.3% of pixels agree "
+            "on 1000 COCO val2017 images at 512x1024; UNet is Cityscapes-trained "
+            "and no Cityscapes masks were used)"
         ),
     },
     ("deeplabv3", "semantic", "axelera"): {
