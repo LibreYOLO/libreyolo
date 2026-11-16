@@ -863,6 +863,9 @@ generative models and 3D models. Checked against LibreYOLO's own model code
 - DEIMv2 s, m, l and x: DINOv3 ViT backbones with a spatial-tuning adapter
   (vit_tiny, vit_tinyplus, dinov3_vits16, dinov3_vits16plus). The atto,
   femto, pico and n sizes use HGNetv2 and are hybrid candidates.
+- DINO-DETR swinl: a Swin-L backbone (shifted-window attention, embed 192,
+  depths 2/2/18/2, window 12). The r50 and r50s5 sizes use ResNet-50 and are
+  hybrid candidates.
 
 Other known limits:
 
