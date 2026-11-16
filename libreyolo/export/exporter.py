@@ -5566,6 +5566,15 @@ class AxeleraExporter(BaseExporter):
         part2_output = str(out.with_name(f"{out.name}.export_intermediate.part2.onnx"))
         self._intermediate_paths = [onnx_output, part2_output]
         if self._shuffle_skip_restore():
+            if self._size_recipe().get("weight_equalization"):
+                from ..models.realesrgan.quantize import equalize_conv_activation_ranges
+
+                nn_model = copy.deepcopy(nn_model).eval()
+                logger.info(
+                    "Axelera: %d convolution pairs of the compact trunk equalized through "
+                    "their activations (exact; docs/axelera.md).",
+                    equalize_conv_activation_ranges(nn_model),
+                )
             self._raw_wrapper = _RestoreBodyWrapper(nn_model).eval()
             logger.info("Step 1/2: Exporting restore trunk ONNX (%s)", onnx_output)
             return _export_onnx_graph(

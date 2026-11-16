@@ -1184,6 +1184,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
         ("mobilenetv4", "classify", "l"), ("yolonas", "pose", "s"),
         ("vgg", "classify", "16bn"), ("quicksrnet", "restore", "m2"),
+        ("realesrgan", "restore", "x4t"),
     }
     assert size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
     # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default.
@@ -1222,6 +1223,16 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     sr = LibreQuickSRNet(None, size="m2", device="cpu")
     sr.export(format="axelera", data=data, imgsz=32, output_path=str(tmp_path / "sr_axelera_model"))
     assert len(seen) == 1 and seen[0]["learned_rounding"] is True and len(seen[0]["rounding_samples"]) > 0
+    # Real-ESRGAN-x4t: exact equalization of the compact trunk through its PReLUs.
+    from libreyolo import LibreRealESRGAN
+    import libreyolo.models.realesrgan.quantize as esq
+
+    pairs = []
+    original_eq = esq.equalize_conv_activation_ranges
+    monkeypatch.setattr(esq, "equalize_conv_activation_ranges", lambda *a, **k: pairs.append(original_eq(*a, **k)) or pairs[-1])
+    esr = LibreRealESRGAN(None, size="x4t", device="cpu")
+    esr.export(format="axelera", data=data, imgsz=32, output_path=str(tmp_path / "esr_axelera_model"))
+    assert pairs == [len([m for m in esr.model.body if isinstance(m, torch.nn.Conv2d)]) - 1]
 
 
 def _pad_maxpool_graph(pad_value):

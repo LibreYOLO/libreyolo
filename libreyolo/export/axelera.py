@@ -82,8 +82,11 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: d0, cocoval300: -0.62 vs -1.00 single-part, not adopted) and
 #: ``learned_rounding`` (QuickSRNet: learn each weight's INT8 rounding direction
 #: after the Hardtanh equalization, deterministic, see
-#: ``models/quicksrnet/quantize.learn_int8_rounding``). Results with these
-#: recipes are in docs/axelera.md.
+#: ``models/quicksrnet/quantize.learn_int8_rounding``) and
+#: ``weight_equalization`` (Real-ESRGAN compact trunk: exact cross-layer
+#: equalization through its PReLU activations,
+#: ``models/realesrgan/quantize.equalize_conv_activation_ranges``). Results
+#: with these recipes are in docs/axelera.md.
 AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # RT-DETRv2's neck part defaults to histogram ranges (exporter
     # _HYBRID_NECK_QUANTIZATION_SCHEMES); r18 and r34 were measured with the
@@ -152,6 +155,9 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # correction) instead of nearest rounding + bias correction: PSNR -0.20 dB vs
     # FP32 on 296 COCO crops (-0.17 held-out) instead of -0.46 dB.
     ("quicksrnet", "restore", "m2"): {"learned_rounding": True},
+    # Real-ESRGAN-x4t (SRVGGNetCompact): exact cross-layer equalization of the
+    # conv+PReLU trunk before calibration (nearest rounding: -0.49 dB).
+    ("realesrgan", "restore", "x4t"): {"weight_equalization": True},
 }
 
 
