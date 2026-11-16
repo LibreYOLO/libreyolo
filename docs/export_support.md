@@ -417,7 +417,7 @@ A check mark applies only under any constraint listed here.
 - `realesrgan` / `restore` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `realesrgan` / `restore` / `tensorrt`: FP32 with a fixed-resolution export canvas
 - `realesrgan` / `restore` / `openvino`: fixed-resolution export canvas
-- `realesrgan` / `restore` / `axelera`: validated sizes: x4 (three compiled parts); supported sizes: x4t (measured drop, SIZE_ACCURACY_NOTES); x2 is not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 64x64 input canvas (smaller images are padded)
+- `realesrgan` / `restore` / `axelera`: validated sizes: x4 (three compiled parts); supported sizes: x4t and x2 (three compiled parts; measured drops, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas, 64x64 for x4/x4t and 128x128 for x2 (smaller images are padded)
 - `realesrgan` / `restore` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with a fixed-resolution export canvas; two-input raw parity, factory reload, metadata, and public predict parity
 - `realesrgan` / `restore` / `tflite`: fixed-resolution export canvas
 - `realesrgan` / `restore` / `coreai`: fixed export canvas; permissively licensed trained restoration checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin

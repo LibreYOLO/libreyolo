@@ -1126,9 +1126,9 @@ def test_support_matrix_rows_for_axelera():
         assert all(note.startswith("measured ") and " vs FP32 " in note for note in notes.values())
     esrgan = get_support("realesrgan", "restore", "axelera")
     assert esrgan.tier == "validated" and "validated sizes: x4 " in esrgan.constraint
-    assert "supported sizes: x4t " in esrgan.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("realesrgan", "restore", "axelera")]) == ["x4t"]
-    assert sorted(UNMEASURED_SIZES[("realesrgan", "restore", "axelera")]) == ["x2"]
+    assert "supported sizes: x4t and x2 " in esrgan.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("realesrgan", "restore", "axelera")]) == ["x2", "x4t"]
+    assert ("realesrgan", "restore", "axelera") not in UNMEASURED_SIZES
     assert ("realesrgan", "restore") in INT8_EXPORTS["axelera"]
     alexnet = get_support("alexnet", "classify", "axelera")
     assert alexnet.tier == "validated" and "validated sizes: b;" in alexnet.constraint
@@ -1173,7 +1173,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("retinanet", "detect", "r50"),
         ("deeplabv3", "semantic", "r50"), ("deeplabv3", "semantic", "r101"),
         # Covered by their own tests (fixed canvas / three-part export).
-        ("realesrgan", "restore", "x4"),
+        ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),
         # Hybrid neck pinned to the scheme its numbers were measured with
         # (test_export_axelera_hybrid covers neck_quantization_scheme).
@@ -2376,3 +2376,23 @@ def test_unet_onnx_semantic_export_is_wired_at_its_rectangles():
 
     assert "unet" in _RECTANGULAR_BACKEND_FAMILIES
     assert get_support("unet", "semantic", "onnx").tier == "validated"
+def test_rrdb_x2_parts_unshuffle_exactly_and_compose_to_the_network():
+    torch = pytest.importorskip("torch")
+    np = pytest.importorskip("numpy")
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import _RRDBPart
+    from libreyolo.models.realesrgan.nn import RRDBNet, pixel_unshuffle
+
+    torch.manual_seed(0)
+    net = RRDBNet(scale=2, num_feat=8, num_block=4, num_grow_ch=4).eval()
+    head, tail, upsample = (_RRDBPart(net, role, 2).eval() for role in ("head", "tail", "upsample"))
+    x = torch.rand(1, 3, 16, 16)
+    unshuffled = torch.nn.functional.conv2d(x, head.unshuffle_weight, stride=2)
+    assert torch.equal(unshuffled, pixel_unshuffle(x, 2))
+    with torch.no_grad():
+        skip, mid = head(x)
+        feat = HOST_OPS["add"](skip.numpy(), tail(mid)[0].numpy())
+        chained = upsample(torch.from_numpy(feat))[0]
+        whole = net(x)
+    assert chained.shape == whole.shape == (1, 3, 32, 32)
+    np.testing.assert_allclose(chained.numpy(), whole.numpy(), rtol=1e-5, atol=1e-5)

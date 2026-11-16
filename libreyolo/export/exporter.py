@@ -4127,10 +4127,23 @@ class _RRDBPart(torch.nn.Module):
         self.holder, self.role, self.split = net, role, int(split)
         self.output_names = self._NAMES[role]
         self.upscale = int(getattr(net, "scale", 4))
+        # x2 (and x1) checkpoints pixel-unshuffle the input first (factor 2 / 4): an exact one-hot
+        # stride-s convolution (output channel c*s*s + i*s + j reads input channel c at offset (i, j)).
+        self.unshuffle = {4: 1, 2: 2, 1: 4}[self.upscale]
+        if role == "head" and self.unshuffle > 1:
+            s, c = self.unshuffle, int(net.conv_first.in_channels) // (self.unshuffle**2)
+            weight = torch.zeros(c * s * s, c, s, s)
+            for ch in range(c):
+                for i in range(s):
+                    for j in range(s):
+                        weight[ch * s * s + i * s + j, ch, i, j] = 1.0
+            self.register_buffer("unshuffle_weight", weight, persistent=False)
 
     def forward(self, x):
         net, F = self.holder, torch.nn.functional
         if self.role == "head":
+            if self.unshuffle > 1:
+                x = F.conv2d(x, self.unshuffle_weight.to(x.dtype), stride=self.unshuffle)
             skip = net.conv_first(x)
             return _identity_entry(skip), net.body[: self.split](skip)
         if self.role == "tail":
@@ -5038,9 +5051,9 @@ class AxeleraExporter(BaseExporter):
         return None
 
     def _rrdb_parts_restore(self) -> bool:
-        """Real-ESRGAN-x4's RRDB network as three compiled parts + a host add (recipe ``rrdb_split``)."""
+        """Real-ESRGAN-x4/x2's RRDB network as three compiled parts + a host add (recipe ``rrdb_split``)."""
         net = self._rrdb_network()
-        return net is not None and bool(self._size_recipe().get("rrdb_split")) and int(getattr(net, "scale", 4)) == 4
+        return net is not None and bool(self._size_recipe().get("rrdb_split")) and int(getattr(net, "scale", 4)) in (2, 4)
 
     def _export_rrdb_parts_onnx(self, out: Path, imgsz, opset) -> str:
         """Export the three RRDB parts (``_RRDBPart``) and keep their run order in ``_hybrid_parts``.
