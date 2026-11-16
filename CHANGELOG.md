@@ -109,6 +109,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: HRNet's block records its measured device drift and the multi-part assessment.** The device drifts from the quantized model through stage 4's fusion modules (cosine 0.946, 0.78, 0.21) while the CPU-quantized model stays at 0.993 or better; a per-stage split would need four-branch packed parts.
+
 - **Axelera Metis: ZipDepth's block names its measured limit.** Its GCNet softmax over 576 positions has no AIPU form within SDK 1.9 (reshape pair over the layout-transform limit, one-hot transposed conv too large for the MVM unit, Exp/Reciprocal unsupported).
 
 - **Axelera Metis: CenterNet stays blocked after a measured multi-part attempt.** ResDCN-18 with its deformable convolutions on the host compiles and runs but scores 0.098 vs 0.282 FP32 mAP50-95 (INT8 drift in the ResNet-18 trunk); DLA-34 would need about 17 parts.

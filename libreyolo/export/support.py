@@ -4593,6 +4593,23 @@ _add(
 )
 _add(
     "blocked",
+    ("hrnet",),
+    ("pose",),
+    ("axelera",),
+    reason=(
+        "HRNet-w32 compiles for Metis with SDK 1.9, but its device output drifts "
+        "away from the SDK's own quantized model through stage 4's multi-branch "
+        "fusion modules: device vs quantized cosine 0.997 after layer 1, 0.9995 "
+        "after stage 2, 0.983 after stage 3, then 0.946, 0.78 and 0.21 through "
+        "stage 4, while the CPU-quantized model stays at 0.993 or better against "
+        "FP32 (keypoint mAP 0.000 on the device). Multi-part assessment: a "
+        "per-stage split would need parts that take all four resolution "
+        "branches as one packed input (several hours and 3-4 compiles) and may "
+        "only move the drift."
+    ),
+)
+_add(
+    "blocked",
     ("zipdepth",),
     ("depth",),
     ("axelera",),

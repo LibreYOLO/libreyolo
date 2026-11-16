@@ -2356,3 +2356,10 @@ def test_zipdepth_block_names_the_softmax_limit():
 
     entry = get_support("zipdepth", "depth", "axelera")
     assert entry.tier == "blocked" and "softmax" in entry.reason and "two inputs" in entry.reason
+
+
+def test_hrnet_block_records_the_device_drift_and_parts_assessment():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("hrnet", "pose", "axelera")
+    assert entry.tier == "blocked" and "drifts" in entry.reason and "four resolution" in entry.reason
