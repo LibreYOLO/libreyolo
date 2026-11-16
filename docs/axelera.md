@@ -856,6 +856,9 @@ generative models and 3D models. Checked against LibreYOLO's own model code
   transformers; LibreYOLO has no runtime export for it in any format.
 - GTR: a ViT backbone whose blocks use gated linear attention, with an
   adapter to multi-scale features.
+- DEIMv2 s, m, l and x: DINOv3 ViT backbones with a spatial-tuning adapter
+  (vit_tiny, vit_tinyplus, dinov3_vits16, dinov3_vits16plus). The atto,
+  femto, pico and n sizes use HGNetv2 and are hybrid candidates.
 
 Other known limits:
 
