@@ -33,7 +33,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | depth_anything3 | depth | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | detany3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | detr | detect | ✓ | ✓ | available | available | available |  |  |  | hybrid |  |  |  |  |
-| dexined | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |  |  |
+| dexined | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available |  | ✓ |  |  |
 | dfine | detect | ✓ | ✓ |  | available | ✓ | ✓ | ✓ |  | hybrid |  |  |  | ✓ |
 | dfine | segment | ✓ | ✓ |  | available | ✓ |  |  |  |  |  |  |  |  |
 | diffusion_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -618,6 +618,7 @@ These converter paths are callable with the recorded validation context.
 - `detr` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `detr` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `detr` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
+- `dexined` / `edge` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole DexiNed graph runs on the Metis AIPU and the host resizes the fused edge probability map. Supported, not validated: measured as fidelity to FP32 (no BIPED ground truth was used): on 300 COCO val2017 images at 352 px the device edge maps keep cosine 0.997 and edge-pixel F1 0.965 at 0.5 against FP32 (docs/axelera.md). Weights: LibreYOLO neither hosts nor downloads the upstream checkpoint (MIT code; trained on BIPED, whose terms are non-commercial); the user supplies it and converts it locally. Constraint: supported sizes: b (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 352x352 input
 - `dfine` / `detect` / `tensorrt`: A published Apache-2.0 trained checkpoint exports and reloads, but public top-k class membership changes after TensorRT 10.16 FP32 conversion.
 - `dfine` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes after TensorRT 10.16 FP32 conversion.
 - `dinodetr` / `detect` / `torchscript`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -965,7 +966,6 @@ rest on the host CPU; each entry names the split.
 - `dexined` / `edge` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dexined` / `edge` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dexined` / `edge` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dexined` / `edge` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `dexined` / `edge` / `ncnn`: PNNX 20260526 leaves an unsupported Tensor.index channel-reversal node, so the generated NCNN network has no runnable input.
 - `dexined` / `edge` / `coreml`: This edge runtime has no parity-valid artifact for the requested format.
 - `dexined` / `edge` / `coreai`: This edge runtime has no parity-valid artifact for the requested format.

@@ -130,6 +130,7 @@ a separate size:
 | Real-ESRGAN | x4t | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.30 | -0.19 | validated | `realesrgan/restore/x4t/2026-11-16` |
 | Real-ESRGAN | x2 | restore 2x (PSNR, dB; three compiled parts) | COCO crops from 128 px, 296 | 25.07 | 24.73 | -0.34 | supported | `realesrgan/restore/x2/2026-11-16` |
 | MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported | `midas/depth/s/2026-11-11/4` |
+| DexiNed | b | edge (edge-pixel F1 vs FP32 edges at 0.5; 352x352) | COCO val2017 at 352 px, 300 | 1.0000 | 0.9651 | -0.0349 (cosine 0.997) | supported | `dexined/edge/b/2026-11-16` |
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
 | DeepLabV3 | r50 | semantic (mIoU; ASPP as 1x1 + shifts) | COCO val2017 VOC-21, 300 | 0.5243 | 0.4735 | -5.08 | supported | `deeplabv3/semantic/r50/2026-11-14/3` |
 | DeepLabV3 | r101 | semantic (mIoU; ASPP as 1x1 + shifts) | COCO val2017 VOC-21, 300 | 0.5888 | 0.3795 | -20.93 | supported | `deeplabv3/semantic/r101/2026-11-14` |
@@ -163,6 +164,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | QuickSRNet | restore | m2 (learned INT8 rounding; held-out half -0.17 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-16/5`, held-out `quicksrnet/restore/m2/2026-11-16/6` |
 | Real-ESRGAN | restore | x4 (three compiled parts + a host add), x4t (equalized trunk; held-out half -0.20 dB); x2 (three compiled parts, supported with a measured drop) | see `docs/export_support.md` | x4 `realesrgan/restore/x4/2026-11-16`; x4t `realesrgan/restore/x4t/2026-11-16`, held-out `realesrgan/restore/x4t/2026-11-16/2`; x2 `realesrgan/restore/x2/2026-11-16` |
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
+| DexiNed | edge | b (supported with a measured fidelity; whole graph; the user supplies the upstream BIPED-trained checkpoint, non-commercial) | see `docs/export_support.md` | b `dexined/edge/b/2026-11-16` |
 | DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops; r50/r101 run their ASPP as per-tap 1x1 convolutions plus shifts) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-14/3`; r101 `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | semantic | s (supported with a measured fidelity; whole graph at the 512x1024 training crop, compile about 12.7 h) | see `docs/export_support.md` | s `unet/semantic/s/2026-11-16` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |

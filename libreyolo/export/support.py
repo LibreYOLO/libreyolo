@@ -4747,6 +4747,28 @@ _add(
     ),
 )
 _add(
+    "available",
+    ("dexined",),
+    ("edge",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole DexiNed graph "
+        "runs on the Metis AIPU and the host resizes the fused edge probability "
+        "map. Supported, not validated: measured as fidelity to FP32 (no BIPED "
+        "ground truth was used): on 300 COCO val2017 images at 352 px the device "
+        "edge maps keep cosine 0.997 and edge-pixel F1 0.965 at 0.5 against FP32 "
+        "(docs/axelera.md). Weights: LibreYOLO neither hosts nor downloads the "
+        "upstream checkpoint (MIT code; trained on BIPED, whose terms are "
+        "non-commercial); the user supplies it and converts it locally."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: b (measured fidelity, SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 352x352 input"
+    ),
+)
+_add(
     "blocked",
     ("feynobg",),
     ("matte",),
@@ -5063,6 +5085,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "validated bar for restoration is 0.3 dB)"
         ),
     },
+    ("dexined", "edge", "axelera"): {
+        "b": (
+            "measured edge-pixel F1 0.965 vs FP32 edges at 0.5 (cosine 0.997, MAE "
+            "0.013 on 300 COCO val2017 images at 352 px; fidelity, no BIPED ground "
+            "truth)"
+        ),
+    },
     ("midas", "depth", "axelera"): {
         "s": (
             "measured depth error vs FP32 (AbsRel 0.069, delta1 0.94 between the "
@@ -5360,6 +5389,7 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("quicksrnet", "restore"),
             ("realesrgan", "restore"),
             ("midas", "depth"),
+            ("dexined", "edge"),
             ("deeplabv3", "semantic"),
             ("fcn", "semantic"),
             ("yolox", "detect"),

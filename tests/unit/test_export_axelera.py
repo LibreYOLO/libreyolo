@@ -2440,3 +2440,26 @@ def test_feynobg_is_out_of_scope_for_its_swin_backbone():
     entry = get_support("feynobg", "matte", "axelera")
     assert entry.tier == "blocked" and entry.reason.startswith("Out of scope") and "Swin" in entry.reason
 
+
+def test_edge_preprocess_takes_a_square_pair_as_export_verify_passes_it():
+    np = pytest.importorskip("numpy")
+    from libreyolo.models.edge_common import preprocess_numpy
+
+    image = np.random.default_rng(0).integers(0, 255, (48, 64, 3), dtype=np.uint8)
+    single, _ = preprocess_numpy(image, 32)
+    pair, _ = preprocess_numpy(image, (32, 32))
+    assert np.array_equal(single, pair)
+    with pytest.raises(ValueError, match="square"):
+        preprocess_numpy(image, (32, 48))
+
+
+def test_dexined_is_supported_with_its_measured_fidelity():
+    from libreyolo.export.exporter import _AXELERA_GRAPH_OUTPUTS
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES, get_support
+
+    entry = get_support("dexined", "edge", "axelera")
+    assert entry.tier == "available" and "0.965" in entry.reason and "non-commercial" in entry.reason
+    assert "0.965" in SIZE_ACCURACY_NOTES[("dexined", "edge", "axelera")]["b"]
+    assert ("dexined", "edge", "axelera") not in UNMEASURED_SIZES
+    assert _AXELERA_GRAPH_OUTPUTS[("dexined", "edge")] == ("edges",)
+

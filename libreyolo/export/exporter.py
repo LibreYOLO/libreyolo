@@ -3969,6 +3969,8 @@ _AXELERA_GRAPH_OUTPUTS = {
     ("ppliteseg", "semantic"): ("semantic_logits",),
     ("pidnet", "semantic"): ("semantic_logits",),
     ("unet", "semantic"): ("semantic_logits",),
+    # DexiNed: the fused edge probability map (sigmoid in the graph).
+    ("dexined", "edge"): ("edges",),
     # EfficientDet's decoded export; the top-candidate decode (TopK, Gather,
     # Exp) lands in the compiled model's host postamble.
     ("efficientdet", "detect"): ("output",),
