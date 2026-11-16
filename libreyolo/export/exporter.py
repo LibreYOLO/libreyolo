@@ -4066,6 +4066,9 @@ class _GraphOutputsWrapper(torch.nn.Module):
 #: than the compiler accepts.
 _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
     "picodet": ("channel_shuffle_to_conv",),
+    # EfficientNetV2-b1/b2/b3's stage-0 residual reads its skip through an
+    # identity 1x1 conv (else the skip buffer is a 2nd compiled output; b0 has none).
+    "efficientnetv2": ("stem_residual_skip_conv",),
     "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
     # VGG's fc6 (Gemm over 7x7x512) as row convolutions.
     "vgg": ("fc_rowconv",),

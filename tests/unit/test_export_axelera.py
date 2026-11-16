@@ -1134,7 +1134,10 @@ def test_support_matrix_rows_for_axelera():
     assert alexnet.tier == "validated" and "validated sizes: b;" in alexnet.constraint
     yolo2 = get_support("yolo2", "detect", "axelera")
     assert yolo2.tier == "validated" and "validated sizes: t, b." in yolo2.constraint
-    assert "two output buffers" in BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b3"]
+    effv2 = get_support("efficientnetv2", "classify", "axelera")
+    assert effv2.tier == "validated" and "validated sizes: b1, b3; supported sizes: b0, b2 " in effv2.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("efficientnetv2", "classify", "axelera")]) == ["b0", "b2"]
+    assert ("efficientnetv2", "classify", "axelera") not in BLOCKED_SIZES
     assert ("efficientnetv2", "classify", "axelera") not in UNMEASURED_SIZES
     yolo1 = get_support("yolo1", "detect", "axelera")
     assert yolo1.tier == "validated" and "validated sizes: b " in yolo1.constraint
@@ -1304,16 +1307,6 @@ def test_efficientnetv2_b0_exports_with_histogram_ranges(exporter_sdk, tmp_path,
                for r in caplog.records)
 
 
-@pytest.mark.parametrize("size", ["b1", "b2"])
-def test_efficientnetv2_sizes_that_do_not_compile_are_blocked(tmp_path, size):
-    """Structural blocks only: these sizes do not compile."""
-    from libreyolo import LibreEfficientNetV2
-
-    model = LibreEfficientNetV2(size=size, nb_classes=5, device="cpu")
-    with pytest.raises(NotImplementedError, match=rf"efficientnetv2-{size} classify export to axelera is blocked"):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
-
-
 def test_rtmdet_ins_x_is_blocked_with_its_compile_failure(tmp_path):
     from libreyolo import LibreRTMDet
 
@@ -1350,15 +1343,6 @@ def test_unmeasured_sizes_are_not_exportable_and_not_called_blocked(tmp_path):
     ):
         with pytest.raises(NotImplementedError, match=r"efficientnetv2-b3 classify export to axelera is not available yet: it has not been measured on a Metis yet"):
             model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
-
-
-def test_efficientnetv2_b3_is_blocked_with_its_compile_failure(tmp_path):
-    from libreyolo import LibreEfficientNetV2
-
-    model = LibreEfficientNetV2(size="b3", nb_classes=5, device="cpu")
-    with pytest.raises(NotImplementedError, match=r"efficientnetv2-b3 classify export to axelera is blocked: .*two output buffers"):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
-
 
 
 def _shuffle_graph():
@@ -1436,6 +1420,7 @@ def test_only_listed_families_request_graph_passes():
     # passes (the leave-other-graphs-alone tests cover the no-op).
     assert _AXELERA_GRAPH_PASSES == {
         "picodet": ("channel_shuffle_to_conv",),
+        "efficientnetv2": ("stem_residual_skip_conv",),
         "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
         "vgg": ("fc_rowconv",),
         "yolo1": ("fc_rowconv",),
@@ -2232,14 +2217,6 @@ def test_resize_1x1_broadcast_add_is_exact(tmp_path):
     np.testing.assert_allclose(after, before, rtol=1e-6, atol=1e-6)
 
 
-def test_efficientnetv2_b1_block_names_the_padded_input_buffer():
-    from libreyolo.export.support import BLOCKED_SIZES
-
-    reason = BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b1"]
-    assert "two output buffers" in reason and "channel-padded input" in reason
-    assert "two output buffers" in BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b2"]
-
-
 def test_rrdb_parts_compose_to_the_network_with_a_host_add():
     torch = pytest.importorskip("torch")
     np = pytest.importorskip("numpy")
@@ -2462,4 +2439,45 @@ def test_dexined_is_supported_with_its_measured_fidelity():
     assert "0.965" in SIZE_ACCURACY_NOTES[("dexined", "edge", "axelera")]["b"]
     assert ("dexined", "edge", "axelera") not in UNMEASURED_SIZES
     assert _AXELERA_GRAPH_OUTPUTS[("dexined", "edge")] == ("edges",)
+
+
+def test_stem_residual_skip_conv_reads_a_stem_resolution_skip_through_an_identity_conv():
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    from onnx import TensorProto, helper, numpy_helper
+
+    from libreyolo.export.axelera import GRAPH_PASSES
+    from libreyolo.export.exporter import _AXELERA_GRAPH_PASSES
+
+    assert _AXELERA_GRAPH_PASSES["efficientnetv2"] == ("stem_residual_skip_conv",)
+    rng = np.random.default_rng(0)
+
+    def graph(residual_at_stem: bool):
+        init = [numpy_helper.from_array(rng.standard_normal((4, 3, 3, 3)).astype(np.float32), "ws"),
+                numpy_helper.from_array(rng.standard_normal((4, 4, 3, 3)).astype(np.float32), "wb"),
+                numpy_helper.from_array(rng.standard_normal((4, 4, 3, 3)).astype(np.float32), "wd")]
+        nodes = [helper.make_node("Conv", ["images", "ws"], ["stem"], strides=[2, 2], pads=[1, 1, 1, 1]),
+                 helper.make_node("Conv", ["stem", "wb"], ["blk"], pads=[1, 1, 1, 1])]
+        if residual_at_stem:
+            nodes.append(helper.make_node("Add", ["blk", "stem"], ["out"]))
+        else:  # a residual one stride further down, as in b0's first residual stage
+            nodes += [helper.make_node("Conv", ["blk", "wd"], ["down"], strides=[2, 2], pads=[1, 1, 1, 1]),
+                      helper.make_node("Conv", ["down", "wb"], ["blk2"], pads=[1, 1, 1, 1]),
+                      helper.make_node("Add", ["blk2", "down"], ["out"])]
+        g = helper.make_graph(nodes, "g", [helper.make_tensor_value_info("images", TensorProto.FLOAT, [1, 3, 16, 16])],
+                              [helper.make_tensor_value_info("out", TensorProto.FLOAT, None)], init)
+        return helper.make_model(g, opset_imports=[helper.make_opsetid("", 17)], ir_version=8)
+
+    x = rng.random((1, 3, 16, 16), dtype=np.float32)
+    run = lambda m: ort.InferenceSession(m.SerializeToString()).run(None, {"images": x})[0]
+    model = graph(True)
+    want = run(model)
+    assert GRAPH_PASSES["stem_residual_skip_conv"](model) == 1
+    assert [n.op_type for n in model.graph.node].count("Conv") == 3
+    np.testing.assert_allclose(run(model), want, atol=1e-6)
+    deeper = graph(False)
+    before = deeper.graph.SerializeToString()
+    assert GRAPH_PASSES["stem_residual_skip_conv"](deeper) == 0
+    assert deeper.graph.SerializeToString() == before
 

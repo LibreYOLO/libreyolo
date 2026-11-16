@@ -1743,6 +1743,50 @@ def _resize_corner_chain(model) -> int:
     return count
 
 
+def _stem_residual_skip_conv(model) -> int:
+    """A residual ``Add`` at the stem's resolution reads its skip through a 1x1 identity convolution.
+
+    EfficientNetV2-b1/b2/b3 open with two stage-0 FusedMBConv blocks, the second
+    adding its input back at the stem's stride-2 resolution. Compiled as is, the
+    skip operand's buffer stays listed as a second graph output (pool
+    ``pool_ddr_input``), so the compiled model has two output buffers for one
+    output. With the skip read through an identity 1x1 convolution (identity
+    weights, zero bias: exact) it compiles with one. Adds at other resolutions
+    (b0 has no stage-0 residual) are left alone. Returns the number of rewrites.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, producers, _, weights = _graph_tables(model)
+    graph = model.graph
+    image = graph.input[0].name
+    stem = next((n for n in graph.node if n.op_type == "Conv" and n.input[0] == image), None)
+    if stem is None or len(shapes.get(stem.output[0], [])) != 4:
+        return 0
+    stem_hw = shapes[stem.output[0]][2:]
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "Add"]:
+        if len(node.input) != 2 or any(name in weights for name in node.input):
+            continue
+        a, b = (shapes.get(name, []) for name in node.input)
+        if len(a) != 4 or a != b or a[2:] != stem_hw:
+            continue
+        channels = int(b[1])
+        weight = np.eye(channels, dtype=np.float32).reshape(channels, channels, 1, 1)
+        w_name, b_name = f"stem_skip_identity_w{count}", f"stem_skip_identity_b{count}"
+        graph.initializer.append(numpy_helper.from_array(weight, w_name))
+        graph.initializer.append(numpy_helper.from_array(np.zeros(channels, np.float32), b_name))
+        out = f"{node.input[1]}_stem_skip_identity{count}"
+        conv = helper.make_node(
+            "Conv", [node.input[1], w_name, b_name], [out],
+            name=f"stem_skip_identity_conv{count}", kernel_shape=[1, 1],
+        )
+        graph.node.insert(list(graph.node).index(node), conv)
+        node.input[1] = out
+        count += 1
+    return count
+
+
 _DATA_PASSES = {"dw_channel_groups"}
 
 #: Named exact ONNX rewrites an export may request (``graph_passes``); each
@@ -1763,6 +1807,7 @@ GRAPH_PASSES = {
     "resize_1x1_broadcast_add": _resize_1x1_broadcast_add,
     "resize_corner_chain": _resize_corner_chain,
     "avgpool_staged": _avgpool_staged,
+    "stem_residual_skip_conv": _stem_residual_skip_conv,
 }
 
 

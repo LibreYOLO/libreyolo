@@ -48,7 +48,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | ec | segment | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  |  |  |  |
 | edgetam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | efficientdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available | available |  |  |  |
-| efficientnetv2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
+| efficientnetv2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |  | ✓ |
 | eomt | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | eomt | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | eomt | panoptic |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -323,6 +323,7 @@ A check mark applies only under any constraint listed here.
 - `efficientnetv2` / `classify` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `efficientnetv2` / `classify` / `tensorrt`: FP32 with fixed family-native input resolution
 - `efficientnetv2` / `classify` / `openvino`: fixed family-native input resolution
+- `efficientnetv2` / `classify` / `axelera`: validated sizes: b1, b3; supported sizes: b0, b2 (measured drops, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input (b0 224, b1 240, b2 260, b3 300 px)
 - `efficientnetv2` / `classify` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 at the family-native input resolution; two-input raw parity, factory reload, metadata, and public predict parity
 - `efficientnetv2` / `classify` / `coreai`: fixed export canvas; a representative published trained ImageNet checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
 - `eomt` / `semantic` / `onnx`: fixed 512x512 input
@@ -637,7 +638,6 @@ These converter paths are callable with the recorded validation context.
 - `efficientdet` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `efficientdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole EfficientDet graph runs on the Metis AIPU after exact rewrites of the BiFPN fusion (division by a constant as a multiplication, the stacked weighted sum as additions) and of the squeeze-excite averages (staged 2x2 pools), and the host decodes the boxes in float. Supported, not validated: on a Metis M.2 Max with per-channel activation ranges EfficientDet-d0 loses 1.78 mAP50-95 points against FP32 on 1000 COCO val2017 images; EfficientDet-d1 and -d2 run at d0's 512x512 canvas (their native 640 and 768 do not compile), which costs 3.10 and 5.31 points in FP32 and INT8 1.64 and 1.38 more (docs/axelera.md). Constraint: supported sizes: d0, d1 and d2 (d1 and d2 at a fixed 512x512 canvas; measured drops, SIZE_ACCURACY_NOTES); d3 and d4 do not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `efficientdet` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
-- `efficientnetv2` / `classify` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole classifier runs on the Metis AIPU with histogram activation ranges. Supported, not validated: on a Metis M.2 Max EfficientNetV2-b0 keeps top-1 1.0-1.1 points below FP32 on a paired 1000-image ImageNetV2 set (docs/axelera.md). Constraint: supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1, b2 and b3 do not compile with SDK 1.9.0 (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `fcos` / `detect` / `openvino`: FP32 dynamic-shape conversion and high-confidence public predictions pass, but small score/box drift can change low-confidence NMS ordering. Constraint: OpenVINO CPU, FP32, batch 1, dynamic padded H/W
 - `fcos` / `detect` / `axelera`: INT8 multi-part export compiled with Axelera's toolchain. FCOS's head normalizes every convolution with GroupNorm (per-image statistics), which the INT8 toolchain has no form for, so the ResNet-FPN trunk, the four head convolutions (classification and regression towers stacked, on all five levels packed onto one canvas) and the predictor run on the Metis AIPU as six compiled parts, and the host applies each GroupNorm + ReLU and decodes the boxes. Supported, not validated: on a Metis M.2 Max FCOS-R50 loses 4.13 mAP50-95 points against FP32 on 1000 COCO val2017 images at its 800x800 canvas (docs/axelera.md). Constraint: supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES); fixed 800x800 canvas by default. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1
 - `feynobg` / `matte` / `onnx`: The opset-19 DeformConv graph exports, but ONNX Runtime's CPU provider has no DeformConv implementation for runtime parity.

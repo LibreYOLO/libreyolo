@@ -125,6 +125,9 @@ a separate size:
 | MobileNetV4 | m | classify (top-1) | ImageNetV2, 1000 | 0.682 | 0.684 | +0.2 | validated | `mobilenetv4/classify/m/2026-11-11/2` |
 | MobileNetV4 | l | classify (top-1) | ImageNetV2, 1000 | 0.727 | 0.710 | -1.7 | supported | `mobilenetv4/classify/l/2026-11-10` |
 | EfficientNetV2 | b0 | classify (top-1) | ImageNetV2, 1000 | 0.667 | 0.656 | -1.1 | supported | `efficientnetv2/classify/b0/2026-11-11/5` |
+| EfficientNetV2 | b1 | classify (top-1; 240 px; stage-0 skip as identity conv) | ImageNetV2, 1000 | 0.689 | 0.687 | -0.2 | validated | `efficientnetv2/classify/b1/2026-11-17` |
+| EfficientNetV2 | b2 | classify (top-1; 260 px; stage-0 skip as identity conv) | ImageNetV2, 1000 | 0.706 | 0.693 | -1.3 | supported | `efficientnetv2/classify/b2/2026-11-17` |
+| EfficientNetV2 | b3 | classify (top-1; 300 px; stage-0 skip as identity conv) | ImageNetV2, 1000 | 0.715 | 0.726 | +1.1 | validated | `efficientnetv2/classify/b3/2026-11-17` |
 | VGG | 16 | classify (top-1) | ImageNetV2, 1000 | 0.608 | 0.606 | -0.2 | validated | `vgg/classify/16/2026-11-12` |
 | VGG | 19 | classify (top-1) | ImageNetV2, 1000 | 0.610 | 0.619 | +0.9 | validated | `vgg/classify/19/2026-11-12` |
 | VGG | 16bn | classify (top-1) | ImageNetV2, 1000 | 0.633 | 0.631 | -0.2 | validated | `vgg/classify/16bn/2026-11-12/2` |
@@ -164,7 +167,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLO9-E2E | detect | t, s, m, c | see `docs/export_support.md` | t `yolo9_e2e/detect/t/2026-11-13`; s `yolo9_e2e/detect/s/2026-11-13`; m `yolo9_e2e/detect/m/2026-11-13`; c `yolo9_e2e/detect/c/2026-11-13` |
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` | 18 `resnet/classify/18/2026-11-10/2`; 34 `resnet/classify/34/2026-11-10`; 50 `resnet/classify/50/2026-11-10`; 101 `resnet/classify/101/2026-11-10` |
 | MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` | s `mobilenetv4/classify/s/2026-11-11/3`; m `mobilenetv4/classify/m/2026-11-11/2`; l `mobilenetv4/classify/l/2026-11-10` |
-| EfficientNetV2 | classify | b0 (supported with a measured drop; b1, b2 and b3 blocked: do not compile) | see `docs/export_support.md` | b0 `efficientnetv2/classify/b0/2026-11-11/5`; b1 blocked `efficientnetv2/classify/b1/2026-11-11/3`; b2 blocked `efficientnetv2/classify/b2/2026-11-11`; b3 blocked `efficientnetv2/classify/b3/2026-11-13/2` |
+| EfficientNetV2 | classify | b1, b3 (validated); b0, b2 (supported with measured drops); b1-b3 read their stage-0 residual skip through an exact identity 1x1 conv | see `docs/export_support.md` | b0 `efficientnetv2/classify/b0/2026-11-11/5`; b1 `efficientnetv2/classify/b1/2026-11-17`; b2 `efficientnetv2/classify/b2/2026-11-17`; b3 `efficientnetv2/classify/b3/2026-11-17` |
 | VGG | classify | 16, 19, 16bn (19bn supported with a measured drop) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12/2`; 19bn `vgg/classify/19bn/2026-11-12` |
 | AlexNet | classify | b | see `docs/export_support.md` | b `alexnet/classify/b/2026-11-13` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
@@ -905,7 +908,6 @@ compiles their own.
 Blocked for structural reasons (accuracy never blocks an export):
 
 - L2CS (gaze): its only checkpoint is trained on Gaze360, whose licence forbids redistributing models trained on it; LibreYOLO fetches it from the authors and does not mirror it, so no Axelera export is measured or shipped.
-- EfficientNetV2-b1, -b2 and -b3: do not compile with SDK 1.9.0 (the compiled model has two output buffers for its one output: b1 at 224 and 240 px, b3 at 224 and its native 300 px; at 256 px b1's squeeze-excitation pooling exceeds a reduction limit). The second buffer is the channel-padded input (224x224x16 for b1 at 224 px), listed as an output; neither running the classifier as a 1x1 convolution nor any public compiler option tried (first-layer replication, IO padding removal, memory paging, double buffering) removes it (ledger `efficientnetv2/classify/b1/2026-11-15` to `/5`).
 - EfficientDet-d3: lowering finds no L1 tiling at its native 896 (2.52 MB needed, 2.15 MB available) nor at a 512 canvas (2.58 vs 2.14 MB); its 160-channel BiFPN and heads set the need (ledgers `efficientdet/detect/d3/2026-11-13/2`, `efficientdet/detect/d3/2026-11-14`). Use d2.
 - EfficientDet-d4: lowering finds no L1 tiling at its native 1024 (2.69 MB needed, 0.94 MB available) nor at a 512 canvas (2.10 vs 1.22 MB). Prefix cuts at 512 put the overflow in the EfficientNet-B4 backbone: stages 0-4 compile, the 272-channel stage (blocks.5) needs 3.12 MB vs 2.47 MB (ledgers `efficientdet/detect/d4/2026-11-15` to `/4`).
 - HRNet (pose): compiles, but the device output drifts from the quantized model through stage 4's multi-branch fusion modules (device vs quantized cosine 0.983 after stage 3, then 0.946, 0.78 and 0.21; the CPU-quantized model stays at 0.993 or better; keypoint mAP 0.000 on device). Multi-part assessment: a per-stage split needs parts that take all four resolution branches as one packed input (several hours, 3-4 compiles) and may only move the drift.

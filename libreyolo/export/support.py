@@ -4073,22 +4073,24 @@ _add(
     ),
 )
 _add(
-    "available",
+    "validated",
     ("efficientnetv2",),
     ("classify",),
     ("axelera",),
     reason=(
         "INT8 export compiled with Axelera's toolchain; the whole classifier runs "
-        "on the Metis AIPU with histogram activation ranges. Supported, not "
-        "validated: on a Metis M.2 Max EfficientNetV2-b0 keeps top-1 1.0-1.1 "
-        "points below FP32 on a paired 1000-image ImageNetV2 set "
-        "(docs/axelera.md)."
+        "on the Metis AIPU. For b1, b2 and b3 an exact graph pass reads the "
+        "stage-0 residual's skip through an identity 1x1 convolution (without "
+        "it the compiled model lists the skip buffer as a second output). On a "
+        "Metis M.2 Max, at their native sizes on a paired 1000-image ImageNetV2 "
+        "set, b1 and b3 are within 1.0 top-1 point of FP32; b0 and b2 are "
+        "supported with measured drops (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1, b2 and b3 "
-        "do not compile with SDK 1.9.0 (BLOCKED_SIZES). axelera-devkit / "
-        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input"
+        "validated sizes: b1, b3; supported sizes: b0, b2 (measured drops, "
+        "SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "compile, INT8, batch 1, fixed input (b0 224, b1 240, b2 260, b3 300 px)"
     ),
 )
 _add(
@@ -5136,6 +5138,10 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "measured top-1 drop 1.1 points vs FP32 (0.656 vs 0.667 on a paired "
             "1000-image ImageNetV2 set; 1.0 on a second compile)"
         ),
+        "b2": (
+            "measured top-1 drop 1.3 points vs FP32 (0.693 vs 0.706 on a paired "
+            "1000-image ImageNetV2 set at 260 px)"
+        ),
     },
     ("realesrgan", "restore", "axelera"): {
         "x2": (
@@ -5359,26 +5365,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "(48 LayerNormalization, 24 Softmax, 28 Erf and the attention MatMuls "
             "at 384 px) stops at the quantizer's ONNX import ('unexpected input "
             "value type'), after 6 min and an 18 GB peak; use MiDaS-s"
-        ),
-    },
-    ("efficientnetv2", "classify", "axelera"): {
-        "b1": (
-            "does not compile with Axelera's SDK 1.9.0: at 224 and 240 px the "
-            "compiled model has two output buffers for its one output; the "
-            "second is the channel-padded input (224x224x16 at 224 px), which "
-            "the compiler lists as an output (b0 has no such buffer). Running "
-            "the classifier as a 1x1 convolution, or compiling with first-layer "
-            "replication, IO padding removal, memory paging or host/device "
-            "double buffering switched off, fails the same way; at 256 px the "
-            "squeeze-excitation pooling exceeds a reduction limit"
-        ),
-        "b2": (
-            "does not compile with Axelera's SDK 1.9.0: like b1, the compiled "
-            "model has two output buffers for its one output"
-        ),
-        "b3": (
-            "does not compile with Axelera's SDK 1.9.0: at its native 300 px and "
-            "at 224 px the compiled model has two output buffers for its one output"
         ),
     },
     ("retinanet", "detect", "axelera"): {

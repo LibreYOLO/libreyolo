@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis export for EfficientNetV2-b1, -b2 and -b3.** They no longer fail to compile with two output buffers: an exact graph pass reads the stage-0 residual skip through an identity 1x1 convolution (b0 is unchanged). At their native sizes on 1000 ImageNetV2 images b1 (-0.2 top-1) and b3 (+1.1) are validated and b2 (-1.3) is supported.
+
 - **Axelera Metis export for PP-DocLayoutV3-l document layout detection, hybrid.** The HGNetV2-L backbone and the encoder input projections run on the Metis; the attention encoder, the mask-enhanced decoder and the reading-order head run on the host. On 300 DocLayNet pages the device boxes match FP32 at F1 0.98 (IoU 0.5). The model's forward is now split at the projections (`forward_features`), with identical outputs.
 
 - **Axelera Metis export for DexiNed edge detection, supported.** The whole graph runs on the Metis at 352x352; against FP32 the device edge maps keep cosine 0.997 and edge-pixel F1 0.965 on 300 COCO val2017 images. LibreYOLO does not host the BIPED-trained checkpoint; edge preprocessing now also takes a square (h, w) size.
