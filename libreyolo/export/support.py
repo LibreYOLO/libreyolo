@@ -4133,20 +4133,21 @@ _add(
     ),
 )
 _add(
-    "available",
+    "validated",
     ("quicksrnet",),
     ("restore",),
     ("axelera",),
     reason=(
         "INT8 export compiled with Axelera's toolchain; the whole super-resolution "
         "graph runs on the Metis AIPU after its hidden channels are equalized "
-        "through their Hardtanh bounds and its biases corrected for INT8 weight "
-        "rounding. Supported, not validated: QuickSRNet-m2 keeps PSNR 0.46 dB "
-        "below FP32 on 296 COCO crops, 2x from 128 px (docs/axelera.md)."
+        "through their Hardtanh bounds and each weight's INT8 rounding direction "
+        "is learned on the calibration images (biases corrected). QuickSRNet-m2 "
+        "keeps PSNR 0.20 dB below FP32 on 296 COCO crops, 2x from 128 px, and "
+        "0.17 dB on a held-out half of them (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: m2 (measured drop, SIZE_ACCURACY_NOTES). "
+        "validated sizes: m2 (learned INT8 rounding, AXELERA_SIZE_RECIPES). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed input canvas (smaller images are padded)"
     ),
@@ -5008,13 +5009,6 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
         "b0": (
             "measured top-1 drop 1.1 points vs FP32 (0.656 vs 0.667 on a paired "
             "1000-image ImageNetV2 set; 1.0 on a second compile)"
-        ),
-    },
-    ("quicksrnet", "restore", "axelera"): {
-        "m2": (
-            "measured PSNR drop 0.46 dB vs FP32 (28.66 vs 29.12 dB, SSIM 0.866 vs "
-            "0.877, on 296 COCO crops upscaled 2x from 128 px; the validated bar "
-            "for restoration is 0.3 dB)"
         ),
     },
     ("realesrgan", "restore", "axelera"): {

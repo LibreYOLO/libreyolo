@@ -119,6 +119,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: QuickSRNet-m2 is validated with learned INT8 rounding.** After the Hardtanh equalization the export now learns each weight's rounding direction on the per-channel INT8 grid (AdaRound-style, one convolution at a time, 300 steps with a fixed seed, on up to 128 calibration images) and corrects the biases, through the new per-size recipe key `learned_rounding`. PSNR is 0.20 dB below FP32 on 296 COCO crops (was 0.46 dB with nearest rounding) and 0.17 dB on a held-out half of them; the export takes about 12 minutes instead of 3.
+
 - **Axelera Metis: DEKR-w32 is blocked with its measured failures.** The default compile fails on output paging after 8.3 h; with paging off it compiles in 11.6 h but loses the device when run.
 
 - **Axelera Metis: RetinaNet-r50v2 stays blocked after the measured multi-part attempt.** With its GroupNorm head on the host (as FCOS) it compiles and runs but scores 0.033 vs 0.396 FP32 mAP50-95: its ResNet-50 v2 trunk does not survive INT8.

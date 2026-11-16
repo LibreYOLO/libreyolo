@@ -149,7 +149,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # with min-max) and plain VGG-16/19 stay on min-max.
     ("vgg", "classify", "16bn"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
     # QuickSRNet-m2: learned INT8 rounding of the equalized weights (plus bias
-    # correction) instead of nearest rounding + bias correction (-0.46 dB).
+    # correction) instead of nearest rounding + bias correction: PSNR -0.20 dB vs
+    # FP32 on 296 COCO crops (-0.17 held-out) instead of -0.46 dB.
     ("quicksrnet", "restore", "m2"): {"learned_rounding": True},
 }
 

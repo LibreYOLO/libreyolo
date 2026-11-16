@@ -123,7 +123,7 @@ a separate size:
 | AlexNet | b | classify (top-1) | ImageNetV2, 1000 | 0.434 | 0.440 | +0.6 | validated | `alexnet/classify/b/2026-11-13` |
 | FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated | `fcn/semantic/r50/2026-11-11/2` |
 | FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated | `fcn/semantic/r101/2026-11-11` |
-| QuickSRNet | m2 | restore 2x (PSNR, dB) | COCO crops from 128 px, 296 | 29.12 | 28.66 | -0.46 | supported | `quicksrnet/restore/m2/2026-11-11/7` |
+| QuickSRNet | m2 | restore 2x (PSNR, dB) | COCO crops from 128 px, 296 | 29.12 | 28.92 | -0.20 | validated | `quicksrnet/restore/m2/2026-11-16/5` |
 | Real-ESRGAN | x4 | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.44 | -0.05 | validated | `realesrgan/restore/x4/2026-11-16` |
 | Real-ESRGAN | x4t | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.00 | -0.49 | supported | `realesrgan/restore/x4t/2026-11-12` |
 | Real-ESRGAN | x2 | restore 2x (PSNR, dB; three compiled parts) | COCO crops from 128 px, 296 | 25.07 | 24.73 | -0.34 | supported | `realesrgan/restore/x2/2026-11-16` |
@@ -158,7 +158,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | VGG | classify | 16, 19, 16bn (19bn supported with a measured drop) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12/2`; 19bn `vgg/classify/19bn/2026-11-12` |
 | AlexNet | classify | b | see `docs/export_support.md` | b `alexnet/classify/b/2026-11-13` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
-| QuickSRNet | restore | m2 (supported with a measured drop; bar 0.3 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-11/7` |
+| QuickSRNet | restore | m2 (learned INT8 rounding; held-out half -0.17 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-16/5`, held-out `quicksrnet/restore/m2/2026-11-16/6` |
 | Real-ESRGAN | restore | x4 (three compiled parts + a host add), x4t (supported with a measured drop; bar 0.3 dB); x2 (three compiled parts, supported with a measured drop) | see `docs/export_support.md` | x4 `realesrgan/restore/x4/2026-11-16`; x4t `realesrgan/restore/x4t/2026-11-12`; x2 `realesrgan/restore/x2/2026-11-16` |
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops; r50/r101 run their ASPP as per-tap 1x1 convolutions plus shifts) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-14/3`; r101 `deeplabv3/semantic/r101/2026-11-14` |
