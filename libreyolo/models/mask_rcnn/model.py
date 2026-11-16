@@ -152,10 +152,13 @@ class LibreMaskRCNN(LibreFasterRCNN):
         self,
         format: str = "onnx",
         *,
-        opset: int = 18,
+        opset: int | None = None,
         **kwargs,
     ) -> str:
         if format.lower() == "onnx":
+            # ONNX keeps opset 18; other formats (e.g. axelera, which takes
+            # opset 14-17) choose their own.
+            opset = 18 if opset is None else opset
             if int(kwargs.get("batch", 1)) != 1:
                 raise NotImplementedError(
                     "Mask R-CNN ONNX export supports batch=1 only."
@@ -168,4 +171,6 @@ class LibreMaskRCNN(LibreFasterRCNN):
                     stacklevel=2,
                 )
             kwargs["dynamic"] = True
-        return super().export(format=format, opset=opset, **kwargs)
+        if opset is not None:
+            kwargs["opset"] = opset
+        return super().export(format=format, **kwargs)

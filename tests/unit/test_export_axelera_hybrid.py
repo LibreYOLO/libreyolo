@@ -373,3 +373,76 @@ def test_deimv2_small_sizes_take_the_encoder_split_and_reproduce_the_native_mode
     _assert_same_queries(
         [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
     )
+
+
+@pytest.mark.parametrize("task", ["segment", "detect"])
+def test_mask_rcnn_hybrid_chain_matches_the_export_wrapper(task):
+    """Mask R-CNN backbone-split hybrid in FP32: the Metis part (normalization, backbone, FPN)
+    then the host step (pool level, RPN, RoI box and mask heads, mask paste) reproduce
+    MaskRCNNExportWrapper at the canvas."""
+    import copy
+
+    from libreyolo.export.exporter import (
+        _AXELERA_HYBRID_OUTPUTS,
+        _HYBRID_BACKBONE_WRAPPERS,
+        _MaskRCNNHostTailWrapper,
+        _RCNNBackboneWrapper,
+    )
+    from libreyolo.models.mask_rcnn.nn import LibreMaskRCNNModel, MaskRCNNExportWrapper
+
+    assert _HYBRID_BACKBONE_WRAPPERS["mask_rcnn"] == ("_RCNNBackboneWrapper", "_MaskRCNNHostTailWrapper")
+    outputs = _AXELERA_HYBRID_OUTPUTS[("mask_rcnn", task)]
+    torch.manual_seed(0)
+    net = LibreMaskRCNNModel().eval()
+    net.transform.min_size, net.transform.max_size = (256,), 256
+    net.roi_heads.score_thresh = 0.0
+    x = torch.rand(1, 3, 256, 256, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = MaskRCNNExportWrapper(copy.deepcopy(net), include_masks=task == "segment").eval()(x)
+        levels = _RCNNBackboneWrapper(net).eval()(x)
+        got = _MaskRCNNHostTailWrapper(net, outputs, canvas=(256, 256)).eval()(*levels)
+    assert len(got) == len(want) == len(outputs)
+    assert got[0].shape[0] == want[0].shape[0] > 0
+    # Random-init ResNet-50-FPN v2: float accumulation moves box corners by < 0.01 px (of 256).
+    torch.testing.assert_close(got[0], want[0], atol=0.05, rtol=0)
+    torch.testing.assert_close(got[1], want[1], atol=1e-3, rtol=0)
+    assert torch.equal(got[2], want[2])
+    if task == "segment":
+        assert got[3].shape == want[3].shape and got[3].shape[-2:] == (256, 256)
+        torch.testing.assert_close(got[3], want[3], atol=1e-2, rtol=0)
+
+
+def test_mask_rcnn_hybrid_segment_export_runs_the_chain(sdk, tmp_path, monkeypatch):
+    import yaml
+
+    from libreyolo import LibreYOLO
+    from libreyolo.export import support
+    from libreyolo.export.support import get_support
+    from libreyolo.models.mask_rcnn.model import LibreMaskRCNN
+
+    assert get_support("mask_rcnn", "segment", "axelera").tier == "hybrid"
+    # r50 segment is measured (docs/axelera.md); detect is not measured yet.
+    assert ("mask_rcnn", "segment", "axelera") not in support.UNMEASURED_SIZES
+    assert "r50" in support.UNMEASURED_SIZES[("mask_rcnn", "detect", "axelera")]
+    model = LibreMaskRCNN._from_scratch(size="r50", task="segment", device="cpu", seed=0)
+    # A small canvas keeps the test light; the export takes the model's min_size as its canvas.
+    model.model.transform.min_size, model.model.transform.max_size = (256,), 256
+    artifact = Path(
+        model.export(
+            format="axelera",
+            imgsz=256,
+            data=str(_dataset(tmp_path)),
+            output_path=str(tmp_path / "maskrcnn_axelera_model"),
+        )
+    )
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["hybrid"]["split"] == "backbone"
+    assert [("axm" if "axm" in part else "onnx") for part in meta["parts"]] == ["axm", "onnx"]
+    assert sorted(meta["parts"][0]["outputs"]) == ["fpn0", "fpn1", "fpn2", "fpn3"]
+    assert meta["parts"][-1]["outputs"] == ["boxes", "scores", "labels", "masks"]
+    backend = LibreYOLO(str(artifact))
+    result = backend(_image(shape=(240, 320, 3)), conf=0.0)
+    assert result.boxes.xyxy.shape[-1] == 4
+    if len(result.boxes):
+        assert tuple(result.masks.data.shape[-2:]) == (240, 320)
+

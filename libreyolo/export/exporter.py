@@ -4440,10 +4440,12 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("rtdetrv4", "detect"): ("pred_logits", "pred_boxes"),
     ("detr", "detect"): ("pred_logits", "pred_boxes"),
     ("faster_rcnn", "detect"): ("boxes", "scores", "labels"),
+    ("mask_rcnn", "detect"): ("boxes", "scores", "labels"),
+    ("mask_rcnn", "segment"): ("boxes", "scores", "labels", "masks"),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
-_HYBRID_BACKBONE_ONLY = frozenset({"detr", "faster_rcnn"})
+_HYBRID_BACKBONE_ONLY = frozenset({"detr", "faster_rcnn", "mask_rcnn"})
 
 
 def _unfrozen_batchnorms(module: torch.nn.Module) -> torch.nn.Module:
@@ -4606,10 +4608,44 @@ class _RCNNHostTailWrapper(torch.nn.Module):
         return detection["boxes"][keep], detection["scores"][keep], labels[keep]
 
 
+class _MaskRCNNHostTailWrapper(_RCNNHostTailWrapper):
+    """Host step of a hybrid Mask R-CNN export: the Faster R-CNN host step plus the mask head.
+
+    The mask head (its RoIAlign, four convolutions and the mask predictor) runs
+    on the host with the box head, and the soft masks are pasted onto the
+    canvas, so ``masks`` is ``(N, 1, H, W)`` in canvas pixels; the backend's
+    fixed-shape parser resizes them to the image like the boxes.
+    """
+
+    def forward(self, *levels):
+        from collections import OrderedDict
+
+        from torchvision.models.detection.image_list import ImageList
+
+        features = OrderedDict((str(i), level) for i, level in enumerate(levels))
+        features["pool"] = torch.nn.functional.max_pool2d(levels[-1], 1, 2, 0)
+        h, w = self.canvas
+        images = ImageList(levels[0].new_zeros((levels[0].shape[0], 3, h, w)), [(h, w)])
+        proposals, _ = self.model.rpn(images, features)
+        detections, _ = self.model.roi_heads(features, proposals, images.image_sizes)
+        detection = self.model.transform.postprocess(detections, images.image_sizes, [(h, w)])[0]
+        labels = self.label_map[detection["labels"]]
+        keep = labels >= 0
+        outputs = {
+            "boxes": detection["boxes"][keep],
+            "scores": detection["scores"][keep],
+            "labels": labels[keep],
+        }
+        if "masks" in self.output_names:
+            outputs["masks"] = detection["masks"][keep]
+        return tuple(outputs[name] for name in self.output_names)
+
+
 #: Backbone-only hybrid families: (part-1 wrapper, host tail wrapper).
 _HYBRID_BACKBONE_WRAPPERS = {
     "detr": ("_VanillaDETRBackboneWrapper", "_VanillaDETRHostTailWrapper"),
     "faster_rcnn": ("_RCNNBackboneWrapper", "_RCNNHostTailWrapper"),
+    "mask_rcnn": ("_RCNNBackboneWrapper", "_MaskRCNNHostTailWrapper"),
 }
 
 
@@ -5393,7 +5429,7 @@ class AxeleraExporter(BaseExporter):
                 return BaseBackend._preprocess_restore(crop, (h, w), "rgb")[0][0].numpy(), 1.0
 
             return restore
-        if self.model._get_model_name() == "faster_rcnn":
+        if self.model._get_model_name() in ("faster_rcnn", "mask_rcnn"):
             import cv2
 
             # The backend's fixed-shape Faster R-CNN preprocessing: stretch to the

@@ -2756,7 +2756,7 @@ _add(
     "blocked",
     ("mask_rcnn",),
     ("detect", "segment"),
-    tuple(fmt for fmt in EXPORT_FORMATS if fmt != "onnx"),
+    tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "axelera")),
     reason=(
         "Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, "
         "RoIAlign, variable-length detection, and full-image mask graph."
@@ -4854,6 +4854,26 @@ _add(
 )
 _add(
     "hybrid",
+    ("mask_rcnn",),
+    ("detect", "segment"),
+    ("axelera",),
+    reason=(
+        "Hybrid INT8 export at a fixed square canvas, as Faster R-CNN: the input "
+        "normalization, the ResNet-50-FPN v2 backbone and the FPN are compiled "
+        "with Axelera's toolchain and run on the Metis AIPU; the region proposal "
+        "network, RoIAlign, the box and mask heads, NMS and the mask paste run on "
+        "the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and "
+        "metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 800x800 canvas (images are stretched to it)"
+    ),
+)
+_add(
+    "hybrid",
     ("detr",),
     ("detect",),
     ("axelera",),
@@ -5296,6 +5316,7 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("detr", "detect", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("r50dc5", "r101", "r101dc5")
     },
+    ("mask_rcnn", "detect", "axelera"): {"r50": "has not been measured on a Metis yet"},
 }
 
 #: Formats whose INT8 export is limited to these (family, task) pairs.

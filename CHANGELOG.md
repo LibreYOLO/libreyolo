@@ -74,6 +74,8 @@ before 1.4.0 are documented in the
 
 - **Axelera Metis export for Real-ESRGAN-x4t super-resolution, supported.** The compact network's convolution trunk runs on the Metis AIPU and the host applies the pixel shuffle and the nearest-upsampled input skip (layout `restore_shuffle_skip_v1`), since a graph whose output depends directly on its input cannot be split into a host preamble and an accelerated core. Compiled at a fixed 64x64 canvas, Real-ESRGAN-x4t on a Metis M.2 Max scores PSNR 22.00 vs FP32 22.49 dB (-0.49 dB; SSIM 0.606 vs 0.658) on 296 COCO crops upscaled 4x from 64 px: supported (the restoration bar is 0.3 dB). x4 and x2 have not been measured on a Metis yet and are not exportable until they are.
 
+- **Axelera Metis export for Mask R-CNN-r50 instance segmentation, hybrid.** The ResNet-50-FPN v2 backbone and FPN run on the Metis at a fixed 800x800 canvas; the region proposals, the box and mask heads and the mask paste run on the host. Mask mAP50-95 0.4039 vs 0.4045 FP32 at the same canvas (box 0.4323 vs 0.4321) on 300 COCO val2017 images. Mask R-CNN's export no longer forces opset 18 on formats other than ONNX.
+
 - **Axelera Metis export for Faster R-CNN-l detection, hybrid.** The ResNet-50-FPN v2 size, as Faster R-CNN-m at a fixed 800x800 canvas: 0.4489 vs 0.4468 FP32 mAP50-95 at the same canvas (+0.21) on 300 COCO val2017 images; every Faster R-CNN size now has an Axelera export.
 
 - **Axelera Metis export for Faster R-CNN-m detection, hybrid.** The ResNet-50-FPN size, as Faster R-CNN-s at a fixed 800x800 canvas: 0.3456 vs 0.3472 FP32 mAP50-95 at the same canvas (-0.16) on 300 COCO val2017 images.
