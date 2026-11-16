@@ -79,7 +79,10 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: pointwise conv as a second compiled part with this quantization scheme, e.g.
 #: ``"per_tensor_min_max"``; under the family's histogram ranges the single-part
 #: class logits cannot represent logits above about 0 on p3/p4/p7. Measured on
-#: d0, cocoval300: -0.62 vs -1.00 single-part, not adopted). Results with these
+#: d0, cocoval300: -0.62 vs -1.00 single-part, not adopted) and
+#: ``learned_rounding`` (QuickSRNet: learn each weight's INT8 rounding direction
+#: after the Hardtanh equalization, deterministic, see
+#: ``models/quicksrnet/quantize.learn_int8_rounding``). Results with these
 #: recipes are in docs/axelera.md.
 AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # RT-DETRv2's neck part defaults to histogram ranges (exporter
@@ -145,6 +148,9 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # take it from -2.9 to -0.2 top-1. VGG-19-BN does not follow (-6.0 vs -5.1
     # with min-max) and plain VGG-16/19 stay on min-max.
     ("vgg", "classify", "16bn"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
+    # QuickSRNet-m2: learned INT8 rounding of the equalized weights (plus bias
+    # correction) instead of nearest rounding + bias correction (-0.46 dB).
+    ("quicksrnet", "restore", "m2"): {"learned_rounding": True},
 }
 
 

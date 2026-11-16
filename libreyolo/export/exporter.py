@@ -5431,12 +5431,15 @@ class AxeleraExporter(BaseExporter):
         samples = [torch.as_tensor(x) for x in self._equalization_samples()]
         if not samples:
             return
-        summary = prepare_for_int8(net, samples)
+        learned = bool(self._size_recipe().get("learned_rounding"))
+        rounding = [torch.as_tensor(x) for x in self._equalization_samples(limit=128)] if learned else None
+        summary = prepare_for_int8(net, samples, learned_rounding=learned, rounding_samples=rounding)
         logger.info(
             "Axelera: QuickSRNet hidden channels equalized through their Hardtanh "
-            "bounds (smallest calibration peak per layer %s); %d biases corrected "
-            "for INT8 weight rounding.",
+            "bounds (smallest calibration peak per layer %s); %s; %d biases corrected.",
             ", ".join(f"{v:.3f}" for v in summary["layer_min_peaks"]),
+            f"INT8 rounding learned for {summary['learned_rounding']} convolutions on "
+            f"{len(rounding)} calibration images" if learned else "nearest INT8 rounding",
             summary["bias_corrected"],
         )
 
