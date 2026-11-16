@@ -446,3 +446,58 @@ def test_mask_rcnn_hybrid_segment_export_runs_the_chain(sdk, tmp_path, monkeypat
     if len(result.boxes):
         assert tuple(result.masks.data.shape[-2:]) == (240, 320)
 
+
+def test_ppdoclayout_hybrid_chain_matches_the_export_wrapper():
+    """PP-DocLayoutV3 backbone-split hybrid in FP32: the Metis part (HGNetV2 and the encoder
+    input projections) then the host step reproduce PPDocLayoutV3ExportWrapper."""
+    import copy
+
+    from libreyolo.export.exporter import (
+        _AXELERA_HYBRID_OUTPUTS,
+        _DocLayoutBackboneWrapper,
+        _DocLayoutHostTailWrapper,
+    )
+    from libreyolo.models.ppdoclayoutv3.nn import PPDocLayoutV3ExportWrapper, PPDocLayoutV3Model
+
+    outputs = _AXELERA_HYBRID_OUTPUTS[("ppdoclayoutv3", "detect")]
+    torch.manual_seed(0)
+    net = PPDocLayoutV3Model().eval()
+    x = torch.rand(1, 3, 256, 256, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = PPDocLayoutV3ExportWrapper(copy.deepcopy(net)).eval()(x)
+        head = _DocLayoutBackboneWrapper(net).eval()
+        levels = head(x)
+        got = _DocLayoutHostTailWrapper(net, outputs).eval()(*levels)
+    assert head.output_names == ("feat_s4", "proj_s8", "proj_s16", "proj_s32")
+    assert net.backbone is not None and net.encoder_input_proj is not None
+    for g, w in zip(got, want):
+        torch.testing.assert_close(g, w, atol=1e-4, rtol=1e-4)
+
+
+def test_ppdoclayout_hybrid_export_runs_the_chain(sdk, tmp_path, monkeypatch):
+    import yaml
+
+    from libreyolo import LibreYOLO
+    from libreyolo.export import support
+    from libreyolo.export.support import get_support
+    from libreyolo.models.ppdoclayoutv3.model import LibrePPDocLayoutV3
+
+    assert get_support("ppdoclayoutv3", "detect", "axelera").tier == "hybrid"
+    assert ("ppdoclayoutv3", "detect", "axelera") not in support.UNMEASURED_SIZES
+    model = LibrePPDocLayoutV3._from_scratch(size="l", device="cpu", seed=0)
+    artifact = Path(
+        model.export(
+            format="axelera",
+            imgsz=256,
+            data=str(_dataset(tmp_path)),
+            output_path=str(tmp_path / "doclayout_axelera_model"),
+        )
+    )
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["hybrid"]["split"] == "backbone"
+    assert [("axm" if "axm" in part else "onnx") for part in meta["parts"]] == ["axm", "onnx"]
+    assert sorted(meta["parts"][0]["outputs"]) == ["feat_s4", "proj_s16", "proj_s32", "proj_s8"]
+    assert meta["parts"][-1]["outputs"] == ["pred_logits", "pred_boxes", "order_votes"]
+    result = LibreYOLO(str(artifact))(_image(shape=(240, 320, 3)), conf=0.0)
+    assert result.boxes.xyxy.shape[-1] == 4
+

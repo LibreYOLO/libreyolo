@@ -4444,10 +4444,11 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("faster_rcnn", "detect"): ("boxes", "scores", "labels"),
     ("mask_rcnn", "detect"): ("boxes", "scores", "labels"),
     ("mask_rcnn", "segment"): ("boxes", "scores", "labels", "masks"),
+    ("ppdoclayoutv3", "detect"): ("pred_logits", "pred_boxes", "order_votes"),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
-_HYBRID_BACKBONE_ONLY = frozenset({"detr", "faster_rcnn", "mask_rcnn"})
+_HYBRID_BACKBONE_ONLY = frozenset({"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3"})
 
 
 def _unfrozen_batchnorms(module: torch.nn.Module) -> torch.nn.Module:
@@ -4495,6 +4496,61 @@ class _DETRBackboneWrapper(torch.nn.Module):
         features = self.model.backbone(x)
         projections = self.model.encoder.input_proj
         return tuple(projections[i](feature) for i, feature in enumerate(features))
+
+
+class _DocLayoutBackboneWrapper(torch.nn.Module):
+    """Part 1 of a hybrid PP-DocLayoutV3 export: the HGNetV2 backbone and the encoder input projections.
+
+    Returns the stride-4 backbone stage (``feat_s4``, the mask branch's input)
+    and the projected stride-8/16/32 stages (``proj_s8`` ...); every op is a
+    convolution, a pooling or an activation.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    hybrid_aipu = "HGNetV2 backbone and encoder input projections"
+    hybrid_host = "hybrid encoder (AIFI attention, FPN/PAN, mask features), decoder, reading-order head (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        strides = [int(v) for v in model.cfg["feat_strides"]]
+        self.output_names = ("feat_s4", *(f"proj_s{stride}" for stride in strides))
+
+    def forward(self, x):
+        features = self.model.backbone(x)
+        projections = self.model.encoder_input_proj
+        return (features[0], *(proj(f) for proj, f in zip(projections, features[1:])))
+
+
+class _DocLayoutHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid PP-DocLayoutV3 export: everything after the projections.
+
+    Ends at the ONNX export's ``pred_logits``, ``pred_boxes`` and
+    ``order_votes`` (PPDocLayoutV3ExportWrapper's outputs).
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        backbone, model.backbone = model.backbone, None
+        try:
+            tail = copy.deepcopy(model).eval()
+        finally:
+            model.backbone = backbone
+        tail.encoder_input_proj = None
+        self.model = tail
+        self.output_names = tuple(output_names)
+
+    def forward(self, feat_s4, *proj_feats):
+        from ..postprocess.ppdoclayoutv3 import reading_order_votes
+
+        out = self.model.forward_features(feat_s4, list(proj_feats))
+        values = {
+            "pred_logits": out["pred_logits"],
+            "pred_boxes": out["pred_boxes"],
+            "order_votes": reading_order_votes(out["order_logits"]),
+        }
+        return tuple(values[name] for name in self.output_names)
 
 
 class _VanillaDETRBackboneWrapper(torch.nn.Module):
@@ -4648,6 +4704,7 @@ _HYBRID_BACKBONE_WRAPPERS = {
     "detr": ("_VanillaDETRBackboneWrapper", "_VanillaDETRHostTailWrapper"),
     "faster_rcnn": ("_RCNNBackboneWrapper", "_RCNNHostTailWrapper"),
     "mask_rcnn": ("_RCNNBackboneWrapper", "_MaskRCNNHostTailWrapper"),
+    "ppdoclayoutv3": ("_DocLayoutBackboneWrapper", "_DocLayoutHostTailWrapper"),
 }
 
 
@@ -5944,7 +6001,13 @@ class AxeleraExporter(BaseExporter):
             return meta
         if isinstance(
             wrapper,
-            (_DETRBackboneWrapper, _VanillaDETRBackboneWrapper, _RCNNBackboneWrapper, _DETRConvEncoderWrapper),
+            (
+                _DETRBackboneWrapper,
+                _VanillaDETRBackboneWrapper,
+                _RCNNBackboneWrapper,
+                _DETRConvEncoderWrapper,
+                _DocLayoutBackboneWrapper,
+            ),
         ):
             outputs = list(self._hybrid_outputs())
             own_split = hasattr(wrapper, "hybrid_aipu")

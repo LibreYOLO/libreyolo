@@ -4901,6 +4901,26 @@ _add(
 )
 _add(
     "hybrid",
+    ("ppdoclayoutv3",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "Hybrid INT8 export: the HGNetV2 backbone and the encoder input "
+        "projections are compiled with Axelera's toolchain and run on the Metis "
+        "AIPU; the hybrid encoder (attention, FPN/PAN, mask features), the "
+        "mask-enhanced decoder and the reading-order head run on the host CPU as "
+        "an FP32 ONNX graph through ONNX Runtime (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and "
+        "metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed square input (images are stretched to it)"
+    ),
+)
+_add(
+    "hybrid",
     ("mask_rcnn",),
     ("detect", "segment"),
     ("axelera",),

@@ -105,6 +105,7 @@ a separate size:
 | Faster R-CNN | m | detect (hybrid as n; ResNet-50-FPN; 800x800 canvas) | COCO val2017, 300 | 0.3472 | 0.3456 | -0.16 (canvas -3.12 more) | hybrid | `faster_rcnn/detect/m/2026-11-16` |
 | Faster R-CNN | l | detect (hybrid as n; ResNet-50-FPN v2; 800x800 canvas) | COCO val2017, 300 | 0.4468 | 0.4489 | +0.21 | hybrid | `faster_rcnn/detect/l/2026-11-16` |
 | Mask R-CNN | r50 | detect (hybrid: the segment export's Metis part, the host stops before the mask branch; 800x800 canvas) | COCO val2017, 300 | 0.4476 | 0.4481 | +0.05 | hybrid | `mask_rcnn/detect/r50/2026-11-16` |
+| PP-DocLayoutV3 | l | detect (document layout; matched-box F1 vs FP32 boxes at IoU 0.5; hybrid: HGNetV2 on the Metis, encoder, decoder and reading-order head on the host) | DocLayNet val pages, 300 | 1.0000 | 0.9795 | -0.0205 (score r 0.947) | hybrid | `ppdoclayoutv3/detect/l/2026-11-16` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
 | EfficientDet | d2 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3744 | 0.3606 | -1.38 (canvas -5.31 more) | supported | `efficientdet/detect/d2/2026-11-14` |
@@ -193,6 +194,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | RT-DETRv4 | detect | s, m, l, x (hybrid, as D-FINE) | see `docs/export_support.md` | s `rtdetrv4/detect/s/2026-11-16`; m `rtdetrv4/detect/m/2026-11-16`; l `rtdetrv4/detect/l/2026-11-16`; x `rtdetrv4/detect/x/2026-11-16` |
 | DEIMv2 | detect | atto, femto, pico (hybrid: backbone, convolutional encoder and decoder input projections on the Metis, decoder on the host), n (hybrid, as D-FINE); s, m, l and x are out of scope (DINOv3 ViT backbones) | see `docs/export_support.md` | atto `deimv2/detect/atto/2026-11-16`; femto `deimv2/detect/femto/2026-11-16`; pico `deimv2/detect/pico/2026-11-16`; n `deimv2/detect/n/2026-11-16` |
 | DETR | detect | r50, r50dc5, r101, r101dc5 (hybrid: ResNet backbone and input projection on the Metis, transformer encoder, decoder and heads on the host) | see `docs/export_support.md` | r50 `detr/detect/r50/2026-11-15`; r50dc5 `detr/detect/r50dc5/2026-11-16`; r101 `detr/detect/r101/2026-11-16`; r101dc5 `detr/detect/r101dc5/2026-11-16` |
+| PP-DocLayoutV3 | detect | l (hybrid: the HGNetV2 backbone and encoder input projections on the Metis; the attention encoder, mask-enhanced decoder and reading-order head on the host; measured as fidelity to FP32 on DocLayNet pages) | see `docs/export_support.md` | l `ppdoclayoutv3/detect/l/2026-11-16` |
 | Faster R-CNN | detect | n, s, m, l (hybrid at a fixed canvas, 320x320 for n and 800x800 for s, m and l: backbone and FPN on the Metis, RPN, RoIAlign, box head and NMS on the host) | see `docs/export_support.md` | n `faster_rcnn/detect/n/2026-11-15`; s `faster_rcnn/detect/s/2026-11-16`; m `faster_rcnn/detect/m/2026-11-16`; l `faster_rcnn/detect/l/2026-11-16` |
 | RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
 
@@ -445,6 +447,7 @@ table at the top of this page.
 | Faster R-CNN-l (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.4468 | 0.4489 | +0.21 (hybrid) |
 | Mask R-CNN-r50 (hybrid, 800x800 canvas) | segment | COCO val2017, 300 images | 64 coco128 | 0.4045 | 0.4039 | -0.06 mask, +0.02 box (hybrid; FP32 at the same canvas) |
 | Mask R-CNN-r50 (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.4476 | 0.4481 | +0.05 (hybrid; same Metis part as segment) |
+| PP-DocLayoutV3-l (hybrid, 800x800) | detect | DocLayNet v1.2 val, 300 pages | 64 other DocLayNet pages | 1.0000 | 0.9795 | matched-box F1 vs FP32 (fidelity; score correlation 0.947, matched IoU 0.991) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
 | EfficientDet-d2 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3744 | 0.3606 | -1.38 (supported; canvas -5.31 more) |
@@ -819,6 +822,8 @@ resize, so section 7 gives the INT8 drop against FP32 at the same canvas and
 the canvas cost separately.
 
 Mask R-CNN-r50 shares Faster R-CNN-l's ResNet-50-FPN v2 and runs the same Metis part. Its host graph adds the mask branch: RoIAlign at 14x14 on the kept boxes, four convolutions, the mask predictor, and the paste of each soft mask onto the canvas; the backend resizes the masks to the image with the boxes. On 300 COCO val2017 images at the 800x800 canvas the device gives mask mAP50-95 0.4039 vs 0.4045 FP32 (box 0.4323 vs 0.4321; ledger `mask_rcnn/segment/r50/2026-11-16`). The detect task compiles the same Metis part (identical graph and calibration) and its host graph stops before the mask branch: box mAP50-95 0.4481 vs 0.4476 FP32 at the same canvas (ledger `mask_rcnn/detect/r50/2026-11-16`).
+
+PP-DocLayoutV3-l (document layout) splits after its HGNetV2-L backbone: the Metis part returns the stride-4 stage (the mask branch's input) and the encoder's input projections at strides 8, 16 and 32; the host runs the attention encoder, the mask-enhanced decoder and the reading-order head. With no document-layout labels on the measuring machine it is measured as fidelity: on 300 DocLayNet v1.2 validation pages (calibrated on 64 other pages) the device keeps 97.9% matched-box F1 against FP32 at IoU 0.5 (score correlation 0.947; ledger `ppdoclayoutv3/detect/l/2026-11-16`).
 
 DETR (the original, single-level detector) has no convolutional neck: its
 hybrid export is two steps, the ResNet backbone and the 1x1 input projection

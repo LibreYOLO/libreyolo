@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis export for PP-DocLayoutV3-l document layout detection, hybrid.** The HGNetV2-L backbone and the encoder input projections run on the Metis; the attention encoder, the mask-enhanced decoder and the reading-order head run on the host. On 300 DocLayNet pages the device boxes match FP32 at F1 0.98 (IoU 0.5). The model's forward is now split at the projections (`forward_features`), with identical outputs.
+
 - **Axelera Metis export for DexiNed edge detection, supported.** The whole graph runs on the Metis at 352x352; against FP32 the device edge maps keep cosine 0.997 and edge-pixel F1 0.965 on 300 COCO val2017 images. LibreYOLO does not host the BIPED-trained checkpoint; edge preprocessing now also takes a square (h, w) size.
 
 - **Axelera Metis export for FCOS detection, supported r50.** FCOS's GroupNorm head has no INT8 form, so the export runs as six compiled parts: the ResNet-FPN trunk, the four head convolutions (both towers stacked, all five levels packed onto one zero-gutter canvas) and the predictor on the Metis, with GroupNorm + ReLU per level and the box decode on the host (new host operations `pack_levels`, `gn_relu_levels`, `fcos_decode`). On a Metis M.2 Max at the 800x800 canvas: 0.3405 vs 0.3818 FP32 mAP50-95 (-4.13) on 1000 COCO val2017 images. FCOS's own export keeps opset 18 for every other format and lets Axelera choose its opset.
