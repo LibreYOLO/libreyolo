@@ -1097,6 +1097,7 @@ def test_support_matrix_rows_for_axelera():
     assert retinanet.tier == "available" and "supported sizes: r50 " in retinanet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("retinanet", "detect", "axelera")]) == ["r50"]
     assert "GroupNorm" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
+    assert "six compiled parts" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
     assert ("retinanet", "detect", "axelera") not in UNMEASURED_SIZES
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint

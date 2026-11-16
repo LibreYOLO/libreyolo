@@ -109,6 +109,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: RetinaNet-r50v2 stays blocked after the measured multi-part attempt.** With its GroupNorm head on the host (as FCOS) it compiles and runs but scores 0.033 vs 0.396 FP32 mAP50-95: its ResNet-50 v2 trunk does not survive INT8.
+
 - **Axelera Metis: HRNet's block records its measured device drift and the multi-part assessment.** The device drifts from the quantized model through stage 4's fusion modules (cosine 0.946, 0.78, 0.21) while the CPU-quantized model stays at 0.993 or better; a per-stage split would need four-branch packed parts.
 
 - **Axelera Metis: ZipDepth's block names its measured limit.** Its GCNet softmax over 576 positions has no AIPU form within SDK 1.9 (reshape pair over the layout-transform limit, one-hot transposed conv too large for the MVM unit, Exp/Reciprocal unsupported).

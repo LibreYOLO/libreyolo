@@ -5201,9 +5201,14 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("retinanet", "detect", "axelera"): {
         "r50v2": (
-            "does not quantize for Metis with the 1.9 SDK: like FCOS, its head "
-            "normalizes every convolution with GroupNorm (per-image statistics) "
-            "and quantization stops on the head's InstanceNormalization ops; use "
+            "does not run usefully on Metis with the 1.9 SDK: its head normalizes "
+            "every convolution with GroupNorm (per-image statistics), which the "
+            "INT8 toolchain has no form for. Measured multi-part route (as FCOS): "
+            "trunk and head convolutions as six compiled parts with GroupNorm on "
+            "the host compile and run, but score 0.033 mAP50-95 against FP32's "
+            "0.396 on 300 COCO val2017 images; its ResNet-50 v2 trunk does not "
+            "survive INT8 (CPU-quantized cosine vs FP32 0.56-0.78 per-tensor, "
+            "0.93-0.97 hybrid; cross-layer equalization does not help); use "
             "RetinaNet-r50"
         ),
     },
