@@ -4439,6 +4439,7 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("dfine", "detect"): ("pred_logits", "pred_boxes"),
     ("deim", "detect"): ("pred_logits", "pred_boxes"),
     ("deimv2", "detect"): ("pred_logits", "pred_boxes"),
+    ("dfine", "segment"): ("pred_logits", "pred_boxes", "pred_masks"),
     ("rtdetrv4", "detect"): ("pred_logits", "pred_boxes"),
     ("detr", "detect"): ("pred_logits", "pred_boxes"),
     ("faster_rcnn", "detect"): ("boxes", "scores", "labels"),
@@ -4491,12 +4492,22 @@ class _DETRBackboneWrapper(torch.nn.Module):
         super().__init__()
         self.model = model
         strides = [int(v) for v in model.encoder.feat_strides]
-        self.output_names = tuple(f"feat_s{stride}" for stride in strides)
+        # D-FINE-seg n: the backbone returns one more (finer) stage than the encoder
+        # takes; only the mask decoder reads it, so it leaves part 1 raw as "low_level".
+        returned = getattr(model.backbone, "return_idx", None)
+        self.low_level = returned is not None and len(returned) > len(model.encoder.input_proj)
+        self.output_names = tuple(f"feat_s{stride}" for stride in strides) + (
+            ("low_level",) if self.low_level else ()
+        )
 
     def forward(self, x):
         features = self.model.backbone(x)
+        low = None
+        if self.low_level:
+            low, features = features[0], features[1:]
         projections = self.model.encoder.input_proj
-        return tuple(projections[i](feature) for i, feature in enumerate(features))
+        out = tuple(projections[i](feature) for i, feature in enumerate(features))
+        return out + (low,) if self.low_level else out
 
 
 class _DocLayoutBackboneWrapper(torch.nn.Module):
@@ -4967,19 +4978,27 @@ def _detr_conv_encoder_parts(model: torch.nn.Module, output_names):
 
 
 class _DETRDecoderWrapper(torch.nn.Module):
-    """Host step of a hybrid DETR export with the neck on Metis: the decoder after its input projections."""
+    """Host step of a hybrid DETR export with the neck on Metis: the decoder after its input projections.
 
-    def __init__(self, decoder: torch.nn.Module, output_names):
+    With ``low_level`` the last input is the backbone's raw finer stage, which
+    D-FINE-seg's mask decoder reads (``low_level_feat``).
+    """
+
+    def __init__(self, decoder: torch.nn.Module, output_names, low_level: bool = False):
         super().__init__()
         self.decoder = decoder
         self.output_names = tuple(output_names)
+        self.low_level = bool(low_level)
 
     def forward(self, *memory):
-        outputs = self.decoder(list(memory))
+        if self.low_level:
+            outputs = self.decoder(list(memory[:-1]), low_level_feat=memory[-1])
+        else:
+            outputs = self.decoder(list(memory))
         return tuple(outputs[name] for name in self.output_names)
 
 
-def _detr_neck_parts(model: torch.nn.Module, output_names, samples=()):
+def _detr_neck_parts(model: torch.nn.Module, output_names, samples=(), project_on_host: bool = False):
     """``(encoder_pack, neck, decoder)`` wrappers of a hybrid DETR export with the neck on Metis.
 
     Each gets its own deep copy of the modules it runs; ``model`` (an export
@@ -4998,7 +5017,7 @@ def _detr_neck_parts(model: torch.nn.Module, output_names, samples=()):
         c = int(encoder.hidden_dim)
         with torch.no_grad():
             for sample in samples:
-                canvas = pack(*backbone(torch.as_tensor(sample)))[0]
+                canvas = pack(*backbone(torch.as_tensor(sample))[:levels])[0]
                 peaks = torch.maximum(
                     peaks, torch.stack([canvas[:, c * i : c * (i + 1)].abs().max() for i in range(levels)])
                 )
@@ -5011,12 +5030,18 @@ def _detr_neck_parts(model: torch.nn.Module, output_names, samples=()):
     neck_encoder.num_encoder_layers = 0
     neck_encoder.encoder = torch.nn.ModuleList()
     decoder = copy.deepcopy(model.decoder)
-    projections = decoder.input_proj
-    decoder.input_proj = torch.nn.ModuleList(torch.nn.Identity() for _ in projections)
+    if project_on_host:
+        # The mask decoder (D-FINE-seg) reads the fusion neck's outputs before the
+        # decoder's input projections, so those stay in the host decoder.
+        projections = torch.nn.ModuleList(torch.nn.Identity() for _ in decoder.input_proj)
+    else:
+        projections = decoder.input_proj
+        decoder.input_proj = torch.nn.ModuleList(torch.nn.Identity() for _ in projections)
     neck = _DETRNeckWrapper(
         neck_encoder, projections, encoder.hidden_dim, encoder.feat_strides, scales
     ).eval()
-    return pack, neck, _DETRDecoderWrapper(decoder, output_names).eval()
+    low_level = _DETRBackboneWrapper(model).low_level
+    return pack, neck, _DETRDecoderWrapper(decoder, output_names, low_level=low_level).eval()
 
 
 def _efficientdet_at_canvas(model, canvas: int):
@@ -5976,21 +6001,29 @@ class AxeleraExporter(BaseExporter):
                 {"host_onnx": host, "inputs": features, "outputs": list(outputs)},
             ]
             return exported
-        pack, neck, decoder = _detr_neck_parts(net, outputs, self._equalization_samples())
+        pack, neck, decoder = _detr_neck_parts(
+            net, outputs, self._equalization_samples(), project_on_host="pred_masks" in outputs
+        )
+        low = ["low_level"] if "low_level" in features else []
+        levels = [name for name in features if name != "low_level"]
         self._hybrid_canvas_scales = list(pack.scales)
         logger.info(
             "Axelera hybrid: canvas level scales %s (powers of two that bring each level's "
             "calibration peak near the largest one; the neck divides them out)",
             ", ".join(f"{v:.3f}" for v in pack.scales),
         )
+        level_sample = sample[: len(levels)]
         with torch.no_grad():
-            canvas = pack(*sample)[0]
-            memory = tuple(neck(canvas))
-        host1 = export(pack, sample, str(out.with_name(f"{out.name}.export_intermediate.host1.onnx")), features, ["canvas"])
+            canvas = pack(*level_sample)[0]
+            memory = tuple(neck(canvas)) + tuple(sample[len(levels):])
+        host1 = export(pack, level_sample, str(out.with_name(f"{out.name}.export_intermediate.host1.onnx")), levels, ["canvas"])
         part2 = export(neck, canvas, str(out.with_name(f"{out.name}.export_intermediate.part2.onnx")), ["canvas"], neck.output_names)
-        host2 = export(decoder, memory, str(out.with_name(f"{out.name}.export_intermediate.host2.onnx")), neck.output_names, outputs)
+        host2 = export(
+            decoder, memory, str(out.with_name(f"{out.name}.export_intermediate.host2.onnx")),
+            list(neck.output_names) + low, outputs,
+        )
         self._hybrid_parts = [
-            {"host_onnx": host1, "inputs": features, "outputs": ["canvas"]},
+            {"host_onnx": host1, "inputs": levels, "outputs": ["canvas"]},
             # The neck part compiles per tensor whatever the backbone's scheme: its graph
             # input feeds a depthwise identity conv, and per-channel depthwise input ranges
             # (the depthwise scheme of HGNetv2 backbones) at a part's graph input fail the
@@ -6002,7 +6035,7 @@ class AxeleraExporter(BaseExporter):
                 "merge_pad": False,
                 "quantization_scheme": self._hybrid_neck_scheme(),
             },
-            {"host_onnx": host2, "inputs": list(neck.output_names), "outputs": list(outputs)},
+            {"host_onnx": host2, "inputs": list(neck.output_names) + low, "outputs": list(outputs)},
         ]
         return exported
 

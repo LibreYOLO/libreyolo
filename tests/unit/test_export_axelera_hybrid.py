@@ -524,3 +524,33 @@ def test_deformable_detr_hybrid_is_backbone_only_and_reproduces_the_native_model
     _assert_same_queries(
         [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
     )
+
+
+def test_dfine_segment_hybrid_chain_passes_the_low_level_tap(sdk, tmp_path, monkeypatch):
+    import yaml
+
+    from libreyolo import LibreYOLO
+    from libreyolo.export import support
+    from libreyolo.export.support import get_support
+    from libreyolo.models.dfine.model import LibreDFINE
+
+    assert get_support("dfine", "segment", "axelera").tier == "hybrid"
+    monkeypatch.setitem(support.UNMEASURED_SIZES, ("dfine", "segment", "axelera"), {})
+    model = LibreDFINE._from_scratch(size="n", device="cpu", seed=0, task="segment")
+    artifact = Path(
+        model.export(
+            format="axelera", data=str(_dataset(tmp_path)), imgsz=320,
+            output_path=str(tmp_path / "dfine_seg_axelera_model"),
+        )
+    )
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["graph_outputs"] == ["pred_logits", "pred_boxes", "pred_masks"]
+    assert "low_level" in meta["parts"][0]["outputs"]
+    assert meta["parts"][-1]["inputs"][-1] == "low_level"
+    assert "low_level" not in meta["parts"][1]["inputs"]
+    backend = LibreYOLO(str(artifact))
+    blob = model._preprocess(_image(shape=(320, 320, 3)), input_size=320)[0].numpy()
+    actual = backend._run_inference(blob)
+    with torch.no_grad():
+        expected = model.model.eval()(torch.from_numpy(blob))
+    assert actual[2].shape == expected["pred_masks"].shape
