@@ -3968,6 +3968,7 @@ _AXELERA_GRAPH_OUTPUTS = {
     ("deeplabv3", "semantic"): ("semantic_logits",),
     ("ppliteseg", "semantic"): ("semantic_logits",),
     ("pidnet", "semantic"): ("semantic_logits",),
+    ("unet", "semantic"): ("semantic_logits",),
     # EfficientDet's decoded export; the top-candidate decode (TopK, Gather,
     # Exp) lands in the compiled model's host postamble.
     ("efficientdet", "detect"): ("output",),
@@ -4976,16 +4977,17 @@ class AxeleraExporter(BaseExporter):
     def _resolve_params(self, output_path, imgsz, device, half, int8):
         canvas = self._size_recipe().get("canvas")
         if imgsz is None and canvas:
-            # The measured per-size canvas (e.g. RetinaNet-R50 at 1024x1024);
-            # an explicit imgsz= still wins.
-            imgsz = int(canvas)
+            # The measured per-size canvas (e.g. RetinaNet-R50 at 1024x1024,
+            # U-Net at its 512x1024 crop); an explicit imgsz= still wins.
+            imgsz = tuple(int(v) for v in canvas) if isinstance(canvas, (tuple, list)) else int(canvas)
+            height, width = imgsz if isinstance(imgsz, tuple) else (imgsz, imgsz)
             logger.info(
                 "Axelera: %s-%s exports at its measured %dx%d canvas; pass imgsz= "
                 "to choose another (docs/axelera.md).",
                 self.model._get_model_name(),
                 getattr(self.model, "size", ""),
-                imgsz,
-                imgsz,
+                height,
+                width,
             )
         imgsz, device, output_path = super()._resolve_params(
             output_path, imgsz, device, half, int8

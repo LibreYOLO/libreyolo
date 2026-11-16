@@ -1552,6 +1552,20 @@ _add(
 )
 _add(
     "validated",
+    ("unet",),
+    ("semantic",),
+    ("onnx",),
+    since="1.7",
+    constraint=(
+        "fixed rectangle. Measured at the 512x1024 training crop: UNet-s "
+        "exported and run through the factory reload at batch 1 gives raw-logit "
+        "cosine 1.000000 vs eager and identical semantic masks on 3 COCO "
+        "val2017 images. The 1024x2048 frame exports the same graph at a "
+        "larger canvas but was not run here (host memory)"
+    ),
+)
+_add(
+    "validated",
     ("ppliteseg",),
     ("semantic",),
     ("onnx", "torchscript", "openvino", "tensorrt"),
@@ -4757,16 +4771,25 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "available",
     ("unet",),
     ("semantic",),
     ("axelera",),
     reason=(
-        "Not available yet: UNet has no ONNX semantic export contract in "
-        "LibreYOLO yet, and the SDK 1.9 compile of UNet-s at its 512x1024 crop "
-        "did not finish within 3 hours (quantization takes about 20 minutes); "
-        "no structural error was seen there. At the full 1024x2048 frame "
+        "INT8 export compiled with Axelera's toolchain; the whole UNet-s graph "
+        "runs on the Metis AIPU at its 512x1024 training crop and the host "
+        "upsamples the class logits. Supported, not validated: UNet is trained "
+        "on Cityscapes, so the paired measurement is fidelity to FP32 on 1000 "
+        "COCO val2017 images (device labels against FP32 labels: mIoU 0.777, "
+        "91.3% of pixels agree; docs/axelera.md). The SDK 1.9 compile takes "
+        "about 12.7 hours (6.7 GB peak RSS); at the full 1024x2048 frame "
         "lowering finds no L1 tiling (4.7 MB needed, 4.1 MB available)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: s (measured fidelity, SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed 512x1024 input"
     ),
 )
 _add(
@@ -5002,6 +5025,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
         "l": (
             "measured mAP50-95 drop 1.70 points vs FP32 (0.3801 vs 0.3971 on "
             "1000 COCO val2017 images)"
+        ),
+    },
+    ("unet", "semantic", "axelera"): {
+        "s": (
+            "measured fidelity to FP32: device labels against FP32 labels give "
+            "mIoU 0.777 and 91.3% pixel agreement on 1000 COCO val2017 images at "
+            "512x1024 (UNet is Cityscapes-trained; no Cityscapes masks were used)"
         ),
     },
     ("deeplabv3", "semantic", "axelera"): {

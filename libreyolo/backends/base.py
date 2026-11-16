@@ -171,6 +171,8 @@ _RECTANGULAR_BACKEND_FAMILIES = {
     # Every PP-LiteSeg size is natively rectangular (512x1024 / 768x1536), so
     # its exported artifacts always carry a rectangular imgsz_h/imgsz_w pair.
     "ppliteseg",
+    # U-Net exports at its 1024x2048 frame or its 512x1024 training crop.
+    "unet",
     "realesrgan",
     "quicksrnet",
 }

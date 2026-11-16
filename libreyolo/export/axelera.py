@@ -99,6 +99,9 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("realesrgan", "restore", "x4"): {"rrdb_split": 12, "quantization_scheme": "per_tensor_min_max"},
     # FCOS-R50: the 800x800 canvas of PORTER E's measured multi-part gate.
     ("fcos", "detect", "r50"): {"canvas": 800},
+    # U-Net-S at its 1024x2048 evaluation frame finds no L1 tiling (4.7 MB
+    # needed, 4.1 MB available); at its 512x1024 training crop it compiles.
+    ("unet", "semantic", "s"): {"canvas": (512, 1024)},
     # RetinaNet-R50 resizes each image to a shorter side of 800 (longer up to
     # 1333); the fixed canvas fits the whole image inside, so at 800x800 most
     # images reach the network smaller (-2.25 end to end on 1000 COCO images).

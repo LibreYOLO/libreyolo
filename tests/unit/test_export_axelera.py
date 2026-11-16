@@ -1178,6 +1178,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         # Hybrid neck pinned to the scheme its numbers were measured with
         # (test_export_axelera_hybrid covers neck_quantization_scheme).
         ("rtdetrv2", "detect", "r18"), ("rtdetrv2", "detect", "r34"),
+        ("unet", "semantic", "s"),
     }
     assert recipes == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
@@ -1912,16 +1913,13 @@ def test_pidnet_is_blocked_by_its_int8_collapse():
     assert "compiles" in entry.reason and "INT8 collapses" in entry.reason
 
 
-@pytest.mark.parametrize("family", ["unet"])
-def test_long_compiles_are_not_available_yet(family):
-    from libreyolo.export.support import get_support
+def test_unet_is_supported_with_its_measured_fidelity():
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, get_support
 
-    entry = get_support(family, "semantic", "axelera")
-    assert entry.tier == "blocked"
-    assert (
-        entry.reason.startswith("Not available yet")
-        and "did not finish" in entry.reason
-    )
+    entry = get_support("unet", "semantic", "axelera")
+    assert entry.tier == "available"
+    assert "0.777" in entry.reason and "512x1024" in entry.constraint
+    assert "0.777" in SIZE_ACCURACY_NOTES[("unet", "semantic", "axelera")]["s"]
 
 
 def test_efficientdet_canvas_copy_runs_smaller_and_leaves_the_model_alone():
@@ -2364,3 +2362,17 @@ def test_hrnet_block_records_the_device_drift_and_parts_assessment():
 
     entry = get_support("hrnet", "pose", "axelera")
     assert entry.tier == "blocked" and "drifts" in entry.reason and "four resolution" in entry.reason
+def test_unet_axelera_export_uses_its_training_crop_and_dense_logits():
+    from libreyolo.export.axelera import AXELERA_SIZE_RECIPES
+    from libreyolo.export.exporter import _AXELERA_GRAPH_OUTPUTS
+
+    assert AXELERA_SIZE_RECIPES[("unet", "semantic", "s")]["canvas"] == (512, 1024)
+    assert _AXELERA_GRAPH_OUTPUTS[("unet", "semantic")] == ("semantic_logits",)
+
+
+def test_unet_onnx_semantic_export_is_wired_at_its_rectangles():
+    from libreyolo.backends.base import _RECTANGULAR_BACKEND_FAMILIES
+    from libreyolo.export.support import get_support
+
+    assert "unet" in _RECTANGULAR_BACKEND_FAMILIES
+    assert get_support("unet", "semantic", "onnx").tier == "validated"

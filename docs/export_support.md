@@ -176,7 +176,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | triposplat | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposr | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | direct3d_s2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| unet | semantic | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
 | unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | video_depth_anything | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -496,6 +496,7 @@ A check mark applies only under any constraint listed here.
 - `teed` / `edge` / `tensorrt`: TensorRT 10.16 FP32, batch 1, fixed input shape
 - `teed` / `edge` / `openvino`: OpenVINO 2026.2 CPU FP32, batch 1, fixed input shape
 - `teed` / `edge` / `tflite`: LiteRT 2.1.2 CPU FP32, batch 1, fixed input shape
+- `unet` / `semantic` / `onnx`: fixed rectangle. Measured at the 512x1024 training crop: UNet-s exported and run through the factory reload at batch 1 gives raw-logit cosine 1.000000 vs eager and identical semantic masks on 3 COCO val2017 images. The 1024x2048 frame exports the same graph at a larger canvas but was not run here (host memory)
 - `vgg` / `classify` / `onnx`: FP32, batch 1, fixed 224x224 input
 - `vgg` / `classify` / `torchscript`: FP32, batch 1, fixed 224x224 input
 - `vgg` / `classify` / `tensorrt`: FP32, batch 1, fixed 224x224 input
@@ -710,6 +711,7 @@ These converter paths are callable with the recorded validation context.
 - `tinyformer` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `tinyformer` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `tinyformer` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
+- `unet` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole UNet-s graph runs on the Metis AIPU at its 512x1024 training crop and the host upsamples the class logits. Supported, not validated: UNet is trained on Cityscapes, so the paired measurement is fidelity to FP32 on 1000 COCO val2017 images (device labels against FP32 labels: mIoU 0.777, 91.3% of pixels agree; docs/axelera.md). The SDK 1.9 compile takes about 12.7 hours (6.7 GB peak RSS); at the full 1024x2048 frame lowering finds no L1 tiling (4.7 MB needed, 4.1 MB available). Constraint: supported sizes: s (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 512x1024 input
 - `vgg` / `classify` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `vgg` / `classify` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `vit` / `classify` / `torchscript`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -2466,7 +2468,6 @@ rest on the host CPU; each entry names the split.
 - `direct3d_s2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `direct3d_s2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `direct3d_s2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `unet` / `semantic` / `onnx`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `tensorrt`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -2474,7 +2475,6 @@ rest on the host CPU; each entry names the split.
 - `unet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `unet` / `semantic` / `axelera`: Not available yet: UNet has no ONNX semantic export contract in LibreYOLO yet, and the SDK 1.9 compile of UNet-s at its 512x1024 crop did not finish within 3 hours (quantization takes about 20 minutes); no structural error was seen there. At the full 1024x2048 frame lowering finds no L1 tiling (4.7 MB needed, 4.1 MB available).
 - `unet` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.

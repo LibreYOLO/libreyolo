@@ -113,6 +113,7 @@ a separate size:
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
 | DeepLabV3 | r50 | semantic (mIoU; ASPP as 1x1 + shifts) | COCO val2017 VOC-21, 300 | 0.5243 | 0.4735 | -5.08 | supported | `deeplabv3/semantic/r50/2026-11-14/3` |
 | DeepLabV3 | r101 | semantic (mIoU; ASPP as 1x1 + shifts) | COCO val2017 VOC-21, 300 | 0.5888 | 0.3795 | -20.93 | supported | `deeplabv3/semantic/r101/2026-11-14` |
+| UNet | s | semantic (fidelity mIoU vs FP32 labels; 512x1024) | COCO val2017, 1000 | 1.0000 | 0.7767 | -0.2233 | supported | `unet/semantic/s/2026-11-16` |
 
 Detection and pose report mAP50-95; ImageNetV2 is used locally under its
 licence terms and not redistributed. Evidence is the id of the run's line in
@@ -143,6 +144,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | Real-ESRGAN | restore | x4 (three compiled parts + a host add), x4t (supported with a measured drop; bar 0.3 dB); x2 not measured yet | see `docs/export_support.md` | x4 `realesrgan/restore/x4/2026-11-16`; x4t `realesrgan/restore/x4t/2026-11-12` |
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops; r50/r101 run their ASPP as per-tap 1x1 convolutions plus shifts) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-14/3`; r101 `deeplabv3/semantic/r101/2026-11-14` |
+| UNet | semantic | s (supported with a measured fidelity; whole graph at the 512x1024 training crop, compile about 12.7 h) | see `docs/export_support.md` | s `unet/semantic/s/2026-11-16` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
 | YOLOv1 | detect | b | see `docs/export_support.md` | b `yolo1/detect/b/2026-11-15/2` |
 | YOLOv2 | detect | t, b | see `docs/export_support.md` | t `yolo2/detect/t/2026-11-13/2`; b `yolo2/detect/b/2026-11-13/2` |
@@ -837,7 +839,6 @@ Not measured on a Metis yet (nothing is known to fail; the export raises until a
 - YOLO9-P2-t: no trained checkpoint is published (P2-s is validated on VisDrone; its checkpoint is a non-commercial research preview).
 - PP-LiteSeg (t50, b50, t75, b75): compiles and runs after exact rewrites, but the device labels agree with FP32 on only 48-56% of pixels (fidelity mIoU 0.17-0.19, 1000 COCO val2017 images; 41% on 131 street scenes), with min-max or hybrid ranges alike. Device prefix cuts show the STDC backbone drifting stage by stage (cosine 0.996 at stride 4, 0.985 at stride 8, 0.975 at stride 16, 0.951 at the stride-32 output, the largest step) (ledgers `ppliteseg/semantic/t50/2026-11-15/3` to `/6`, `ppliteseg/semantic/b50/2026-11-15`, `ppliteseg/semantic/t75/2026-11-15/2`, `ppliteseg/semantic/b75/2026-11-15/2`).
 - DEKR-w32 (pose, 640x640): the whole-graph compile (raw heatmap logits and offsets) did not finish within 3 hours; no error seen, 4.6 GB peak RSS (ledger `dekr/pose/w32/2026-11-14`). DEKR also has no Axelera export contract yet.
-- UNet-s: the compile at 512x1024 did not finish within 3 hours (ledger `unet/semantic/s/2026-11-13`); UNet also has no ONNX semantic export contract yet. At 1024x2048 lowering finds no L1 tiling.
 - Other families.
 
 Out of scope (not attempted): models whose backbone is itself a transformer.
