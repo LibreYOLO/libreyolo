@@ -140,6 +140,7 @@ before 1.4.0 are documented in the
 
 - **Axelera Metis: the RTMDet-x and RTMDet-Ins-x blocks record where the compile overflows.** A plain retry fails the same way; the CSPNeXt-x backbone alone compiles, so the overflow is in the neck and heads, and a backbone | neck+head split would need its three levels packed into one input.
 - **Axelera Metis: DeepLabV3-R50 and -R101 run hybrid (backbone on Metis, ASPP + head on the host).** The rewritten ASPP (per-tap 1x1 convolutions plus shifts) diverges on the device, so R50/R101 now run their ResNet backbone through layer4 on the Metis AIPU and the ASPP, head and logit upsampling on the host as FP32 ONNX (new per-size recipe key `hybrid_split`). mIoU on 300 COCO val2017 images with VOC-21 masks is 0.40 below FP32 for R50 (was 5.09) and 0.09 for R101 (was 20.93). MobileNetV3 keeps its whole-graph export.
+- **Axelera Metis: VGG-19-BN runs hybrid (conv blocks 1-4 on Metis, block 5 + classifier on the host).** Run whole on the device its output drifts from the CPU-quantized model through conv block 5, so VGG-19-BN now runs conv blocks 1-4 (through the fourth max pool) on the Metis AIPU and conv block 5, the average pool and the classifier on the host as FP32 ONNX (per-size recipe `hybrid_split`). Top-1 on 1000 ImageNetV2 images is 0.2 below FP32 (was 5.1), and 0.2 above FP32 on a held-out 1000-image set. The other VGG sizes keep their whole-graph exports.
 
 - **Axelera Metis: FOMO is "not available yet".** Its published checkpoints are architecture-only random weights, so there is no trained model to measure.
 

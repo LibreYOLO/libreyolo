@@ -503,7 +503,7 @@ A check mark applies only under any constraint listed here.
 - `vgg` / `classify` / `torchscript`: FP32, batch 1, fixed 224x224 input
 - `vgg` / `classify` / `tensorrt`: FP32, batch 1, fixed 224x224 input
 - `vgg` / `classify` / `openvino`: FP32, batch 1, fixed 224x224 input
-- `vgg` / `classify` / `axelera`: validated sizes: 16, 19, 16bn; supported sizes: 19bn (measured drop, SIZE_ACCURACY_NOTES); calibrated with in-domain images (data=). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
+- `vgg` / `classify` / `axelera`: validated sizes: 16, 19, 16bn; hybrid sizes: 19bn (conv blocks 1-4 on Metis, block 5 + classifier on the host, AXELERA_SIZE_RECIPES hybrid_split); calibrated with in-domain images (data=). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `vit` / `classify` / `onnx`: FP32, fixed 224x224 input
 - `vjepa2` / `embed` / `onnx`: FP32, dynamic batch, fixed frame count / crop / tubelet geometry per graph; ONNX needs opset >= 14 for scaled_dot_product_attention. The graph must be driven with a 5D clip: LibreYOLO's exported-backend path still preprocesses to a 4D image batch and raises NotImplementedError for this family.
 - `vjepa2` / `embed` / `torchscript`: FP32, dynamic batch, fixed frame count / crop / tubelet geometry per graph; ONNX needs opset >= 14 for scaled_dot_product_attention. The graph must be driven with a 5D clip: LibreYOLO's exported-backend path still preprocesses to a 4D image batch and raises NotImplementedError for this family.

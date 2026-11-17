@@ -4104,13 +4104,17 @@ _add(
         "convolutions (fc6 as one row convolution per row of the 7x7 map, an "
         "exact graph pass), and the host applies the softmax. On a Metis M.2 "
         "Max, VGG-16, VGG-19 and VGG-16-BN (histogram activation ranges) are "
-        "within 1.0 top-1 point of FP32 on a paired 1000-image ImageNetV2 set; "
-        "VGG-19-BN is supported with a larger measured drop (docs/axelera.md)."
+        "within 1.0 top-1 point of FP32 on a paired 1000-image ImageNetV2 set. "
+        "VGG-19-BN is hybrid: conv blocks 1-4 run on Metis and conv block 5, "
+        "the average pool and the classifier on the host as FP32 ONNX (whole "
+        "on the device, the error compounds through block 5), top-1 0.2 below "
+        "FP32 on the same set and 0.2 above on a held-out one (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "validated sizes: 16, 19, 16bn; supported sizes: 19bn (measured drop, "
-        "SIZE_ACCURACY_NOTES); calibrated with in-domain images (data=). "
+        "validated sizes: 16, 19, 16bn; hybrid sizes: 19bn (conv blocks 1-4 on "
+        "Metis, block 5 + classifier on the host, AXELERA_SIZE_RECIPES "
+        "hybrid_split); calibrated with in-domain images (data=). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed 224 input"
     ),
@@ -5293,13 +5297,6 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "mask 0.4113 vs 0.4163, -0.50, on 1000 COCO val2017 images; 64 "
             "coco128 calibration images, per-channel depthwise ranges and "
             "balanced CSPNeXt pointwise equalization)"
-        ),
-    },
-    ("vgg", "classify", "axelera"): {
-        "19bn": (
-            "measured top-1 drop 5.1 points vs FP32 (0.593 vs 0.644 on 1000 "
-            "ImageNetV2 images, 250 ImageNetV2 calibration images, min-max "
-            "ranges; histogram ranges gave -6.0)"
         ),
     },
     ("ppyoloe", "detect", "axelera"): {

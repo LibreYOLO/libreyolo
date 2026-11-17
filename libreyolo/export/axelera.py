@@ -157,7 +157,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # with min-max) and plain VGG-16/19 stay on min-max.
     ("vgg", "classify", "16bn"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
     # VGG-19-BN: on the device the error compounds through conv block 5, so
-    # blocks 1-4 run on Metis and block 5 + classifier on the host (FP32).
+    # blocks 1-4 run on Metis and block 5 + classifier on the host (FP32):
+    # top-1 -0.2 vs FP32 on 1000 ImageNetV2 images (+0.2 held-out) instead of -5.1.
     ("vgg", "classify", "19bn"): {"hybrid_split": "backbone"},
     # QuickSRNet-m2: learned INT8 rounding of the equalized weights (plus bias
     # correction) instead of nearest rounding + bias correction: PSNR -0.20 dB vs

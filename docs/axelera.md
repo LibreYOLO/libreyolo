@@ -7,7 +7,8 @@
 > Accuracy never blocks an export; "blocked" is only for families that do not
 > compile, do not run or give meaningless output (`docs/export_support.md`).
 > "hybrid" means the convolutional part runs on the Metis and the attention
-> part on the host CPU (section 8).
+> part (for DeepLabV3-R50/R101 and VGG-19-BN, the layers that drift on the
+> device) on the host CPU (section 8).
 > Results are from one Metis M.2 Max with axelera-devkit / axelera-rt 1.9.0.
 
 Measured on device, paired INT8 vs FP32 on the same images, each size with the
@@ -140,7 +141,7 @@ a separate size:
 | VGG | 16 | classify (top-1) | ImageNetV2, 1000 | 0.608 | 0.606 | -0.2 | validated | `vgg/classify/16/2026-11-12` |
 | VGG | 19 | classify (top-1) | ImageNetV2, 1000 | 0.610 | 0.619 | +0.9 | validated | `vgg/classify/19/2026-11-12` |
 | VGG | 16bn | classify (top-1) | ImageNetV2, 1000 | 0.633 | 0.631 | -0.2 | validated | `vgg/classify/16bn/2026-11-12/2` |
-| VGG | 19bn | classify (top-1) | ImageNetV2, 1000 | 0.644 | 0.593 | -5.1 | supported | `vgg/classify/19bn/2026-11-12` |
+| VGG | 19bn | classify (top-1; conv blocks 1-4 on Metis, block 5 + classifier on the host) | ImageNetV2, 1000 | 0.644 | 0.642 | -0.2 | hybrid | `vgg/classify/19bn/2026-11-17/3` |
 | AlexNet | b | classify (top-1) | ImageNetV2, 1000 | 0.434 | 0.440 | +0.6 | validated | `alexnet/classify/b/2026-11-13` |
 | FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated | `fcn/semantic/r50/2026-11-11/2` |
 | FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated | `fcn/semantic/r101/2026-11-11` |
@@ -177,7 +178,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` | 18 `resnet/classify/18/2026-11-10/2`; 34 `resnet/classify/34/2026-11-10`; 50 `resnet/classify/50/2026-11-10`; 101 `resnet/classify/101/2026-11-10` |
 | MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` | s `mobilenetv4/classify/s/2026-11-11/3`; m `mobilenetv4/classify/m/2026-11-11/2`; l `mobilenetv4/classify/l/2026-11-10` |
 | EfficientNetV2 | classify | b1, b3 (validated); b0, b2 (supported with measured drops); b1-b3 read their stage-0 residual skip through an exact identity 1x1 conv | see `docs/export_support.md` | b0 `efficientnetv2/classify/b0/2026-11-11/5`; b1 `efficientnetv2/classify/b1/2026-11-17`; b2 `efficientnetv2/classify/b2/2026-11-17`; b3 `efficientnetv2/classify/b3/2026-11-17` |
-| VGG | classify | 16, 19, 16bn (19bn supported with a measured drop) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12/2`; 19bn `vgg/classify/19bn/2026-11-12` |
+| VGG | classify | 16, 19, 16bn; 19bn (hybrid: conv blocks 1-4 on Metis, block 5 + classifier on the host; held-out ImageNetV2 +0.2) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12/2`; 19bn `vgg/classify/19bn/2026-11-17/3`, held-out `vgg/classify/19bn/2026-11-17/4` |
 | AlexNet | classify | b | see `docs/export_support.md` | b `alexnet/classify/b/2026-11-13` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | restore | m2 (learned INT8 rounding; held-out half -0.17 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-16/5`, held-out `quicksrnet/restore/m2/2026-11-16/6` |
@@ -501,7 +502,7 @@ them):
 | VGG-16 | 224 | 0.608 | 0.606 | -0.2 | 7 min |
 | VGG-19 | 224 | 0.610 | 0.619 | +0.9 | - |
 | VGG-16-BN (histogram ranges) | 224 | 0.633 | 0.631 | -0.2 | - |
-| VGG-19-BN | 224 | 0.644 | 0.593 | -5.1 (supported; histogram ranges -6.0) | - |
+| VGG-19-BN (hybrid: block 5 + classifier on the host) | 224 | 0.644 | 0.642 | -0.2 | 2.4 min |
 | AlexNet | 224 | 0.434 | 0.440 | +0.6 | 3 min |
 
 Calibrating a classifier on coco128 (the fallback when `data=` is omitted)
@@ -514,8 +515,19 @@ convolutions (an exact graph pass requested by VGG only; heads that pool to
 1x1 first, like ResNet's and MobileNet's, are left unchanged). VGG-16 top-5
 is 0.812 vs FP32 0.819. The batch-norm variants fold the norm into the
 convolutions, which widens their min-max ranges: VGG-16-BN compiles with
-histogram ranges (-2.9 with min-max, -0.2 with histogram); VGG-19-BN stays
-on min-max (-5.1; histogram ranges gave -6.0).
+histogram ranges (-2.9 with min-max, -0.2 with histogram).
+
+VGG-19-BN runs hybrid: conv blocks 1-4 (through the fourth max pool) run on
+the Metis AIPU with min-max ranges, and conv block 5, the average pool and the
+classifier run on the host as FP32 ONNX. Top-1 is 0.642 vs 0.644 FP32 on the
+1000 images (-0.2) and 0.608 vs 0.606 on a held-out 1000-image ImageNetV2 set
+(+0.2). Run whole on the Metis it loses 5.1 points with min-max ranges and 6.0
+with histogram ranges, although the CPU-quantized model loses only 2.4 and 1.9:
+the device output drifts from the CPU-quantized model layer by layer through
+block 5 (output cosine 0.984 at the fourth pool, 0.785 after the last
+convolution), with no single diverging operator. Without ``hybrid_split`` in
+its per-size recipe the whole-graph form is exported (ledger
+`vgg/classify/19bn/2026-11-12`).
 
 MobileNetV4 needs more than the ResNet recipe: with plain min-max ranges
 size s lost 6.2 top-1 points. LibreYOLO equalizes its residual streams per
