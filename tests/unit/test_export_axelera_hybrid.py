@@ -546,11 +546,48 @@ def test_dfine_segment_hybrid_chain_passes_the_low_level_tap(sdk, tmp_path, monk
     meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
     assert meta["graph_outputs"] == ["pred_logits", "pred_boxes", "pred_masks"]
     assert "low_level" in meta["parts"][0]["outputs"]
-    assert meta["parts"][-1]["inputs"][-1] == "low_level"
+    # The host decoder step takes the neck outputs plus low_level and hands the mask
+    # decoder's fusion input to the compiled mask convolutions; the last host step
+    # makes the masks.
+    decoder_step = next(p for p in meta["parts"] if "mask_fuse_in" in p.get("outputs", []))
+    assert decoder_step["inputs"][-1] == "low_level"
     assert "low_level" not in meta["parts"][1]["inputs"]
+    assert meta["parts"][-1]["outputs"] == ["pred_masks"]
+    assert meta["parts"][-1]["inputs"] == ["mask_up_raw", "mask_embed"]
     backend = LibreYOLO(str(artifact))
     blob = model._preprocess(_image(shape=(320, 320, 3)), input_size=320)[0].numpy()
     actual = backend._run_inference(blob)
     with torch.no_grad():
         expected = model.model.eval()(torch.from_numpy(blob))
     assert actual[2].shape == expected["pred_masks"].shape
+
+
+def test_dfine_segment_mask_convolution_parts_reproduce_the_host_mask_decoder():
+    from libreyolo.export.exporter import (
+        _DETRBackboneWrapper,
+        _DETRDecoderMaskFrontWrapper,
+        _detr_neck_parts,
+        _MaskLogits,
+        _MaskNormUp,
+        _unfrozen_batchnorms,
+    )
+    from libreyolo.models.dfine.model import LibreDFINE
+
+    names = ("pred_logits", "pred_boxes", "pred_masks")
+    model = LibreDFINE._from_scratch(size="n", device="cpu", seed=0, task="segment")
+    net = _unfrozen_batchnorms(copy.deepcopy(model.model).eval())
+    x = torch.rand(1, 3, 320, 320)
+    with torch.no_grad():
+        backbone = _DETRBackboneWrapper(net).eval()
+        feats = backbone(x)
+        pack, neck, decoder = _detr_neck_parts(net, names, project_on_host=True)
+        levels = len([n for n in backbone.output_names if n != "low_level"])
+        memory = tuple(neck(pack(*feats[:levels])[0])) + tuple(feats[levels:])
+        expected = decoder(*memory)
+        front = _DETRDecoderMaskFrontWrapper(decoder.decoder, names, low_level=decoder.low_level).eval()
+        logits, boxes, embed, fuse_in = front(*memory)
+        md = decoder.decoder.mask_decoder
+        up_in = _MaskNormUp(md.fusion_norm)(md.fusion_conv(fuse_in))
+        masks = _MaskLogits(md.bn1)(md.up_conv(up_in), embed)
+    for actual, want in zip((logits, boxes, masks), expected):
+        assert torch.allclose(actual, want, atol=1e-5)

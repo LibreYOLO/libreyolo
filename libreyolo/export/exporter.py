@@ -5001,6 +5001,90 @@ class _DETRDecoderWrapper(torch.nn.Module):
         return tuple(outputs[name] for name in self.output_names)
 
 
+class _MaskDecoderFront(torch.nn.Module):
+    """D-FINE-seg's mask decoder up to its fusion convolution: laterals, GroupNorms and the upsampled sum.
+
+    ``forward`` keeps its result in ``self.out`` for the wrapper that returns it.
+    """
+
+    def __init__(self, mask_decoder: torch.nn.Module):
+        super().__init__()
+        self.md = mask_decoder
+        self.out = None
+
+    def forward(self, feats):
+        md = self.md
+        x = md.bn[0](md.lateral[0](feats[0]))
+        size = x.shape[-2:]
+        for i in range(1, len(feats)):
+            t = md.bn[i](md.lateral[i](feats[i]))
+            x = x + torch.nn.functional.interpolate(t, size=size, mode="bilinear", align_corners=False)
+        self.out = x
+        return x
+
+
+def _scaled_mask_embed(decoder, queries, mask_feat):
+    """Stand-in for D-FINE-seg's per-query mask logits: keeps each scaled mask embedding (last layer first)."""
+    embed = decoder.mask_head(queries)
+    embed = embed * embed.shape[-1] ** -0.5
+    decoder._mask_embeds.append(embed)
+    return mask_feat
+
+
+class _DETRDecoderMaskFrontWrapper(_DETRDecoderWrapper):
+    """Host step of D-FINE-seg with the mask decoder's convolutions on Metis: the decoder and the mask front.
+
+    Returns the detections, the last decoder layer's scaled mask embeddings
+    (``mask_embed``) and the fusion convolution's input (``mask_fuse_in``);
+    the two mask convolutions are compiled parts and the GroupNorms after them
+    and the query-by-pixel product run in the host steps between and after.
+    """
+
+    def __init__(self, decoder: torch.nn.Module, output_names, low_level: bool = False):
+        import types
+
+        decoder = copy.deepcopy(decoder)
+        super().__init__(decoder, output_names, low_level)
+        self.front = _MaskDecoderFront(decoder.mask_decoder)
+        decoder.mask_decoder = self.front
+        decoder._mask_logits_from_queries = types.MethodType(_scaled_mask_embed, decoder)
+
+    def forward(self, *memory):
+        self.decoder._mask_embeds = []
+        if self.low_level:
+            outputs = self.decoder(list(memory[:-1]), low_level_feat=memory[-1])
+        else:
+            outputs = self.decoder(list(memory))
+        embed = self.decoder._mask_embeds[0]
+        self.decoder._mask_embeds = []
+        return tuple(outputs[name] for name in self.output_names[:2]) + (embed, self.front.out)
+
+
+class _MaskNormUp(torch.nn.Module):
+    """Host step between the mask convolutions: GroupNorm, ReLU, then a 2x bilinear upsample."""
+
+    def __init__(self, norm: torch.nn.Module):
+        super().__init__()
+        self.norm = norm
+        self.output_names = ("mask_up_in",)
+
+    def forward(self, x):
+        x = torch.relu(self.norm(x))
+        return torch.nn.functional.interpolate(x, scale_factor=2.0, mode="bilinear", align_corners=False)
+
+
+class _MaskLogits(torch.nn.Module):
+    """Last host step: GroupNorm and ReLU of the mask map, each query's dot product with it, sigmoid."""
+
+    def __init__(self, norm: torch.nn.Module):
+        super().__init__()
+        self.norm = norm
+        self.output_names = ("pred_masks",)
+
+    def forward(self, raw, embed):
+        return torch.sigmoid(torch.einsum("bqc,bchw->bqhw", embed, torch.relu(self.norm(raw))))
+
+
 def _detr_neck_parts(model: torch.nn.Module, output_names, samples=(), project_on_host: bool = False):
     """``(encoder_pack, neck, decoder)`` wrappers of a hybrid DETR export with the neck on Metis.
 
@@ -6025,6 +6109,15 @@ class AxeleraExporter(BaseExporter):
             decoder, memory, str(out.with_name(f"{out.name}.export_intermediate.host2.onnx")),
             list(neck.output_names) + low, outputs,
         )
+        mask_parts = []
+        # D-FINE-seg: the mask decoder's two convolutions (most of the host MACs) run on
+        # Metis as their own parts; a recipe ``mask_decoder_on_metis: False`` keeps them on the host.
+        if (
+            "pred_masks" in outputs
+            and hasattr(decoder.decoder, "mask_decoder")
+            and self._size_recipe().get("mask_decoder_on_metis", True)
+        ):
+            mask_parts, host2 = self._mask_decoder_parts(decoder, memory, outputs, list(neck.output_names) + low, export, out)
         self._hybrid_parts = [
             {"host_onnx": host1, "inputs": levels, "outputs": ["canvas"]},
             # The neck part compiles per tensor whatever the backbone's scheme: its graph
@@ -6038,9 +6131,55 @@ class AxeleraExporter(BaseExporter):
                 "merge_pad": False,
                 "quantization_scheme": self._hybrid_neck_scheme(),
             },
-            {"host_onnx": host2, "inputs": list(neck.output_names) + low, "outputs": list(outputs)},
+            {
+                "host_onnx": host2,
+                "inputs": list(neck.output_names) + low,
+                "outputs": list(outputs) if not mask_parts else [*outputs[:2], "mask_embed", "mask_fuse_in"],
+            },
+            *mask_parts,
         ]
         return exported
+
+    def _mask_decoder_parts(self, decoder, memory, outputs, inputs, export, out: Path):
+        """D-FINE-seg's mask convolutions as two compiled parts, with their GroupNorms on the host.
+
+        Returns the steps after the host decoder and the host decoder graph
+        that ends at the mask decoder's fusion input.
+        """
+        md = decoder.decoder.mask_decoder
+        front = _DETRDecoderMaskFrontWrapper(decoder.decoder, outputs, low_level=decoder.low_level).eval()
+        names = [*outputs[:2], "mask_embed", "mask_fuse_in"]
+        host2 = export(front, memory, str(out.with_name(f"{out.name}.export_intermediate.host2.onnx")), inputs, names)
+        with torch.no_grad():
+            fuse_in = front(*memory)[3]
+            fuse = _NamedPart(copy.deepcopy(md.fusion_conv), ["mask_fuse_raw"])
+            norm_up = _MaskNormUp(copy.deepcopy(md.fusion_norm)).eval()
+            up_in = norm_up(fuse(fuse_in)[0])
+            up = _NamedPart(copy.deepcopy(md.up_conv), ["mask_up_raw"])
+            logits = _MaskLogits(copy.deepcopy(md.bn1)).eval()
+            up_raw = up(up_in)[0]
+            embed = front(*memory)[2]
+        scheme = self._hybrid_neck_scheme()
+        stem = out.with_name(f"{out.name}.export_intermediate")
+        logger.info("Axelera hybrid: D-FINE-seg mask convolutions as 2 compiled parts (GroupNorms on the host)")
+        return [
+            {
+                "compile": export(fuse, fuse_in, f"{stem}.mask_fuse.onnx", ["mask_fuse_in"], ["mask_fuse_raw"]),
+                "reference": fuse, "input": "mask_fuse_in", "merge_pad": False, "quantization_scheme": scheme,
+            },
+            {
+                "host_onnx": export(norm_up, fuse(fuse_in)[0], f"{stem}.host3.onnx", ["mask_fuse_raw"], ["mask_up_in"]),
+                "inputs": ["mask_fuse_raw"], "outputs": ["mask_up_in"],
+            },
+            {
+                "compile": export(up, up_in, f"{stem}.mask_up.onnx", ["mask_up_in"], ["mask_up_raw"]),
+                "reference": up, "input": "mask_up_in", "merge_pad": False, "quantization_scheme": scheme,
+            },
+            {
+                "host_onnx": export(logits, (up_raw, embed), f"{stem}.host4.onnx", ["mask_up_raw", "mask_embed"], ["pred_masks"]),
+                "inputs": ["mask_up_raw", "mask_embed"], "outputs": ["pred_masks"],
+            },
+        ], host2
 
     def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
         meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
