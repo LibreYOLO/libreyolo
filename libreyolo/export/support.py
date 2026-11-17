@@ -5439,9 +5439,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
-    ("dinodetr", "detect", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("r50s5",)
-    },
     ("dfine", "segment", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("m", "l", "x")
     },
