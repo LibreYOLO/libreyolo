@@ -4949,6 +4949,27 @@ _add(
 )
 _add(
     "hybrid",
+    ("rtdetrv2",),
+    ("obb",),
+    ("axelera",),
+    reason=(
+        "Hybrid INT8 export (as RT-DETRv2 detect): the HGNetv2 backbone with the "
+        "encoder's input projections, and the convolutional fusion neck with the "
+        "decoder's input projections, are compiled with Axelera's toolchain and run "
+        "on the Metis AIPU; the attention encoder layer and the rotated-box decoder "
+        "run on the host CPU as FP32 ONNX graphs through ONNX Runtime "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs "
+        "and metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 1024x1024 input canvas"
+    ),
+)
+_add(
+    "hybrid",
     ("dinodetr",),
     ("detect",),
     ("axelera",),
@@ -5424,6 +5445,9 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("rtdetrv2", "obb", "axelera"): {
+        size: "has not been measured on a Metis yet" for size in ("s", "m", "l", "x")
+    },
     ("yolo9_p2", "detect", "axelera"): {
         "t": (
             "has not been measured on a Metis yet: no trained YOLO9-P2-t "

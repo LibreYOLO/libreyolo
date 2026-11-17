@@ -4439,6 +4439,7 @@ _HYBRID_NECK_QUANTIZATION_SCHEMES = {"rtdetrv2": "per_tensor_histogram"}
 _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("rtdetr", "detect"): ("pred_logits", "pred_boxes"),
     ("rtdetrv2", "detect"): ("pred_logits", "pred_boxes"),
+    ("rtdetrv2", "obb"): ("pred_logits", "pred_boxes"),
     ("dfine", "detect"): ("pred_logits", "pred_boxes"),
     ("deim", "detect"): ("pred_logits", "pred_boxes"),
     ("deimv2", "detect"): ("pred_logits", "pred_boxes"),

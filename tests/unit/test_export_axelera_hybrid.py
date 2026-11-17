@@ -624,3 +624,28 @@ def test_every_deformable_detr_size_is_measured_on_axelera():
     assert get_support("deformable_detr", "detect", "axelera").tier == "hybrid"
     assert ("deformable_detr", "detect", "axelera") not in UNMEASURED_SIZES
 
+
+def test_rtdetrv2_obb_hybrid_neck_split_reproduces_the_native_model():
+    from libreyolo.export.exporter import (
+        AxeleraExporter,
+        _DETRBackboneWrapper,
+        _detr_neck_parts,
+        _unfrozen_batchnorms,
+    )
+    from libreyolo.export.support import get_support
+    from libreyolo.models.rtdetrv2.model import LibreRTDETRv2
+
+    assert get_support("rtdetrv2", "obb", "axelera").tier == "hybrid"
+    model = LibreRTDETRv2._from_scratch(size="n", device="cpu", seed=0, task="obb")
+    assert AxeleraExporter(model)._hybrid_split() == "neck"
+    net = _unfrozen_batchnorms(copy.deepcopy(model.model).eval())
+    x = torch.rand(1, 3, 256, 256)
+    with torch.no_grad():
+        expected = net(x)
+        feats = _DETRBackboneWrapper(net).eval()(x)
+        pack, neck, decoder = _detr_neck_parts(net, OUTPUTS)
+        actual = decoder(*neck(pack(*feats)[0]))
+    assert actual[1].shape[-1] == 5  # cx, cy, w, h, angle
+    _assert_same_queries(
+        [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
+    )
