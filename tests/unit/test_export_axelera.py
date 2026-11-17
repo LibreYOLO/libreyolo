@@ -2481,3 +2481,11 @@ def test_stem_residual_skip_conv_reads_a_stem_resolution_skip_through_an_identit
     assert GRAPH_PASSES["stem_residual_skip_conv"](deeper) == 0
     assert deeper.graph.SerializeToString() == before
 
+
+def test_rtmdet_x_blocks_record_the_backbone_only_compile():
+    from libreyolo.export.support import BLOCKED_SIZES
+
+    for task in ("detect", "segment"):
+        reason = BLOCKED_SIZES[("rtmdet", task, "axelera")]["x"]
+        assert "backbone alone compiles" in reason and "multi-input calibration" in reason
+

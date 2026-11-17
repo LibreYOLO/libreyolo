@@ -5414,14 +5414,23 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "does not compile for Metis at 640x640 with the 1.9 SDK: lowering "
             "fails in AssignTilingFactors (ScheduleMemory, LowerTIR) because no "
             "tiling factor fits L1 (3.99 MB needed, 3.32 MB available; after 2 h "
-            "08 min, 8.1 GB peak RSS); use RTMDet-Ins-l"
+            "08 min, 8.1 GB peak RSS). Its CSPNeXt-x backbone alone compiles (24 "
+            "minutes, as for detect-x), so the overflow is in the neck and heads; "
+            "a backbone | neck+head split would need the three backbone levels "
+            "packed into one input, since the SDK's quantizer takes no "
+            "multi-input calibration; use RTMDet-Ins-l"
         ),
     },
     ("rtmdet", "detect", "axelera"): {
         "x": (
             "does not compile for Metis at 640x640 with the 1.9 SDK: the "
             "compiler's LowerTIR pass still overflows its on-chip buffers after 4 "
-            "iterations (after 2 h 21 min, 7 GB peak RSS); use RTMDet-l"
+            "iterations (after 2 h 21 min, 7 GB peak RSS; a plain retry fails the "
+            "same way after 2 h 27 min). Its CSPNeXt-x backbone alone compiles (24 "
+            "minutes), so the overflow is in the neck and heads; a backbone | "
+            "neck+head split would need the three backbone levels packed into one "
+            "input, since the SDK's quantizer takes no multi-input calibration; "
+            "use RTMDet-l"
         ),
     },
 }

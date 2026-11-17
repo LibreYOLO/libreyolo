@@ -136,6 +136,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: the RTMDet-x and RTMDet-Ins-x blocks record where the compile overflows.** A plain retry fails the same way; the CSPNeXt-x backbone alone compiles, so the overflow is in the neck and heads, and a backbone | neck+head split would need its three levels packed into one input.
+
 - **Axelera Metis: FOMO is "not available yet".** Its published checkpoints are architecture-only random weights, so there is no trained model to measure.
 
 - **Axelera Metis: Real-ESRGAN-x4t is validated with an equalized trunk.** Before calibration the export equalizes the compact network's 33 conv+PReLU pairs (cross-layer equalization, exact in FP32) through the new per-size recipe key `weight_equalization`. PSNR is 0.19 dB below FP32 on 296 COCO crops (was 0.49 dB) and 0.20 dB on a held-out half of them.
