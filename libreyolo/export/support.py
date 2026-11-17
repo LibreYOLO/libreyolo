@@ -4241,9 +4241,10 @@ _add(
         "each level's box and class convolutions, CSPNeXt pointwise-conv inputs "
         "are equalized on the export copy (FP32 outputs unchanged), and "
         "LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 "
-        "Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 6.75, "
-        "RTMDet-m 2.66 and RTMDet-l 1.87 on a paired 1000-image COCO val2017 "
-        "subset (docs/axelera.md)."
+        "Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 4.40 "
+        "(with learned INT8 rounding of its pointwise convolutions), RTMDet-m "
+        "2.66 and RTMDet-l 1.87 on a paired 1000-image COCO val2017 subset "
+        "(docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
@@ -5256,9 +5257,11 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "depthwise ranges and balanced CSPNeXt pointwise equalization)"
         ),
         "s": (
-            "measured mAP50-95 drop 6.75 points vs FP32 (0.3446 vs 0.4121 on 1000 "
-            "COCO val2017 images, 64 coco128 calibration images, per-channel "
-            "depthwise ranges and balanced CSPNeXt pointwise equalization)"
+            "measured mAP50-95 drop 4.40 points vs FP32 (0.3681 vs 0.4121 on 1000 "
+            "COCO val2017 images; -5.43 on 300, -5.15 on 1000 held-out images; 64 "
+            "coco128 calibration images, per-channel depthwise ranges, balanced "
+            "CSPNeXt pointwise equalization and learned INT8 rounding of the "
+            "pointwise convolutions)"
         ),
         "m": (
             "measured mAP50-95 drop 2.66 points vs FP32 (0.4461 vs 0.4727 on 1000 "

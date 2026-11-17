@@ -60,7 +60,7 @@ a separate size:
 | PicoDet | m | detect | COCO val2017, 1000 | 0.3449 | 0.3163 | -2.86 | supported | `picodet/detect/m/2026-11-11/4` |
 | PicoDet | l | detect | COCO val2017, 1000 | 0.3971 | 0.3801 | -1.70 | supported | `picodet/detect/l/2026-11-11/4` |
 | RTMDet | t | detect | COCO val2017, 1000 | 0.3906 | 0.3677 | -2.29 | supported | `rtmdet/detect/t/2026-11-11/8` |
-| RTMDet | s | detect | COCO val2017, 1000 | 0.4121 | 0.3446 | -6.75 | supported | `rtmdet/detect/s/2026-11-11/6` |
+| RTMDet | s | detect (learned INT8 rounding of the pointwise convs) | COCO val2017, 1000 | 0.4121 | 0.3681 | -4.40 | supported | `rtmdet/detect/s/2026-11-17/8` |
 | RTMDet | m | detect | COCO val2017, 1000 | 0.4727 | 0.4461 | -2.66 | supported | `rtmdet/detect/m/2026-11-12/2` |
 | RTMDet | l | detect | COCO val2017, 1000 | 0.4805 | 0.4618 | -1.87 | supported | `rtmdet/detect/l/2026-11-12/2` |
 | FCOS | r50 | detect (800x800 canvas; 6 compiled parts, GroupNorm on the host) | COCO val2017, 1000 | 0.3818 | 0.3405 | -4.13 | supported | `fcos/detect/r50/2026-11-15/3` |
@@ -205,7 +205,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLOv7 | detect | b | see `docs/export_support.md` | b `yolo7/detect/b/2026-11-11/4` |
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-11/2` |
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
-| RTMDet | detect | t, s, m, l (supported with a measured drop; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-11/6`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x blocked `rtmdet/detect/x/2026-11-12/2` |
+| RTMDet | detect | t, s, m, l (supported with a measured drop; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-17/8`, held-out `rtmdet/detect/s/2026-11-17/9`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x blocked `rtmdet/detect/x/2026-11-12/2` |
 | RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -7.26, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-12/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
 | Mask R-CNN | detect, segment | r50 (hybrid at a fixed 800x800 canvas, as Faster R-CNN; for segment the host adds the mask head and mask paste) | see `docs/export_support.md` | r50 segment `mask_rcnn/segment/r50/2026-11-16`; detect `mask_rcnn/detect/r50/2026-11-16` |
 | FCOS | detect | r50 (supported with a measured drop; six compiled parts, GroupNorm and the decode on the host) | see `docs/export_support.md` | r50 `fcos/detect/r50/2026-11-15/3` |
@@ -298,7 +298,7 @@ libreyolo export model=LibreYOLO9t.pt format=axelera   # weights/LibreYOLO9t_axe
 | --- | --- |
 | `imgsz` | Input size, fixed in the compiled model; must be a multiple of 32 (other values raise). Default: the checkpoint's size. |
 | `data` | Calibration images (dataset YAML). Default `coco128.yaml` for detect and pose. |
-| `fraction` | Share of the calibration split to use. 100 to 400 images are recommended; fewer than 100 logs a warning. |
+| `fraction` | Share of the calibration split to use (its first images). 100 to 400 images are recommended; fewer than 100 logs a warning. The COCO results in section 7 ("64 coco128") use `data="coco128.yaml", fraction=0.5`. |
 | `batch` | Calibration loader batch size only. The compiled model takes one image at a time. |
 | `device` | Torch device used to trace the model, not the Metis device. |
 | `quantize` / `int8` | INT8 is the only precision and is always on. `quantize=16`, `quantize=32` and `half=True` raise. |
@@ -386,7 +386,11 @@ named in the row; pose: the last 300 val2017 images with person keypoints)
 and of DOTA-v2.0 val tiled to 1024 (300 tiles), so the absolute numbers are
 not comparable to published full-set results; the deltas are the point.
 The ledger id behind each row is in the Evidence column of the summary
-table at the top of this page.
+table at the top of this page. In the Calibration column, "64 coco128" is the
+first 64 images of coco128 (`data="coco128.yaml", fraction=0.5`); the default
+`fraction=1.0` uses all 128. Most sizes move little with the count (YOLOX-n:
+-1.81 with 64 images, -1.66 with 128). RTMDet-s was sensitive to it until
+its learned rounding (see the RTMDet paragraph below).
 
 | Model | Task | Image set (paired) | Calibration | FP32 | Metis INT8 | Delta |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -432,7 +436,7 @@ table at the top of this page.
 | PicoDet-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.3449 | 0.3163 | -2.86 (supported) |
 | PicoDet-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.3971 | 0.3801 | -1.70 (supported) |
 | RTMDet-t | detect | COCO val2017, 1000 images | 64 coco128 | 0.3906 | 0.3677 | -2.29 (supported) |
-| RTMDet-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4121 | 0.3446 | -6.75 (supported) |
+| RTMDet-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4121 | 0.3681 | -4.40 (supported; -5.43 on 300, -5.15 on a held-out 1000) |
 | RTMDet-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4727 | 0.4461 | -2.66 (supported; -2.11 on 300) |
 | RTMDet-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4805 | 0.4618 | -1.87 (supported; -1.92 on 300) |
 | RTMDet-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.5128 | - | does not compile (blocked) |
@@ -636,8 +640,18 @@ columns share the range: RTMDet-t goes from -4.44 to -2.29 on 1000 images
 measured drop. RTMDet-s, whose stage-2 pointwise input spreads 45.9x
 (channel peak against the median), collapses without the equalization
 (-27.5 on 300 images) and gets worse with the activation-only factor
-(-33.2); with the balanced factor it scores -6.75 on 1000 images
-(supported). RTMDet-Ins uses the balanced factor too: with the
+(-33.2); with the balanced factor it scores -6.75 on 1000 images. Nearly
+all of what remains is the INT8 rounding of that one pointwise convolution's
+weights, so for RTMDet-s the export also learns each pointwise weight's
+rounding direction on the per-channel INT8 grid (in the style of AdaRound,
+matching the FP32 output after batch norm and SiLU on calibration
+activations, with the mean shift folded into the bias; per-size recipe
+`pointwise_learned_rounding`, about 7 minutes at export): -4.40 on the 1000
+images, -5.43 on 300 (was -8.06) and -5.15 on a held-out 1000. It also
+removes RTMDet-s's sensitivity to the calibration count: on the
+CPU-quantized model (300 images) all 128 coco128 images instead of 64 cost
+7.6 points without the learned rounding (-16.24 vs -8.65) and 0.6 with it
+(-5.57 vs -5.00). RTMDet-Ins uses the balanced factor too: with the
 activation-only factor RTMDet-Ins-s collapses (mask 0.080 vs 0.402 on 300
 images); with the balanced one it scores -5.80 mask / -7.26 box on 1000,
 and RTMDet-Ins-t is unchanged within noise (-1.44 / -2.51 vs -1.40 / -2.64).
