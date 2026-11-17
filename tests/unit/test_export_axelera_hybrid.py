@@ -649,3 +649,59 @@ def test_rtdetrv2_obb_hybrid_neck_split_reproduces_the_native_model():
     _assert_same_queries(
         [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
     )
+
+
+@pytest.mark.parametrize("size", ["n", "s"])
+def test_riodetrv2_obb_hybrid_neck_split_reproduces_the_native_model(size):
+    from libreyolo.export.exporter import (
+        AxeleraExporter,
+        _DETRBackboneWrapper,
+        _detr_neck_parts,
+        _unfrozen_batchnorms,
+    )
+    from libreyolo.export.support import get_support
+    from libreyolo.models.riodetrv2.model import LibreRiODETRv2
+
+    assert get_support("riodetrv2", "obb", "axelera").tier == "hybrid"
+    model = LibreRiODETRv2._from_scratch(size=size, device="cpu", seed=0, task="obb")
+    assert AxeleraExporter(model)._hybrid_split() == "neck"
+    net = _unfrozen_batchnorms(copy.deepcopy(model.model).eval())
+    x = torch.rand(1, 3, 256, 256)
+    with torch.no_grad():
+        expected = net(x)
+        feats = _DETRBackboneWrapper(net).eval()(x)
+        pack, neck, decoder = _detr_neck_parts(net, OUTPUTS)
+        actual = decoder(*neck(pack(*feats)[0]))
+    assert actual[1].shape[-1] == 5  # cx, cy, w, h, angle
+    _assert_same_queries(
+        [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
+    )
+
+
+def test_riodetrv2_linear_angle_delta_exports_in_float32():
+    """torch.onnx writes linspace as float64; the decoded angle must come back to float32 so the
+    rotated sampling grid fed to GridSample matches its float32 input (ONNX Runtime has no mixed kernel)."""
+    import io
+
+    onnx = pytest.importorskip("onnx")
+    from libreyolo.models.riodetrv2.decoder import decode_linear_angle_delta
+
+    class Angle(torch.nn.Module):
+        def forward(self, x):
+            return decode_linear_angle_delta(x, 1 / 3)
+
+    x = torch.rand(1, 4, 36)
+    assert decode_linear_angle_delta(x, 1 / 3).dtype == torch.float32
+    buf = io.BytesIO()
+    torch.onnx.export(Angle(), x, buf, opset_version=17, dynamo=False)
+    graph = onnx.load_from_string(buf.getvalue()).graph
+    assert graph.output[0].type.tensor_type.elem_type == onnx.TensorProto.FLOAT
+
+
+def test_riodetrv2_obb_is_measured_with_a_histogram_neck():
+    from libreyolo.export.exporter import _HYBRID_NECK_QUANTIZATION_SCHEMES
+    from libreyolo.export.support import UNMEASURED_SIZES
+
+    assert _HYBRID_NECK_QUANTIZATION_SCHEMES["riodetrv2"] == "per_tensor_histogram"
+    assert ("riodetrv2", "obb", "axelera") not in UNMEASURED_SIZES
+

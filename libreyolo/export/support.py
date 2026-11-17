@@ -4949,7 +4949,7 @@ _add(
 )
 _add(
     "hybrid",
-    ("rtdetrv2",),
+    ("rtdetrv2", "riodetrv2"),
     ("obb",),
     ("axelera",),
     reason=(

@@ -4434,12 +4434,17 @@ _HYBRID_NECK_QUANTIZATION_SCHEME = "per_tensor_min_max"
 #: Per-family neck-part scheme where per-tensor min-max loses accuracy: RT-DETRv2-r50's
 #: neck part reaches a 0.68 lowest held-out cosine with min-max and 0.91 with histogram
 #: ranges (a per-size recipe ``neck_quantization_scheme`` wins over both).
-_HYBRID_NECK_QUANTIZATION_SCHEMES = {"rtdetrv2": "per_tensor_histogram"}
+_HYBRID_NECK_QUANTIZATION_SCHEMES = {
+    "rtdetrv2": "per_tensor_histogram",
+    # RiO-DETRv2-n on 300 DOTA val tiles: histogram 0.4912 vs min-max 0.4742 mAP50-95 (FP32 0.5581).
+    "riodetrv2": "per_tensor_histogram",
+}
 
 _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("rtdetr", "detect"): ("pred_logits", "pred_boxes"),
     ("rtdetrv2", "detect"): ("pred_logits", "pred_boxes"),
     ("rtdetrv2", "obb"): ("pred_logits", "pred_boxes"),
+    ("riodetrv2", "obb"): ("pred_logits", "pred_boxes"),
     ("dfine", "detect"): ("pred_logits", "pred_boxes"),
     ("deim", "detect"): ("pred_logits", "pred_boxes"),
     ("deimv2", "detect"): ("pred_logits", "pred_boxes"),

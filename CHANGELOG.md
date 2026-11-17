@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis hybrid exports for RiO-DETRv2 n, s, m, l and x oriented-box detection.** As RT-DETRv2-obb, with the neck part on histogram ranges; on 300 DOTA val tiles (DOTA-v1.0 classes) mAP50-95 stays within 1.0 of FP32 for s, m, l and x (-0.99, +0.02, -0.70, -0.09) and 6.7 below for n. RiO-DETRv2's linear angle decode now returns the logits' dtype, so its ONNX decoder no longer feeds GridSample a float64 grid.
+
 - **Axelera Metis hybrid exports for Deformable DETR r50ss, r50ssdc5, r50refine and r50twostage.** As Deformable DETR-r50 (ResNet-50 body on the Metis, the rest on the host), within 0.33 mAP50-95 of FP32 on 300 COCO val2017 images: -0.22, -0.20, -0.33 and +0.01.
 
 - **Axelera Metis export for EfficientNetV2-b1, -b2 and -b3.** They no longer fail to compile with two output buffers: an exact graph pass reads the stage-0 residual skip through an identity 1x1 convolution (b0 is unchanged). At their native sizes on 1000 ImageNetV2 images b1 (-0.2 top-1) and b3 (+1.1) are validated and b2 (-1.3) is supported.
