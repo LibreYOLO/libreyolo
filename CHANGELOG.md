@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis hybrid export for RetinaNet-r50v2, previously blocked.** Its GroupNorm heads have no INT8 form, so the ResNet-50 body runs on the Metis (per-channel weight ranges) and the FPN, heads and decode run on the host: 0.3722 vs 0.3962 FP32 mAP50-95 (-2.40) on 300 COCO val2017 images.
+
 - **Axelera Metis hybrid exports for RiO-DETRv2 n, s, m, l and x oriented-box detection.** As RT-DETRv2-obb, with the neck part on histogram ranges; on 300 DOTA val tiles (DOTA-v1.0 classes) mAP50-95 stays within 1.0 of FP32 for s, m, l and x (-0.99, +0.02, -0.70, -0.09) and 6.7 below for n. RiO-DETRv2's linear angle decode now returns the logits' dtype, so its ONNX decoder no longer feeds GridSample a float64 grid.
 
 - **Axelera Metis hybrid exports for Deformable DETR r50ss, r50ssdc5, r50refine and r50twostage.** As Deformable DETR-r50 (ResNet-50 body on the Metis, the rest on the host), within 0.33 mAP50-95 of FP32 on 300 COCO val2017 images: -0.22, -0.20, -0.33 and +0.01.

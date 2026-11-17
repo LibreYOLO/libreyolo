@@ -705,3 +705,25 @@ def test_riodetrv2_obb_is_measured_with_a_histogram_neck():
     assert _HYBRID_NECK_QUANTIZATION_SCHEMES["riodetrv2"] == "per_tensor_histogram"
     assert ("riodetrv2", "obb", "axelera") not in UNMEASURED_SIZES
 
+
+def test_retinanet_r50v2_hybrid_body_split_reproduces_the_native_model():
+    """RetinaNet-R50v2 recipe hybrid in FP32: the ResNet-50 body (Metis part) then FPN, GroupNorm heads,
+    anchors and decode on the host reproduce RetinaNetExportWrapper's output."""
+    import copy
+
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.exporter import AxeleraExporter, _RetinaNetBodyWrapper, _RetinaNetHostTailWrapper
+    from libreyolo.models.retinanet.model import LibreRetinaNet
+    from libreyolo.models.retinanet.nn import RetinaNetExportWrapper
+
+    assert size_recipe("retinanet", "detect", "r50v2")["hybrid_split"] == "backbone"
+    model = LibreRetinaNet._from_scratch(size="r50v2", device="cpu", seed=0)
+    assert AxeleraExporter(model)._hybrid_outputs() == ("output",)
+    assert AxeleraExporter(LibreRetinaNet._from_scratch(size="r50", device="cpu", seed=0))._hybrid_outputs() == ()
+    net = model.model.eval()
+    x = torch.rand(1, 3, 256, 256, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = RetinaNetExportWrapper(copy.deepcopy(net)).eval()(x)
+        got = _RetinaNetHostTailWrapper(net, ("output",)).eval()(*_RetinaNetBodyWrapper(net).eval()(x))[0]
+    torch.testing.assert_close(got, want, atol=1e-4, rtol=1e-4)
+

@@ -1096,8 +1096,8 @@ def test_support_matrix_rows_for_axelera():
     retinanet = get_support("retinanet", "detect", "axelera")
     assert retinanet.tier == "available" and "supported sizes: r50 " in retinanet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("retinanet", "detect", "axelera")]) == ["r50"]
-    assert "GroupNorm" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
-    assert "six compiled parts" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
+    assert ("retinanet", "detect", "axelera") not in BLOCKED_SIZES
+    assert "hybrid sizes: r50v2 " in retinanet.constraint
     assert ("retinanet", "detect", "axelera") not in UNMEASURED_SIZES
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
@@ -1176,6 +1176,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("retinanet", "detect", "r50"),
         ("deeplabv3", "semantic", "r50"), ("deeplabv3", "semantic", "r101"),
         ("vgg", "classify", "19bn"),
+        # RetinaNet-R50v2 recipe hybrid (test_retinanet_r50v2_hybrid_body_split_reproduces_the_native_model).
+        ("retinanet", "detect", "r50v2"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),

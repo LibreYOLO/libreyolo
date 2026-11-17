@@ -4479,13 +4479,18 @@ _add(
         "below the PyTorch model's own val() on 1000 COCO val2017 images (0.3410 "
         "vs 0.3521): 0.49 from the canvas (FP32 0.3472) and 0.62 from INT8. "
         "The 1024 canvas is about 1.64x the device compute of 800; imgsz=800 "
-        "is faster and scores 2.25 below (0.3296; docs/axelera.md)."
+        "is faster and scores 2.25 below (0.3296). RetinaNet-R50v2 is hybrid: "
+        "its heads normalize every convolution with GroupNorm, so the ResNet-50 "
+        "body runs on Metis and the FPN, heads and box decode on the host as "
+        "FP32 ONNX, 2.40 mAP50-95 below FP32 on 300 COCO val2017 images "
+        "(docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
         "supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed "
-        "1024x1024 canvas by default (imgsz=800 for speed); r50v2 is blocked "
-        "(GroupNorm head, BLOCKED_SIZES). "
+        "1024x1024 canvas by default (imgsz=800 for speed); hybrid sizes: r50v2 "
+        "(ResNet-50 body on Metis, FPN + GroupNorm heads on the host, 800x800 "
+        "canvas, AXELERA_SIZE_RECIPES hybrid_split). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1"
     ),
 )
@@ -5400,19 +5405,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "(48 LayerNormalization, 24 Softmax, 28 Erf and the attention MatMuls "
             "at 384 px) stops at the quantizer's ONNX import ('unexpected input "
             "value type'), after 6 min and an 18 GB peak; use MiDaS-s"
-        ),
-    },
-    ("retinanet", "detect", "axelera"): {
-        "r50v2": (
-            "does not run usefully on Metis with the 1.9 SDK: its head normalizes "
-            "every convolution with GroupNorm (per-image statistics), which the "
-            "INT8 toolchain has no form for. Measured multi-part route (as FCOS): "
-            "trunk and head convolutions as six compiled parts with GroupNorm on "
-            "the host compile and run, but score 0.033 mAP50-95 against FP32's "
-            "0.396 on 300 COCO val2017 images; its ResNet-50 v2 trunk does not "
-            "survive INT8 (CPU-quantized cosine vs FP32 0.56-0.78 per-tensor, "
-            "0.93-0.97 hybrid; cross-layer equalization does not help); use "
-            "RetinaNet-r50"
         ),
     },
     ("rtmdet", "segment", "axelera"): {

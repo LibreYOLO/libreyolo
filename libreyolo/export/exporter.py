@@ -4465,11 +4465,13 @@ _AXELERA_RECIPE_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("deeplabv3", "semantic"): ("semantic_logits",),
     # VGG-19-BN: device drift compounds through conv block 5 (see _VGGFeaturesWrapper).
     ("vgg", "classify"): ("logits",),
+    # RetinaNet-R50v2: the GroupNorm heads have no INT8 form; the ResNet-50 body runs on Metis.
+    ("retinanet", "detect"): ("output",),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
 _HYBRID_BACKBONE_ONLY = frozenset(
-    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg"}
+    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet"}
 )
 
 
@@ -4583,6 +4585,60 @@ class _DocLayoutHostTailWrapper(torch.nn.Module):
             "order_votes": reading_order_votes(out["order_logits"]),
         }
         return tuple(values[name] for name in self.output_names)
+
+
+class _RetinaNetBodyWrapper(torch.nn.Module):
+    """Part 1 of a hybrid RetinaNet export (recipe ``hybrid_split``): the ResNet-50 body (C3, C4, C5).
+
+    RetinaNet-R50v2's heads normalize every convolution with GroupNorm, which
+    the INT8 toolchain has no form for; the body runs on Metis and the FPN,
+    heads and box decode run on the host.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("c3", "c4", "c5")
+    hybrid_aipu = "ResNet-50 body (C3, C4, C5)"
+    hybrid_host = "FPN with P6/P7, GroupNorm heads and box decode (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        return tuple(self.model.backbone.body(x).values())
+
+
+class _RetinaNetHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid RetinaNet export: FPN, heads, anchors and decode.
+
+    Ends at the whole-graph ONNX export's ``output`` (decoded boxes plus
+    contiguous scores), so the backend parses both exports the same way. The
+    canvas size for the anchors is C3's stride (8) times its size.
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+        self.keys = None
+
+    def forward(self, c3, c4, c5):
+        from collections import OrderedDict
+
+        net = self.model
+        keys = list(net.backbone.body.return_layers.values())
+        features = list(net.backbone.fpn(OrderedDict(zip(keys, (c3, c4, c5)))).values())
+        head_outputs = net.head(features)
+        image_hw = (int(c3.shape[-2]) * 8, int(c3.shape[-1]) * 8)
+        anchors, _ = net.anchor_generator(image_hw, features)
+        decoded = torch.stack(
+            [net.box_coder.decode_single(regression, anchors) for regression in head_outputs["bbox_regression"]]
+        )
+        scores = torch.sigmoid(head_outputs["cls_logits"])
+        if net.num_classes == 91:
+            scores = scores.index_select(2, net._coco91_source_indices)
+        return (torch.cat((decoded, scores), dim=2),)
 
 
 class _DeepLabBackboneWrapper(torch.nn.Module):
@@ -4936,6 +4992,7 @@ _HYBRID_BACKBONE_WRAPPERS = {
     "ppdoclayoutv3": ("_DocLayoutBackboneWrapper", "_DocLayoutHostTailWrapper"),
     "deeplabv3": ("_DeepLabBackboneWrapper", "_DeepLabHostTailWrapper"),
     "vgg": ("_VGGFeaturesWrapper", "_VGGHostTailWrapper"),
+    "retinanet": ("_RetinaNetBodyWrapper", "_RetinaNetHostTailWrapper"),
 }
 
 
@@ -5832,7 +5889,7 @@ class AxeleraExporter(BaseExporter):
 
             return canvas
         preprocess = self.model._get_preprocess_numpy()
-        if self._hybrid_outputs():
+        if self._hybrid_outputs() and self.model._get_model_name() not in ("retinanet", "fcos"):
             # DETR preprocessing takes one square size and returns NCHW.
             def square(rgb, imgsz):
                 h, w = (imgsz, imgsz) if isinstance(imgsz, int) else imgsz
@@ -6408,6 +6465,7 @@ class AxeleraExporter(BaseExporter):
                 _DeformableDETRBackboneWrapper,
                 _DeepLabBackboneWrapper,
                 _VGGFeaturesWrapper,
+                _RetinaNetBodyWrapper,
             ),
         ):
             outputs = list(self._hybrid_outputs())

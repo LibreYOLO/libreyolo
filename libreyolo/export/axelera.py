@@ -121,6 +121,14 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # A 1024x1024 canvas costs 1.64x the compute and recovers most of it
     # (-1.11); imgsz=800 stays available for speed.
     ("retinanet", "detect", "r50"): {"canvas": 1024},
+    # RetinaNet-R50v2: GroupNorm heads; the ResNet-50 body on Metis, FPN + heads on the host.
+    # Per-channel weights: with per-tensor min-max the body's quantized outputs drift to cosine 0.27-0.39
+    # vs FP32 (0.81-0.97 with the hybrid scheme; -1.99 mAP50-95 end to end on CPU).
+    ("retinanet", "detect", "r50v2"): {
+        "canvas": 800,
+        "hybrid_split": "backbone",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
     # DeepLabV3 r50/r101 at output stride 8: the ASPP convolutions (dilation up
     # to 36 on a 65x65 map) find no L1 tiling; per-tap 1x1 convolutions plus
     # zero-filled shifts are the same function and compile (the backbone alone
