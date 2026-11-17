@@ -85,6 +85,9 @@ a separate size:
 | D-FINE | x | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.6098 | 0.6039 | -0.59 | hybrid | `dfine/detect/x/2026-11-16/2` |
 | D-FINE | n | segment (hybrid: HGNetv2 backbone, neck and mask convolutions on the Metis; attention, decoder and mask GroupNorms on the host) | COCO val2017 (masks), 300 | 0.3536 | 0.3485 | -0.51 | hybrid | `dfine/segment/n/2026-11-17/3` |
 | D-FINE | s | segment (hybrid: HGNetv2 backbone, neck and mask convolutions on the Metis; attention, decoder and mask GroupNorms on the host) | COCO val2017 (masks), 300 | 0.4051 | 0.3035 | -10.16 | hybrid | `dfine/segment/s/2026-11-17/4` |
+| D-FINE | m | segment (hybrid: HGNetv2 backbone, neck and mask convolutions on the Metis; attention, decoder and mask GroupNorms on the host) | COCO val2017 (masks), 300 | 0.4263 | 0.4257 | -0.06 | hybrid | `dfine/segment/m/2026-11-17` |
+| D-FINE | l | segment (hybrid: HGNetv2 backbone, neck and mask convolutions on the Metis; attention, decoder and mask GroupNorms on the host) | COCO val2017 (masks), 300 | 0.4431 | 0.4388 | -0.43 | hybrid | `dfine/segment/l/2026-11-17` |
+| D-FINE | x | segment (hybrid: HGNetv2 backbone, neck and mask convolutions on the Metis; attention, decoder and mask GroupNorms on the host) | COCO val2017 (masks), 300 | 0.4512 | 0.4500 | -0.12 | hybrid | `dfine/segment/x/2026-11-17` |
 | DEIM | n | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4238 | 0.4213 | -0.25 | hybrid | `deim/detect/n/2026-11-15` |
 | DEIM | s | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4980 | 0.4429 | -5.51 | hybrid | `deim/detect/s/2026-11-16` |
 | DEIM | m | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5358 | 0.5390 | +0.32 | hybrid | `deim/detect/m/2026-11-16` |
@@ -202,7 +205,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | RT-DETR | detect | r18, r34, r50, r50m, r101, l, x (hybrid: CNN backbone and fusion neck on the Metis, attention encoder layer and decoder on the host) | see `docs/export_support.md` | r18 `rtdetr/detect/r18/2026-11-15/2` (300: `rtdetr/detect/r18/2026-11-15`); r34 `rtdetr/detect/r34/2026-11-15`; r50 `rtdetr/detect/r50/2026-11-15`; r50m `rtdetr/detect/r50m/2026-11-15`; r101 `rtdetr/detect/r101/2026-11-15`; l `rtdetr/detect/l/2026-11-15`; x `rtdetr/detect/x/2026-11-15` |
 | RT-DETRv2 | detect | r18, r34, r50, r50m, r101 (hybrid, as RT-DETR: v1 backbone and fusion neck on the Metis, v2 decoder on the host) | see `docs/export_support.md` | r18 `rtdetrv2/detect/r18/2026-11-15`; r34 `rtdetrv2/detect/r34/2026-11-15`; r50 `rtdetrv2/detect/r50/2026-11-16`; r50m `rtdetrv2/detect/r50m/2026-11-16/2`; r101 `rtdetrv2/detect/r101/2026-11-16` |
 | D-FINE | detect | n, s, m, l, x (hybrid, as RT-DETR: HGNetv2 backbone and fusion neck on the Metis, attention encoder layer and decoder on the host) | see `docs/export_support.md` | n `dfine/detect/n/2026-11-15`; s `dfine/detect/s/2026-11-16`; m `dfine/detect/m/2026-11-16`; l `dfine/detect/l/2026-11-16`; x `dfine/detect/x/2026-11-16/2` |
-| D-FINE | segment | n, s (hybrid, as D-FINE detect: HGNetv2 backbone and fusion neck on the Metis; mask decoder convolutions on the Metis; attention encoder layer, decoder and mask GroupNorms on the host; m, l, x not measured yet) | see `docs/export_support.md` | n `dfine/segment/n/2026-11-17/3`, s `dfine/segment/s/2026-11-17/4` |
+| D-FINE | segment | n, s, m, l, x (hybrid, as D-FINE detect: HGNetv2 backbone and fusion neck on the Metis; mask decoder convolutions on the Metis; attention encoder layer, decoder and mask GroupNorms on the host) | see `docs/export_support.md` | n `dfine/segment/n/2026-11-17/3`, s `dfine/segment/s/2026-11-17/4`, m `dfine/segment/m/2026-11-17`, l `dfine/segment/l/2026-11-17`, x `dfine/segment/x/2026-11-17` |
 | DEIM | detect | n, s, m, l, x (hybrid, as D-FINE; s with a measured drop of 5.51) | see `docs/export_support.md` | n `deim/detect/n/2026-11-15`; s `deim/detect/s/2026-11-16`; m `deim/detect/m/2026-11-16`; l `deim/detect/l/2026-11-16`; x `deim/detect/x/2026-11-16` |
 | RT-DETRv4 | detect | s, m, l, x (hybrid, as D-FINE) | see `docs/export_support.md` | s `rtdetrv4/detect/s/2026-11-16`; m `rtdetrv4/detect/m/2026-11-16`; l `rtdetrv4/detect/l/2026-11-16`; x `rtdetrv4/detect/x/2026-11-16` |
 | DEIMv2 | detect | atto, femto, pico (hybrid: backbone, convolutional encoder and decoder input projections on the Metis, decoder on the host), n (hybrid, as D-FINE); s, m, l and x are out of scope (DINOv3 ViT backbones) | see `docs/export_support.md` | atto `deimv2/detect/atto/2026-11-16`; femto `deimv2/detect/femto/2026-11-16`; pico `deimv2/detect/pico/2026-11-16`; n `deimv2/detect/n/2026-11-16` |
@@ -441,6 +444,9 @@ table at the top of this page.
 | D-FINE-x (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.6098 | 0.6039 | -0.59 (hybrid; backbone part per channel, neck part per tensor) |
 | D-FINE-n-seg (hybrid) | segment (mask mAP50-95; box 0.4091 -> 0.4085) | COCO val2017, 300 images | 64 coco128 | 0.3536 | 0.3485 | -0.51 (hybrid) |
 | D-FINE-s-seg (hybrid) | segment (mask mAP50-95; box 0.4709 -> 0.3622) | COCO val2017, 300 images | 64 coco128 | 0.4051 | 0.3035 | -10.16 (hybrid; the backbone's stride-32 output drifts, cosine 0.75) |
+| D-FINE-m-seg (hybrid) | segment (mask mAP50-95; box 0.5014 -> 0.5016) | COCO val2017, 300 images | 64 coco128 | 0.4263 | 0.4257 | -0.06 (hybrid) |
+| D-FINE-l-seg (hybrid) | segment (mask mAP50-95; box 0.5221 -> 0.5156) | COCO val2017, 300 images | 64 coco128 | 0.4431 | 0.4388 | -0.43 (hybrid) |
+| D-FINE-x-seg (hybrid) | segment (mask mAP50-95; box 0.5214 -> 0.5177) | COCO val2017, 300 images | 64 coco128 | 0.4512 | 0.4500 | -0.12 (hybrid) |
 | DEIM-n (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4238 | 0.4213 | -0.25 (hybrid; backbone part per channel, neck part per tensor) |
 | DEIM-s (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4980 | 0.4429 | -5.51 (hybrid; the loss is in the backbone part's stride-32 output, no scheme recovers it) |
 | DEIM-m (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5358 | 0.5390 | +0.32 (hybrid; backbone part per channel, neck part per tensor) |
@@ -700,7 +706,8 @@ D-FINE-seg's mask decoder normalizes with GroupNorm (no AIPU form), so its two
 convolutions are compiled parts of their own and the GroupNorms run on the host
 between them: D-FINE-n-seg runs 81% of its MACs on the Metis at 4.1 img/s (4.3
 at batch 8; 3.0 / 3.6 with the whole mask decoder on the host), D-FINE-s-seg
-85% at 2.3 img/s (2.8; 1.8 / 1.9). D-FINE-s-seg loses 10 pt: its
+85% at 2.3 img/s (2.8; 1.8 / 1.9); m, l and x run 89-93% of their MACs on the
+Metis at 1.6-1.7 img/s (1.8-2.8 at batch 8). D-FINE-s-seg loses 10 pt: its
 segmentation-trained backbone quantizes worse than D-FINE-s detect's.
 Deformable DETR-r50 runs 43% of its MACs on the Metis but is host-bound: its
 input projections normalize with GroupNorm (no AIPU form) and its deformable
