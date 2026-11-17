@@ -6231,6 +6231,18 @@ class AxeleraExporter(BaseExporter):
                 CSPNEXT_POINTWISE_EQUALIZATION,
                 self._pointwise_method(),
             )
+            self._pointwise_rounded = 0
+            if self._size_recipe().get("pointwise_learned_rounding"):
+                from ..models.rtmdet.quantize import learn_pointwise_int8_rounding
+
+                samples = self._equalization_samples()
+                self._pointwise_rounded = learn_pointwise_int8_rounding(copy_, samples)
+                logger.info(
+                    "Axelera: INT8 rounding learned for %d CSPNeXt pointwise convolutions "
+                    "on %d calibration images.",
+                    self._pointwise_rounded,
+                    len(samples),
+                )
             wrapper_cls = (
                 _RTMDetInsRawHeadsWrapper
                 if self._task() == "segment"
@@ -6639,6 +6651,8 @@ class AxeleraExporter(BaseExporter):
                 "mode": str(CSPNEXT_POINTWISE_EQUALIZATION),
                 "method": self._pointwise_method(),
             }
+        if getattr(self, "_pointwise_rounded", 0):
+            meta["pointwise_learned_rounding"] = {"convs": int(self._pointwise_rounded)}
         if getattr(wrapper, "anchor_sizes", None) is not None:  # RetinaNet
             meta["anchor_sizes"] = [list(sizes) for sizes in wrapper.anchor_sizes]
             meta["aspect_ratios"] = [list(r) for r in wrapper.aspect_ratios]

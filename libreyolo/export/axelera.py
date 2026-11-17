@@ -85,7 +85,9 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: ``models/quicksrnet/quantize.learn_int8_rounding``) and
 #: ``weight_equalization`` (Real-ESRGAN compact trunk: exact cross-layer
 #: equalization through its PReLU activations,
-#: ``models/realesrgan/quantize.equalize_conv_activation_ranges``). Results
+#: ``models/realesrgan/quantize.equalize_conv_activation_ranges``) and
+#: ``pointwise_learned_rounding`` (RTMDet: learned INT8 rounding of the CSPNeXt
+#: pointwise convolutions, ``models/rtmdet/quantize.learn_pointwise_int8_rounding``). Results
 #: with these recipes are in docs/axelera.md.
 AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # RT-DETRv2's neck part defaults to histogram ranges (exporter
@@ -188,6 +190,9 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # conv+PReLU trunk before calibration: PSNR -0.19 dB vs FP32 on 296 COCO
     # crops (-0.20 held-out) instead of -0.49 dB.
     ("realesrgan", "restore", "x4t"): {"weight_equalization": True},
+    # RTMDet-s: learned INT8 rounding of the CSPNeXt pointwise convolutions
+    # after their input equalization (models/rtmdet/quantize).
+    ("rtmdet", "detect", "s"): {"pointwise_learned_rounding": True},
 }
 
 
