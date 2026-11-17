@@ -5202,7 +5202,9 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "COCO val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
             "through the same path; ASPP as per-tap 1x1 convolutions plus shifts). "
             "The loss happens on the device (device vs CPU-quantized output "
-            "cosine 0.895): check accuracy on your data, or use r50 or mv3"
+            "cosine 0.895; the CPU-quantized model itself stays within 0.4 mIoU "
+            "of FP32 on 100 of those images, so no quantization recipe recovers "
+            "it): check accuracy on your data, or use r50 or mv3"
         ),
     },
     ("rtmdet", "detect", "axelera"): {
