@@ -124,6 +124,18 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # RetinaNet-R50v2: GroupNorm heads; the ResNet-50 body on Metis, FPN + heads on the host.
     # Per-channel weights: with per-tensor min-max the body's quantized outputs drift to cosine 0.27-0.39
     # vs FP32 (0.81-0.97 with the hybrid scheme; -1.99 mAP50-95 end to end on CPU).
+    # CenterNet-ResDCN18: deformable up-path on the host; the ResNet-18 body with per-channel weight ranges
+    # (CPU-quantized end to end -0.83 mAP50-95; per-tensor ranges left the old multi-part route at 0.10).
+    ("centernet", "detect", "resdcn18"): {
+        "hybrid_split": "backbone",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
+    # CenterNet-DLA34: DLA base (levels 2-5) on the Metis, DLAUp/IDAUp (deformable) on the host; per-channel
+    # weight ranges (CPU-quantized end to end -0.61 mAP50-95 on cocoval100).
+    ("centernet", "detect", "dla34"): {
+        "hybrid_split": "backbone",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
     ("retinanet", "detect", "r50v2"): {
         "canvas": 800,
         "hybrid_split": "backbone",

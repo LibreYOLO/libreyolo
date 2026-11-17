@@ -4467,11 +4467,13 @@ _AXELERA_RECIPE_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("vgg", "classify"): ("logits",),
     # RetinaNet-R50v2: the GroupNorm heads have no INT8 form; the ResNet-50 body runs on Metis.
     ("retinanet", "detect"): ("output",),
+    # CenterNet-ResDCN18: the deformable up-path has no INT8 form; the ResNet-18 body runs on Metis.
+    ("centernet", "detect"): ("output",),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
 _HYBRID_BACKBONE_ONLY = frozenset(
-    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet"}
+    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet"}
 )
 
 
@@ -4639,6 +4641,74 @@ class _RetinaNetHostTailWrapper(torch.nn.Module):
         if net.num_classes == 91:
             scores = scores.index_select(2, net._coco91_source_indices)
         return (torch.cat((decoded, scores), dim=2),)
+
+
+class _CenterNetBodyWrapper(torch.nn.Module):
+    """Part 1 of a hybrid CenterNet export (recipe ``hybrid_split``): the body without deformable convolutions.
+
+    ResDCN-18: the ResNet-18 body (stem to layer4), one output. DLA-34: the
+    DLA base, its levels 2-5 (strides 4-32). The up-path's modulated deformable
+    convolutions sample at learned offsets (grid_sample), which the INT8
+    toolchain has no form for; the body runs on Metis and the deformable
+    up-path, heads and peak decode run on the host.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    hybrid_host = "deformable up-path, heads and peak decode (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        self.dla = hasattr(model, "base")
+        if self.dla:
+            levels = range(model.first_level, len(model.base.channels))
+            self.output_names = tuple(f"level{i}" for i in levels)
+            self.hybrid_aipu = "DLA-34 base (levels 2-5)"
+        else:
+            self.output_names = ("feat",)
+            self.hybrid_aipu = "ResNet-18 body (stem to layer4)"
+
+    def forward(self, x):
+        m = self.model
+        if self.dla:
+            return tuple(m.base(x)[m.first_level:])
+        x = m.maxpool(m.relu(m.bn1(m.conv1(x))))
+        return (m.layer4(m.layer3(m.layer2(m.layer1(x)))),)
+
+
+class _CenterNetHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid CenterNet export: deformable up-path, heads and peak decode.
+
+    Ends at the whole-graph ONNX export's ``output`` (CenterNetExportWrapper:
+    top-k peaks scaled to input pixels), so the backend parses both the same way.
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names, topk: int = 100):
+        super().__init__()
+        from ..models.centernet.nn import set_portable_dcn
+
+        self.model = model
+        self.output_names = tuple(output_names)
+        self.topk = topk
+        set_portable_dcn(self.model, True)
+
+    def forward(self, *feats):
+        from ..postprocess.centernet import decode_centernet
+
+        m = self.model
+        if hasattr(m, "base"):  # DLA-34: DLAUp reads levels >= first_level only (and edits the list)
+            features = m.dla_up([None] * m.first_level + list(feats))
+            fused = [features[i].clone() for i in range(m.last_level - m.first_level)]
+            m.ida_up(fused, 0, len(fused))
+            x = fused[-1]
+        else:
+            x = m.deconv_layers(feats[0])
+        out = {name: getattr(m, name)(x) for name in m.heads}
+        return (
+            decode_centernet(out["hm"], out["wh"], out["reg"], topk=self.topk)
+            * out["hm"].new_tensor([4.0, 4.0, 4.0, 4.0, 1.0, 1.0]),
+        )
 
 
 class _DeepLabBackboneWrapper(torch.nn.Module):
@@ -4993,6 +5063,7 @@ _HYBRID_BACKBONE_WRAPPERS = {
     "deeplabv3": ("_DeepLabBackboneWrapper", "_DeepLabHostTailWrapper"),
     "vgg": ("_VGGFeaturesWrapper", "_VGGHostTailWrapper"),
     "retinanet": ("_RetinaNetBodyWrapper", "_RetinaNetHostTailWrapper"),
+    "centernet": ("_CenterNetBodyWrapper", "_CenterNetHostTailWrapper"),
 }
 
 
@@ -6466,6 +6537,7 @@ class AxeleraExporter(BaseExporter):
                 _DeepLabBackboneWrapper,
                 _VGGFeaturesWrapper,
                 _RetinaNetBodyWrapper,
+                _CenterNetBodyWrapper,
             ),
         ):
             outputs = list(self._hybrid_outputs())

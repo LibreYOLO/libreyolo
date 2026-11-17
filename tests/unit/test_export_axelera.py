@@ -1178,6 +1178,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("vgg", "classify", "19bn"),
         # RetinaNet-R50v2 recipe hybrid (test_retinanet_r50v2_hybrid_body_split_reproduces_the_native_model).
         ("retinanet", "detect", "r50v2"),
+        # CenterNet recipe hybrids (test_centernet_hybrid_body_split_reproduces_the_native_model).
+        ("centernet", "detect", "resdcn18"), ("centernet", "detect", "dla34"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),
@@ -1880,7 +1882,6 @@ def test_efficientdet_preprocessing_accepts_a_square_pair():
 @pytest.mark.parametrize(
     ("family", "task", "keyword"),
     [
-        ("centernet", "detect", "deformable"),
         ("convnext", "classify", "LayerNorm"),
         ("convnextv2", "classify", "Global"),
         ("ec", "detect", "deformable attention"),
@@ -2347,12 +2348,17 @@ def test_efficientdet_class_head_part_is_opt_in_per_size():
         assert "class_head_part" not in size_recipe("efficientdet", "detect", size)
 
 
-def test_centernet_block_records_the_multi_part_attempt():
+def test_centernet_is_a_body_split_hybrid():
+    from libreyolo.export.axelera import size_recipe
     from libreyolo.export.support import get_support
 
     entry = get_support("centernet", "detect", "axelera")
-    assert entry.tier == "blocked" and "deformable" in entry.reason
-    assert "four compiled parts" in entry.reason and "17 parts" in entry.reason
+    assert entry.tier == "hybrid" and "deformable" in entry.reason
+    from libreyolo.export.support import UNMEASURED_SIZES
+
+    for size in ("resdcn18", "dla34"):
+        assert size_recipe("centernet", "detect", size)["hybrid_split"] == "backbone"
+    assert ("centernet", "detect", "axelera") not in UNMEASURED_SIZES
 
 
 def test_zipdepth_block_names_the_softmax_limit():

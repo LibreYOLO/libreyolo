@@ -4675,21 +4675,25 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "hybrid",
     ("centernet",),
     ("detect",),
     ("axelera",),
     reason=(
-        "Both CenterNet sizes (ResDCN-18 and DLA-34) upsample with modulated "
-        "deformable convolutions, which sample the feature map at learned "
-        "per-pixel offsets (exported as grid_sample); Axelera's 1.9 quantizer "
-        "has no converter for GridSample. Measured multi-part route: ResDCN-18 "
-        "as four compiled parts with its three deformable convolutions and the "
-        "top-k decode on the host compiles and runs, but scores 0.098 mAP50-95 "
-        "against FP32's 0.282 on 300 COCO val2017 images (0.081 with histogram "
-        "ranges): the INT8 ResNet-18 trunk drifts (device vs quantized cosine "
-        "0.91) and the deformable sampling amplifies it. DLA-34 has 16 "
-        "deformable convolutions, about 17 parts, and was not attempted."
+        "Hybrid INT8 export: the body without deformable convolutions (the "
+        "ResNet-18 body of ResDCN-18, the DLA-34 base) is compiled with "
+        "Axelera's toolchain and runs on the Metis AIPU; the modulated "
+        "deformable convolutions of the up-path (grid_sample at learned "
+        "offsets, which the quantizer has no form for), the heads and the peak "
+        "decode run on the host CPU as an FP32 ONNX graph through ONNX Runtime "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
+        "and metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 512x512 input"
     ),
 )
 _add(

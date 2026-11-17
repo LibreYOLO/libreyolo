@@ -179,14 +179,19 @@ class LibreCenterNet(BaseModel):
         self,
         format: str = "onnx",
         *,
-        opset: int = 18,
+        opset: int | None = None,
         **kwargs,
     ) -> str:
-        if format.lower() == "onnx" and opset < 16:
-            raise NotImplementedError(
-                "CenterNet ONNX export requires opset 16 or newer for GridSample."
-            )
-        return super().export(format=format, opset=opset, **kwargs)
+        if format.lower() == "onnx":
+            # ONNX keeps opset 18; other formats (axelera takes 14-17) choose their own.
+            opset = 18 if opset is None else opset
+            if opset < 16:
+                raise NotImplementedError(
+                    "CenterNet ONNX export requires opset 16 or newer for GridSample."
+                )
+        if opset is not None:
+            kwargs["opset"] = opset
+        return super().export(format=format, **kwargs)
 
     def _strict_loading(self) -> bool:
         return True

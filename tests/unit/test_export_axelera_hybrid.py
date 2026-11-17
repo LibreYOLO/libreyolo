@@ -727,3 +727,22 @@ def test_retinanet_r50v2_hybrid_body_split_reproduces_the_native_model():
         got = _RetinaNetHostTailWrapper(net, ("output",)).eval()(*_RetinaNetBodyWrapper(net).eval()(x))[0]
     torch.testing.assert_close(got, want, atol=1e-4, rtol=1e-4)
 
+
+@pytest.mark.parametrize("size", ["resdcn18", "dla34"])
+def test_centernet_hybrid_body_split_reproduces_the_native_model(size):
+    """CenterNet recipe hybrid in FP32: the body (ResNet-18 or the DLA-34 base; Metis part) then the
+    deformable up-path, heads and peak decode on the host reproduce CenterNetExportWrapper's output."""
+    import copy
+
+    from libreyolo.export.exporter import AxeleraExporter, _CenterNetBodyWrapper, _CenterNetHostTailWrapper
+    from libreyolo.models.centernet.model import LibreCenterNet
+    from libreyolo.models.centernet.nn import CenterNetExportWrapper
+
+    model = LibreCenterNet._from_scratch(size=size, device="cpu", seed=0)
+    net = model.model.eval()
+    x = torch.rand(1, 3, 256, 256, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = CenterNetExportWrapper(copy.deepcopy(net)).eval()(x)
+        got = _CenterNetHostTailWrapper(net, ("output",)).eval()(*_CenterNetBodyWrapper(net).eval()(x))[0]
+    torch.testing.assert_close(got, want, atol=1e-4, rtol=1e-4)
+

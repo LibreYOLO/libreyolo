@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis hybrid exports for CenterNet ResDCN-18 and DLA-34, previously blocked.** Their up-paths sample with modulated deformable convolutions, which have no INT8 form, so the body (ResNet-18, or the DLA-34 base) runs on the Metis with per-channel weight ranges and the deformable up-path, heads and peak decode run on the host: ResDCN-18 0.2604 vs 0.2824 FP32 mAP50-95 (-2.20) and DLA-34 0.3575 vs 0.3702 (-1.27) on 300 COCO val2017 images. CenterNet's ONNX export still uses opset 18; other formats now pick their own opset.
+
 - **Axelera Metis hybrid export for RetinaNet-r50v2, previously blocked.** Its GroupNorm heads have no INT8 form, so the ResNet-50 body runs on the Metis (per-channel weight ranges) and the FPN, heads and decode run on the host: 0.3722 vs 0.3962 FP32 mAP50-95 (-2.40) on 300 COCO val2017 images.
 
 - **Axelera Metis hybrid exports for RiO-DETRv2 n, s, m, l and x oriented-box detection.** As RT-DETRv2-obb, with the neck part on histogram ranges; on 300 DOTA val tiles (DOTA-v1.0 classes) mAP50-95 stays within 1.0 of FP32 for s, m, l and x (-0.99, +0.02, -0.70, -0.09) and 6.7 below for n. RiO-DETRv2's linear angle decode now returns the logits' dtype, so its ONNX decoder no longer feeds GridSample a float64 grid.
@@ -156,13 +158,9 @@ before 1.4.0 are documented in the
 
 - **Axelera Metis: DEKR-w32 is blocked with its measured failures.** The default compile fails on output paging after 8.3 h; with paging off it compiles in 11.6 h but loses the device when run.
 
-- **Axelera Metis: RetinaNet-r50v2 stays blocked after the measured multi-part attempt.** With its GroupNorm head on the host (as FCOS) it compiles and runs but scores 0.033 vs 0.396 FP32 mAP50-95: its ResNet-50 v2 trunk does not survive INT8.
-
 - **Axelera Metis: HRNet's block records its measured device drift and the multi-part assessment.** The device drifts from the quantized model through stage 4's fusion modules (cosine 0.946, 0.78, 0.21) while the CPU-quantized model stays at 0.993 or better; a per-stage split would need four-branch packed parts.
 
 - **Axelera Metis: ZipDepth's block names its measured limit.** Its GCNet softmax over 576 positions has no AIPU form within SDK 1.9 (reshape pair over the layout-transform limit, one-hot transposed conv too large for the MVM unit, Exp/Reciprocal unsupported).
-
-- **Axelera Metis: CenterNet stays blocked after a measured multi-part attempt.** ResDCN-18 with its deformable convolutions on the host compiles and runs but scores 0.098 vs 0.282 FP32 mAP50-95 (INT8 drift in the ResNet-18 trunk); DLA-34 would need about 17 parts.
 
 - **Axelera Metis: PIDNet-s is blocked with its measured cause.** It now compiles (10.3 h) after exact rewrites of its DAPPM pools, but INT8 collapses the output (cosine about 0 vs FP32 on the device and on the CPU-quantized model, min-max and hybrid alike).
 
