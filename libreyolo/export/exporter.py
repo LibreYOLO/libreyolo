@@ -4457,11 +4457,13 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
 #: ``hybrid_split`` (DeepLabV3-R101: its rewritten ASPP diverges on the device).
 _AXELERA_RECIPE_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("deeplabv3", "semantic"): ("semantic_logits",),
+    # VGG-19-BN: device drift compounds through conv block 5 (see _VGGFeaturesWrapper).
+    ("vgg", "classify"): ("logits",),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
 _HYBRID_BACKBONE_ONLY = frozenset(
-    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3"}
+    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg"}
 )
 
 
@@ -4619,6 +4621,53 @@ class _DeepLabHostTailWrapper(torch.nn.Module):
                 logits, size=self.upsample_to, mode="bilinear", align_corners=False
             ),
         )
+
+
+def _vgg_pool4_end(model: torch.nn.Module) -> int:
+    """Index in ``model.features`` just past the fourth max pool (the hybrid VGG split)."""
+    pools = [i for i, m in enumerate(model.features) if isinstance(m, torch.nn.MaxPool2d)]
+    return pools[3] + 1
+
+
+class _VGGFeaturesWrapper(torch.nn.Module):
+    """Part 1 of a hybrid VGG export (recipe ``hybrid_split``): conv blocks 1-4, through pool4.
+
+    On VGG-19-BN the device's deviation from the CPU-quantized model grows
+    through conv block 5 (prefix cosine 0.984 at pool4, 0.785 after conv16)
+    without one diverging operator, so block 5 runs on the host.
+    """
+
+    output_layout = "classify_logits_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("pool4",)
+    hybrid_aipu = "convolution blocks 1-4 (through pool4)"
+    hybrid_host = "convolution block 5, average pool and classifier (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.features = model.features[: _vgg_pool4_end(model)]
+
+    def forward(self, x):
+        return (self.features(x),)
+
+
+class _VGGHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid VGG export: conv block 5, average pool and classifier.
+
+    Ends at the whole-graph export's ``logits``, so the backend parses both
+    exports the same way.
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.features = model.features[_vgg_pool4_end(model) :]
+        self.avgpool = model.avgpool
+        self.classifier = model.classifier
+        self.output_names = tuple(output_names)
+
+    def forward(self, feat):
+        pooled = self.avgpool(self.features(feat))
+        return (self.classifier(torch.flatten(pooled, 1)),)
 
 
 class _VanillaDETRBackboneWrapper(torch.nn.Module):
@@ -4880,6 +4929,7 @@ _HYBRID_BACKBONE_WRAPPERS = {
     "mask_rcnn": ("_RCNNBackboneWrapper", "_MaskRCNNHostTailWrapper"),
     "ppdoclayoutv3": ("_DocLayoutBackboneWrapper", "_DocLayoutHostTailWrapper"),
     "deeplabv3": ("_DeepLabBackboneWrapper", "_DeepLabHostTailWrapper"),
+    "vgg": ("_VGGFeaturesWrapper", "_VGGHostTailWrapper"),
 }
 
 
@@ -5964,7 +6014,7 @@ class AxeleraExporter(BaseExporter):
                 output_names=list(graph_outputs),
                 dynamic_axes=None,
             )
-        if self._task() == "classify":
+        if self._task() == "classify" and not self._hybrid_outputs():
             net = copy.deepcopy(self.model.model).eval()
             if self.model._get_model_name() == "mobilenetv4" and self._size_recipe().get(
                 "stream_transform", True
@@ -6351,6 +6401,7 @@ class AxeleraExporter(BaseExporter):
                 _DocLayoutBackboneWrapper,
                 _DeformableDETRBackboneWrapper,
                 _DeepLabBackboneWrapper,
+                _VGGFeaturesWrapper,
             ),
         ):
             outputs = list(self._hybrid_outputs())

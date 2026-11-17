@@ -1175,6 +1175,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("efficientdet", "detect", "d2"),
         ("retinanet", "detect", "r50"),
         ("deeplabv3", "semantic", "r50"), ("deeplabv3", "semantic", "r101"),
+        ("vgg", "classify", "19bn"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),
@@ -1190,11 +1191,12 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("realesrgan", "restore", "x4t"),
     }
     assert size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
-    # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default.
+    # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default
+    # (VGG-19-BN: pool4 split, test_vgg_axelera_split).
     assert size_recipe("vgg", "classify", "16bn") == {
         "quantization_scheme": "hybrid_per_tensor_per_channel"
     }
-    assert size_recipe("vgg", "classify", "19bn") == {}
+    assert size_recipe("vgg", "classify", "19bn") == {"hybrid_split": "backbone"}
     data = str(_dataset(tmp_path))
     # YOLOv4-b: histogram ranges and a [-6, 6] window on the box output.
     torch.manual_seed(0)
