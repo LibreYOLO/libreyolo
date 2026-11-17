@@ -103,6 +103,10 @@ a separate size:
 | DETR | r101 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.4019 | 0.3732 | -2.87 | hybrid | `detr/detect/r101/2026-11-16` |
 | DETR | r101dc5 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.4232 | 0.4172 | -0.60 | hybrid | `detr/detect/r101dc5/2026-11-16` |
 | Deformable DETR | r50 | detect (hybrid: ResNet backbone on the Metis, GroupNorm projections and deformable transformer on the host; 800x800) | COCO val2017, 300 | 0.4176 | 0.4171 | -0.05 | hybrid | `deformable_detr/detect/r50/2026-11-16` |
+| Deformable DETR | r50ss | detect (hybrid as r50; single-scale; 800x800) | COCO val2017, 300 | 0.3704 | 0.3682 | -0.22 | hybrid | `deformable_detr/detect/r50ss/2026-11-17` |
+| Deformable DETR | r50ssdc5 | detect (hybrid as r50; single-scale, dilated C5; 800x800) | COCO val2017, 300 | 0.3920 | 0.3900 | -0.20 | hybrid | `deformable_detr/detect/r50ssdc5/2026-11-17` |
+| Deformable DETR | r50refine | detect (hybrid as r50; iterative box refinement; 800x800) | COCO val2017, 300 | 0.4559 | 0.4526 | -0.33 | hybrid | `deformable_detr/detect/r50refine/2026-11-17` |
+| Deformable DETR | r50twostage | detect (hybrid as r50; box refinement, two-stage; 800x800) | COCO val2017, 300 | 0.4503 | 0.4504 | +0.01 | hybrid | `deformable_detr/detect/r50twostage/2026-11-17` |
 | DINO-DETR | r50 | detect (hybrid: ResNet backbone on the Metis; GroupNorm projections, deformable transformer and two-stage query selection on the host; 800x800) | COCO val2017, 300 | 0.4714 | 0.4710 | -0.04 | hybrid | `dinodetr/detect/r50/2026-11-17` |
 | Faster R-CNN | n | detect (hybrid: backbone and FPN on the Metis, RPN and RoI heads on the host; 320x320 canvas) | COCO val2017, 300 | 0.2005 | 0.1896 | -1.09 (canvas -3.30 more) | hybrid | `faster_rcnn/detect/n/2026-11-15` |
 | Faster R-CNN | s | detect (hybrid as n; 800x800 canvas) | COCO val2017, 300 | 0.2907 | 0.2867 | -0.40 | hybrid | `faster_rcnn/detect/s/2026-11-16` |
@@ -203,7 +207,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | DEIMv2 | detect | atto, femto, pico (hybrid: backbone, convolutional encoder and decoder input projections on the Metis, decoder on the host), n (hybrid, as D-FINE); s, m, l and x are out of scope (DINOv3 ViT backbones) | see `docs/export_support.md` | atto `deimv2/detect/atto/2026-11-16`; femto `deimv2/detect/femto/2026-11-16`; pico `deimv2/detect/pico/2026-11-16`; n `deimv2/detect/n/2026-11-16` |
 | DETR | detect | r50, r50dc5, r101, r101dc5 (hybrid: ResNet backbone and input projection on the Metis, transformer encoder, decoder and heads on the host) | see `docs/export_support.md` | r50 `detr/detect/r50/2026-11-15`; r50dc5 `detr/detect/r50dc5/2026-11-16`; r101 `detr/detect/r101/2026-11-16`; r101dc5 `detr/detect/r101dc5/2026-11-16` |
 | PP-DocLayoutV3 | detect | l (hybrid: the HGNetV2 backbone and encoder input projections on the Metis; the attention encoder, mask-enhanced decoder and reading-order head on the host; measured as fidelity to FP32 on DocLayNet pages) | see `docs/export_support.md` | l `ppdoclayoutv3/detect/l/2026-11-16` |
-| Deformable DETR | detect | r50 (hybrid: ResNet-50 body on the Metis; input projections with GroupNorm, deformable transformer and heads on the host; r50ss, r50ssdc5, r50refine and r50twostage not measured yet) | see `docs/export_support.md` | r50 `deformable_detr/detect/r50/2026-11-16` |
+| Deformable DETR | detect | r50, r50ss, r50ssdc5, r50refine, r50twostage (hybrid: ResNet-50 body on the Metis; input projections with GroupNorm, deformable transformer and heads on the host) | see `docs/export_support.md` | r50 `deformable_detr/detect/r50/2026-11-16`; r50ss `deformable_detr/detect/r50ss/2026-11-17`; r50ssdc5 `deformable_detr/detect/r50ssdc5/2026-11-17`; r50refine `deformable_detr/detect/r50refine/2026-11-17`; r50twostage `deformable_detr/detect/r50twostage/2026-11-17` |
 | DINO-DETR | detect | r50 (hybrid, as Deformable DETR: ResNet-50 body on the Metis; input projections with GroupNorm, deformable transformer and heads on the host; r50s5 not measured yet; swinl out of scope, Swin-L transformer backbone) | see `docs/export_support.md` | r50 `dinodetr/detect/r50/2026-11-17` |
 | Faster R-CNN | detect | n, s, m, l (hybrid at a fixed canvas, 320x320 for n and 800x800 for s, m and l: backbone and FPN on the Metis, RPN, RoIAlign, box head and NMS on the host) | see `docs/export_support.md` | n `faster_rcnn/detect/n/2026-11-15`; s `faster_rcnn/detect/s/2026-11-16`; m `faster_rcnn/detect/m/2026-11-16`; l `faster_rcnn/detect/l/2026-11-16` |
 | RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
@@ -454,6 +458,10 @@ table at the top of this page.
 | DETR-r101 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4019 | 0.3732 | -2.87 (hybrid) |
 | DETR-r101dc5 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4232 | 0.4172 | -0.60 (hybrid) |
 | Deformable DETR-r50 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4176 | 0.4171 | -0.05 (hybrid) |
+| Deformable DETR-r50ss (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.3704 | 0.3682 | -0.22 (hybrid) |
+| Deformable DETR-r50ssdc5 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.3920 | 0.3900 | -0.20 (hybrid) |
+| Deformable DETR-r50refine (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4559 | 0.4526 | -0.33 (hybrid) |
+| Deformable DETR-r50twostage (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4503 | 0.4504 | +0.01 (hybrid) |
 | DINO-DETR-r50 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4714 | 0.4710 | -0.04 (hybrid) |
 | Faster R-CNN-n (hybrid, 320x320 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2005 | 0.1896 | -1.09 (hybrid; canvas -3.30 vs the native 0.2335) |
 | Faster R-CNN-s (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2907 | 0.2867 | -0.40 (hybrid; FP32 at the same canvas) |

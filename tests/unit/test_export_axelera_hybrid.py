@@ -616,3 +616,11 @@ def test_dinodetr_hybrid_is_backbone_only_and_reproduces_the_native_model():
     _assert_same_queries(
         [v.numpy() for v in actual], [expected[name].numpy() for name in OUTPUTS], 1e-4
     )
+
+
+def test_every_deformable_detr_size_is_measured_on_axelera():
+    from libreyolo.export.support import UNMEASURED_SIZES, get_support
+
+    assert get_support("deformable_detr", "detect", "axelera").tier == "hybrid"
+    assert ("deformable_detr", "detect", "axelera") not in UNMEASURED_SIZES
+
