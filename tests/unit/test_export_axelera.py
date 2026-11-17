@@ -1642,8 +1642,11 @@ def test_deeplabv3_resnet_sizes_run_their_aspp_as_shifted_1x1():
     from libreyolo.export.support import BLOCKED_SIZES, SIZE_ACCURACY_NOTES
     from libreyolo.models.deeplabv3.nn import ASPPConv, LibreDeepLabv3Net
 
+    assert ax.size_recipe("deeplabv3", "semantic", "r50") == {"aspp_shift": True}
+    # R101 runs its backbone on Metis and the ASPP + head on the host (test_deeplabv3_axelera_split.py);
+    # aspp_shift stays in its recipe for the whole-graph form.
+    assert ax.size_recipe("deeplabv3", "semantic", "r101") == {"aspp_shift": True, "hybrid_split": "backbone"}
     for size in ("r50", "r101"):
-        assert ax.size_recipe("deeplabv3", "semantic", size) == {"aspp_shift": True}
         assert "1x1 convolutions plus shifts" in SIZE_ACCURACY_NOTES[("deeplabv3", "semantic", "axelera")][size]
     assert ax.size_recipe("deeplabv3", "semantic", "mv3") == {}
     assert ("deeplabv3", "semantic", "axelera") not in BLOCKED_SIZES

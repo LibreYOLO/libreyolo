@@ -4453,8 +4453,16 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("dinodetr", "detect"): ("pred_logits", "pred_boxes"),
 }
 
+#: Families whose sizes run whole on Metis unless their per-size recipe sets
+#: ``hybrid_split`` (DeepLabV3-R101: its rewritten ASPP diverges on the device).
+_AXELERA_RECIPE_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
+    ("deeplabv3", "semantic"): ("semantic_logits",),
+}
+
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
-_HYBRID_BACKBONE_ONLY = frozenset({"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr"})
+_HYBRID_BACKBONE_ONLY = frozenset(
+    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3"}
+)
 
 
 def _unfrozen_batchnorms(module: torch.nn.Module) -> torch.nn.Module:
@@ -4567,6 +4575,50 @@ class _DocLayoutHostTailWrapper(torch.nn.Module):
             "order_votes": reading_order_votes(out["order_logits"]),
         }
         return tuple(values[name] for name in self.output_names)
+
+
+class _DeepLabBackboneWrapper(torch.nn.Module):
+    """Part 1 of a hybrid DeepLabV3 export (recipe ``hybrid_split``): the ResNet backbone through layer4.
+
+    The whole backbone lowers correctly on Metis (device vs CPU-quantized
+    cosine 0.995 on R101), while the rewritten ASPP diverges there (0.53), so
+    the ASPP and the head run on the host instead.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("feat",)
+    hybrid_aipu = "ResNet backbone (through layer4)"
+    hybrid_host = "ASPP, classifier head and logit upsampling (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        return (self.model.backbone(x)["out"],)
+
+
+class _DeepLabHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid DeepLabV3 export: the ASPP (plain dilated convolutions), head and upsampling.
+
+    Ends at the whole-graph export's ``semantic_logits`` (class logits at the
+    input canvas), so the backend parses both exports the same way.
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.classifier = model.classifier
+        self.output_names = tuple(output_names)
+        self.upsample_to = None  # the input canvas (H, W), set by the exporter
+
+    def forward(self, feat):
+        logits = self.classifier(feat)
+        return (
+            torch.nn.functional.interpolate(
+                logits, size=self.upsample_to, mode="bilinear", align_corners=False
+            ),
+        )
 
 
 class _VanillaDETRBackboneWrapper(torch.nn.Module):
@@ -4827,6 +4879,7 @@ _HYBRID_BACKBONE_WRAPPERS = {
     "faster_rcnn": ("_RCNNBackboneWrapper", "_RCNNHostTailWrapper"),
     "mask_rcnn": ("_RCNNBackboneWrapper", "_MaskRCNNHostTailWrapper"),
     "ppdoclayoutv3": ("_DocLayoutBackboneWrapper", "_DocLayoutHostTailWrapper"),
+    "deeplabv3": ("_DeepLabBackboneWrapper", "_DeepLabHostTailWrapper"),
 }
 
 
@@ -5675,7 +5728,10 @@ class AxeleraExporter(BaseExporter):
 
     def _hybrid_outputs(self) -> tuple[str, ...]:
         """Final ONNX output names of a hybrid export (backbone on Metis, transformer on the host), else ``()``."""
-        return _AXELERA_HYBRID_OUTPUTS.get((self.model._get_model_name(), self._task()), ())
+        key = (self.model._get_model_name(), self._task())
+        if key in _AXELERA_RECIPE_HYBRID_OUTPUTS:
+            return _AXELERA_RECIPE_HYBRID_OUTPUTS[key] if self._size_recipe().get("hybrid_split") else ()
+        return _AXELERA_HYBRID_OUTPUTS.get(key, ())
 
     def _calibration_preprocess(self):
         """``(rgb_hwc, imgsz) -> (chw, ratio)`` matching what the exported model sees.
@@ -5874,7 +5930,7 @@ class AxeleraExporter(BaseExporter):
             return self._export_fcos_parts_onnx(out, imgsz)
         if self.model._get_model_name() == "efficientdet" and self._size_recipe().get("class_head_part"):
             return self._export_efficientdet_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
-        graph_outputs = self._graph_outputs()
+        graph_outputs = () if self._hybrid_outputs() else self._graph_outputs()
         if graph_outputs:
             if self.model._get_model_name() == "quicksrnet":
                 nn_model = copy.deepcopy(nn_model).eval()
@@ -6119,6 +6175,9 @@ class AxeleraExporter(BaseExporter):
             sample = tuple(self._raw_wrapper(dummy))
         if split in ("backbone", "encoder"):
             tail = conv_encoder_tail if split == "encoder" else tail_cls(net, outputs).eval()
+            if hasattr(tail, "upsample_to"):
+                tail.upsample_to = tuple(int(v) for v in dummy.shape[-2:])
+                self._hybrid_first_passes = _AXELERA_GRAPH_PASSES.get(self.model._get_model_name(), ())
             if hasattr(tail, "canvas"):
                 canvas = tuple(int(v) for v in dummy.shape[-2:])
                 min_size = int(net.transform.min_size[-1])
@@ -6291,6 +6350,7 @@ class AxeleraExporter(BaseExporter):
                 _DETRConvEncoderWrapper,
                 _DocLayoutBackboneWrapper,
                 _DeformableDETRBackboneWrapper,
+                _DeepLabBackboneWrapper,
             ),
         ):
             outputs = list(self._hybrid_outputs())
