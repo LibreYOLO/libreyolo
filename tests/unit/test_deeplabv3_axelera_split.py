@@ -39,23 +39,20 @@ def test_backbone_part_and_host_tail_equal_the_model():
         torch.testing.assert_close(tail(*head(x))[0], net(x), rtol=0, atol=0)
 
 
-def test_r101_recipe_selects_the_split_and_r50_keeps_the_whole_graph():
+def test_r50_and_r101_recipes_select_the_split_and_mv3_keeps_the_whole_graph():
     from libreyolo.export.axelera import size_recipe
 
-    assert size_recipe("deeplabv3", "semantic", "r101").get("hybrid_split") == "backbone"
-    assert "hybrid_split" not in size_recipe("deeplabv3", "semantic", "r50")
+    for size in ("r50", "r101"):
+        assert size_recipe("deeplabv3", "semantic", size).get("hybrid_split") == "backbone"
+    assert "hybrid_split" not in size_recipe("deeplabv3", "semantic", "mv3")
 
 
-def test_split_export_runs_the_chain_like_the_onnx_backend(sdk, tmp_path, monkeypatch):
+def test_split_export_runs_the_chain_like_the_onnx_backend(sdk, tmp_path):
     import yaml
 
-    import libreyolo.export.axelera as axelera
     from libreyolo import LibreYOLO
 
     model = _model()
-    recipes = dict(axelera.AXELERA_SIZE_RECIPES)
-    recipes[("deeplabv3", "semantic", "r50")] = {"aspp_shift": True, "hybrid_split": "backbone"}
-    monkeypatch.setattr(axelera, "AXELERA_SIZE_RECIPES", recipes)
     artifact = Path(model.export(
         format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(tmp_path / "dl_axelera_model"),
     ))
@@ -70,9 +67,14 @@ def test_split_export_runs_the_chain_like_the_onnx_backend(sdk, tmp_path, monkey
     assert np.mean(np.asarray(actual.semantic_mask.data) == np.asarray(expected.semantic_mask.data)) > 0.999
 
 
-def test_without_the_recipe_the_whole_graph_runs_on_metis(sdk, tmp_path):
+def test_without_the_recipe_the_whole_graph_runs_on_metis(sdk, tmp_path, monkeypatch):
     import yaml
 
+    import libreyolo.export.axelera as axelera
+
+    recipes = dict(axelera.AXELERA_SIZE_RECIPES)
+    recipes[("deeplabv3", "semantic", "r50")] = {"aspp_shift": True}
+    monkeypatch.setattr(axelera, "AXELERA_SIZE_RECIPES", recipes)
     artifact = Path(_model().export(
         format="axelera", data=str(_dataset(tmp_path)), imgsz=64, output_path=str(tmp_path / "dlw_axelera_model"),
     ))

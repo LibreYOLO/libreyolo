@@ -4209,18 +4209,20 @@ _add(
     ("axelera",),
     reason=(
         "INT8 export compiled with Axelera's toolchain; the whole DeepLabV3 graph "
-        "runs on the Metis AIPU after exact graph rewrites (the ASPP "
-        "image-pooling branch becomes a broadcast add, oversized ASPP "
-        "convolutions are split by channels, and for R50/R101 each dilated ASPP "
-        "convolution runs as per-tap 1x1 convolutions plus zero-filled shifts), "
-        "and the host upsamples the class logits. Supported, not validated: on a "
-        "paired 300-image COCO val2017 set with VOC-21 masks mIoU stays below "
-        "FP32 by 3.77 points (MobileNetV3), 5.08 (R50) and 20.93 (R101; "
-        "docs/axelera.md)."
+        "runs on the Metis AIPU for MobileNetV3 after exact graph rewrites (the "
+        "ASPP image-pooling branch becomes a broadcast add, oversized ASPP "
+        "convolutions are split by channels), and the host upsamples the class "
+        "logits; supported, mIoU 3.77 points below FP32 on a paired 300-image "
+        "COCO val2017 set with VOC-21 masks. R50 and R101 are hybrid: the ResNet "
+        "backbone runs on Metis and the ASPP, head and upsampling on the host "
+        "(the rewritten ASPP diverges on the device), mIoU 0.40 (R50) and 0.09 "
+        "(R101) below FP32 on the same set (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: mv3, r50, r101 (measured drops, SIZE_ACCURACY_NOTES). "
+        "supported sizes: mv3 (measured drop, SIZE_ACCURACY_NOTES); hybrid sizes: "
+        "r50, r101 (backbone on Metis, ASPP + head on the host, AXELERA_SIZE_RECIPES "
+        "hybrid_split). "
         "axelera-devkit / axelera-rt 1.9.0, Linux "
         "x86_64 compile, INT8, batch 1, fixed 520x520 input"
     ),
@@ -5211,20 +5213,6 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "measured mIoU drop 3.77 points vs FP32 (0.4853 vs 0.5230 on 300 COCO "
             "val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
             "through the same path)"
-        ),
-        "r50": (
-            "measured mIoU drop 5.08 points vs FP32 (0.4735 vs 0.5243 on 300 COCO "
-            "val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
-            "through the same path; ASPP as per-tap 1x1 convolutions plus shifts)"
-        ),
-        "r101": (
-            "measured mIoU drop 20.93 points vs FP32 (0.3795 vs 0.5888 on 300 "
-            "COCO val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
-            "through the same path; ASPP as per-tap 1x1 convolutions plus shifts). "
-            "The loss happens on the device (device vs CPU-quantized output "
-            "cosine 0.895; the CPU-quantized model itself stays within 0.4 mIoU "
-            "of FP32 on 100 of those images, so no quantization recipe recovers "
-            "it): check accuracy on your data, or use r50 or mv3"
         ),
     },
     ("rtmdet", "detect", "axelera"): {

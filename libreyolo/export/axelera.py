@@ -125,7 +125,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # to 36 on a 65x65 map) find no L1 tiling; per-tap 1x1 convolutions plus
     # zero-filled shifts are the same function and compile (the backbone alone
     # compiles; one 1x1 with all nine taps stacked does not).
-    ("deeplabv3", "semantic", "r50"): {"aspp_shift": True},
+    # DeepLabV3-R50: the same split recovers 4.7 mIoU (-0.40 vs -5.09 whole graph on 300 images).
+    ("deeplabv3", "semantic", "r50"): {"aspp_shift": True, "hybrid_split": "backbone"},
     # DeepLabV3-R101's rewritten ASPP diverges on the device (cosine 0.53 vs the
     # CPU-quantized model, the backbone alone 0.995): the backbone runs on Metis
     # and the ASPP + head on the host. Without hybrid_split (aspp_shift alone)

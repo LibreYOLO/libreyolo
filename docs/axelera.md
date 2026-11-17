@@ -148,8 +148,8 @@ a separate size:
 | MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported | `midas/depth/s/2026-11-11/4` |
 | DexiNed | b | edge (edge-pixel F1 vs FP32 edges at 0.5; 352x352) | COCO val2017 at 352 px, 300 | 1.0000 | 0.9651 | -0.0349 (cosine 0.997) | supported | `dexined/edge/b/2026-11-16` |
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
-| DeepLabV3 | r50 | semantic (mIoU; ASPP as 1x1 + shifts) | COCO val2017 VOC-21, 300 | 0.5243 | 0.4735 | -5.08 | supported | `deeplabv3/semantic/r50/2026-11-14/3` |
-| DeepLabV3 | r101 | semantic (mIoU; ASPP as 1x1 + shifts) | COCO val2017 VOC-21, 300 | 0.5888 | 0.3795 | -20.93 | supported | `deeplabv3/semantic/r101/2026-11-14` |
+| DeepLabV3 | r50 | semantic (mIoU; backbone on Metis, ASPP + head on the host) | COCO val2017 VOC-21, 300 | 0.5243 | 0.5203 | -0.40 | hybrid | `deeplabv3/semantic/r50/2026-11-17/3` |
+| DeepLabV3 | r101 | semantic (mIoU; backbone on Metis, ASPP + head on the host) | COCO val2017 VOC-21, 300 | 0.5888 | 0.5879 | -0.09 | hybrid | `deeplabv3/semantic/r101/2026-11-17/4` |
 | UNet | s | semantic (fidelity mIoU vs FP32 labels; 512x1024) | COCO val2017, 1000 | 1.0000 | 0.7767 | -0.2233 | supported | `unet/semantic/s/2026-11-16` |
 
 Detection and pose report mAP50-95; ImageNetV2 is used locally under its
@@ -181,7 +181,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | Real-ESRGAN | restore | x4 (three compiled parts + a host add), x4t (equalized trunk; held-out half -0.20 dB); x2 (three compiled parts, supported with a measured drop) | see `docs/export_support.md` | x4 `realesrgan/restore/x4/2026-11-16`; x4t `realesrgan/restore/x4t/2026-11-16`, held-out `realesrgan/restore/x4t/2026-11-16/2`; x2 `realesrgan/restore/x2/2026-11-16` |
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DexiNed | edge | b (supported with a measured fidelity; whole graph; the user supplies the upstream BIPED-trained checkpoint, non-commercial) | see `docs/export_support.md` | b `dexined/edge/b/2026-11-16` |
-| DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops; r50/r101 run their ASPP as per-tap 1x1 convolutions plus shifts) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-14/3`; r101 `deeplabv3/semantic/r101/2026-11-14` |
+| DeepLabV3 | semantic | mv3 (supported with a measured drop); r50, r101 (hybrid: backbone on Metis, ASPP + head on the host) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-17/3`; r101 `deeplabv3/semantic/r101/2026-11-17/4` |
 | UNet | semantic | s (supported with a measured fidelity; whole graph at the 512x1024 training crop, compile about 12.7 h) | see `docs/export_support.md` | s `unet/semantic/s/2026-11-16` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
 | YOLOv1 | detect | b | see `docs/export_support.md` | b `yolo1/detect/b/2026-11-15/2` |
@@ -543,16 +543,18 @@ device only:
 | FCN-ResNet50 | 520 | 0.6515 | 0.6492 | -0.23 | 26 min |
 | FCN-ResNet101 | 520 | 0.6798 | 0.6779 | -0.19 | 51 min |
 
-DeepLabV3-ResNet50 and -ResNet101 run their dilated ASPP convolutions as
-per-tap 1x1 convolutions plus zero-filled shifts (an exact rewrite; as dilated
-convolutions they find no L1 tiling at output stride 8). R50 keeps mIoU 5.08
-points below FP32 (0.4735 vs 0.5243 on the 300 images). R101 loses 20.93
-points (0.3795 vs 0.5888), and that loss happens on the device: the device
-output agrees with the CPU-quantized model only to a cosine of 0.895, while the
-CPU-quantized model itself stays within 0.4 mIoU of FP32 on 100 of those images
-(`deeplabv3/semantic/r101/2026-11-17`), so no calibration or equalization recipe
-recovers it. R101 is listed as supported because it runs, but check its accuracy
-on your own data before relying on it, or use R50 or MobileNetV3.
+DeepLabV3-ResNet50 and -ResNet101 run hybrid: the ResNet backbone through
+layer4 runs on the Metis AIPU, and the ASPP (plain dilated convolutions), the
+head and the logit upsampling run on the host as FP32 ONNX. On the 300 images
+mIoU is 0.5203 vs 0.5243 FP32 for R50 (-0.40) and 0.5879 vs 0.5888 for R101
+(-0.09). Run whole on the Metis, with each dilated ASPP convolution rewritten as
+per-tap 1x1 convolutions plus zero-filled shifts (they find no L1 tiling at
+output stride 8 as dilated convolutions), they lose 5.09 (R50) and 20.93 (R101):
+the CPU-quantized model stays within 0.4 mIoU of FP32, and a device bisect puts
+the divergence in the rewritten ASPP (device vs CPU-quantized cosine 0.995 for
+the backbone alone, 0.53 with the ASPP). Without ``hybrid_split`` in their
+per-size recipe the whole-graph form is exported (ledger
+`deeplabv3/semantic/r50/2026-11-17/2`, `deeplabv3/semantic/r101/2026-11-14`).
 
 Values are mAP50-95 (box, rotated box for obb, keypoint OKS for pose). On
 mAP50 the obb deltas are -1.36 (s), -0.11 (m) and -0.43 (l).
