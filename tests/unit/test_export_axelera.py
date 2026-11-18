@@ -1180,12 +1180,12 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("retinanet", "detect", "r50v2"),
         # CenterNet recipe hybrids (test_centernet_hybrid_body_split_reproduces_the_native_model).
         ("centernet", "detect", "resdcn18"), ("centernet", "detect", "dla34"),
-        # HRNet-w32 recipe hybrid (test_hrnet_w32_hybrid_stage3_split_reproduces_the_native_model).
-        ("hrnet", "pose", "w32"),
+        # HRNet-w32/w48 recipe hybrids (test_hrnet_w32_hybrid_stage3_split_reproduces_the_native_model).
+        ("hrnet", "pose", "w32"), ("hrnet", "pose", "w48"),
         # DEKR-w32 recipe hybrid (test_dekr_w32_hybrid_stage3_split_reproduces_the_native_model).
         ("dekr", "pose", "w32"),
-        # ZipDepth-bnpu recipe hybrid (test_zipdepth_bnpu_hybrid_gcb_split_reproduces_the_native_model).
-        ("zipdepth", "depth", "bnpu"),
+        # ZipDepth-bnpu/b recipe hybrids (test_zipdepth_bnpu_hybrid_gcb_split_reproduces_the_native_model).
+        ("zipdepth", "depth", "bnpu"), ("zipdepth", "depth", "b"),
         # PIDNet recipe hybrids (test_pidnet_hybrid_layer5_split_reproduces_the_native_model).
         ("pidnet", "semantic", "s"), ("pidnet", "semantic", "m"), ("pidnet", "semantic", "l"),
         # RTMDet-x detect recipe hybrid (test_rtmdet_x_hybrid_backbone_split_reproduces_the_export_output).
