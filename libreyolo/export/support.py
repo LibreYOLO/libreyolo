@@ -78,7 +78,7 @@ _add("available", ("gtr",), ("detect", "pose"), ("onnx", "torchscript"),
      constraint="FP32; static square input; no custom CUDA plugin")
 
 _add("blocked", ("gtr",), ("detect", "pose"),
-     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript", "axelera")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 
 _add("available", ("gtr",), ("obb",), ("onnx", "torchscript"),
@@ -86,7 +86,7 @@ _add("available", ("gtr",), ("obb",), ("onnx", "torchscript"),
      constraint="FP32; static square input; no custom CUDA plugin")
 
 _add("blocked", ("gtr",), ("obb",),
-     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript", "axelera")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 
 _add("available", ("gtr",), ("depth",), ("onnx", "torchscript"),
@@ -94,7 +94,7 @@ _add("available", ("gtr",), ("depth",), ("onnx", "torchscript"),
      constraint="FP32; static square input; batch 1; no custom CUDA plugin")
 
 _add("blocked", ("gtr",), ("depth",),
-     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript", "axelera")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 
 _add("available", ("gtr",), ("semantic",), ("onnx", "torchscript"),
@@ -102,7 +102,7 @@ _add("available", ("gtr",), ("semantic",), ("onnx", "torchscript"),
      constraint="FP32; static 1024x2048 canvas; images are letterboxed into it")
 
 _add("blocked", ("gtr",), ("semantic",),
-     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript", "axelera")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 
 _add("available", ("gtr",), ("segment",), ("onnx", "torchscript"),
@@ -110,8 +110,18 @@ _add("available", ("gtr",), ("segment",), ("onnx", "torchscript"),
      constraint="FP32; static square input; no custom CUDA plugin")
 
 _add("blocked", ("gtr",), ("segment",),
-     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript", "axelera")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
+
+_add("blocked", ("gtr",), ("detect", "pose", "obb", "depth", "semantic", "segment"), ("axelera",),
+     reason=(
+         "Out of scope for Metis: GTR's backbone is a ViT (host only), and its "
+         "multi-scale neck (the only convolutional share, at most ~48% of GTR-s "
+         "detect's MACs) puts a channel LayerNorm after every convolution "
+         "(GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize "
+         "with SDK 1.9, so a hybrid would need ~30 single-convolution parts with "
+         "the host in between."
+     ))
 
 # Existing parity-backed paths. New validated rows must land with a parity test.
 _add(

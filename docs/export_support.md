@@ -1344,7 +1344,7 @@ rest on the host CPU; each entry names the split.
 - `gtr` / `detect` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `detect` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `detect` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1355,7 +1355,7 @@ rest on the host CPU; each entry names the split.
 - `gtr` / `segment` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `segment` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `segment` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1366,7 +1366,7 @@ rest on the host CPU; each entry names the split.
 - `gtr` / `pose` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `pose` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `pose` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1377,7 +1377,7 @@ rest on the host CPU; each entry names the split.
 - `gtr` / `obb` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `obb` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `obb` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1388,7 +1388,7 @@ rest on the host CPU; each entry names the split.
 - `gtr` / `depth` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `depth` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `depth` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1399,7 +1399,7 @@ rest on the host CPU; each entry names the split.
 - `gtr` / `semantic` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `semantic` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `semantic` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
