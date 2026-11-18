@@ -16,6 +16,8 @@ before 1.4.0 are documented in the
 
 - **Axelera Metis hybrid export for PIDNet-s semantic segmentation, previously blocked.** Whole-graph, INT8 collapsed its output (cosine about 0 vs FP32): its PagFM fusions blend through `1 - sigmoid`, which flips sign when quantized, and its PAPPM pooling sums lose the signal. The export now writes the fusions in an exact form (`sigmoid(-z) * x + sigmoid(z) * y`) and runs the branches through layer 5 on the Metis, with PAPPM, the branch fusion and the head on the host: fidelity mIoU 0.877 and pixel agreement 0.955 against FP32 labels on 300 COCO val2017 images; the compile takes 13 minutes instead of 10 hours.
 
+- **Axelera Metis hybrid export for HRNet-w48 pose, as HRNet-w32.** The same split at its 384x288 person crop (stem to stage 3 on the Metis, stage 4 and the heatmap layer on the host): 0.7833 vs 0.7855 FP32 keypoint mAP50-95 (-0.22) on 1172 COCO val2017 person crops.
+
 - **Axelera Metis hybrid export for ZipDepth-b depth, as ZipDepth-bnpu.** The same cut (encoder through stage 3's fourth block on the Metis, the rest on the host): disparity AbsRel 0.029 and delta1 0.990 against FP32 on 300 COCO val2017 images.
 
 - **Axelera Metis hybrid export for ZipDepth-bnpu depth, previously blocked.** Its GCNet context block weights the 576 stage-3 positions with a softmax that has no AIPU form, and on the device the stage-3 output drifts through its last two blocks, so the encoder through stage 3's fourth block runs on the Metis and the rest on the host: disparity AbsRel 0.030 and delta1 0.989 against FP32 on 300 COCO val2017 images.

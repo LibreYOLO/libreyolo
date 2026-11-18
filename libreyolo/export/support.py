@@ -4669,7 +4669,7 @@ _add(
         "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
         "and metadata parts; keep them together. Needs onnxruntime at run time. "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed 256x192 person crop"
+        "fixed 256x192 (w32) or 384x288 (w48) person crop"
     ),
 )
 _add(
@@ -5489,7 +5489,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
-    ("hrnet", "pose", "axelera"): {"w48": "has not been measured on a Metis yet"},
     ("yolo9_p2", "detect", "axelera"): {
         "t": (
             "has not been measured on a Metis yet: no trained YOLO9-P2-t "

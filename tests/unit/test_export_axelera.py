@@ -2395,7 +2395,8 @@ def test_hrnet_is_a_stage3_split_hybrid():
     entry = get_support("hrnet", "pose", "axelera")
     assert entry.tier == "hybrid" and "drifts" in entry.reason and "stage 4" in entry.reason
     assert size_recipe("hrnet", "pose", "w32")["hybrid_split"] == "backbone"
-    assert "w48" in UNMEASURED_SIZES[("hrnet", "pose", "axelera")]
+    assert size_recipe("hrnet", "pose", "w48")["hybrid_split"] == "backbone"
+    assert ("hrnet", "pose", "axelera") not in UNMEASURED_SIZES
 def test_unet_axelera_export_uses_its_training_crop_and_dense_logits():
     from libreyolo.export.axelera import AXELERA_SIZE_RECIPES
     from libreyolo.export.exporter import _AXELERA_GRAPH_OUTPUTS

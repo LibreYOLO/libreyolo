@@ -26,6 +26,7 @@ a separate size:
 | YOLO-NAS-pose | m | pose | COCO val2017 persons, 300 | 0.7885 | 0.7821 | -0.64 | validated | `yolonas/pose/m/2026-11-11/2` |
 | YOLO-NAS-pose | l | pose | COCO val2017 persons, 300 | 0.7922 | 0.7884 | -0.38 | validated | `yolonas/pose/l/2026-11-10/2` |
 | HRNet | w32 | pose (hybrid: stem to stage 3 on the Metis; stage 4 and the heatmap layer on the host; 256x192 person crops from GT boxes) | COCO val2017 persons, 300 (1172 crops) | 0.7658 | 0.7631 | -0.27 | hybrid | `hrnet/pose/w32/2026-11-17/2` |
+| HRNet | w48 | pose (hybrid: stem to stage 3 on the Metis; stage 4 and the heatmap layer on the host; 384x288 person crops from GT boxes; calibration 597 COCO person crops, fraction 1.0) | COCO val2017 persons, 300 (1172 crops) | 0.7855 | 0.7833 | -0.22 | hybrid | `hrnet/pose/w48/2026-11-18/2` |
 | DEKR | w32 | pose (hybrid: HRNet-w32 stem to stage 3 on the Metis; stage 4, heatmap and offset heads on the host; 640x640) | COCO val2017 persons, 300 | 0.6523 | 0.6426 | -0.97 | hybrid | `dekr/pose/w32/2026-11-18/2` |
 | YOLO-NAS-R | s | obb | DOTA-v2.0 val, 300 tiles | 0.3844 | 0.3747 | -0.97 | validated | `yolonas/obb/s/2026-11-10/2` |
 | YOLO-NAS-R | m | obb | DOTA-v2.0 val, 300 tiles | 0.4141 | 0.4105 | -0.36 | validated | `yolonas/obb/m/2026-11-10` |
@@ -196,7 +197,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | --- | --- | --- | --- | --- |
 | YOLO-NAS | detect | s, m, l | see `docs/export_support.md` | s `yolonas/detect/s/2026-11-08/3`; m `yolonas/detect/m/2026-11-08`; l `yolonas/detect/l/2026-11-10` |
 | YOLO-NAS | pose | n, s, m, l (n and s supported with a measured drop) | see `docs/export_support.md` | n `yolonas/pose/n/2026-11-11`; s `yolonas/pose/s/2026-11-10/16`; m `yolonas/pose/m/2026-11-11/2`; l `yolonas/pose/l/2026-11-10/2` |
-| HRNet | pose | w32 (hybrid at the 256x192 person crop: stem to stage 3 on the Metis; stage 4, where the device drifts, and the heatmap layer on the host; w48 not measured yet) | see `docs/export_support.md` | w32 `hrnet/pose/w32/2026-11-17/2` |
+| HRNet | pose | w32 (hybrid at the 256x192 person crop: stem to stage 3 on the Metis; stage 4, where the device drifts, and the heatmap layer on the host; w48 the same split at its 384x288 crop) | see `docs/export_support.md` | w32 `hrnet/pose/w32/2026-11-17/2`, w48 `hrnet/pose/w48/2026-11-18/2` |
 | DEKR | pose | w32 (hybrid at 640x640: the HRNet trunk to stage 3 on the Metis; stage 4 and the heads on the host) | see `docs/export_support.md` | w32 `dekr/pose/w32/2026-11-18/2` |
 | YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) | s `yolonas/obb/s/2026-11-10/2`; m `yolonas/obb/m/2026-11-10`; l `yolonas/obb/l/2026-11-10` |
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` | t `yolo9/detect/t/2026-11-10/7`; s `yolo9/detect/s/2026-11-10/2`; m `yolo9/detect/m/2026-11-10/2`; c `yolo9/detect/c/2026-11-10/2` |
