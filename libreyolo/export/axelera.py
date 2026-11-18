@@ -159,6 +159,14 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "hybrid_split": "backbone",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
+    ("pidnet", "semantic", "m"): {
+        "hybrid_split": "backbone",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
+    ("pidnet", "semantic", "l"): {
+        "hybrid_split": "backbone",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
     ("retinanet", "detect", "r50v2"): {
         "canvas": 800,
         "hybrid_split": "backbone",

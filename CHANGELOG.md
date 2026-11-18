@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis hybrid exports for PIDNet-m and -l, as PIDNet-s.** The same layer-5 split and exact PagFM form: fidelity mIoU 0.840 (m, 96 images) and 0.829 (l, 100 images), pixel agreement 0.960 and 0.954 against FP32 labels on COCO val2017. Both were calibrated with 32 coco128 images (`fraction=0.25`); at the default the SDK calibrates PIDNet-m at about 65 s per image on CPU.
+
 - **Axelera Metis hybrid export for PIDNet-s semantic segmentation, previously blocked.** Whole-graph, INT8 collapsed its output (cosine about 0 vs FP32): its PagFM fusions blend through `1 - sigmoid`, which flips sign when quantized, and its PAPPM pooling sums lose the signal. The export now writes the fusions in an exact form (`sigmoid(-z) * x + sigmoid(z) * y`) and runs the branches through layer 5 on the Metis, with PAPPM, the branch fusion and the head on the host: fidelity mIoU 0.877 and pixel agreement 0.955 against FP32 labels on 300 COCO val2017 images; the compile takes 13 minutes instead of 10 hours.
 
 - **Axelera Metis hybrid export for ZipDepth-bnpu depth, previously blocked.** Its GCNet context block weights the 576 stage-3 positions with a softmax that has no AIPU form, and on the device the stage-3 output drifts through its last two blocks, so the encoder through stage 3's fourth block runs on the Metis and the rest on the host: disparity AbsRel 0.030 and delta1 0.989 against FP32 on 300 COCO val2017 images.

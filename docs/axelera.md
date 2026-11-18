@@ -171,6 +171,8 @@ a separate size:
 | DeepLabV3 | r101 | semantic (mIoU; backbone on Metis, ASPP + head on the host) | COCO val2017 VOC-21, 300 | 0.5888 | 0.5879 | -0.09 | hybrid | `deeplabv3/semantic/r101/2026-11-17/4` |
 | UNet | s | semantic (fidelity mIoU vs FP32 labels; 512x1024) | COCO val2017, 1000 | 1.0000 | 0.7767 | -0.2233 | supported | `unet/semantic/s/2026-11-16` |
 | PIDNet | s | semantic (fidelity mIoU vs FP32 labels; hybrid: branches through layer 5 on the Metis, PAPPM, branch fusion and head on the host; 1024x1024) | COCO val2017, 300 | 1.0000 | 0.8773 | -0.1227 | hybrid | `pidnet/semantic/s/2026-11-18/3` |
+| PIDNet | m | semantic (fidelity mIoU vs FP32 labels; hybrid as s; 1024x1024; calibration 32 coco128, fraction=0.25: at the default fraction=1.0 the SDK calibrates m at about 65 s per image on CPU, over 2 h) | COCO val2017, 96 | 1.0000 | 0.8401 | -0.1599 | hybrid | `pidnet/semantic/m/2026-11-18/2` |
+| PIDNet | l | semantic (fidelity mIoU vs FP32 labels; hybrid as s, DAPPM and Bag fusion on the host; 1024x1024; calibration 32 coco128, fraction=0.25) | COCO val2017, 100 | 1.0000 | 0.8288 | -0.1712 | hybrid | `pidnet/semantic/l/2026-11-18` |
 
 Detection and pose report mAP50-95; ImageNetV2 is used locally under its
 licence terms and not redistributed. Evidence is the id of the run's line in
@@ -206,7 +208,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | DexiNed | edge | b (supported with a measured fidelity; whole graph; the user supplies the upstream BIPED-trained checkpoint, non-commercial) | see `docs/export_support.md` | b `dexined/edge/b/2026-11-16` |
 | DeepLabV3 | semantic | mv3 (supported with a measured drop); r50, r101 (hybrid: backbone on Metis, ASPP + head on the host) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-17/3`; r101 `deeplabv3/semantic/r101/2026-11-17/4` |
 | UNet | semantic | s (supported with a measured fidelity; whole graph at the 512x1024 training crop, compile about 12.7 h) | see `docs/export_support.md` | s `unet/semantic/s/2026-11-16` |
-| PIDNet | semantic | s (hybrid at 1024x1024: the stem and the P, I and D branches through layer 5 on the Metis, the PagFM fusions in an exact INT8-friendly form; PAPPM, the branch fusion and the head on the host; m and l not measured yet) | see `docs/export_support.md` | s `pidnet/semantic/s/2026-11-18/3` |
+| PIDNet | semantic | s, m, l (hybrid at 1024x1024: the stem and the P, I and D branches through layer 5 on the Metis, the PagFM fusions in an exact INT8-friendly form; PAPPM, the branch fusion and the head on the host; m and l calibrated with fraction=0.25) | see `docs/export_support.md` | s `pidnet/semantic/s/2026-11-18/3`; m `pidnet/semantic/m/2026-11-18/2`; l `pidnet/semantic/l/2026-11-18` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
 | YOLOv1 | detect | b | see `docs/export_support.md` | b `yolo1/detect/b/2026-11-15/2` |
 | YOLOv2 | detect | t, b | see `docs/export_support.md` | t `yolo2/detect/t/2026-11-13/2`; b `yolo2/detect/b/2026-11-13/2` |

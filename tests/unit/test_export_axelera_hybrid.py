@@ -812,15 +812,16 @@ def test_zipdepth_bnpu_hybrid_gcb_split_reproduces_the_native_model():
     torch.testing.assert_close(again, want)  # the rewrites stay on the wrapper's copy
 
 
-def test_pidnet_s_hybrid_layer5_split_reproduces_the_native_model():
-    """PIDNet-s recipe hybrid in FP32: the branches through layer 5 (Metis part; both PagFM fusions in the
+@pytest.mark.parametrize("size", ["s", "m", "l"])
+def test_pidnet_hybrid_layer5_split_reproduces_the_native_model(size):
+    """PIDNet recipe hybrid (s, m, l) in FP32: the branches through layer 5 (Metis part; both PagFM fusions in the
     exact sigmoid(-z) * x + sigmoid(z) * y form, on the wrapper's copy) then PAPPM, the branch fusion and
     the head on the host reproduce the native logits; the caller's model is left unpatched."""
     from libreyolo import LibrePIDNet
     from libreyolo.export.exporter import AxeleraExporter, _PIDNetBodyWrapper, _PIDNetHostTailWrapper
 
     torch.manual_seed(0)
-    model = LibrePIDNet(None, size="s", device="cpu")
+    model = LibrePIDNet(None, size=size, device="cpu")
     exporter = AxeleraExporter(model)
     assert exporter._hybrid_outputs() == ("semantic_logits",) and exporter._hybrid_split() == "backbone"
     # Float64: with random weights the FP32 blends round differently in the last bits (one element in

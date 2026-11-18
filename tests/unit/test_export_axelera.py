@@ -1186,8 +1186,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("dekr", "pose", "w32"),
         # ZipDepth-bnpu recipe hybrid (test_zipdepth_bnpu_hybrid_gcb_split_reproduces_the_native_model).
         ("zipdepth", "depth", "bnpu"),
-        # PIDNet-s recipe hybrid (test_pidnet_s_hybrid_layer5_split_reproduces_the_native_model).
-        ("pidnet", "semantic", "s"),
+        # PIDNet recipe hybrids (test_pidnet_hybrid_layer5_split_reproduces_the_native_model).
+        ("pidnet", "semantic", "s"), ("pidnet", "semantic", "m"), ("pidnet", "semantic", "l"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),
@@ -1934,7 +1934,9 @@ def test_pidnet_is_a_layer5_split_hybrid():
     entry = get_support("pidnet", "semantic", "axelera")
     assert entry.tier == "hybrid" and "INT8 collapses" in entry.reason and "PAPPM" in entry.reason
     assert size_recipe("pidnet", "semantic", "s")["hybrid_split"] == "backbone"
-    assert sorted(UNMEASURED_SIZES[("pidnet", "semantic", "axelera")]) == ["l", "m"]
+    for size in ("s", "m", "l"):
+        assert size_recipe("pidnet", "semantic", size)["hybrid_split"] == "backbone"
+    assert ("pidnet", "semantic", "axelera") not in UNMEASURED_SIZES
 
 
 def test_unet_is_supported_with_its_measured_fidelity():
