@@ -121,7 +121,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | picosam3 | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | hybrid | ✓ | ✓ |  | ✓ |
 | ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  | hybrid |  |  |  |  |
-| ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | available |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | prx | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -677,6 +677,7 @@ These converter paths are callable with the recorded validation context.
 - `ppdoclayoutv3` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppdoclayoutv3` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `ppdoclayoutv3` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
+- `ppliteseg` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole PP-LiteSeg graph runs on the Metis AIPU after exact graph rewrites (channel reductions as 1x1 convolutions, pyramid-pool resizes as factor-2/3 steps, wide pool windows staged, and each UAFM blend as x * sigmoid(z) + skip * sigmoid(-z): the native 1 - sigmoid(z) breaks under INT8) and the host upsamples the class logits. Supported, not validated: PP-LiteSeg is trained on Cityscapes, so the paired measurement is fidelity to FP32 on 1000 COCO val2017 images (device labels against FP32 labels: mIoU t50 0.850, b50 0.857, t75 0.807, b75 0.848; docs/axelera.md). Constraint: supported sizes: t50, b50, t75, b75 (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 512x1024 (t50, b50) or 768x1536 (t75, b75) input
 - `ppyoloe` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppyoloe` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `quicksrnet` / `restore` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -1907,7 +1908,6 @@ rest on the host CPU; each entry names the split.
 - `ppliteseg` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ppliteseg` / `semantic` / `axelera`: Not available yet: PP-LiteSeg t50, b50, t75 and b75 compile and run on a Metis M.2 Max after exact graph rewrites (channel reductions as 1x1 convolutions, pyramid-pool resizes as factor-2/3 steps, wide pool windows staged), but the device labels agree with FP32 on only 48-56% of pixels (fidelity mIoU 0.17-0.19 on 1000 COCO val2017 images; 41% on street scenes) with either per-tensor min-max or hybrid ranges. Device prefix cuts show the STDC backbone drifting stage by stage (cosine vs FP32 0.996 at stride 4, 0.985 at stride 8, 0.975 at stride 16, 0.951 at the stride-32 output, the largest step); no exact rewrite tried there helped.
 - `ppliteseg` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.

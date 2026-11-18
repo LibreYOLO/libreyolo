@@ -1919,12 +1919,14 @@ def test_nafnet_is_not_available_yet_for_lack_of_weights():
     assert entry.reason.startswith("Not available yet") and "weights" in entry.reason
 
 
-def test_ppliteseg_is_not_available_yet_with_its_measured_loss():
-    from libreyolo.export.support import get_support
+def test_ppliteseg_is_supported_with_its_measured_fidelity():
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES, get_support
 
     entry = get_support("ppliteseg", "semantic", "axelera")
-    assert entry.tier == "blocked" and entry.reason.startswith("Not available yet")
-    assert "pixels" in entry.reason and "backbone" in entry.reason
+    assert entry.tier == "available" and "sigmoid(-z)" in entry.reason
+    assert "supported sizes: t50, b50, t75, b75" in entry.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("ppliteseg", "semantic", "axelera")]) == ["b50", "b75", "t50", "t75"]
+    assert ("ppliteseg", "semantic", "axelera") not in UNMEASURED_SIZES
 
 
 def test_pidnet_is_a_layer5_split_hybrid():

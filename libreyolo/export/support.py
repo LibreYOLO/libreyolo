@@ -4861,21 +4861,28 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "available",
     ("ppliteseg",),
     ("semantic",),
     ("axelera",),
     reason=(
-        "Not available yet: PP-LiteSeg t50, b50, t75 and b75 compile and run "
-        "on a Metis M.2 Max after exact graph rewrites (channel reductions as "
-        "1x1 convolutions, pyramid-pool resizes as factor-2/3 steps, wide pool "
-        "windows staged), but the device labels agree with FP32 on only "
-        "48-56% of pixels (fidelity mIoU 0.17-0.19 on 1000 COCO val2017 "
-        "images; 41% on street scenes) with either per-tensor min-max or "
-        "hybrid ranges. Device prefix cuts show the STDC backbone drifting "
-        "stage by stage (cosine vs FP32 0.996 at stride 4, 0.985 at stride 8, "
-        "0.975 at stride 16, 0.951 at the stride-32 output, the largest "
-        "step); no exact rewrite tried there helped."
+        "INT8 export compiled with Axelera's toolchain; the whole PP-LiteSeg "
+        "graph runs on the Metis AIPU after exact graph rewrites (channel "
+        "reductions as 1x1 convolutions, pyramid-pool resizes as factor-2/3 "
+        "steps, wide pool windows staged, and each UAFM blend as "
+        "x * sigmoid(z) + skip * sigmoid(-z): the native 1 - sigmoid(z) breaks "
+        "under INT8) and the host upsamples the class logits. Supported, not "
+        "validated: PP-LiteSeg is trained on Cityscapes, so the paired "
+        "measurement is fidelity to FP32 on 1000 COCO val2017 images (device "
+        "labels against FP32 labels: mIoU t50 0.850, b50 0.857, t75 0.807, "
+        "b75 0.848; docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: t50, b50, t75, b75 (measured fidelity, "
+        "SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "compile, INT8, batch 1, fixed 512x1024 (t50, b50) or 768x1536 (t75, "
+        "b75) input"
     ),
 )
 _add(
@@ -5258,6 +5265,28 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
         "l": (
             "measured mAP50-95 drop 1.70 points vs FP32 (0.3801 vs 0.3971 on "
             "1000 COCO val2017 images)"
+        ),
+    },
+    ("ppliteseg", "semantic", "axelera"): {
+        "t50": (
+            "measured fidelity mIoU 0.850 vs FP32 labels (94.7% of pixels agree on "
+            "1000 COCO val2017 images at 512x1024; PP-LiteSeg is Cityscapes-trained "
+            "and no Cityscapes masks were used)"
+        ),
+        "b50": (
+            "measured fidelity mIoU 0.857 vs FP32 labels (96.0% of pixels agree on "
+            "1000 COCO val2017 images at 512x1024; PP-LiteSeg is Cityscapes-trained "
+            "and no Cityscapes masks were used)"
+        ),
+        "t75": (
+            "measured fidelity mIoU 0.807 vs FP32 labels (93.8% of pixels agree on "
+            "1000 COCO val2017 images at 768x1536; PP-LiteSeg is Cityscapes-trained "
+            "and no Cityscapes masks were used)"
+        ),
+        "b75": (
+            "measured fidelity mIoU 0.848 vs FP32 labels (95.5% of pixels agree on "
+            "1000 COCO val2017 images at 768x1536; PP-LiteSeg is Cityscapes-trained "
+            "and no Cityscapes masks were used)"
         ),
     },
     ("unet", "semantic", "axelera"): {
