@@ -746,3 +746,45 @@ def test_centernet_hybrid_body_split_reproduces_the_native_model(size):
         got = _CenterNetHostTailWrapper(net, ("output",)).eval()(*_CenterNetBodyWrapper(net).eval()(x))[0]
     torch.testing.assert_close(got, want, atol=1e-4, rtol=1e-4)
 
+
+
+def test_hrnet_w32_hybrid_stage3_split_reproduces_the_native_model():
+    """HRNet-w32 recipe hybrid in FP32: stem to stage 3 (Metis part, three branches) then stage 4 and
+    the heatmap layer on the host reproduce the native heatmaps, at the fixed 256x192 person crop."""
+    from libreyolo import LibreHRNet
+    from libreyolo.export.exporter import AxeleraExporter, _HRNetBodyWrapper, _HRNetHostTailWrapper
+
+    model = LibreHRNet(size="w32", device="cpu")
+    exporter = AxeleraExporter(model)
+    assert exporter._hybrid_outputs() == ("heatmaps",) and exporter._hybrid_split() == "backbone"
+    assert exporter._rectangular_imgsz_supported()
+    net = model.model.eval()
+    x = torch.rand(1, 3, 256, 192, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = net(x)
+        body = _HRNetBodyWrapper(net).eval()
+        feats = body(x)
+        got = _HRNetHostTailWrapper(net, ("heatmaps",)).eval()(*feats)[0]
+    assert body.output_names == ("branch0", "branch1", "branch2") and len(feats) == 3
+    torch.testing.assert_close(got, want, atol=1e-4, rtol=1e-4)
+
+
+def test_dekr_w32_hybrid_stage3_split_reproduces_the_native_model():
+    """DEKR-w32 recipe hybrid in FP32: the trunk's stem to stage 3 (Metis part, identity-conv outputs) then
+    stage 4 and the heads on the host reproduce the native (heatmap_logits, offsets)."""
+    from libreyolo.export.exporter import AxeleraExporter, _DEKRBodyWrapper, _DEKRHostTailWrapper
+    from libreyolo.models.dekr.model import LibreDEKR
+
+    model = LibreDEKR(size="w32", device="cpu")
+    exporter = AxeleraExporter(model)
+    assert exporter._hybrid_outputs() == ("heatmap_logits", "offsets") and exporter._hybrid_split() == "backbone"
+    net = model.model.eval()
+    x = torch.rand(1, 3, 128, 128, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = net(x)
+        body = _DEKRBodyWrapper(net).eval()
+        feats = body(x)
+        got = _DEKRHostTailWrapper(net, ("heatmap_logits", "offsets")).eval()(*feats)
+    assert body.output_names == ("branch0", "branch1", "branch2")
+    for g, w in zip(got, want):
+        torch.testing.assert_close(g, w, atol=1e-4, rtol=1e-4)

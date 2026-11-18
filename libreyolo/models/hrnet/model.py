@@ -164,12 +164,12 @@ class LibreHRNet(BaseModel):
         )
 
     def export(self, format: str = "onnx", **kwargs) -> str:
-        supported = {"onnx", "torchscript", "openvino", "tensorrt"}
+        supported = {"onnx", "torchscript", "openvino", "tensorrt", "axelera"}
         if format.lower() not in supported:
             raise NotImplementedError(
                 f"LibreHRNet export to {format!r} is not implemented. The pose-head "
-                "export contract supports ONNX, TorchScript, OpenVINO, and "
-                "TensorRT only."
+                "export contract supports ONNX, TorchScript, OpenVINO and "
+                "TensorRT, and runs hybrid on Axelera Metis."
             )
         return super().export(format=format, **kwargs)
 

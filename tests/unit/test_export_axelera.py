@@ -1180,6 +1180,10 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("retinanet", "detect", "r50v2"),
         # CenterNet recipe hybrids (test_centernet_hybrid_body_split_reproduces_the_native_model).
         ("centernet", "detect", "resdcn18"), ("centernet", "detect", "dla34"),
+        # HRNet-w32 recipe hybrid (test_hrnet_w32_hybrid_stage3_split_reproduces_the_native_model).
+        ("hrnet", "pose", "w32"),
+        # DEKR-w32 recipe hybrid (test_dekr_w32_hybrid_stage3_split_reproduces_the_native_model).
+        ("dekr", "pose", "w32"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),
@@ -2368,11 +2372,14 @@ def test_zipdepth_block_names_the_softmax_limit():
     assert entry.tier == "blocked" and "softmax" in entry.reason and "two inputs" in entry.reason
 
 
-def test_hrnet_block_records_the_device_drift_and_parts_assessment():
-    from libreyolo.export.support import get_support
+def test_hrnet_is_a_stage3_split_hybrid():
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.support import UNMEASURED_SIZES, get_support
 
     entry = get_support("hrnet", "pose", "axelera")
-    assert entry.tier == "blocked" and "drifts" in entry.reason and "four resolution" in entry.reason
+    assert entry.tier == "hybrid" and "drifts" in entry.reason and "stage 4" in entry.reason
+    assert size_recipe("hrnet", "pose", "w32")["hybrid_split"] == "backbone"
+    assert "w48" in UNMEASURED_SIZES[("hrnet", "pose", "axelera")]
 def test_unet_axelera_export_uses_its_training_crop_and_dense_logits():
     from libreyolo.export.axelera import AXELERA_SIZE_RECIPES
     from libreyolo.export.exporter import _AXELERA_GRAPH_OUTPUTS
@@ -2409,11 +2416,13 @@ def test_rrdb_x2_parts_unshuffle_exactly_and_compose_to_the_network():
     np.testing.assert_allclose(chained.numpy(), whole.numpy(), rtol=1e-5, atol=1e-5)
 
 
-def test_dekr_block_records_the_paging_failure_and_the_device_loss():
+def test_dekr_is_a_stage3_split_hybrid():
+    from libreyolo.export.axelera import size_recipe
     from libreyolo.export.support import get_support
 
     entry = get_support("dekr", "pose", "axelera")
-    assert entry.tier == "blocked" and "output_mmio" in entry.reason and "DEVICE_LOST" in entry.reason
+    assert entry.tier == "hybrid" and "paging" in entry.reason and "stage 4" in entry.reason
+    assert size_recipe("dekr", "pose", "w32")["hybrid_split"] == "backbone"
 
 
 def test_fomo_is_not_available_yet_without_trained_weights():

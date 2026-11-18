@@ -4469,11 +4469,15 @@ _AXELERA_RECIPE_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("retinanet", "detect"): ("output",),
     # CenterNet-ResDCN18: the deformable up-path has no INT8 form; the ResNet-18 body runs on Metis.
     ("centernet", "detect"): ("output",),
+    # HRNet-w32: the device drifts through stage 4's fusion modules; stem to stage 3 run on Metis.
+    ("hrnet", "pose"): ("heatmaps",),
+    # DEKR-w32: the same HRNet trunk; stem to stage 3 on Metis, stage 4 and the heads on the host.
+    ("dekr", "pose"): ("heatmap_logits", "offsets"),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
 _HYBRID_BACKBONE_ONLY = frozenset(
-    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet"}
+    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet", "hrnet", "dekr"}
 )
 
 
@@ -4709,6 +4713,144 @@ class _CenterNetHostTailWrapper(torch.nn.Module):
             decode_centernet(out["hm"], out["wh"], out["reg"], topk=self.topk)
             * out["hm"].new_tensor([4.0, 4.0, 4.0, 4.0, 1.0, 1.0]),
         )
+
+
+def _hrnet_branches(transition, cfg, y):
+    """HRNet's stage input: each branch through its transition (the new branch from the last one)."""
+    return [transition[i](y[-1]) if transition[i] is not None else y[i] for i in range(cfg["NUM_BRANCHES"])]
+
+
+class _HRNetBodyWrapper(torch.nn.Module):
+    """Part 1 of a hybrid HRNet pose export (recipe ``hybrid_split``): stem to stage 3, all three branches.
+
+    The whole graph compiles, but the device output drifts away from the SDK's
+    own quantized model through stage 4's multi-branch fusion modules (device
+    vs quantized cosine 0.983 after stage 3, 0.21 at the heatmaps); stage 3 and
+    everything before it stay close, so stage 4 and the final layer run on the host.
+    Each branch leaves through a weight-identity 1x1 convolution (exact): ending
+    in the fuse layers' Add and ReLU, the quantizer would move that tail into a
+    host postamble of the compiled part.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    hybrid_aipu = "HRNet stem, layer 1 and stages 2-3 (three resolution branches)"
+    hybrid_host = "stage 4 (four-branch fusion) and the heatmap layer (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(f"branch{i}" for i in range(model.stage3_cfg["NUM_BRANCHES"]))
+        channels = model._expanded_channels(model.stage3_cfg)
+        self.identity = torch.nn.ModuleList()
+        for c in channels:
+            conv = torch.nn.Conv2d(c, c, 1, bias=False)
+            with torch.no_grad():
+                conv.weight.copy_(torch.eye(c).view(c, c, 1, 1))
+            self.identity.append(conv)
+
+    def _branches(self, x):
+        m = self.model
+        x = m.layer1(m.relu(m.bn2(m.conv2(m.relu(m.bn1(m.conv1(x)))))))
+        y = m.stage2([t(x) if t is not None else x for t in m.transition1])
+        return m.stage3(_hrnet_branches(m.transition2, m.stage3_cfg, y))
+
+    def forward(self, x):
+        return tuple(conv(t) for conv, t in zip(self.identity, self._branches(x)))
+
+
+class _HRNetHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid HRNet pose export: stage 4 and the heatmap layer.
+
+    Ends at the whole-graph export's ``heatmaps``, so the backend parses both the same way.
+    """
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+
+    def forward(self, *feats):
+        m = self.model
+        y = m.stage4(_hrnet_branches(m.transition3, m.stage4_cfg, list(feats)))
+        return (m.final_layer(y[0]),)
+
+
+def _dekr_stage_inputs(m, i, y):
+    """DEKR's input to stage ``i + 2``: each branch through ``transition{i + 1}``."""
+    transition = getattr(m, f"transition{i + 1}")
+    return [
+        transition[j](y[-1]) if transition[j] is not None else y[j]
+        for j in range(int(m.stages_spec["NUM_BRANCHES"][i]))
+    ]
+
+
+class _DEKRBodyWrapper(torch.nn.Module):
+    """Part 1 of a hybrid DEKR-w32 export (recipe ``hybrid_split``): the HRNet trunk's stem to stage 3.
+
+    The whole 640x640 graph has no working Metis build (output paging fails
+    the compile; without paging the device is lost), and HRNet's stage 4
+    drifts on the device; stem to stage 3 run on Metis, each branch through a
+    weight-identity 1x1 convolution (exact) so no host postamble is split off.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    hybrid_aipu = "HRNet-w32 stem, layer 1 and stages 2-3 (three resolution branches)"
+    hybrid_host = "stage 4, the heatmap head and the per-keypoint offset heads (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        last = model.num_stages - 1  # the host runs the last stage
+        channels = [int(c) for c in model.stages_spec["NUM_CHANNELS"][last - 1]]
+        self.output_names = tuple(f"branch{i}" for i in range(len(channels)))
+        self.identity = torch.nn.ModuleList()
+        for c in channels:
+            conv = torch.nn.Conv2d(c, c, 1, bias=False)
+            with torch.no_grad():
+                conv.weight.copy_(torch.eye(c).view(c, c, 1, 1))
+            self.identity.append(conv)
+
+    def forward(self, x):
+        m = self.model
+        x = m.layer1(m.relu(m.bn2(m.conv2(m.relu(m.bn1(m.conv1(x)))))))
+        y = [x]
+        for i in range(m.num_stages - 1):
+            y = getattr(m, f"stage{i + 2}")(_dekr_stage_inputs(m, i, y))
+        return tuple(conv(t) for conv, t in zip(self.identity, y))
+
+
+class _DEKRHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid DEKR export: stage 4 and the heads, ending at ``heatmap_logits`` and ``offsets``."""
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+
+    def forward(self, *feats):
+        import torch.nn.functional as F
+
+        m = self.model
+        last = m.num_stages - 1
+        y = getattr(m, f"stage{last + 2}")(_dekr_stage_inputs(m, last, list(feats)))
+        h, w = y[0].shape[2], y[0].shape[3]
+        features = torch.cat(
+            [y[0]] + [F.interpolate(b, size=(h, w), mode="bilinear", align_corners=False) for b in y[1:]],
+            dim=1,
+        )
+        heatmap = m.head_heatmap[1](m.head_heatmap[0](m.transition_heatmap(features)))
+        offset_feature = m.transition_offset(features)
+        k = m.offset_prekpt
+        offsets = torch.cat(
+            [
+                m.offset_final_layer[j](m.offset_feature_layers[j](offset_feature[:, j * k : (j + 1) * k]))
+                for j in range(m.num_joints)
+            ],
+            dim=1,
+        )
+        return heatmap, offsets
 
 
 class _DeepLabBackboneWrapper(torch.nn.Module):
@@ -5064,6 +5206,8 @@ _HYBRID_BACKBONE_WRAPPERS = {
     "vgg": ("_VGGFeaturesWrapper", "_VGGHostTailWrapper"),
     "retinanet": ("_RetinaNetBodyWrapper", "_RetinaNetHostTailWrapper"),
     "centernet": ("_CenterNetBodyWrapper", "_CenterNetHostTailWrapper"),
+    "hrnet": ("_HRNetBodyWrapper", "_HRNetHostTailWrapper"),
+    "dekr": ("_DEKRBodyWrapper", "_DEKRHostTailWrapper"),
 }
 
 
@@ -5647,9 +5791,11 @@ class AxeleraExporter(BaseExporter):
         return imgsz, device, output_path
 
     def _rectangular_imgsz_supported(self) -> bool:
-        # Whole-graph dense exports (HRNet's 256x192 person crop) keep their
-        # canvas; the YOLO-NAS raw-head path stays square.
-        return bool(self._graph_outputs())
+        # Whole-graph dense exports and HRNet's hybrid keep their canvas (HRNet's
+        # 256x192 person crop); the YOLO-NAS raw-head path stays square.
+        return bool(self._graph_outputs()) or (
+            self.model._get_model_name() == "hrnet" and bool(self._hybrid_outputs())
+        )
 
     def _shuffle_skip_restore(self) -> bool:
         """Real-ESRGAN's compact network (x4t): trunk on Metis, tail on the host."""
@@ -5960,7 +6106,7 @@ class AxeleraExporter(BaseExporter):
 
             return canvas
         preprocess = self.model._get_preprocess_numpy()
-        if self._hybrid_outputs() and self.model._get_model_name() not in ("retinanet", "fcos"):
+        if self._hybrid_outputs() and self.model._get_model_name() not in ("retinanet", "fcos", "hrnet"):
             # DETR preprocessing takes one square size and returns NCHW.
             def square(rgb, imgsz):
                 h, w = (imgsz, imgsz) if isinstance(imgsz, int) else imgsz
@@ -6550,6 +6696,8 @@ class AxeleraExporter(BaseExporter):
                 _VGGFeaturesWrapper,
                 _RetinaNetBodyWrapper,
                 _CenterNetBodyWrapper,
+                _HRNetBodyWrapper,
+                _DEKRBodyWrapper,
             ),
         ):
             outputs = list(self._hybrid_outputs())

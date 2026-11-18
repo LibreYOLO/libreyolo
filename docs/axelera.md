@@ -25,6 +25,8 @@ a separate size:
 | YOLO-NAS-pose | s | pose | COCO val2017 persons, 300 | 0.7565 | 0.7344 | -2.21 | supported | `yolonas/pose/s/2026-11-10/16` |
 | YOLO-NAS-pose | m | pose | COCO val2017 persons, 300 | 0.7885 | 0.7821 | -0.64 | validated | `yolonas/pose/m/2026-11-11/2` |
 | YOLO-NAS-pose | l | pose | COCO val2017 persons, 300 | 0.7922 | 0.7884 | -0.38 | validated | `yolonas/pose/l/2026-11-10/2` |
+| HRNet | w32 | pose (hybrid: stem to stage 3 on the Metis; stage 4 and the heatmap layer on the host; 256x192 person crops from GT boxes) | COCO val2017 persons, 300 (1172 crops) | 0.7658 | 0.7631 | -0.27 | hybrid | `hrnet/pose/w32/2026-11-17/2` |
+| DEKR | w32 | pose (hybrid: HRNet-w32 stem to stage 3 on the Metis; stage 4, heatmap and offset heads on the host; 640x640) | COCO val2017 persons, 300 | 0.6523 | 0.6426 | -0.97 | hybrid | `dekr/pose/w32/2026-11-18/2` |
 | YOLO-NAS-R | s | obb | DOTA-v2.0 val, 300 tiles | 0.3844 | 0.3747 | -0.97 | validated | `yolonas/obb/s/2026-11-10/2` |
 | YOLO-NAS-R | m | obb | DOTA-v2.0 val, 300 tiles | 0.4141 | 0.4105 | -0.36 | validated | `yolonas/obb/m/2026-11-10` |
 | YOLO-NAS-R | l | obb | DOTA-v2.0 val, 300 tiles | 0.4327 | 0.4348 | +0.21 | validated | `yolonas/obb/l/2026-11-10` |
@@ -181,6 +183,8 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | --- | --- | --- | --- | --- |
 | YOLO-NAS | detect | s, m, l | see `docs/export_support.md` | s `yolonas/detect/s/2026-11-08/3`; m `yolonas/detect/m/2026-11-08`; l `yolonas/detect/l/2026-11-10` |
 | YOLO-NAS | pose | n, s, m, l (n and s supported with a measured drop) | see `docs/export_support.md` | n `yolonas/pose/n/2026-11-11`; s `yolonas/pose/s/2026-11-10/16`; m `yolonas/pose/m/2026-11-11/2`; l `yolonas/pose/l/2026-11-10/2` |
+| HRNet | pose | w32 (hybrid at the 256x192 person crop: stem to stage 3 on the Metis; stage 4, where the device drifts, and the heatmap layer on the host; w48 not measured yet) | see `docs/export_support.md` | w32 `hrnet/pose/w32/2026-11-17/2` |
+| DEKR | pose | w32 (hybrid at 640x640: the HRNet trunk to stage 3 on the Metis; stage 4 and the heads on the host) | see `docs/export_support.md` | w32 `dekr/pose/w32/2026-11-18/2` |
 | YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) | s `yolonas/obb/s/2026-11-10/2`; m `yolonas/obb/m/2026-11-10`; l `yolonas/obb/l/2026-11-10` |
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` | t `yolo9/detect/t/2026-11-10/7`; s `yolo9/detect/s/2026-11-10/2`; m `yolo9/detect/m/2026-11-10/2`; c `yolo9/detect/c/2026-11-10/2` |
 | YOLO9-P2 | detect | s (t: no published checkpoint) | see `docs/export_support.md` | s `yolo9_p2/detect/s/2026-11-15` |
@@ -863,8 +867,7 @@ on the AIPU and returns the logits (layout `classify_logits_v1`); the host
 applies the softmax, with the same resize, crop and normalization as the
 PyTorch model (recorded in `metadata.yaml`).
 
-Dense models (super-resolution, depth, semantic segmentation, HRNet's
-person-crop heatmaps) also run whole on the AIPU (layout `graph_outputs_v1`):
+Dense models (super-resolution, depth, semantic segmentation) also run whole on the AIPU (layout `graph_outputs_v1`):
 the device returns the same tensors as the family's ONNX export, under the
 same names, and LibreYOLO's shared parsers turn them into results on the
 host. The input is fixed at export: depth and semantic models stretch each
@@ -985,8 +988,6 @@ Blocked for structural reasons (accuracy never blocks an export):
 - L2CS (gaze): its only checkpoint is trained on Gaze360, whose licence forbids redistributing models trained on it; LibreYOLO fetches it from the authors and does not mirror it, so no Axelera export is measured or shipped.
 - EfficientDet-d3: lowering finds no L1 tiling at its native 896 (2.52 MB needed, 2.15 MB available) nor at a 512 canvas (2.58 vs 2.14 MB); its 160-channel BiFPN and heads set the need (ledgers `efficientdet/detect/d3/2026-11-13/2`, `efficientdet/detect/d3/2026-11-14`). Use d2.
 - EfficientDet-d4: lowering finds no L1 tiling at its native 1024 (2.69 MB needed, 0.94 MB available) nor at a 512 canvas (2.10 vs 1.22 MB). Prefix cuts at 512 put the overflow in the EfficientNet-B4 backbone: stages 0-4 compile, the 272-channel stage (blocks.5) needs 3.12 MB vs 2.47 MB (ledgers `efficientdet/detect/d4/2026-11-15` to `/4`).
-- HRNet (pose): compiles, but the device output drifts from the quantized model through stage 4's multi-branch fusion modules (device vs quantized cosine 0.983 after stage 3, then 0.946, 0.78 and 0.21; the CPU-quantized model stays at 0.993 or better; keypoint mAP 0.000 on device). Multi-part assessment: a per-stage split needs parts that take all four resolution branches as one packed input (several hours, 3-4 compiles) and may only move the drift.
-- DEKR-w32 (pose, 640x640, whole graph: raw heatmap logits and offsets): with the default output paging the compile fails after 8.3 h in the backend (an `output_mmio` access of 1,083,392 bytes spans three pages of a buffer paged into one 512 KiB page; ledger `dekr/pose/w32/2026-11-15`). With `page_memory` off it compiles in 11.6 h, but running it loses the device (`ZE_RESULT_ERROR_DEVICE_LOST`, twice; a known-good model ran right after; ledger `dekr/pose/w32/2026-11-16`).
 - PIDNet-s: compiles whole-graph at 1024x1024 (10.3 h, after exact rewrites of the spatial attention and of the DAPPM pools: 17x17 average as two 1-D pools, global average in 2x2 steps), but INT8 collapses the output: cosine vs FP32 about 0 on the device and on the CPU-quantized model, with min-max and hybrid ranges alike (ledgers `pidnet/semantic/s/2026-11-15`, `/2`). A per-stage quantization tap screen is the next step if PIDNet is revisited.
 - ZipDepth: its GCNet context block weights the 576 stage-3 positions with a softmax that has no AIPU form within SDK 1.9: after exact rewrites of the channel and strip mean reductions the graph quantizes, but the softmax needs a reshape pair (4 layout transforms, at most 3 allowed), a one-hot transposed convolution (5184 MVM reduction blocks) or Exp and Reciprocal (unsupported by the quantizer); a host division would need a two-input compiled part (ledgers `zipdepth/depth/bnpu/2026-11-16` to `/3`).
 - RTMDet-Ins-x: at 640x640 lowering fails in AssignTilingFactors (ScheduleMemory, LowerTIR): no tiling factor fits L1 (3.99 MB needed, 3.32 MB available; 2 h 08 min, 8.1 GB peak RSS; ledger `rtmdet/segment/x/2026-11-12`). Use RTMDet-Ins-l. Its CSPNeXt-x backbone alone compiles in 24 min, so the overflow is in the neck and heads; a backbone | neck+head split would need the three backbone levels packed into one input (the quantizer takes no multi-input calibration; ledger `rtmdet/segment/x/2026-11-17`).

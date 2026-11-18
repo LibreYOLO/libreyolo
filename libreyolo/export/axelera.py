@@ -138,6 +138,16 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "hybrid_split": "backbone",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
+    # HRNet-w32: stem to stage 3 on the Metis; stage 4 (where the device drifts from the quantized model) on the host.
+    ("hrnet", "pose", "w32"): {
+        "hybrid_split": "backbone",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
+    # DEKR-w32 (640x640): the same trunk split; the whole graph has no working build (output paging / device lost).
+    ("dekr", "pose", "w32"): {
+        "hybrid_split": "backbone",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
     ("retinanet", "detect", "r50v2"): {
         "canvas": 800,
         "hybrid_split": "backbone",

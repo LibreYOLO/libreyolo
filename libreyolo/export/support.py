@@ -4626,35 +4626,47 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "hybrid",
     ("dekr",),
     ("pose",),
     ("axelera",),
     reason=(
-        "DEKR-w32 has no working Metis build with SDK 1.9 (whole graph at "
-        "640x640, raw heatmap logits and offsets). With the compiler's default "
-        "output paging the compile fails after 8.3 hours in the backend: an "
-        "output_mmio access of 1,083,392 bytes spans three pages of a buffer "
-        "paged into one. With page_memory disabled it compiles (11.6 hours), but "
-        "running the compiled model loses the device (ZE_RESULT_ERROR_DEVICE_LOST, "
-        "twice; a known-good model runs right after, so the Metis recovers)."
+        "Hybrid INT8 export: the HRNet-w32 trunk's stem, layer 1 and stages 2-3 "
+        "are compiled with Axelera's toolchain and run on the Metis AIPU; stage "
+        "4, the heatmap head and the per-keypoint offset heads run on the host "
+        "CPU as an FP32 ONNX graph through ONNX Runtime. The whole 640x640 graph "
+        "has no working Metis build with SDK 1.9 (output paging fails the "
+        "compile after 8.3 hours; with paging off the device is lost), and "
+        "HRNet's stage 4 drifts on the device (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
+        "and metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 640x640 input"
     ),
 )
 _add(
-    "blocked",
+    "hybrid",
     ("hrnet",),
     ("pose",),
     ("axelera",),
     reason=(
-        "HRNet-w32 compiles for Metis with SDK 1.9, but its device output drifts "
-        "away from the SDK's own quantized model through stage 4's multi-branch "
-        "fusion modules: device vs quantized cosine 0.997 after layer 1, 0.9995 "
-        "after stage 2, 0.983 after stage 3, then 0.946, 0.78 and 0.21 through "
-        "stage 4, while the CPU-quantized model stays at 0.993 or better against "
-        "FP32 (keypoint mAP 0.000 on the device). Multi-part assessment: a "
-        "per-stage split would need parts that take all four resolution "
-        "branches as one packed input (several hours and 3-4 compiles) and may "
-        "only move the drift."
+        "Hybrid INT8 export: HRNet's stem, layer 1 and stages 2-3 (three "
+        "resolution branches) are compiled with Axelera's toolchain and run on "
+        "the Metis AIPU; stage 4 and the heatmap layer run on the host CPU as "
+        "an FP32 ONNX graph through ONNX Runtime. Whole-graph, the device output "
+        "drifts away from the SDK's own quantized model through stage 4's "
+        "multi-branch fusion modules (device vs quantized cosine 0.983 after "
+        "stage 3, 0.21 at the heatmaps) (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
+        "and metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 256x192 person crop"
     ),
 )
 _add(
@@ -5447,6 +5459,7 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("rtdetrv2", "obb", "axelera"): {
         size: "has not been measured on a Metis yet" for size in ("m", "l", "x")
     },
+    ("hrnet", "pose", "axelera"): {"w48": "has not been measured on a Metis yet"},
     ("yolo9_p2", "detect", "axelera"): {
         "t": (
             "has not been measured on a Metis yet: no trained YOLO9-P2-t "
