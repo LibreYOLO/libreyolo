@@ -394,7 +394,8 @@ table at the top of this page. In the Calibration column, "64 coco128" is the
 first 64 images of coco128 (`data="coco128.yaml", fraction=0.5`); the default
 `fraction=1.0` uses all 128. Most sizes move little with the count (YOLOX-n:
 -1.81 with 64 images, -1.66 with 128). RTMDet-s was sensitive to it until
-its learned rounding (see the RTMDet paragraph below).
+its learned rounding (see the RTMDet paragraph below); Faster R-CNN-n and -s
+still are, in opposite directions (their rows).
 
 | Model | Task | Image set (paired) | Calibration | FP32 | Metis INT8 | Delta |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -500,8 +501,8 @@ its learned rounding (see the RTMDet paragraph below).
 | Deformable DETR-r50twostage (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4503 | 0.4504 | +0.01 (hybrid) |
 | DINO-DETR-r50 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4714 | 0.4710 | -0.04 (hybrid) |
 | DINO-DETR-r50s5 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4917 | 0.4891 | -0.26 (hybrid) |
-| Faster R-CNN-n (hybrid, 320x320 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2005 | 0.1896 | -1.09 (hybrid; canvas -3.30 vs the native 0.2335) |
-| Faster R-CNN-s (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2907 | 0.2867 | -0.40 (hybrid; FP32 at the same canvas) |
+| Faster R-CNN-n (hybrid, 320x320 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2005 | 0.1896 | -1.09 (hybrid; canvas -3.30 vs the native 0.2335; measured with the first 64 coco128 images, fraction=0.5: with all 128, the default, the CPU-quantized model scores 2.2 points higher on 100 of these images) |
+| Faster R-CNN-s (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2907 | 0.2867 | -0.40 (hybrid; FP32 at the same canvas; measured with the first 64 coco128 images, fraction=0.5: with all 128, the default, the CPU-quantized model gives -2.32 on these images instead of -0.33) |
 | Faster R-CNN-m (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.3472 | 0.3456 | -0.16 (hybrid; canvas -3.12 vs the native 0.3784) |
 | Faster R-CNN-l (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.4468 | 0.4489 | +0.21 (hybrid) |
 | Mask R-CNN-r50 (hybrid, 800x800 canvas) | segment | COCO val2017, 300 images | 64 coco128 | 0.4045 | 0.4039 | -0.06 mask, +0.02 box (hybrid; FP32 at the same canvas) |
