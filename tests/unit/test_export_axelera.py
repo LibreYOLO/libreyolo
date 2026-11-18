@@ -1186,6 +1186,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("dekr", "pose", "w32"),
         # ZipDepth-bnpu recipe hybrid (test_zipdepth_bnpu_hybrid_gcb_split_reproduces_the_native_model).
         ("zipdepth", "depth", "bnpu"),
+        # PIDNet-s recipe hybrid (test_pidnet_s_hybrid_layer5_split_reproduces_the_native_model).
+        ("pidnet", "semantic", "s"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),
@@ -1925,12 +1927,14 @@ def test_ppliteseg_is_not_available_yet_with_its_measured_loss():
     assert "pixels" in entry.reason and "backbone" in entry.reason
 
 
-def test_pidnet_is_blocked_by_its_int8_collapse():
-    from libreyolo.export.support import get_support
+def test_pidnet_is_a_layer5_split_hybrid():
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.support import UNMEASURED_SIZES, get_support
 
     entry = get_support("pidnet", "semantic", "axelera")
-    assert entry.tier == "blocked" and not entry.reason.startswith("Not available yet")
-    assert "compiles" in entry.reason and "INT8 collapses" in entry.reason
+    assert entry.tier == "hybrid" and "INT8 collapses" in entry.reason and "PAPPM" in entry.reason
+    assert size_recipe("pidnet", "semantic", "s")["hybrid_split"] == "backbone"
+    assert sorted(UNMEASURED_SIZES[("pidnet", "semantic", "axelera")]) == ["l", "m"]
 
 
 def test_unet_is_supported_with_its_measured_fidelity():

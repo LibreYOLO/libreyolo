@@ -153,6 +153,12 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "hybrid_split": "backbone",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
+    # PIDNet-s (1024): through layer 5 on the Metis (PagFM fusions in their exact sigmoid(-z) form); PAPPM, the
+    # branch fusion and the head on the host.
+    ("pidnet", "semantic", "s"): {
+        "hybrid_split": "backbone",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
     ("retinanet", "detect", "r50v2"): {
         "canvas": 800,
         "hybrid_split": "backbone",

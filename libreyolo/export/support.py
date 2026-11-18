@@ -4838,19 +4838,26 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "hybrid",
     ("pidnet",),
     ("semantic",),
     ("axelera",),
     reason=(
-        "PIDNet-s compiles for Metis with SDK 1.9 (whole graph at 1024x1024, "
-        "10.3 hours, after exact rewrites of its spatial attention and of the "
-        "DAPPM pooling: a 17x17 average as two 1-D pools, the global average in "
-        "2x2 steps), but INT8 collapses its output: cosine vs FP32 about 0 "
-        "(-0.16 to 0.13) on the device and on the SDK's CPU-quantized model, "
-        "with per-tensor min-max and with hybrid per-channel ranges alike. A "
-        "per-stage quantization tap screen is the next step if PIDNet is "
-        "revisited."
+        "Hybrid INT8 export: PIDNet's stem and its P, I and D branches through "
+        "layer 5 are compiled with Axelera's toolchain and run on the Metis "
+        "AIPU, with both PagFM fusions in an exact form (sigmoid(-z) * x + "
+        "sigmoid(z) * y); the PAPPM pooling module, the branch fusion and the "
+        "segmentation head run on the host CPU as an FP32 ONNX graph through "
+        "ONNX Runtime. Whole-graph, INT8 collapses the output (cosine vs FP32 "
+        "about 0): the original fusion blend flips sign when quantized and "
+        "PAPPM's upsample-and-add sums lose the signal (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
+        "and metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 1024x1024 input"
     ),
 )
 _add(
@@ -5466,6 +5473,7 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("hrnet", "pose", "axelera"): {"w48": "has not been measured on a Metis yet"},
     ("zipdepth", "depth", "axelera"): {"b": "has not been measured on a Metis yet"},
+    ("pidnet", "semantic", "axelera"): {size: "has not been measured on a Metis yet" for size in ("m", "l")},
     ("yolo9_p2", "detect", "axelera"): {
         "t": (
             "has not been measured on a Metis yet: no trained YOLO9-P2-t "

@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis hybrid export for PIDNet-s semantic segmentation, previously blocked.** Whole-graph, INT8 collapsed its output (cosine about 0 vs FP32): its PagFM fusions blend through `1 - sigmoid`, which flips sign when quantized, and its PAPPM pooling sums lose the signal. The export now writes the fusions in an exact form (`sigmoid(-z) * x + sigmoid(z) * y`) and runs the branches through layer 5 on the Metis, with PAPPM, the branch fusion and the head on the host: fidelity mIoU 0.877 and pixel agreement 0.955 against FP32 labels on 300 COCO val2017 images; the compile takes 13 minutes instead of 10 hours.
+
 - **Axelera Metis hybrid export for ZipDepth-bnpu depth, previously blocked.** Its GCNet context block weights the 576 stage-3 positions with a softmax that has no AIPU form, and on the device the stage-3 output drifts through its last two blocks, so the encoder through stage 3's fourth block runs on the Metis and the rest on the host: disparity AbsRel 0.030 and delta1 0.989 against FP32 on 300 COCO val2017 images.
 
 - **Axelera Metis hybrid exports for HRNet-w32 and DEKR-w32 pose, previously blocked.** Whole-graph, the device drifts from the quantized model through HRNet's stage 4 (HRNet scored 0.000), and DEKR's 640x640 graph had no working build. Both now run the HRNet trunk to stage 3 on the Metis and stage 4 plus the heads on the host: HRNet-w32 0.7631 vs 0.7658 FP32 keypoint mAP50-95 (-0.27) on 1172 COCO val2017 person crops, DEKR-w32 0.6426 vs 0.6523 (-0.97) on 300 images. `LibreHRNet` and `LibreDEKR` now accept `export(format="axelera")`.
@@ -161,8 +163,6 @@ before 1.4.0 are documented in the
 - **Axelera Metis: Real-ESRGAN-x4t is validated with an equalized trunk.** Before calibration the export equalizes the compact network's 33 conv+PReLU pairs (cross-layer equalization, exact in FP32) through the new per-size recipe key `weight_equalization`. PSNR is 0.19 dB below FP32 on 296 COCO crops (was 0.49 dB) and 0.20 dB on a held-out half of them.
 
 - **Axelera Metis: QuickSRNet-m2 is validated with learned INT8 rounding.** After the Hardtanh equalization the export now learns each weight's rounding direction on the per-channel INT8 grid (AdaRound-style, one convolution at a time, 300 steps with a fixed seed, on up to 128 calibration images) and corrects the biases, through the new per-size recipe key `learned_rounding`. PSNR is 0.20 dB below FP32 on 296 COCO crops (was 0.46 dB with nearest rounding) and 0.17 dB on a held-out half of them; the export takes about 12 minutes instead of 3.
-
-- **Axelera Metis: PIDNet-s is blocked with its measured cause.** It now compiles (10.3 h) after exact rewrites of its DAPPM pools, but INT8 collapses the output (cosine about 0 vs FP32 on the device and on the CPU-quantized model, min-max and hybrid alike).
 
 - **Axelera Metis: EfficientDet-d4 is blocked with its measured cause.** It finds no L1 tiling at 1024 or at a 512 canvas; prefix cuts place the overflow in the EfficientNet-B4 backbone's 272-channel stage (3.12 MB of L1 needed, 2.47 MB available). Use d2.
 

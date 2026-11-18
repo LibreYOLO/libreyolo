@@ -4475,11 +4475,13 @@ _AXELERA_RECIPE_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("dekr", "pose"): ("heatmap_logits", "offsets"),
     # ZipDepth-bnpu: the GCNet softmax over positions has no AIPU form; the encoder before it runs on Metis.
     ("zipdepth", "depth"): ("depth",),
+    # PIDNet-s: PAPPM's sums and the branch fusion after it break in INT8; layer 5 and before run on Metis.
+    ("pidnet", "semantic"): ("semantic_logits",),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
 _HYBRID_BACKBONE_ONLY = frozenset(
-    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet", "hrnet", "dekr", "zipdepth"}
+    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet", "hrnet", "dekr", "zipdepth", "pidnet"}
 )
 
 
@@ -4975,6 +4977,137 @@ class _ZipDepthHostTailWrapper(torch.nn.Module):
         return (m.decoder(s_half, [s1, s2, s3, s4], (h, w)),)
 
 
+def _ones_conv(cin: int, cout: int, value: float = 1.0) -> torch.nn.Conv2d:
+    conv = torch.nn.Conv2d(cin, cout, 1, bias=False)
+    with torch.no_grad():
+        conv.weight.fill_(value)
+    return conv
+
+
+def _pidnet_pag_forward(self, x, y):
+    """PIDNet PagFM, exact INT8-friendly form: ``sigmoid(-z) * x + sigmoid(z) * y``.
+
+    ``1 - sigmoid(z)`` is ``sigmoid(-z)``, so the blend needs neither a
+    constant minus a tensor (the quantized model flips its sign: cosine -0.84
+    vs FP32) nor ``x + sim * (y - x)`` (its two near-cancelling addends lose
+    the result: 0.80). The channel sum and its negation are 1x1 convolutions
+    of ones and minus ones; one-channel gates are repeated to every channel by
+    a 1x1 convolution of ones. With this form the fusion keeps cosine 0.996.
+    """
+    import torch.nn.functional as F
+
+    size = x.size()
+    if self.after_relu:
+        y = self.relu(y)
+        x = self.relu(x)
+    y_q = F.interpolate(self.f_y(y), size=[size[2], size[3]], mode="bilinear", align_corners=False)
+    prod = self.f_x(x) * y_q
+    if self.with_channel:
+        z = self.up(prod)
+        gate, gate_neg = torch.sigmoid(z), torch.sigmoid(self._int8_negate(z))
+    else:
+        gate = self._int8_expand(torch.sigmoid(self._int8_sum(prod)))
+        gate_neg = self._int8_expand(torch.sigmoid(self._int8_sum_neg(prod)))
+    y = F.interpolate(y, size=[size[2], size[3]], mode="bilinear", align_corners=False)
+    return gate_neg * x + gate * y
+
+
+class _PIDNetBodyWrapper(torch.nn.Module):
+    """Part 1 of a hybrid PIDNet export (recipe ``hybrid_split``): the three branches through layer 5.
+
+    INT8 breaks PIDNet twice: in its PagFM fusions (exact rewrite above) and,
+    at the end, in the PAPPM pooling module's upsample-and-add sums (cosine
+    0.3-0.5 while their inputs keep 0.994 or better) and the fusion after it.
+    So the stem, the P, I and D branches and both PagFM fusions (rewritten, on
+    this wrapper's private copy) run on Metis; PAPPM, the branch fusion and the
+    segmentation head run on the host (about 13% of the MACs at 1024x1024).
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("i_layer5", "p_layer5", "d_layer5")
+    hybrid_aipu = "PIDNet stem and the P, I and D branches through layer 5 (both PagFM fusions)"
+    hybrid_host = "PAPPM pooling, the branch fusion and the segmentation head (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        import types
+
+        self.model = copy.deepcopy(model)
+        for mod in self.model.modules():
+            if type(mod).__name__ != "PagFM":
+                continue
+            if mod.with_channel:
+                c = [m for m in mod.up.modules() if isinstance(m, torch.nn.Conv2d)][-1].out_channels
+                neg = torch.nn.Conv2d(c, c, 1, groups=c, bias=False)
+                with torch.no_grad():
+                    neg.weight.fill_(-1.0)
+                mod._int8_negate = neg
+            else:
+                c = [m for m in mod.f_x.modules() if isinstance(m, torch.nn.Conv2d)][-1].out_channels
+                cx = [m for m in mod.f_x.modules() if isinstance(m, torch.nn.Conv2d)][0].in_channels
+                mod._int8_sum = _ones_conv(c, 1)
+                mod._int8_sum_neg = _ones_conv(c, 1, -1.0)
+                mod._int8_expand = _ones_conv(1, cx)
+            mod.forward = types.MethodType(_pidnet_pag_forward, mod)
+        m = self.model
+        widths = [_conv_out(m.layer5), _conv_out(m.layer5_), _conv_out(m.layer5_d)]
+        self.identity = torch.nn.ModuleList()
+        for c in widths:
+            conv = torch.nn.Conv2d(c, c, 1, bias=False)
+            with torch.no_grad():
+                conv.weight.copy_(torch.eye(c).view(c, c, 1, 1))
+            self.identity.append(conv)
+
+    def forward(self, x):
+        import torch.nn.functional as F
+
+        m = self.model
+        x = (x - m.pixel_mean.to(dtype=x.dtype)) / m.pixel_std.to(dtype=x.dtype)
+        ho, wo = x.shape[-2] // 8, x.shape[-1] // 8
+        x = m.layer1(m.conv1(x))
+        x = m.relu(m.layer2(m.relu(x)))
+        x_ = m.layer3_(x)
+        x_d = m.layer3_d(x)
+        x = m.relu(m.layer3(x))
+        x_ = m.pag3(x_, m.compression3(x))
+        x_d = x_d + F.interpolate(m.diff3(x), size=[ho, wo], mode="bilinear", align_corners=False)
+        x = m.relu(m.layer4(x))
+        x_ = m.layer4_(m.relu(x_))
+        x_d = m.layer4_d(m.relu(x_d))
+        x_ = m.pag4(x_, m.compression4(x))
+        x_d = x_d + F.interpolate(m.diff4(x), size=[ho, wo], mode="bilinear", align_corners=False)
+        feats = (m.layer5(x), m.layer5_(m.relu(x_)), m.layer5_d(m.relu(x_d)))
+        return tuple(conv(t) for conv, t in zip(self.identity, feats))
+
+
+def _conv_out(module: torch.nn.Module) -> int:
+    """Output channels of a block: its last convolution's (or last BatchNorm's) width."""
+    width = None
+    for m in module.modules():
+        if isinstance(m, torch.nn.Conv2d):
+            width = m.out_channels
+        elif isinstance(m, torch.nn.BatchNorm2d):
+            width = m.num_features
+    return int(width)
+
+
+class _PIDNetHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid PIDNet export: PAPPM, the branch fusion and the head, ending at ``semantic_logits``."""
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+
+    def forward(self, x5, p, d):
+        import torch.nn.functional as F
+
+        m = self.model
+        x = F.interpolate(m.spp(x5), size=list(p.shape[-2:]), mode="bilinear", align_corners=False)
+        return (m.final_layer(m.dfm(p, x, d)),)
+
+
 class _DeepLabBackboneWrapper(torch.nn.Module):
     """Part 1 of a hybrid DeepLabV3 export (recipe ``hybrid_split``): the ResNet backbone through layer4.
 
@@ -5331,6 +5464,7 @@ _HYBRID_BACKBONE_WRAPPERS = {
     "hrnet": ("_HRNetBodyWrapper", "_HRNetHostTailWrapper"),
     "dekr": ("_DEKRBodyWrapper", "_DEKRHostTailWrapper"),
     "zipdepth": ("_ZipDepthBodyWrapper", "_ZipDepthHostTailWrapper"),
+    "pidnet": ("_PIDNetBodyWrapper", "_PIDNetHostTailWrapper"),
 }
 
 
@@ -6822,6 +6956,7 @@ class AxeleraExporter(BaseExporter):
                 _HRNetBodyWrapper,
                 _DEKRBodyWrapper,
                 _ZipDepthBodyWrapper,
+                _PIDNetBodyWrapper,
             ),
         ):
             outputs = list(self._hybrid_outputs())
