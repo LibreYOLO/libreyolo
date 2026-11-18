@@ -857,3 +857,26 @@ def test_rtmdet_x_hybrid_backbone_split_reproduces_the_export_output():
         got = _RTMDetHostTailWrapper(net, ("output",)).eval()(*_RTMDetBodyWrapper(net).eval()(x))[0]
     assert net.head.export is False
     torch.testing.assert_close(got, want, atol=1e-4, rtol=1e-4)
+
+
+def test_tinyformer_stem_split_reproduces_the_native_model_within_the_tanh_gelu_bound():
+    from libreyolo.export.exporter import AxeleraExporter, _vit_stem_parts
+    from libreyolo.export.support import get_support
+    from libreyolo.models.tinyformer.model import LibreTinyFormer
+
+    assert get_support("tinyformer", "detect", "axelera").tier == "hybrid"
+    model = LibreTinyFormer._from_scratch(size="s", device="cpu", seed=0)
+    assert AxeleraExporter(model)._hybrid_split() == "stem"
+    net = model.model.eval().deploy()
+    stem, host, neck, decoder = _vit_stem_parts(net, OUTPUTS)
+    # The compiled stem exports its GELU as the tanh approximation (no Erf op).
+    assert not any(isinstance(m, torch.nn.GELU) and m.approximate == "none" for m in stem.modules())
+    x = torch.rand(1, 3, 640, 640)
+    with torch.no_grad():
+        expected = net(x)
+        c1, s8 = stem(x)
+        assert tuple(host(x, c1, s8)[0].shape) == (1, 4 * 192, 160, 160)
+        actual = decoder(*neck(host(x, c1, s8)[0]))
+    # Measured bound of the tanh-GELU stem on random init: 1.2e-6 on the logits (0.0 on the boxes).
+    for got, name in zip(actual, OUTPUTS):
+        assert float((got - expected[name]).abs().max()) < 1e-5

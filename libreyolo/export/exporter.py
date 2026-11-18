@@ -4444,6 +4444,7 @@ _AXELERA_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("rtdetr", "detect"): ("pred_logits", "pred_boxes"),
     ("rtdetrv2", "detect"): ("pred_logits", "pred_boxes"),
     ("rtdetrv2", "obb"): ("pred_logits", "pred_boxes"),
+    ("tinyformer", "detect"): ("pred_logits", "pred_boxes"),
     ("riodetrv2", "obb"): ("pred_logits", "pred_boxes"),
     ("dfine", "detect"): ("pred_logits", "pred_boxes"),
     ("deim", "detect"): ("pred_logits", "pred_boxes"),
@@ -5682,6 +5683,116 @@ class _DETRNeckWrapper(torch.nn.Module):
         return tuple(self.projections[i](f) for i, f in enumerate(fused))
 
 
+def _sync_batchnorms_to_batchnorm(module: torch.nn.Module) -> torch.nn.Module:
+    """Replace every ``SyncBatchNorm`` of ``module`` (in place) by an equal ``BatchNorm2d`` (eval)."""
+    for name, child in list(module.named_children()):
+        if isinstance(child, torch.nn.SyncBatchNorm):
+            norm = torch.nn.BatchNorm2d(child.num_features, eps=child.eps, affine=child.affine)
+            norm.load_state_dict(child.state_dict())
+            setattr(module, name, norm.to(child.running_mean.device).eval())
+        else:
+            _sync_batchnorms_to_batchnorm(child)
+    return module
+
+
+class _ViTStemWrapper(torch.nn.Module):
+    """Part 1 of a "stem" hybrid split (TinyFormer): the convolutional Spatial Detail Extractor and its first projection.
+
+    TinyFormer's backbone runs a ViT tower on the image beside a small conv
+    stem (three stride-2 conv / batch norm / GELU stages); the stem and the
+    stride-4 projection compile, the ViT runs on the host.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("stem_c1", "stem_s8")
+    hybrid_aipu = "convolutional stem and the 4-scale fusion neck"
+    hybrid_host = "ViT tower, projections, attention encoder layer and decoder (FP32 ONNX)"
+
+    def __init__(self, backbone: torch.nn.Module):
+        super().__init__()
+        self.sda, self.proj_c1 = backbone.sda, backbone.proj_c1
+        # The exact GELU exports as Erf, which the quantizer leaves as an external op;
+        # the tanh form (Tanh, Mul, Add) quantizes. Not bit-exact: on TinyFormer-s the stem outputs move by
+        # ~1.4e-5 and the logits by at most 1.2e-6 in FP32 (test_tinyformer_stem_split_*).
+        for parent in (self.sda, self.proj_c1):
+            for module in list(parent.modules()):
+                for name, child in list(module.named_children()):
+                    if isinstance(child, torch.nn.GELU) and child.approximate == "none":
+                        setattr(module, name, torch.nn.GELU(approximate="tanh"))
+
+    def forward(self, x):
+        s4 = self.sda[1](self.sda[0](x))
+        return self.proj_c1(s4), self.sda[2](s4)
+
+
+class _ViTStemHostPackWrapper(torch.nn.Module):
+    """Host step 1 of a "stem" split: the ViT tower on the image, the level projections, AIFI and the canvas."""
+
+    output_names = ("canvas",)
+
+    def __init__(self, backbone: torch.nn.Module, encoder: torch.nn.Module, scales=None):
+        super().__init__()
+        self.backbone = backbone
+        self.input_proj = encoder.input_proj
+        self.pack = _DETREncoderPackWrapper(encoder, scales)
+
+    def levels(self, images, c1, s8):
+        """The four projected encoder levels (strides 4, 8, 16, 32), as the native backbone and encoder make them."""
+        b = self.backbone
+        n, h, w = images.shape[0], images.shape[2] // 16, images.shape[3] // 16
+        layers = b.dinov3(images)
+        l0, l1, l2 = (layers[0],) * 3 if len(layers) == 1 else layers[:3]
+        f0, f1, f2 = (t[0].transpose(1, 2).view(n, -1, h, w).contiguous() for t in (l0, l1, l2))
+        up = torch.nn.functional.interpolate(f0, size=s8.shape[2:], mode="bilinear", align_corners=False)
+        c2 = b.proj_c2(torch.cat([s8, up], 1))
+        c3 = b.proj_c3(f1)
+        c4 = b.proj_c4(torch.nn.functional.interpolate(f2, scale_factor=0.5, mode="bilinear", align_corners=False))
+        return [proj(f) for proj, f in zip(self.input_proj, (c1, c2, c3, c4))]
+
+    def forward(self, images, c1, s8):
+        return self.pack(*self.levels(images, c1, s8))
+
+
+def _vit_stem_parts(model: torch.nn.Module, output_names, samples=()):
+    """``(stem, host_pack, neck, decoder)`` of a "stem" hybrid split; each gets its own copy of what it runs.
+
+    With calibration ``samples`` the canvas levels get power-of-two scales, as
+    in ``_detr_neck_parts``.
+    """
+    net = _sync_batchnorms_to_batchnorm(copy.deepcopy(model).eval())
+    stem = _ViTStemWrapper(copy.deepcopy(net.backbone)).eval()
+    host = _ViTStemHostPackWrapper(copy.deepcopy(net.backbone), copy.deepcopy(net.encoder)).eval()
+    encoder = net.encoder
+    levels, c = len(encoder.input_proj), int(encoder.hidden_dim)
+    scales = None
+    if samples:
+        peaks = torch.zeros(levels)
+        with torch.no_grad():
+            for sample in samples:
+                x = torch.as_tensor(sample)
+                canvas = host(x, *stem(x))[0]
+                peaks = torch.maximum(peaks, torch.stack([canvas[:, c * i : c * (i + 1)].abs().max() for i in range(levels)]))
+        if bool((peaks > 0).all()):
+            scales = [float(2.0 ** round(math.log2(float(peaks.max() / peak)))) for peak in peaks]
+            host.pack.scales = scales
+    neck_encoder = copy.deepcopy(encoder)
+    neck_encoder.input_proj = torch.nn.ModuleList(torch.nn.Identity() for _ in range(levels))
+    neck_encoder.num_encoder_layers = 0
+    neck_encoder.encoder = torch.nn.ModuleList()
+    out_levels = len(neck_encoder.out_indices)
+    neck = _DETRNeckWrapper(
+        neck_encoder, torch.nn.ModuleList(torch.nn.Identity() for _ in range(out_levels)), c,
+        encoder.feat_strides, scales,
+    ).eval()
+    neck.output_names = tuple(f"memory_s{encoder.feat_strides[i]}" for i in neck_encoder.out_indices)
+    return stem, host, neck, _DETRDecoderWrapper(copy.deepcopy(net.decoder), output_names).eval()
+
+
+#: Hybrid families whose backbone is a ViT beside a convolutional stem: the "stem" split.
+_HYBRID_VIT_STEM = frozenset({"tinyformer"})
+
+
 def _has_attention_encoder(model: torch.nn.Module) -> bool:
     """Whether a DETR-style model's encoder runs attention layers (RT-DETR's AIFI) or is all convolutions.
 
@@ -6805,6 +6916,8 @@ class AxeleraExporter(BaseExporter):
     def _hybrid_split(self) -> str:
         """Where a hybrid export stops running on Metis: ``"neck"`` (default) or ``"backbone"``."""
         family = self.model._get_model_name()
+        if family in _HYBRID_VIT_STEM:
+            return "stem"
         if family not in _HYBRID_BACKBONE_ONLY and not _has_attention_encoder(self.model.model):
             return "encoder"
         default = "backbone" if family in _HYBRID_BACKBONE_ONLY else "neck"
@@ -6832,6 +6945,8 @@ class AxeleraExporter(BaseExporter):
             (globals()[own[0]], globals()[own[1]]) if own else (_DETRBackboneWrapper, _DETRHostTailWrapper)
         )
         split = self._hybrid_split()
+        if split == "stem":
+            return self._export_vit_stem_parts(net, dummy, out, opset, simplify, imgsz, outputs)
         if split == "encoder":
             self._raw_wrapper, conv_encoder_tail = _detr_conv_encoder_parts(net, outputs)
         else:
@@ -6931,6 +7046,55 @@ class AxeleraExporter(BaseExporter):
                 "outputs": list(outputs) if not mask_parts else [*outputs[:2], "mask_embed", "mask_fuse_in"],
             },
             *mask_parts,
+        ]
+        return exported
+
+    def _export_vit_stem_parts(self, net, dummy, out: Path, opset, simplify, imgsz, outputs):
+        """The "stem" hybrid split (TinyFormer): stem part, host ViT and canvas, neck part, host decoder."""
+        from .onnx import _export_onnx_graph
+
+        if hasattr(net, "deploy"):
+            net = net.deploy()
+        stem, host, neck, decoder = _vit_stem_parts(net, outputs, self._equalization_samples())
+        self._raw_wrapper = stem
+        onnx_meta = self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz)
+
+        def export(module, sample, path, inputs, names):
+            self._intermediate_paths.append(path)
+            return _export_onnx_graph(
+                module, sample, output_path=path, opset=opset, simplify=simplify, half=False,
+                metadata=onnx_meta, input_names=list(inputs), output_names=list(names), dynamic_axes=None,
+            )
+
+        stem_out = list(stem.output_names)
+        part1 = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        logger.info("Step 1/2: Exporting the hybrid parts (stem split): convolutional stem ONNX for Metis (%s)", part1)
+        exported = export(stem, dummy, part1, ["images"], stem_out)
+        logger.info(
+            "Axelera hybrid: canvas level scales %s (powers of two; the neck divides them out)",
+            ", ".join(f"{v:.3f}" for v in host.pack.scales),
+        )
+        with torch.no_grad():
+            c1, s8 = stem(dummy)
+            canvas = host(dummy, c1, s8)[0]
+            memory = tuple(neck(canvas))
+        host_in = ["images", *stem_out]
+        host1 = export(host, (dummy, c1, s8), str(out.with_name(f"{out.name}.export_intermediate.host1.onnx")), host_in, ["canvas"])
+        part2 = export(neck, canvas, str(out.with_name(f"{out.name}.export_intermediate.part2.onnx")), ["canvas"], neck.output_names)
+        host2 = export(
+            decoder, memory, str(out.with_name(f"{out.name}.export_intermediate.host2.onnx")),
+            list(neck.output_names), outputs,
+        )
+        self._hybrid_parts = [
+            {"host_onnx": host1, "inputs": host_in, "outputs": ["canvas"]},
+            {
+                "compile": part2,
+                "reference": neck,
+                "input": "canvas",
+                "merge_pad": False,
+                "quantization_scheme": self._hybrid_neck_scheme(),
+            },
+            {"host_onnx": host2, "inputs": list(neck.output_names), "outputs": list(outputs)},
         ]
         return exported
 
@@ -7040,6 +7204,7 @@ class AxeleraExporter(BaseExporter):
                 _DETRConvEncoderWrapper,
                 _DocLayoutBackboneWrapper,
                 _DeformableDETRBackboneWrapper,
+                _ViTStemWrapper,
                 _DeepLabBackboneWrapper,
                 _VGGFeaturesWrapper,
                 _RetinaNetBodyWrapper,

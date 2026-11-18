@@ -4761,14 +4761,25 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "hybrid",
     ("tinyformer",),
     ("detect",),
     ("axelera",),
     reason=(
-        "TinyFormer's decoder uses the same gather-based deformable attention "
-        "as EC (bounds masks, data-dependent Gather) and LayerNorm; with SDK "
-        "1.9 quantization has no converter for its GreaterOrEqual masks."
+        "Hybrid INT8 export: the convolutional stem of TinyFormer's backbone and "
+        "its 4-scale fusion neck are compiled with Axelera's toolchain and run on "
+        "the Metis AIPU; the ViT tower, the level projections, the attention "
+        "encoder layer and the deformable-attention decoder run on the host CPU as "
+        "FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Host-bound. "
+        "The stem's GELU is exported as its tanh approximation (max logit shift "
+        "1.2e-6 in FP32)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs "
+        "and metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed square input"
     ),
 )
 _add(
@@ -5489,6 +5500,9 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("tinyformer", "detect", "axelera"): {
+        size: "has not been measured on a Metis yet" for size in ("s", "m", "l", "x", "xl")
+    },
     ("yolo9_p2", "detect", "axelera"): {
         "t": (
             "has not been measured on a Metis yet: no trained YOLO9-P2-t "
