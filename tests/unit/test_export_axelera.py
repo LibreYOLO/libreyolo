@@ -1895,7 +1895,6 @@ def test_efficientdet_preprocessing_accepts_a_square_pair():
         ("convnext", "classify", "LayerNorm"),
         ("convnextv2", "classify", "Global"),
         ("ec", "detect", "deformable attention"),
-        ("tinyformer", "detect", "deformable attention"),
         ("teed", "edge", "logarithm"),
     ],
 )
@@ -1904,6 +1903,21 @@ def test_structurally_blocked_axelera_families_name_the_reason(family, task, key
 
     entry = get_support(family, task, "axelera")
     assert entry.tier == "blocked" and keyword in entry.reason
+
+
+def test_tinyformer_detect_is_a_stem_split_hybrid():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("tinyformer", "detect", "axelera")
+    assert entry.tier == "hybrid" and "stem" in entry.reason and "host" in entry.reason
+
+
+def test_gtr_is_out_of_scope_for_every_task_with_the_layernorm_reason():
+    from libreyolo.export.support import get_support
+
+    for task in ("detect", "pose", "obb", "depth", "semantic", "segment"):
+        entry = get_support("gtr", task, "axelera")
+        assert entry.tier == "blocked" and "LayerNorm" in entry.reason and "30" in entry.reason
 
 
 def test_convnext_block_names_the_layernorm_and_the_part_count():
