@@ -148,6 +148,11 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "hybrid_split": "backbone",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
+    # ZipDepth-bnpu (384): encoder to stage 3 on the Metis; the GCNet context block (softmax) and the rest on the host.
+    ("zipdepth", "depth", "bnpu"): {
+        "hybrid_split": "backbone",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
     ("retinanet", "detect", "r50v2"): {
         "canvas": 800,
         "hybrid_split": "backbone",

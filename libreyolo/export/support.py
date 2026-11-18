@@ -4670,21 +4670,26 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "hybrid",
     ("zipdepth",),
     ("depth",),
     ("axelera",),
     reason=(
-        "ZipDepth's GCNet context block weights its 576 stage-3 positions with "
-        "a softmax, which has no AIPU form within SDK 1.9's limits. Measured "
-        "on ZipDepth-bnpu at 384 px: after exact rewrites of its channel and "
-        "strip mean reductions the graph quantizes, but the softmax over "
-        "positions either needs a reshape pair (4 layout transforms, at most "
-        "3 allowed), a one-hot transposed convolution (5184 reduction blocks, "
-        "too many for the MVM unit) or, written as an exponential-weighted "
-        "pooling, Exp and Reciprocal, which the quantizer does not support. "
-        "Running only the division on the host would need a compiled part "
-        "with two inputs."
+        "Hybrid INT8 export: ZipDepth's encoder through stage 3's fourth "
+        "block (its strip attention as an exact pooling form) is compiled with "
+        "Axelera's toolchain and runs on the Metis AIPU; the rest of stage 3, "
+        "with the GCNet context block, stage 4 and the decoder run on the host "
+        "CPU as an FP32 ONNX graph through ONNX Runtime. The context block "
+        "weights its 576 stage-3 positions with a softmax that has no AIPU form "
+        "within SDK 1.9, and the device drifts through the last stage-3 blocks "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
+        "and metadata parts; keep them together. Needs onnxruntime at run time. "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 384x384 input"
     ),
 )
 _add(
@@ -5460,6 +5465,7 @@ UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
         size: "has not been measured on a Metis yet" for size in ("x",)
     },
     ("hrnet", "pose", "axelera"): {"w48": "has not been measured on a Metis yet"},
+    ("zipdepth", "depth", "axelera"): {"b": "has not been measured on a Metis yet"},
     ("yolo9_p2", "detect", "axelera"): {
         "t": (
             "has not been measured on a Metis yet: no trained YOLO9-P2-t "

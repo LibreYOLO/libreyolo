@@ -788,3 +788,25 @@ def test_dekr_w32_hybrid_stage3_split_reproduces_the_native_model():
     assert body.output_names == ("branch0", "branch1", "branch2")
     for g, w in zip(got, want):
         torch.testing.assert_close(g, w, atol=1e-4, rtol=1e-4)
+
+
+def test_zipdepth_bnpu_hybrid_gcb_split_reproduces_the_native_model():
+    """ZipDepth-bnpu recipe hybrid in FP32: the encoder to the GCNet block (Metis part; channel and strip
+    attention in their exact pooling forms, identity-conv outputs) then the context block, stage 4 and the
+    decoder on the host reproduce the native depth; the caller's model is left unpatched."""
+    from libreyolo import LibreZipDepth
+    from libreyolo.export.exporter import AxeleraExporter, _ZipDepthBodyWrapper, _ZipDepthHostTailWrapper
+
+    model = LibreZipDepth(None, size="bnpu", device="cpu")
+    exporter = AxeleraExporter(model)
+    assert exporter._hybrid_outputs() == ("depth",) and exporter._hybrid_split() == "backbone"
+    net = model.model.eval()
+    x = torch.rand(1, 3, 128, 128, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = net(x)
+        body = _ZipDepthBodyWrapper(net).eval()
+        got = _ZipDepthHostTailWrapper(net, ("depth",)).eval()(*body(x))[0]
+        again = net(x)
+    assert body.output_names == ("s_half", "s1", "s2", "s3_pre")
+    torch.testing.assert_close(got, want, atol=1e-4, rtol=1e-4)
+    torch.testing.assert_close(again, want)  # the rewrites stay on the wrapper's copy

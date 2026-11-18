@@ -4473,11 +4473,13 @@ _AXELERA_RECIPE_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("hrnet", "pose"): ("heatmaps",),
     # DEKR-w32: the same HRNet trunk; stem to stage 3 on Metis, stage 4 and the heads on the host.
     ("dekr", "pose"): ("heatmap_logits", "offsets"),
+    # ZipDepth-bnpu: the GCNet softmax over positions has no AIPU form; the encoder before it runs on Metis.
+    ("zipdepth", "depth"): ("depth",),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
 _HYBRID_BACKBONE_ONLY = frozenset(
-    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet", "hrnet", "dekr"}
+    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet", "hrnet", "dekr", "zipdepth"}
 )
 
 
@@ -4853,6 +4855,126 @@ class _DEKRHostTailWrapper(torch.nn.Module):
         return heatmap, offsets
 
 
+def _zipdepth_channel_attention(self, x):
+    """ZipDepth ChannelAttention, exact: the channel mean as a global average pool and the gate repeated to H x W."""
+    import torch.nn.functional as F
+
+    gate = self.fc(F.adaptive_avg_pool2d(x, 1))
+    return x * F.interpolate(gate, size=x.shape[-2:], mode="nearest")
+
+
+def _zipdepth_strip_pooling(self, x):
+    """ZipDepth StripPoolingAttention, exact: strip means as average pools, each repeated to H x W."""
+    import torch.nn.functional as F
+
+    h, w = x.shape[-2:]
+    h_strip = F.interpolate(F.avg_pool2d(x, (1, w)), size=(h, w), mode="nearest")
+    w_strip = F.interpolate(F.avg_pool2d(x, (h, 1)), size=(h, w), mode="nearest")
+    return x * self.gate_conv(h_strip + w_strip)
+
+
+#: Stage-3 blocks that run on the Metis in a hybrid ZipDepth export (measured on bnpu: device disparity
+#: AbsRel vs FP32 0.030 with 4, 0.082 with 5, 0.098 with all 6 QARep blocks).
+_ZIPDEPTH_STAGE3_METIS_BLOCKS = 4
+
+
+def _zipdepth_host_from(stage3) -> int:
+    """Index of the first stage-3 block that runs on the host.
+
+    Stage 3 is six QARep blocks, a channel attention and the GCNet context
+    block. The context block's softmax has no AIPU form; on the device the
+    stage-3 output drifts away from FP32 through the last QARep blocks (a
+    prefix bisect: cut after 4 blocks 0.030 disparity AbsRel, after 5 0.082,
+    after 6 0.098), so the Metis part ends after the fourth.
+    """
+    blocks = list(stage3)
+    attention = next(
+        i for i, b in enumerate(blocks) if type(b).__name__ in ("ChannelAttention", "GlobalContextBlock")
+    )
+    return min(_ZIPDEPTH_STAGE3_METIS_BLOCKS, attention)
+
+
+class _ZipDepthBodyWrapper(torch.nn.Module):
+    """Part 1 of a hybrid ZipDepth export (recipe ``hybrid_split``): the encoder through stage 3's fourth block.
+
+    The GCNet block weights the 576 stage-3 positions with a softmax that has
+    no AIPU form within SDK 1.9; the encoder before it runs on Metis (its
+    channel and strip attention as exact pooling forms), the context block,
+    stage 4 and the decoder on the host. Each output (the decoder's skips and
+    the stage-3 map) leaves through a weight-identity 1x1 conv (exact).
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("s_half", "s1", "s2", "s3_pre")
+    hybrid_aipu = "ZipDepth encoder through stage 3's fourth QARep block"
+    hybrid_host = (
+        "the rest of stage 3 (two QARep blocks, channel attention, global context block), stage 4, "
+        "SPPF, cross-scale exchange and the decoder (FP32 ONNX)"
+    )
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        import types
+
+        from ..models.zipdepth.nn import ChannelAttention, StripPoolingAttention
+
+        self.model = copy.deepcopy(model)  # the attention rewrites stay on this copy
+        for mod in self.model.modules():
+            if isinstance(mod, ChannelAttention):
+                mod.forward = types.MethodType(_zipdepth_channel_attention, mod)
+            elif isinstance(mod, StripPoolingAttention):
+                mod.forward = types.MethodType(_zipdepth_strip_pooling, mod)
+        enc = self.model.encoder
+        self.gcb_index = _zipdepth_host_from(enc.stage3)
+        training = self.model.training
+        self.model.eval()  # a private copy: one no-grad pass for the output widths, BatchNorm stats untouched
+        with torch.no_grad():
+            channels = [int(t.shape[1]) for t in self._features(torch.zeros(1, 3, 64, 64))]
+        self.model.train(training)
+        self.identity = torch.nn.ModuleList()
+        for c in channels:
+            conv = torch.nn.Conv2d(c, c, 1, bias=False)
+            with torch.no_grad():
+                conv.weight.copy_(torch.eye(c).view(c, c, 1, 1))
+            self.identity.append(conv)
+
+    def _features(self, x):
+        m = self.model
+        enc = m.encoder
+        x = (x - m.mean) / m.std
+        s_half = enc.stem_half(x)
+        s1 = enc.stage1(enc.stem_quarter(s_half))
+        s2 = enc.stage2(enc.down2(s1))
+        s3 = enc.down3(s2)
+        for block in list(enc.stage3)[: self.gcb_index]:
+            s3 = block(s3)
+        return s_half, s1, s2, s3
+
+    def forward(self, x):
+        return tuple(conv(t) for conv, t in zip(self.identity, self._features(x)))
+
+
+class _ZipDepthHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid ZipDepth export: the rest of stage 3 onward, ending at the whole-graph ``depth``."""
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+        self.gcb_index = _zipdepth_host_from(model.encoder.stage3)
+
+    def forward(self, s_half, s1, s2, s3):
+        m = self.model
+        enc = m.encoder
+        for block in list(enc.stage3)[self.gcb_index :]:
+            s3 = block(s3)
+        s4 = enc.spp(enc.stage4(enc.down4(s3)))
+        s3, s4 = enc.cross_scale(s3, s4)
+        h, w = s_half.shape[-2] * 2, s_half.shape[-1] * 2
+        return (m.decoder(s_half, [s1, s2, s3, s4], (h, w)),)
+
+
 class _DeepLabBackboneWrapper(torch.nn.Module):
     """Part 1 of a hybrid DeepLabV3 export (recipe ``hybrid_split``): the ResNet backbone through layer4.
 
@@ -5208,6 +5330,7 @@ _HYBRID_BACKBONE_WRAPPERS = {
     "centernet": ("_CenterNetBodyWrapper", "_CenterNetHostTailWrapper"),
     "hrnet": ("_HRNetBodyWrapper", "_HRNetHostTailWrapper"),
     "dekr": ("_DEKRBodyWrapper", "_DEKRHostTailWrapper"),
+    "zipdepth": ("_ZipDepthBodyWrapper", "_ZipDepthHostTailWrapper"),
 }
 
 
@@ -6698,6 +6821,7 @@ class AxeleraExporter(BaseExporter):
                 _CenterNetBodyWrapper,
                 _HRNetBodyWrapper,
                 _DEKRBodyWrapper,
+                _ZipDepthBodyWrapper,
             ),
         ):
             outputs = list(self._hybrid_outputs())

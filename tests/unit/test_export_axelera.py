@@ -1184,6 +1184,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("hrnet", "pose", "w32"),
         # DEKR-w32 recipe hybrid (test_dekr_w32_hybrid_stage3_split_reproduces_the_native_model).
         ("dekr", "pose", "w32"),
+        # ZipDepth-bnpu recipe hybrid (test_zipdepth_bnpu_hybrid_gcb_split_reproduces_the_native_model).
+        ("zipdepth", "depth", "bnpu"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),
@@ -2365,11 +2367,14 @@ def test_centernet_is_a_body_split_hybrid():
     assert ("centernet", "detect", "axelera") not in UNMEASURED_SIZES
 
 
-def test_zipdepth_block_names_the_softmax_limit():
-    from libreyolo.export.support import get_support
+def test_zipdepth_is_a_gcb_split_hybrid():
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.support import UNMEASURED_SIZES, get_support
 
     entry = get_support("zipdepth", "depth", "axelera")
-    assert entry.tier == "blocked" and "softmax" in entry.reason and "two inputs" in entry.reason
+    assert entry.tier == "hybrid" and "softmax" in entry.reason and "fourth" in entry.reason
+    assert size_recipe("zipdepth", "depth", "bnpu")["hybrid_split"] == "backbone"
+    assert "b" in UNMEASURED_SIZES[("zipdepth", "depth", "axelera")]
 
 
 def test_hrnet_is_a_stage3_split_hybrid():
