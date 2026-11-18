@@ -5695,20 +5695,8 @@ def _sync_batchnorms_to_batchnorm(module: torch.nn.Module) -> torch.nn.Module:
     return module
 
 
-class _ClampedTanhGELU(torch.nn.Module):
-    """GELU as its tanh approximation, with the cubic term computed on ``clamp(x, -6, 6)``.
-
-    The tanh form exports as Tanh, Mul and Add (the exact GELU's Erf does not
-    quantize). Its cubic term spans x^3 of the whole activation range, so one
-    INT8 scale for it wipes out the small values (TinyFormer-s stem, CPU
-    screen: min cosine 0.62). Past |x| = 6 the tanh is 1 or -1 in FP32 either
-    way, so the clamp changes nothing in FP32 and bounds the cubic term to
-    +-216 (screen: min cosine 0.987).
-    """
-
-    def forward(self, x):
-        c = torch.clamp(x, -6.0, 6.0)
-        return x * 0.5 * (1.0 + torch.tanh(0.7978845608028654 * (c + 0.044715 * c * c * c)))
+#: GELU(x) ~ x * sigmoid(1.702 x) in the compiled TinyFormer stem (_ViTStemWrapper).
+_STEM_SIGMOID_GELU = 1.702
 
 
 class _ViTStemWrapper(torch.nn.Module):
@@ -5716,7 +5704,10 @@ class _ViTStemWrapper(torch.nn.Module):
 
     TinyFormer's backbone runs a ViT tower on the image beside a small conv
     stem (three stride-2 conv / batch norm / GELU stages); the stem and the
-    stride-4 projection compile, the ViT runs on the host.
+    stride-4 projection compile, the ViT runs on the host. Both outputs stop
+    before their last GELU, which the host step applies (exact): a graph that
+    ends in the GELU's Tanh, Add and Mul leaves them to a host postamble, and
+    the compiled model then has 4 output buffers for 2 outputs.
     """
 
     output_layout = "graph_outputs_v1"
@@ -5728,17 +5719,28 @@ class _ViTStemWrapper(torch.nn.Module):
     def __init__(self, backbone: torch.nn.Module):
         super().__init__()
         self.sda, self.proj_c1 = backbone.sda, backbone.proj_c1
-        # The exact GELU exports as Erf, which the quantizer leaves as an external op;
-        # the tanh form quantizes, with its cubic term on an input clamped to +-6 (_ClampedTanhGELU).
-        for parent in (self.sda, self.proj_c1):
-            for module in list(parent.modules()):
-                for name, child in list(module.named_children()):
-                    if isinstance(child, torch.nn.GELU) and child.approximate == "none":
-                        setattr(module, name, _ClampedTanhGELU())
+        for block in (self.proj_c1, self.sda[2]):
+            if not isinstance(block[-1], torch.nn.GELU):
+                raise ValueError(f"Axelera stem split expects a GELU at the end of {type(block).__name__}, got {block[-1]!r}")
+        # The exact GELU exports as Erf, which does not quantize; the tanh form quantizes but does not compile
+        # (its elementwise tail leaves extra DDR buffers, "manifest describes 2 outputs ... 4 output buffers").
+        # The two inner GELUs run as x * sigmoid(a x) = SiLU(a x) / a (a = 1.702): a goes into the stage's batch
+        # norm and 1 / a into the convolutions that read it, both exact; only the sigmoid approximation is not.
+        a = _STEM_SIGMOID_GELU
+        with torch.no_grad():
+            for i in (0, 1):
+                conv, norm, act = self.sda[i]
+                if not (isinstance(conv, torch.nn.Conv2d) and isinstance(norm, torch.nn.BatchNorm2d) and isinstance(act, torch.nn.GELU)):
+                    raise ValueError(f"Axelera stem split expects Conv2d, BatchNorm2d, GELU in sda[{i}], got {self.sda[i]!r}")
+                norm.weight.mul_(a)
+                norm.bias.mul_(a)
+                self.sda[i][2] = torch.nn.SiLU()
+            for conv in (self.sda[1][0], self.proj_c1[0], self.sda[2][0]):
+                conv.weight.div_(a)
 
     def forward(self, x):
         s4 = self.sda[1](self.sda[0](x))
-        return self.proj_c1(s4), self.sda[2](s4)
+        return self.proj_c1[:-1](s4), self.sda[2][:-1](s4)
 
 
 class _ViTStemHostPackWrapper(torch.nn.Module):
@@ -5753,8 +5755,12 @@ class _ViTStemHostPackWrapper(torch.nn.Module):
         self.pack = _DETREncoderPackWrapper(encoder, scales)
 
     def levels(self, images, c1, s8):
-        """The four projected encoder levels (strides 4, 8, 16, 32), as the native backbone and encoder make them."""
+        """The four projected encoder levels (strides 4, 8, 16, 32), as the native backbone and encoder make them.
+
+        ``c1`` and ``s8`` are the stem part's outputs before their last GELU (``_ViTStemWrapper``).
+        """
         b = self.backbone
+        c1, s8 = b.proj_c1[-1](c1), b.sda[2][-1](s8)
         n, h, w = images.shape[0], images.shape[2] // 16, images.shape[3] // 16
         layers = b.dinov3(images)
         l0, l1, l2 = (layers[0],) * 3 if len(layers) == 1 else layers[:3]

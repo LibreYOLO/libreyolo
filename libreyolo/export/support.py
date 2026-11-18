@@ -4771,8 +4771,9 @@ _add(
         "the Metis AIPU; the ViT tower, the level projections, the attention "
         "encoder layer and the deformable-attention decoder run on the host CPU as "
         "FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Host-bound. "
-        "The stem's GELU is exported as its tanh approximation (in FP32 the top "
-        "detection scores move by less than 4e-4)."
+        "The stem's two inner GELUs run as x * sigmoid(1.702 x) (in FP32 the top-10 "
+        "detection scores move by less than 0.013; cocoval300 mAP50-95 0.5167 vs "
+        "0.5175 for TinyFormer-s)."
     ),
     since="1.7",
     constraint=(

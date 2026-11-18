@@ -859,9 +859,8 @@ def test_rtmdet_x_hybrid_backbone_split_reproduces_the_export_output():
     torch.testing.assert_close(got, want, atol=1e-4, rtol=1e-4)
 
 
-def test_tinyformer_stem_split_reproduces_the_native_model_within_the_tanh_gelu_bound():
-    from libreyolo.export.exporter import _ClampedTanhGELU
-    from libreyolo.export.exporter import AxeleraExporter, _vit_stem_parts
+def test_tinyformer_stem_split_reproduces_the_native_model_within_the_sigmoid_gelu_bound():
+    from libreyolo.export.exporter import _STEM_SIGMOID_GELU, AxeleraExporter, _vit_stem_parts
     from libreyolo.export.support import get_support
     from libreyolo.models.tinyformer.model import LibreTinyFormer
 
@@ -870,22 +869,21 @@ def test_tinyformer_stem_split_reproduces_the_native_model_within_the_tanh_gelu_
     assert AxeleraExporter(model)._hybrid_split() == "stem"
     net = model.model.eval().deploy()
     stem, host, neck, decoder = _vit_stem_parts(net, OUTPUTS)
-    # The compiled stem exports its GELU as the clamped tanh approximation (no Erf op).
-    assert not any(isinstance(m, torch.nn.GELU) for m in stem.modules())
-    assert any(isinstance(m, _ClampedTanhGELU) for m in stem.modules())
-    # The clamp on the cubic term changes nothing in FP32: same values as torch's tanh GELU.
-    t = torch.linspace(-40.0, 40.0, 20001)
-    torch.testing.assert_close(_ClampedTanhGELU()(t), torch.nn.functional.gelu(t, approximate="tanh"), atol=1e-6, rtol=0)
     x = torch.rand(1, 3, 640, 640)
+    # The compiled stem runs its two inner GELUs as SiLU(a x) / a (a folded into the convolutions, exact), and
+    # stops before the last GELU of each output, which the host step applies.
+    assert sum(isinstance(m, torch.nn.SiLU) for m in stem.modules()) == 2
     with torch.no_grad():
-        expected = net(x)
+        b = net.backbone
+        sig = lambda t: t * torch.sigmoid(_STEM_SIGMOID_GELU * t)  # noqa: E731
+        s4 = sig(b.sda[1][1](b.sda[1][0](sig(b.sda[0][1](b.sda[0][0](x))))))
         c1, s8 = stem(x)
+        torch.testing.assert_close(c1, b.proj_c1[1](b.proj_c1[0](s4)), atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(s8, b.sda[2][1](b.sda[2][0](s4)), atol=1e-4, rtol=1e-4)
+        expected = net(x)
         assert tuple(host(x, c1, s8)[0].shape) == (1, 4 * 192, 160, 160)
         actual = decoder(*neck(host(x, c1, s8)[0]))
-    # Measured bound of the tanh-GELU stem on random init: 1.2e-6 on the logits (0.0 on the boxes).
-    for got, name in zip(actual, OUTPUTS):
-        assert float((got - expected[name]).abs().max()) < 1e-5
-    # The documented bound (support text): the top detection scores move by less than 4e-4. Compared as sorted
-    # top-30 scores, since the tanh GELU may reorder low-scored queries (measured on TinyFormer-s weights).
-    top = lambda logits: logits.sigmoid().flatten().topk(30).values  # noqa: E731
-    assert float((top(actual[0]) - top(expected["pred_logits"])).abs().max()) < 4e-4
+    # Documented bound (support text, measured on TinyFormer-s weights over cocoval300 images): the sorted top-10
+    # detection scores move by less than 0.013 (sorted: the approximation may reorder near-tied queries).
+    top = lambda logits: logits.sigmoid().flatten().topk(10).values  # noqa: E731
+    assert float((top(actual[0]) - top(expected["pred_logits"])).abs().max()) < 0.013
