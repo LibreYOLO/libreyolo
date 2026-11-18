@@ -5512,7 +5512,7 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
     ("tinyformer", "detect", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("s", "m", "l", "x", "xl")
+        size: "has not been measured on a Metis yet" for size in ("m", "l", "x", "xl")
     },
     ("yolo9_p2", "detect", "axelera"): {
         "t": (

@@ -119,6 +119,7 @@ a separate size:
 | DEIMv2 | femto | detect (hybrid: whole convolutional model up to the decoder on the Metis; 416x416) | COCO val2017, 300 | 0.3078 | 0.2801 | -2.77 | hybrid | `deimv2/detect/femto/2026-11-16` |
 | DEIMv2 | pico | detect (hybrid: whole convolutional model up to the decoder on the Metis) | COCO val2017, 300 | 0.3852 | 0.3697 | -1.55 | hybrid | `deimv2/detect/pico/2026-11-16` |
 | DEIMv2 | n | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4247 | 0.4188 | -0.59 | hybrid | `deimv2/detect/n/2026-11-16` |
+| TinyFormer | s | detect (hybrid: conv stem and 4-scale fusion neck on the Metis; ViT tower, projections, attention and decoder on the host; host-bound, 0.75 img/s) | COCO val2017, 300 | 0.5175 | 0.5066 | -1.09 | hybrid | `tinyformer/detect/s/2026-11-18/3` |
 | DETR | r50 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.3879 | 0.3852 | -0.27 | hybrid | `detr/detect/r50/2026-11-15` |
 | DETR | r50dc5 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.4172 | 0.4125 | -0.47 | hybrid | `detr/detect/r50dc5/2026-11-16` |
 | DETR | r101 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.4019 | 0.3732 | -2.87 | hybrid | `detr/detect/r101/2026-11-16` |
@@ -510,6 +511,7 @@ still are, in opposite directions (their rows).
 | DEIMv2-femto (hybrid, 416x416) | detect | COCO val2017, 300 images | 64 coco128 | 0.3078 | 0.2801 | -2.77 (hybrid; one compiled part, decoder on the host) |
 | DEIMv2-pico (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.3852 | 0.3697 | -1.55 (hybrid; one compiled part, decoder on the host) |
 | DEIMv2-n (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4247 | 0.4188 | -0.59 (hybrid; backbone part per channel, neck part per tensor) |
+| TinyFormer-s (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5175 | 0.5066 | -1.09 (hybrid; stem and neck parts per tensor min-max; the stem's inner GELUs as x * sigmoid(1.702 x), FP32 0.5167) |
 | DETR-r50 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.3879 | 0.3852 | -0.27 (hybrid) |
 | DETR-r50dc5 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4172 | 0.4125 | -0.47 (hybrid) |
 | DETR-r101 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4019 | 0.3732 | -2.87 (hybrid) |
@@ -768,6 +770,12 @@ network shape) at 4.7 and 8.4 img/s, DEIM-m 89% at 3.8 and 4.5 img/s, DEIM-l 91%
 DEIMv2-n runs at 10.0 and 12.1 img/s; DEIMv2 atto, femto and pico, whose encoder
 has no attention, run everything but the decoder on the Metis (95%, 93% and 96%
 of their MACs) at 42.7, 12.4 and 7.9 img/s at batch 1.
+TinyFormer-s runs only 22% of its MACs on the Metis (6.3 of 28.4 G: the conv
+stem and the fusion neck); its ViT tower (21.1 G) runs on the host, so it is
+host-bound at 0.75 and 0.77 img/s (AIPU 199 ms, host 1,106 ms at batch 1 on a
+loaded host). The stem's two inner GELUs run as x * sigmoid(1.702 x) folded into
+SiLU (the exact GELU does not quantize and its tanh form does not compile);
+their last GELUs run on the host.
 DETR-r50 (backbone only, 800x800) runs 87% of its MACs on the Metis (52.5 of
 60.2 G) at 2.0 and 2.3 img/s, but only 36 ms of its 459 ms chain at batch 1:
 its six-layer encoder over all 625 positions and the decoder run on the host.
@@ -1012,7 +1020,8 @@ Blocked for structural reasons (accuracy never blocks an export):
 - RTMDet-Ins-x: at 640x640 lowering fails in AssignTilingFactors (ScheduleMemory, LowerTIR): no tiling factor fits L1 (3.99 MB needed, 3.32 MB available; 2 h 08 min, 8.1 GB peak RSS; ledger `rtmdet/segment/x/2026-11-12`). Use RTMDet-Ins-l. Its CSPNeXt-x backbone alone compiles in 24 min, so the overflow is in the neck and heads; a backbone | neck+head split would need the three backbone levels packed into one input (the quantizer takes no multi-input calibration; ledger `rtmdet/segment/x/2026-11-17`).
 - MiDaS-l (DPT ViT-L, 384 px): quantization stops at the quantizer's ONNX import ("unexpected input value type") on the ViT encoder (48 LayerNormalization, 24 Softmax, 28 Erf, attention MatMuls; the same graph's 5 Resize nodes also occur in MiDaS-s, which compiles). It peaks at 18 GB of host RAM before failing. Use MiDaS-s.
 - ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them. The channel mean and variance have exact AIPU forms, but the per-pixel reciprocal square root feeding ConvNeXt's GELU has none; a host split at every LayerNorm would need about 23 parts for ConvNeXt-t, so a hybrid export (convolutions on the Metis, LayerNorms on the host) is the route if ConvNeXt is ever needed (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).
-- EC and TinyFormer: gather-based deformable attention in the decoder; no quantizer converter for its GreaterOrEqual bounds masks (ledgers `ec/detect/s/2026-11-11`, `tinyformer/detect/s/2026-11-11`).
+- EC and TinyFormer decoders: gather-based deformable attention; no quantizer converter for its GreaterOrEqual bounds masks (ledgers `ec/detect/s/2026-11-11`, `tinyformer/detect/s/2026-11-11`), so the decoder runs on the host in the hybrid export.
+- GTR (all tasks): its ViT runs on the host, and its multi-scale neck (at most ~48% of GTR-s detect's MACs) follows every convolution with a channel LayerNorm (GTR-s: 30 convolutions, 30 LayerNorm2d), so a hybrid export would need about 30 single-convolution parts (ledger `gtr/detect/s/2026-11-18`).
 - TEED: the Smish activation takes a logarithm, which quantization stops on; no trained weights are published (ledger `teed/edge/t/2026-11-11/2`).
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
@@ -1041,7 +1050,8 @@ generative models and 3D models. Checked against LibreYOLO's own model code
 - OmDet-Turbo: a Swin-T backbone and a CLIP text encoder, loaded through
   transformers; LibreYOLO has no runtime export for it in any format.
 - GTR: a ViT backbone whose blocks use gated linear attention, with an
-  adapter to multi-scale features.
+  adapter to multi-scale features; its convolutional neck puts a channel
+  LayerNorm after every convolution (section 11, known limits).
 - DEIMv2 s, m, l and x: DINOv3 ViT backbones with a spatial-tuning adapter
   (vit_tiny, vit_tinyplus, dinov3_vits16, dinov3_vits16plus). The atto,
   femto, pico and n sizes use HGNetv2 and export as hybrid (section 7).
