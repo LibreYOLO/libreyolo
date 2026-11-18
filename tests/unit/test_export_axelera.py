@@ -2384,7 +2384,8 @@ def test_zipdepth_is_a_gcb_split_hybrid():
     entry = get_support("zipdepth", "depth", "axelera")
     assert entry.tier == "hybrid" and "softmax" in entry.reason and "fourth" in entry.reason
     assert size_recipe("zipdepth", "depth", "bnpu")["hybrid_split"] == "backbone"
-    assert "b" in UNMEASURED_SIZES[("zipdepth", "depth", "axelera")]
+    assert size_recipe("zipdepth", "depth", "b")["hybrid_split"] == "backbone"
+    assert ("zipdepth", "depth", "axelera") not in UNMEASURED_SIZES
 
 
 def test_hrnet_is_a_stage3_split_hybrid():
