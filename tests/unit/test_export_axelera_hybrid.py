@@ -836,3 +836,24 @@ def test_pidnet_hybrid_layer5_split_reproduces_the_native_model(size):
     assert all(type(m).__name__ != "PagFM" or "forward" not in vars(m) for m in net.modules())
     torch.testing.assert_close(got, want, atol=1e-6, rtol=1e-6)
     torch.testing.assert_close(again, want)
+
+
+def test_rtmdet_x_hybrid_backbone_split_reproduces_the_export_output():
+    """RTMDet-x recipe hybrid in FP32: the CSPNeXt backbone (Metis part, identity-conv outputs) then the PAFPN
+    neck and the head in export mode on the host reproduce the model's decoded export output."""
+    from libreyolo import LibreRTMDet
+    from libreyolo.export.exporter import AxeleraExporter, _RTMDetBodyWrapper, _RTMDetHostTailWrapper
+
+    torch.manual_seed(0)
+    model = LibreRTMDet(None, size="x", device="cpu")
+    exporter = AxeleraExporter(model)
+    assert exporter._hybrid_outputs() == ("output",) and exporter._hybrid_split() == "backbone"
+    net = model.model.eval()
+    x = torch.rand(1, 3, 128, 128, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        net.head.export = True
+        want = net(x)
+        net.head.export = False
+        got = _RTMDetHostTailWrapper(net, ("output",)).eval()(*_RTMDetBodyWrapper(net).eval()(x))[0]
+    assert net.head.export is False
+    torch.testing.assert_close(got, want, atol=1e-4, rtol=1e-4)

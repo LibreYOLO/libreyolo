@@ -4248,9 +4248,12 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does "
-        "not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
-        "compile, INT8, batch 1, fixed input size"
+        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); hybrid "
+        "sizes: x (the whole graph finds no L1 tiling for its neck and heads: the "
+        "CSPNeXt-x backbone runs on the Metis, the PAFPN neck, heads and decode on "
+        "the host as an FP32 ONNX graph; +0.09 mAP50-95 vs FP32; one .axm part, one "
+        "host ONNX graph, needs onnxruntime). axelera-devkit / axelera-rt 1.9.0, "
+        "Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
 _add(
@@ -5479,18 +5482,7 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "multi-input calibration; use RTMDet-Ins-l"
         ),
     },
-    ("rtmdet", "detect", "axelera"): {
-        "x": (
-            "does not compile for Metis at 640x640 with the 1.9 SDK: the "
-            "compiler's LowerTIR pass still overflows its on-chip buffers after 4 "
-            "iterations (after 2 h 21 min, 7 GB peak RSS; a plain retry fails the "
-            "same way after 2 h 27 min). Its CSPNeXt-x backbone alone compiles (24 "
-            "minutes), so the overflow is in the neck and heads; a backbone | "
-            "neck+head split would need the three backbone levels packed into one "
-            "input, since the SDK's quantizer takes no multi-input calibration; "
-            "use RTMDet-l"
-        ),
-    },
+
 }
 
 #: Sizes not exportable yet because nobody has measured them on a Metis. This

@@ -1188,6 +1188,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("zipdepth", "depth", "bnpu"),
         # PIDNet recipe hybrids (test_pidnet_hybrid_layer5_split_reproduces_the_native_model).
         ("pidnet", "semantic", "s"), ("pidnet", "semantic", "m"), ("pidnet", "semantic", "l"),
+        # RTMDet-x detect recipe hybrid (test_rtmdet_x_hybrid_backbone_split_reproduces_the_export_output).
+        ("rtmdet", "detect", "x"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),
@@ -1330,13 +1332,13 @@ def test_rtmdet_ins_x_is_blocked_with_its_compile_failure(tmp_path):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 
-def test_rtmdet_x_is_blocked_with_its_compile_failure(tmp_path):
+def test_rtmdet_x_detect_exports_as_the_backbone_hybrid():
+    """RTMDet-x detect no longer raises: its recipe routes it to the backbone hybrid (decoded ``output``)."""
     from libreyolo import LibreRTMDet
+    from libreyolo.export.exporter import AxeleraExporter
 
-    model = LibreRTMDet(None, size="x", nb_classes=3, device="cpu")
-    message = r"rtmdet-x detect export to axelera is blocked: it does not compile .*LowerTIR"
-    with pytest.raises(NotImplementedError, match=message):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+    exporter = AxeleraExporter(LibreRTMDet(None, size="x", nb_classes=3, device="cpu"))
+    assert exporter._hybrid_outputs() == ("output",) and exporter._hybrid_split() == "backbone"
 
 
 def test_unmeasured_sizes_are_not_exportable_and_not_called_blocked(tmp_path):
@@ -2517,10 +2519,13 @@ def test_stem_residual_skip_conv_reads_a_stem_resolution_skip_through_an_identit
     assert deeper.graph.SerializeToString() == before
 
 
-def test_rtmdet_x_blocks_record_the_backbone_only_compile():
-    from libreyolo.export.support import BLOCKED_SIZES
+def test_rtmdet_x_detect_is_hybrid_and_segment_stays_blocked():
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.support import BLOCKED_SIZES, get_support
 
-    for task in ("detect", "segment"):
-        reason = BLOCKED_SIZES[("rtmdet", task, "axelera")]["x"]
-        assert "backbone alone compiles" in reason and "multi-input calibration" in reason
+    reason = BLOCKED_SIZES[("rtmdet", "segment", "axelera")]["x"]
+    assert "backbone alone compiles" in reason and "multi-input calibration" in reason
+    assert "x" not in BLOCKED_SIZES.get(("rtmdet", "detect", "axelera"), {})
+    assert size_recipe("rtmdet", "detect", "x")["hybrid_split"] == "backbone"
+    assert "hybrid sizes: x" in get_support("rtmdet", "detect", "axelera").constraint
 

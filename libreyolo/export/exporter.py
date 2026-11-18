@@ -4477,11 +4477,13 @@ _AXELERA_RECIPE_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("zipdepth", "depth"): ("depth",),
     # PIDNet-s: PAPPM's sums and the branch fusion after it break in INT8; layer 5 and before run on Metis.
     ("pidnet", "semantic"): ("semantic_logits",),
+    # RTMDet-x: the neck and heads overflow L1 when compiled; the CSPNeXt backbone runs on Metis.
+    ("rtmdet", "detect"): ("output",),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
 _HYBRID_BACKBONE_ONLY = frozenset(
-    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet", "hrnet", "dekr", "zipdepth", "pidnet"}
+    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet", "hrnet", "dekr", "zipdepth", "pidnet", "rtmdet"}
 )
 
 
@@ -5142,6 +5144,53 @@ class _PIDNetHostTailWrapper(torch.nn.Module):
         return (m.final_layer(m.dfm(p, x, d)),)
 
 
+class _RTMDetBodyWrapper(torch.nn.Module):
+    """Part 1 of a hybrid RTMDet export (recipe ``hybrid_split``): the CSPNeXt backbone's three levels.
+
+    Whole-graph, RTMDet-x finds no L1 tiling for its PAFPN neck and heads
+    (LowerTIR overflow after 2.4 h); the CSPNeXt-x backbone alone compiles. The
+    backbone runs on Metis, each level through a weight-identity 1x1 conv
+    (exact), and the neck, heads and box decode run on the host.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("c3", "c4", "c5")
+    hybrid_aipu = "CSPNeXt backbone (strides 8, 16, 32)"
+    hybrid_host = "PAFPN neck, heads and box decode (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        self.identity = torch.nn.ModuleList()
+        for c in model.neck.in_channels:
+            conv = torch.nn.Conv2d(int(c), int(c), 1, bias=False)
+            with torch.no_grad():
+                conv.weight.copy_(torch.eye(int(c)).view(int(c), int(c), 1, 1))
+            self.identity.append(conv)
+
+    def forward(self, x):
+        return tuple(conv(t) for conv, t in zip(self.identity, self.model.backbone(x)))
+
+
+class _RTMDetHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid RTMDet export: neck and head in export mode (``output``: xyxy + sigmoid scores)."""
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+
+    def forward(self, c3, c4, c5):
+        m = self.model
+        export = m.head.export
+        m.head.export = True
+        try:
+            return (m.head(m.neck((c3, c4, c5))),)
+        finally:
+            m.head.export = export
+
+
 class _DeepLabBackboneWrapper(torch.nn.Module):
     """Part 1 of a hybrid DeepLabV3 export (recipe ``hybrid_split``): the ResNet backbone through layer4.
 
@@ -5499,6 +5548,7 @@ _HYBRID_BACKBONE_WRAPPERS = {
     "dekr": ("_DEKRBodyWrapper", "_DEKRHostTailWrapper"),
     "zipdepth": ("_ZipDepthBodyWrapper", "_ZipDepthHostTailWrapper"),
     "pidnet": ("_PIDNetBodyWrapper", "_PIDNetHostTailWrapper"),
+    "rtmdet": ("_RTMDetBodyWrapper", "_RTMDetHostTailWrapper"),
 }
 
 
@@ -6998,6 +7048,7 @@ class AxeleraExporter(BaseExporter):
                 _DEKRBodyWrapper,
                 _ZipDepthBodyWrapper,
                 _PIDNetBodyWrapper,
+                _RTMDetBodyWrapper,
             ),
         ):
             outputs = list(self._hybrid_outputs())

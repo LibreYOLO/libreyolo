@@ -167,6 +167,11 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "hybrid_split": "backbone",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
+    # RTMDet-x (640): the CSPNeXt-x backbone on the Metis; the PAFPN neck and heads (no L1 tiling) on the host.
+    ("rtmdet", "detect", "x"): {
+        "hybrid_split": "backbone",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
     ("retinanet", "detect", "r50v2"): {
         "canvas": 800,
         "hybrid_split": "backbone",
