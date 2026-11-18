@@ -885,3 +885,7 @@ def test_tinyformer_stem_split_reproduces_the_native_model_within_the_tanh_gelu_
     # Measured bound of the tanh-GELU stem on random init: 1.2e-6 on the logits (0.0 on the boxes).
     for got, name in zip(actual, OUTPUTS):
         assert float((got - expected[name]).abs().max()) < 1e-5
+    # The documented bound (support text): the top detection scores move by less than 4e-4. Compared as sorted
+    # top-30 scores, since the tanh GELU may reorder low-scored queries (measured on TinyFormer-s weights).
+    top = lambda logits: logits.sigmoid().flatten().topk(30).values  # noqa: E731
+    assert float((top(actual[0]) - top(expected["pred_logits"])).abs().max()) < 4e-4
