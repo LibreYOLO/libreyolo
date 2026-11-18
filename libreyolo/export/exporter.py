@@ -5012,6 +5012,40 @@ def _pidnet_pag_forward(self, x, y):
     return gate_neg * x + gate * y
 
 
+def _ppliteseg_uafm_forward(self, x, skip):
+    """PP-LiteSeg UAFM, exact INT8-friendly form: ``x * sigmoid(z) + skip * sigmoid(-z)``.
+
+    The native blend ``x * a + skip * (1 - a)`` with ``a = sigmoid(z)`` needs a
+    constant minus a tensor, which the quantized model gets wrong (the three
+    UAFM outputs of PP-LiteSeg-t50 keep cosine 0.59-0.78 vs FP32 and the
+    logits' argmax agrees on 56% of pixels, as on the device). ``1 - sigmoid(z)``
+    is ``sigmoid(-z)``, the negation is a 1x1 convolution of -1, and the UAFM
+    outputs keep 0.99 (argmax agreement 95%).
+    """
+    x = self.up_x(x)
+    skip = self.proj_skip(skip)
+    atten = torch.cat([*self._avg_max_spatial_reduce(x), *self._avg_max_spatial_reduce(skip)], dim=1)
+    z = self.conv_atten(atten)
+    return self.conv_out(x * torch.sigmoid(z) + skip * torch.sigmoid(self._int8_negate(z)))
+
+
+def _ppliteseg_int8_blend(model: torch.nn.Module) -> int:
+    """Rewrite every PP-LiteSeg UAFM of ``model`` (a copy the caller owns) to the exact blend above; returns how many."""
+    import types
+
+    count = 0
+    for module in model.modules():
+        if type(module).__name__ != "UAFM":
+            continue
+        negate = torch.nn.Conv2d(1, 1, 1, bias=False)
+        with torch.no_grad():
+            negate.weight.fill_(-1.0)
+        module._int8_negate = negate
+        module.forward = types.MethodType(_ppliteseg_uafm_forward, module)
+        count += 1
+    return count
+
+
 class _PIDNetBodyWrapper(torch.nn.Module):
     """Part 1 of a hybrid PIDNet export (recipe ``hybrid_split``): the three branches through layer 5.
 
@@ -6529,6 +6563,13 @@ class AxeleraExporter(BaseExporter):
                     "%d [local] layers as per-position convolutions (exact; docs/axelera.md).",
                     _fuse_darknet_batchnorms(nn_model.net),
                     _local_layers_to_convs(nn_model.net),
+                )
+            if self.model._get_model_name() == "ppliteseg":
+                nn_model = copy.deepcopy(nn_model).eval()
+                logger.info(
+                    "Axelera: %d UAFM blends as x * sigmoid(z) + skip * sigmoid(-z) "
+                    "(exact; docs/axelera.md).",
+                    _ppliteseg_int8_blend(nn_model),
                 )
             if self._size_recipe().get("aspp_shift"):
                 nn_model = copy.deepcopy(nn_model).eval()
