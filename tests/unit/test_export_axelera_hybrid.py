@@ -860,6 +860,7 @@ def test_rtmdet_x_hybrid_backbone_split_reproduces_the_export_output():
 
 
 def test_tinyformer_stem_split_reproduces_the_native_model_within_the_tanh_gelu_bound():
+    from libreyolo.export.exporter import _ClampedTanhGELU
     from libreyolo.export.exporter import AxeleraExporter, _vit_stem_parts
     from libreyolo.export.support import get_support
     from libreyolo.models.tinyformer.model import LibreTinyFormer
@@ -869,8 +870,12 @@ def test_tinyformer_stem_split_reproduces_the_native_model_within_the_tanh_gelu_
     assert AxeleraExporter(model)._hybrid_split() == "stem"
     net = model.model.eval().deploy()
     stem, host, neck, decoder = _vit_stem_parts(net, OUTPUTS)
-    # The compiled stem exports its GELU as the tanh approximation (no Erf op).
-    assert not any(isinstance(m, torch.nn.GELU) and m.approximate == "none" for m in stem.modules())
+    # The compiled stem exports its GELU as the clamped tanh approximation (no Erf op).
+    assert not any(isinstance(m, torch.nn.GELU) for m in stem.modules())
+    assert any(isinstance(m, _ClampedTanhGELU) for m in stem.modules())
+    # The clamp on the cubic term changes nothing in FP32: same values as torch's tanh GELU.
+    t = torch.linspace(-40.0, 40.0, 20001)
+    torch.testing.assert_close(_ClampedTanhGELU()(t), torch.nn.functional.gelu(t, approximate="tanh"), atol=1e-6, rtol=0)
     x = torch.rand(1, 3, 640, 640)
     with torch.no_grad():
         expected = net(x)

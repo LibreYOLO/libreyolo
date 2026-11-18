@@ -5695,6 +5695,22 @@ def _sync_batchnorms_to_batchnorm(module: torch.nn.Module) -> torch.nn.Module:
     return module
 
 
+class _ClampedTanhGELU(torch.nn.Module):
+    """GELU as its tanh approximation, with the cubic term computed on ``clamp(x, -6, 6)``.
+
+    The tanh form exports as Tanh, Mul and Add (the exact GELU's Erf does not
+    quantize). Its cubic term spans x^3 of the whole activation range, so one
+    INT8 scale for it wipes out the small values (TinyFormer-s stem, CPU
+    screen: min cosine 0.62). Past |x| = 6 the tanh is 1 or -1 in FP32 either
+    way, so the clamp changes nothing in FP32 and bounds the cubic term to
+    +-216 (screen: min cosine 0.987).
+    """
+
+    def forward(self, x):
+        c = torch.clamp(x, -6.0, 6.0)
+        return x * 0.5 * (1.0 + torch.tanh(0.7978845608028654 * (c + 0.044715 * c * c * c)))
+
+
 class _ViTStemWrapper(torch.nn.Module):
     """Part 1 of a "stem" hybrid split (TinyFormer): the convolutional Spatial Detail Extractor and its first projection.
 
@@ -5713,13 +5729,12 @@ class _ViTStemWrapper(torch.nn.Module):
         super().__init__()
         self.sda, self.proj_c1 = backbone.sda, backbone.proj_c1
         # The exact GELU exports as Erf, which the quantizer leaves as an external op;
-        # the tanh form (Tanh, Mul, Add) quantizes. Not bit-exact: on TinyFormer-s the stem outputs move by
-        # ~1.4e-5 and the logits by at most 1.2e-6 in FP32 (test_tinyformer_stem_split_*).
+        # the tanh form quantizes, with its cubic term on an input clamped to +-6 (_ClampedTanhGELU).
         for parent in (self.sda, self.proj_c1):
             for module in list(parent.modules()):
                 for name, child in list(module.named_children()):
                     if isinstance(child, torch.nn.GELU) and child.approximate == "none":
-                        setattr(module, name, torch.nn.GELU(approximate="tanh"))
+                        setattr(module, name, _ClampedTanhGELU())
 
     def forward(self, x):
         s4 = self.sda[1](self.sda[0](x))
