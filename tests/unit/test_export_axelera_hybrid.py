@@ -887,3 +887,35 @@ def test_tinyformer_stem_split_reproduces_the_native_model_within_the_sigmoid_ge
     # detection scores move by less than 0.013 (sorted: the approximation may reorder near-tied queries).
     top = lambda logits: logits.sigmoid().flatten().topk(10).values  # noqa: E731
     assert float((top(actual[0]) - top(expected["pred_logits"])).abs().max()) < 0.013
+
+
+@pytest.mark.parametrize("size", ["d3", "d4"])
+def test_efficientdet_hybrid_backbone_split_reproduces_the_export_output(size):
+    """EfficientDet-d3/d4 recipe hybrid in FP32, at a small canvas: the backbone (d3) or its stages 0-4 (d4) on
+    the Metis side, then the remaining stages, BiFPN, heads and decode on the host reproduce
+    EfficientDetExportWrapper's output."""
+    from libreyolo import LibreEfficientDet
+    from libreyolo.export.exporter import (
+        AxeleraExporter,
+        _efficientdet_at_canvas,
+        _EfficientDetBodyWrapper,
+        _EfficientDetHostTailWrapper,
+    )
+    from libreyolo.models.efficientdet.nn import EfficientDetExportWrapper
+
+    torch.manual_seed(0)
+    model = LibreEfficientDet(None, size=size, device="cpu")
+    assert AxeleraExporter(model)._hybrid_outputs() == ("output",)
+    net = _efficientdet_at_canvas(model, 256).model.eval()
+    x = torch.rand(1, 3, 256, 256, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want_cls, want_box = net(x)
+        body = _EfficientDetBodyWrapper(net).eval()
+        tail = _EfficientDetHostTailWrapper(net, ("output",)).eval()
+        got_cls, got_box = tail.heads(*body(x))
+        decoded = tail(*body(x))[0]
+    assert body.output_names == (("stage2", "stage4", "stage6") if size == "d3" else ("stage2", "stage4"))
+    # Compared before the top-k decode: with random weights near-tied logits make the candidate order fragile.
+    for g, w in zip(list(got_cls) + list(got_box), list(want_cls) + list(want_box)):
+        torch.testing.assert_close(g, w, atol=1e-4, rtol=1e-4)
+    assert decoded.shape == EfficientDetExportWrapper(net, input_size=256, max_candidates=5000).eval()(x).shape

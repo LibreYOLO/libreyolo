@@ -9,6 +9,7 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis hybrid exports for EfficientDet-d3 and -d4, previously blocked.** Neither finds an L1 tiling whole-graph (d3: its BiFPN and heads; d4: its 272-channel backbone stage), so at d0's 512x512 canvas the EfficientNet backbone (d3) or its first five stages (d4) run on the Metis and the rest, the BiFPN, heads and decode on the host: 0.3814 vs 0.3853 (-0.39) and 0.3942 vs 0.3971 (-0.29) mAP50-95 against FP32 at the same canvas on 300 COCO val2017 images.
 - **Axelera Metis hybrid export for RTMDet-x detection, previously blocked.** The whole graph finds no L1 tiling for its PAFPN neck and heads, so the CSPNeXt-x backbone runs on the Metis and the neck, heads and decode run on the host: 0.5328 vs 0.5319 FP32 mAP50-95 (+0.09) on 300 COCO val2017 images.
 
 - **Axelera Metis hybrid exports for PIDNet-m and -l, as PIDNet-s.** The same layer-5 split and exact PagFM form: fidelity mIoU 0.840 (m, 96 images) and 0.829 (l, 100 images), pixel agreement 0.960 and 0.954 against FP32 labels on COCO val2017. Both were calibrated with 32 coco128 images (`fraction=0.25`); at the default the SDK calibrates PIDNet-m at about 65 s per image on CPU.
@@ -54,7 +55,7 @@ before 1.4.0 are documented in the
 
 - **Axelera Metis export for YOLO9-E2E detection, validated t, s, m and c.** The graph is cut after the one-to-one head convolutions, the branch YOLO9-E2E's NMS-free inference decodes, with YOLO9's output windows and class-tower bound; LibreYOLO rebuilds the export's candidates on the host. On a Metis M.2 Max: -0.74, -0.50, -0.46 and -0.49 mAP50-95 against FP32 on 1000 COCO val2017 images.
 
-- **EfficientDet-d1 and -d2 on Axelera Metis at a fixed 512x512 canvas (supported); d3 blocked.** Their native 640 and 768 do not compile (no L1 tiling fits), so the exporter rebuilds the BiFPN for d0's 512 canvas with the same weights. On 1000 COCO val2017 images the canvas costs 3.10 and 5.31 mAP50-95 points in FP32 and INT8 1.64 and 1.38 more (0.3475 and 0.3606 on the device, above EfficientDet-d0's 0.3185); the export warns about it. EfficientDet-d3 fits neither at 896 nor at 512 and is refused.
+- **EfficientDet-d1 and -d2 on Axelera Metis at a fixed 512x512 canvas (supported).** Their native 640 and 768 do not compile (no L1 tiling fits), so the exporter rebuilds the BiFPN for d0's 512 canvas with the same weights. On 1000 COCO val2017 images the canvas costs 3.10 and 5.31 mAP50-95 points in FP32 and INT8 1.64 and 1.38 more (0.3475 and 0.3606 on the device, above EfficientDet-d0's 0.3185); the export warns about it.
 
 - **Axelera Metis export for RTMDet-Ins instance segmentation, supported t, s, m and l.** `LibreYOLO("LibreRTMDett-seg.pt").export(format="axelera")` is the first exported format for RTMDet-Ins: the device returns each level's box, class and dynamic-kernel outputs plus the stride-8 mask feature (layout `rtmdet_ins_raw_heads_v1`), and LibreYOLO's own RTMDet-Ins postprocess builds boxes and masks on the host. With the balanced CSPNeXt pointwise equalization, on 1000 COCO val2017 images on a Metis M.2 Max, RTMDet-Ins-t scores mask mAP50-95 0.3250 vs FP32 0.3394 (-1.44) and box 0.3574 vs 0.3825 (-2.51), RTMDet-Ins-s mask 0.3139 vs 0.3719 (-5.80) and box 0.3445 vs 0.4171 (-7.26; with the activation-only factor s collapses), RTMDet-Ins-m mask 0.3932 vs 0.4011 (-0.79) and box 0.4149 vs 0.4545 (-3.96), and RTMDet-Ins-l mask 0.4113 vs 0.4163 (-0.50) and box 0.4193 vs 0.4727 (-5.34); m and l are supported for their box drop. RTMDet-Ins-x does not compile for Metis (no tiling factor fits L1 at 640x640) and is blocked. RTMDet-Ins export to other formats stays blocked.
 
@@ -176,7 +177,6 @@ before 1.4.0 are documented in the
 
 - **Axelera Metis: QuickSRNet-m2 is validated with learned INT8 rounding.** After the Hardtanh equalization the export now learns each weight's rounding direction on the per-channel INT8 grid (AdaRound-style, one convolution at a time, 300 steps with a fixed seed, on up to 128 calibration images) and corrects the biases, through the new per-size recipe key `learned_rounding`. PSNR is 0.20 dB below FP32 on 296 COCO crops (was 0.46 dB with nearest rounding) and 0.17 dB on a held-out half of them; the export takes about 12 minutes instead of 3.
 
-- **Axelera Metis: EfficientDet-d4 is blocked with its measured cause.** It finds no L1 tiling at 1024 or at a 512 canvas; prefix cuts place the overflow in the EfficientNet-B4 backbone's 272-channel stage (3.12 MB of L1 needed, 2.47 MB available). Use d2.
 
 - **Axelera Metis: the EfficientNetV2-b1/b2 block names its measured cause.** The compiled model's extra output buffer is the channel-padded input; the classifier as a 1x1 convolution and four public compiler options leave it in place.
 

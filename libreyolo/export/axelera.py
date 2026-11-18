@@ -102,6 +102,14 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("efficientdet", "detect", "d1"): {"canvas": 512},
     # EfficientDet-d2 at its native 768: 3.15 MB needed, 2.54 MB available.
     ("efficientdet", "detect", "d2"): {"canvas": 512},
+    # EfficientDet-d3/d4 at 512, hybrid: d3's BiFPN/heads and d4's 272-channel stage find no L1 tiling; the
+    # backbone (d3) or its stages 0-4 (d4) on the Metis, the rest on the host.
+    ("efficientdet", "detect", "d3"): {
+        "canvas": 512, "hybrid_split": "backbone", "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
+    ("efficientdet", "detect", "d4"): {
+        "canvas": 512, "hybrid_split": "backbone", "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
     # Real-ESRGAN-x4 (RRDB): the whole graph's constants overflow the DDR pool;
     # three compiled parts split at RRDB block 12 plus a host add fit.
     ("realesrgan", "restore", "x4"): {"rrdb_split": 12, "quantization_scheme": "per_tensor_min_max"},

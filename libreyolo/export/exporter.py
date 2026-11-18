@@ -4480,11 +4480,14 @@ _AXELERA_RECIPE_HYBRID_OUTPUTS: dict[tuple[str, str], tuple[str, ...]] = {
     ("pidnet", "semantic"): ("semantic_logits",),
     # RTMDet-x: the neck and heads overflow L1 when compiled; the CSPNeXt backbone runs on Metis.
     ("rtmdet", "detect"): ("output",),
+    # EfficientDet-d3/d4: the BiFPN and heads (d3) or the 272-channel stage (d4) find no L1 tiling; the backbone
+    # (or its first stages) runs on Metis.
+    ("efficientdet", "detect"): ("output",),
 }
 
 #: Hybrid families that only take the "backbone" split (no convolutional neck to compile).
 _HYBRID_BACKBONE_ONLY = frozenset(
-    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet", "hrnet", "dekr", "zipdepth", "pidnet", "rtmdet"}
+    {"detr", "faster_rcnn", "mask_rcnn", "ppdoclayoutv3", "deformable_detr", "dinodetr", "deeplabv3", "vgg", "retinanet", "centernet", "hrnet", "dekr", "zipdepth", "pidnet", "rtmdet", "efficientdet"}
 )
 
 
@@ -5192,6 +5195,100 @@ class _RTMDetHostTailWrapper(torch.nn.Module):
             m.head.export = export
 
 
+#: EfficientNet stages run on the Metis in a hybrid EfficientDet export, by size (default: all seven). d4's
+#: 272-channel stage (blocks.5) finds no L1 tiling at 512 (3.12 MB needed, 2.47 MB available; the backbone
+#: through blocks.4 compiles), so its last two stages run on the host with the BiFPN and heads.
+_EFFDET_METIS_STAGES = {"d4": 5}
+
+
+class _EfficientDetBodyWrapper(torch.nn.Module):
+    """Part 1 of a hybrid EfficientDet export (recipe ``hybrid_split``): the EfficientNet backbone (or its first stages).
+
+    d3's 160-channel BiFPN and heads find no L1 tiling at 512 or at 896, d4's
+    272-channel backbone stage none at 512. The backbone (d3) or its stages
+    0-4 (d4) run on Metis; the rest, the BiFPN, the heads and the decode run
+    on the host. Each output leaves through a weight-identity 1x1 conv (exact).
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    hybrid_host = "BiFPN, class and box heads and the decode (FP32 ONNX)"
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        stages = len(model.backbone.blocks)
+        self.metis_stages = _EFFDET_METIS_STAGES.get(getattr(model, "size", ""), stages)
+        self.taps = [i for i in (2, 4, 6) if i < self.metis_stages]
+        if self.metis_stages < stages and (self.metis_stages - 1) not in self.taps:
+            self.taps.append(self.metis_stages - 1)
+        self.output_names = tuple(f"stage{i}" for i in self.taps)
+        self.hybrid_aipu = (
+            "EfficientNet backbone"
+            if self.metis_stages == stages
+            else f"EfficientNet backbone stages 0-{self.metis_stages - 1}"
+        )
+        self.identity = torch.nn.ModuleList()
+        for i in self.taps:
+            c = _conv_out(model.backbone.blocks[i])
+            conv = torch.nn.Conv2d(c, c, 1, bias=False)
+            with torch.no_grad():
+                conv.weight.copy_(torch.eye(c).view(c, c, 1, 1))
+            self.identity.append(conv)
+
+    def forward(self, x):
+        import torch.nn.functional as F
+
+        b = self.model.backbone
+        x = F.silu(b.bn1(b.conv_stem(x)))
+        outs = {}
+        for i in range(self.metis_stages):
+            x = b.blocks[i](x)
+            if i in self.taps:
+                outs[i] = x
+        return tuple(conv(outs[i]) for conv, i in zip(self.identity, self.taps))
+
+
+class _EfficientDetHostTailWrapper(torch.nn.Module):
+    """Host step of a hybrid EfficientDet export: remaining stages, BiFPN, heads and EfficientDetExportWrapper's decode."""
+
+    def __init__(self, model: torch.nn.Module, output_names):
+        super().__init__()
+        self.model = model
+        self.output_names = tuple(output_names)
+        self.metis_stages = _EFFDET_METIS_STAGES.get(getattr(model, "size", ""), len(model.backbone.blocks))
+        self.set_sparse_coco(False)
+
+    def set_sparse_coco(self, sparse_coco: bool) -> None:
+        """Build the decode (its anchors and class map are buffers), before any trace.
+
+        The exporter sets ``sparse_coco`` from the LibreYOLO wrapper (a 90-class
+        head served as COCO-80), as the whole-graph export does.
+        """
+        from ..models.efficientdet.nn import EfficientDetExportWrapper
+
+        self.decode = EfficientDetExportWrapper(
+            self.model, input_size=int(self.model.image_size), max_candidates=5000, sparse_coco=bool(sparse_coco)
+        ).eval()
+
+    def heads(self, *feats):
+        """Per-level class logits and box regressions from the Metis part's outputs (before the decode)."""
+        m = self.model
+        blocks = m.backbone.blocks
+        taps = [i for i in (2, 4, 6) if i < self.metis_stages]
+        levels = dict(zip(taps, feats))
+        x = feats[-1]
+        for i in range(self.metis_stages, len(blocks)):
+            x = blocks[i](x)
+            if i in (2, 4, 6):
+                levels[i] = x
+        features = m.fpn([levels[i] for i in (2, 4, 6)])
+        return m.class_net(features), m.box_net(features)
+
+    def forward(self, *feats):
+        return (self.decode.decode(*self.heads(*feats)),)
+
+
 class _DeepLabBackboneWrapper(torch.nn.Module):
     """Part 1 of a hybrid DeepLabV3 export (recipe ``hybrid_split``): the ResNet backbone through layer4.
 
@@ -5549,6 +5646,7 @@ _HYBRID_BACKBONE_WRAPPERS = {
     "dekr": ("_DEKRBodyWrapper", "_DEKRHostTailWrapper"),
     "zipdepth": ("_ZipDepthBodyWrapper", "_ZipDepthHostTailWrapper"),
     "pidnet": ("_PIDNetBodyWrapper", "_PIDNetHostTailWrapper"),
+    "efficientdet": ("_EfficientDetBodyWrapper", "_EfficientDetHostTailWrapper"),
     "rtmdet": ("_RTMDetBodyWrapper", "_RTMDetHostTailWrapper"),
 }
 
@@ -6579,7 +6677,7 @@ class AxeleraExporter(BaseExporter):
 
             return canvas
         preprocess = self.model._get_preprocess_numpy()
-        if self._hybrid_outputs() and self.model._get_model_name() not in ("retinanet", "fcos", "hrnet"):
+        if self._hybrid_outputs() and self.model._get_model_name() not in ("retinanet", "fcos", "hrnet", "efficientdet"):
             # DETR preprocessing takes one square size and returns NCHW.
             def square(rgb, imgsz):
                 h, w = (imgsz, imgsz) if isinstance(imgsz, int) else imgsz
@@ -7004,6 +7102,14 @@ class AxeleraExporter(BaseExporter):
             if hasattr(tail, "upsample_to"):
                 tail.upsample_to = tuple(int(v) for v in dummy.shape[-2:])
                 self._hybrid_first_passes = _AXELERA_GRAPH_PASSES.get(self.model._get_model_name(), ())
+            if isinstance(tail, _EfficientDetHostTailWrapper):
+                # The 90-class head served as COCO-80 (as the whole-graph export), and the family's exact
+                # passes (squeeze-excite means as pools) on the backbone part.
+                tail.set_sparse_coco(
+                    getattr(self.model, "nb_classes", None) == 80
+                    and getattr(self.model, "_arch_num_classes", None) == 90
+                )
+                self._hybrid_first_passes = _AXELERA_GRAPH_PASSES.get("efficientdet", ())
             if hasattr(tail, "canvas"):
                 canvas = tuple(int(v) for v in dummy.shape[-2:])
                 min_size = int(net.transform.min_size[-1])
@@ -7234,6 +7340,7 @@ class AxeleraExporter(BaseExporter):
                 _DEKRBodyWrapper,
                 _ZipDepthBodyWrapper,
                 _PIDNetBodyWrapper,
+                _EfficientDetBodyWrapper,
                 _RTMDetBodyWrapper,
             ),
         ):

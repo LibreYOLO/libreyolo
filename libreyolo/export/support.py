@@ -4528,8 +4528,12 @@ _add(
     since="1.7",
     constraint=(
         "supported sizes: d0, d1 and d2 (d1 and d2 at a fixed 512x512 canvas; "
-        "measured drops, SIZE_ACCURACY_NOTES); d3 and d4 do not compile "
-        "(BLOCKED_SIZES). "
+        "measured drops, SIZE_ACCURACY_NOTES); hybrid sizes: d3 and d4 at the "
+        "same 512x512 canvas (the whole graph finds no L1 tiling: the EfficientNet "
+        "backbone, for d4 its stages 0-4, runs on the Metis, the rest of the "
+        "backbone, the BiFPN, heads and decode on the host as an FP32 ONNX graph; "
+        "-0.39 and -0.29 mAP50-95 vs FP32 at 512; one .axm part, one host ONNX "
+        "graph, needs onnxruntime). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed input size"
     ),
@@ -5467,22 +5471,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "export would leave almost nothing on the Metis (docs/axelera.md section 11)"
         )
         for size in ("s", "m", "l", "x")
-    },
-    ("efficientdet", "detect", "axelera"): {
-        "d3": (
-            "does not compile for Metis with the 1.9 SDK: lowering finds no L1 "
-            "tiling even with one-row tiles, at its native 896 (2.52 MB needed, "
-            "2.15 MB available) and at a 512 canvas (2.58 vs 2.14 MB); its "
-            "160-channel BiFPN and heads set the need, not the canvas; use d2"
-        ),
-        "d4": (
-            "does not compile for Metis with the 1.9 SDK: lowering finds no L1 "
-            "tiling even with one-row tiles, at its native 1024 (2.69 MB needed, "
-            "0.94 MB available) and at a 512 canvas (2.10 vs 1.22 MB). Prefix "
-            "cuts at 512 put the overflow in the EfficientNet-B4 backbone: its "
-            "first five stages compile, the 272-channel stage (blocks.5) alone "
-            "needs 3.12 MB of L1 against 2.47 MB; use d2"
-        ),
     },
     ("midas", "depth", "axelera"): {
         "l": (

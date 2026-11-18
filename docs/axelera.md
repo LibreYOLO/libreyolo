@@ -140,6 +140,8 @@ a separate size:
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
 | EfficientDet | d2 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3744 | 0.3606 | -1.38 (canvas -5.31 more) | supported | `efficientdet/detect/d2/2026-11-14` |
+| EfficientDet | d3 | detect (512x512 canvas; hybrid: EfficientNet backbone on the Metis; BiFPN, heads and decode on the host) | COCO val2017, 300 | 0.3853 | 0.3814 | -0.39 (vs FP32 at 512) | hybrid | `efficientdet/detect/d3/2026-11-18` |
+| EfficientDet | d4 | detect (512x512 canvas; hybrid: EfficientNet stages 0-4 on the Metis; stages 5-6, BiFPN, heads and decode on the host) | COCO val2017, 300 | 0.3971 | 0.3942 | -0.29 (vs FP32 at 512) | hybrid | `efficientdet/detect/d4/2026-11-18` |
 | RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3250 | -1.44 | supported | `rtmdet/segment/t/2026-11-12/2` |
 | RTMDet-Ins | s | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3719 | 0.3139 | -5.80 | supported | `rtmdet/segment/s/2026-11-12/4` |
 | RTMDet-Ins | m | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4011 | 0.3932 | -0.79 (box -3.96) | supported | `rtmdet/segment/m/2026-11-12/2` |
@@ -234,7 +236,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | RetinaNet | detect | r50 (supported: 1024x1024 canvas by default, -1.11 end to end; imgsz=800 is about 1.64x less compute at -2.25; r50v2 hybrid: ResNet-50 body on the Metis, FPN and GroupNorm heads on the host, -2.40) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-14/4`; r50v2 `retinanet/detect/r50v2/2026-11-17` |
 | CenterNet | detect | resdcn18, dla34 (hybrid at 512x512: the body without deformable convolutions on the Metis; the deformable up-path, heads and peak decode on the host) | see `docs/export_support.md` | resdcn18 `centernet/detect/resdcn18/2026-11-17/2`; dla34 `centernet/detect/dla34/2026-11-17/2` |
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
-| EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 and d4 blocked: do not compile) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 blocked `efficientdet/detect/d3/2026-11-14` |
+| EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 and d4 hybrid at 512: backbone or its first five stages on the Metis, the rest on the host) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 `efficientdet/detect/d3/2026-11-18`; d4 `efficientdet/detect/d4/2026-11-18` |
 | Other families | all | all | not measured yet (section 11) | - |
 | RT-DETR | detect | r18, r34, r50, r50m, r101, l, x (hybrid: CNN backbone and fusion neck on the Metis, attention encoder layer and decoder on the host) | see `docs/export_support.md` | r18 `rtdetr/detect/r18/2026-11-15/2` (300: `rtdetr/detect/r18/2026-11-15`); r34 `rtdetr/detect/r34/2026-11-15`; r50 `rtdetr/detect/r50/2026-11-15`; r50m `rtdetr/detect/r50m/2026-11-15`; r101 `rtdetr/detect/r101/2026-11-15`; l `rtdetr/detect/l/2026-11-15`; x `rtdetr/detect/x/2026-11-15` |
 | RT-DETRv2 | detect | r18, r34, r50, r50m, r101 (hybrid, as RT-DETR: v1 backbone and fusion neck on the Metis, v2 decoder on the host) | see `docs/export_support.md` | r18 `rtdetrv2/detect/r18/2026-11-15`; r34 `rtdetrv2/detect/r34/2026-11-15`; r50 `rtdetrv2/detect/r50/2026-11-16`; r50m `rtdetrv2/detect/r50m/2026-11-16/2`; r101 `rtdetrv2/detect/r101/2026-11-16` |
@@ -533,6 +535,8 @@ still are, in opposite directions (their rows).
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
 | EfficientDet-d2 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3744 | 0.3606 | -1.38 (supported; canvas -5.31 more) |
+| EfficientDet-d3 (hybrid, 512x512 canvas) | detect | COCO val2017, 300 images | 128 coco128 | 0.3853 | 0.3814 | -0.39 (hybrid; FP32 at the same canvas) |
+| EfficientDet-d4 (hybrid, 512x512 canvas) | detect | COCO val2017, 300 images | 128 coco128 | 0.3971 | 0.3942 | -0.29 (hybrid; FP32 at the same canvas) |
 | RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3250 | -1.44 (supported; box -2.51) |
 | RTMDet-Ins-s | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3719 | 0.3139 | -5.80 (supported; box -7.26) |
 | RTMDet-Ins-m | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4011 | 0.3932 | -0.79 (supported: box -3.96; on 300 mask -0.67, box -4.56) |
@@ -716,7 +720,17 @@ objects 0.125 vs 0.072) and INT8 1.64 more (0.3475 on the device), and d2
 5.31 (0.4275 at 768 vs 0.3744) and INT8 1.38 more (0.3606). Both stay above
 EfficientDet-d0 on the device (0.3185). EfficientDet-d3 does not fit at 512
 either (2.58 vs 2.14 MB): its need is set by its 160-channel BiFPN and heads,
-not by the canvas.
+not by the canvas. EfficientDet-d4 finds no tiling at 1024 or 512 either,
+and prefix cuts put its overflow in the EfficientNet-B4 backbone's
+272-channel stage (3.12 MB needed, 2.47 MB available).
+
+Both therefore export hybrid at the 512 canvas (recipe `hybrid_split`): d3's
+EfficientNet backbone, and d4's backbone stages 0-4, run on the Metis with
+the family's exact rewrites, each output through a weight-identity 1x1
+convolution; the remaining stages, the BiFPN, the class and box heads and
+the decode run on the host as one FP32 ONNX graph. On 300 COCO val2017
+images against FP32 at the same canvas: d3 0.3814 vs 0.3853 (-0.39), d4
+0.3942 vs 0.3971 (-0.29); the 512 canvas costs both small objects.
 
 SSD300 runs in two compiled parts with one host step between them (layout
 `ssd_raw_heads_v1`, metadata `parts`). Its conv4_3 L2Norm divides each
@@ -1015,8 +1029,6 @@ compiles their own.
 Blocked for structural reasons (accuracy never blocks an export):
 
 - L2CS (gaze): its only checkpoint is trained on Gaze360, whose licence forbids redistributing models trained on it; LibreYOLO fetches it from the authors and does not mirror it, so no Axelera export is measured or shipped.
-- EfficientDet-d3: lowering finds no L1 tiling at its native 896 (2.52 MB needed, 2.15 MB available) nor at a 512 canvas (2.58 vs 2.14 MB); its 160-channel BiFPN and heads set the need (ledgers `efficientdet/detect/d3/2026-11-13/2`, `efficientdet/detect/d3/2026-11-14`). Use d2.
-- EfficientDet-d4: lowering finds no L1 tiling at its native 1024 (2.69 MB needed, 0.94 MB available) nor at a 512 canvas (2.10 vs 1.22 MB). Prefix cuts at 512 put the overflow in the EfficientNet-B4 backbone: stages 0-4 compile, the 272-channel stage (blocks.5) needs 3.12 MB vs 2.47 MB (ledgers `efficientdet/detect/d4/2026-11-15` to `/4`).
 - RTMDet-Ins-x: at 640x640 lowering fails in AssignTilingFactors (ScheduleMemory, LowerTIR): no tiling factor fits L1 (3.99 MB needed, 3.32 MB available; 2 h 08 min, 8.1 GB peak RSS; ledger `rtmdet/segment/x/2026-11-12`). Use RTMDet-Ins-l. Its CSPNeXt-x backbone alone compiles in 24 min, so the overflow is in the neck and heads; a backbone | neck+head split would need the three backbone levels packed into one input (the quantizer takes no multi-input calibration; ledger `rtmdet/segment/x/2026-11-17`).
 - MiDaS-l (DPT ViT-L, 384 px): quantization stops at the quantizer's ONNX import ("unexpected input value type") on the ViT encoder (48 LayerNormalization, 24 Softmax, 28 Erf, attention MatMuls; the same graph's 5 Resize nodes also occur in MiDaS-s, which compiles). It peaks at 18 GB of host RAM before failing. Use MiDaS-s.
 - ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them. The channel mean and variance have exact AIPU forms, but the per-pixel reciprocal square root feeding ConvNeXt's GELU has none; a host split at every LayerNorm would need about 23 parts for ConvNeXt-t, so a hybrid export (convolutions on the Metis, LayerNorms on the host) is the route if ConvNeXt is ever needed (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).

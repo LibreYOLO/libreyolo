@@ -1188,6 +1188,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("zipdepth", "depth", "bnpu"), ("zipdepth", "depth", "b"),
         # PIDNet recipe hybrids (test_pidnet_hybrid_layer5_split_reproduces_the_native_model).
         ("pidnet", "semantic", "s"), ("pidnet", "semantic", "m"), ("pidnet", "semantic", "l"),
+        # EfficientDet-d3/d4 recipe hybrids (test_efficientdet_hybrid_backbone_split_reproduces_the_export_output).
+        ("efficientdet", "detect", "d3"), ("efficientdet", "detect", "d4"),
         # RTMDet-x detect recipe hybrid (test_rtmdet_x_hybrid_backbone_split_reproduces_the_export_output).
         ("rtmdet", "detect", "x"),
         # Covered by their own tests (fixed canvas / three-part export).
@@ -1994,10 +1996,12 @@ def test_efficientdet_d1_axelera_recipe_is_the_512_canvas():
     assert "d1" not in UNMEASURED_SIZES.get(("efficientdet", "detect", "axelera"), {})
     assert ax.size_recipe("efficientdet", "detect", "d2") == {"canvas": 512}
     assert ("efficientdet", "detect", "axelera") not in UNMEASURED_SIZES
-    from libreyolo.export.support import BLOCKED_SIZES
+    from libreyolo.export.support import BLOCKED_SIZES, get_support
 
-    assert "L1" in BLOCKED_SIZES[("efficientdet", "detect", "axelera")]["d3"]
-    assert "blocks.5" in BLOCKED_SIZES[("efficientdet", "detect", "axelera")]["d4"]
+    assert ("efficientdet", "detect", "axelera") not in BLOCKED_SIZES
+    for size in ("d3", "d4"):
+        assert ax.size_recipe("efficientdet", "detect", size)["hybrid_split"] == "backbone"
+    assert "hybrid sizes: d3 and d4" in get_support("efficientdet", "detect", "axelera").constraint
 
 
 def test_axelera_canvas_recipe_sets_only_the_default_imgsz(monkeypatch):
