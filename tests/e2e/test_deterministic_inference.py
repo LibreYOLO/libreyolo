@@ -257,7 +257,9 @@ def test_batched_list_predict_matches_sequential(family, size, weights, sample_i
         # This test verifies batched routing, not confidence-threshold boundary
         # behavior. A slightly higher threshold avoids TF32 nudging marginal
         # detections across the default 0.25 cutoff on L4-class GPUs.
-        conf = 0.30
+        # DEIM-n scores one box at 0.305 on the sample image, which TF32 pushes
+        # under 0.30 in only one of the two passes; 0.40 clears it.
+        conf = 0.40 if family == "deim" else 0.30
         sequential = model(images, conf=conf, batch=1)
         batched = model(images, conf=conf, batch=2)
 
