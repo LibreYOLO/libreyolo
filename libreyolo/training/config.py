@@ -1619,6 +1619,63 @@ class UNetConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class DDRNetConfig(TrainConfig):
+    """DDRNet training defaults: the paper's Cityscapes recipe.
+
+    SGD (momentum 0.9, weight decay 5e-4) with polynomial decay (power 0.9)
+    and no warmup, SyncBN under DDP, full precision and no EMA, 484 epochs at
+    an effective batch of 12 on 1024x1024 crops (arXiv:2101.06085, section
+    IV-B). The loss is OHEM cross-entropy on the main head plus 0.4x the
+    auxiliary head (``thresh=0.9``, ``min_kept=131072``). ``lr0=0.01`` is the
+    source value for an effective batch of 12; scale it if you train at a
+    different effective batch. One documented deviation: the shared optimizer
+    exempts BatchNorm and bias parameters from weight decay, which upstream
+    decays.
+
+    ``imgsz`` is the train crop, sampled with the family's ``rescale_crop``
+    recipe (source rescale 0.5..2.0, random crop, flip); validation runs whole
+    frames at ``semantic_val_imgsz`` (1024x2048). A fresh model starts from the
+    official ImageNet backbone, as upstream does; ``pretrained=False`` trains
+    from random initialization instead.
+    """
+
+    sync_bn: bool = True
+    optimizer: str = "sgd"
+    lr0: float = 0.01
+    momentum: float = 0.9
+    weight_decay: float = 5e-4
+    nesterov: bool = False
+
+    scheduler: str = "poly"
+    poly_power: float = 0.9
+    warmup_epochs: int = 0
+    warmup_lr_start: float = 0.0
+    min_lr_ratio: float = 0.0
+
+    aux_weight: float = 0.4
+    ohem: bool = True
+    ohem_thresh: float = 0.9
+    ohem_min_kept: int = 131072
+
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    flip_prob: float = 0.5
+    degrees: float = 0.0
+    translate: float = 0.0
+    shear: float = 0.0
+
+    ema: bool = False
+    amp: bool = False
+
+    imgsz: Union[int, Tuple[int, int], List[int], str] = 1024
+    epochs: int = 484
+    batch: int = 12
+    eval_interval: int = 1
+
+    name: str = "ddrnet_exp"
+
+
+@dataclass(kw_only=True)
 class LingBotVisionConfig(TrainConfig):
     """LingBot-Vision semantic training defaults — the report's linear probe.
 

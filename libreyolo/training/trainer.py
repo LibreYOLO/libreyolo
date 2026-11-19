@@ -106,6 +106,9 @@ RECTANGULAR_TRAINING_FAMILIES = {
     # U-Net S5-D16 is natively rectangular (512x1024 Cityscapes canvas);
     # encoder stride product is 16, not 32.
     "unet": 16,
+    # DDRNet's high-resolution branch runs at stride 8 and every fusion
+    # resizes the context branch to it, so any multiple of 8 lines them up.
+    "ddrnet": 8,
 }
 # Tasks each family may train on rectangularly. Detection is the historical
 # case and stays the default; a family whose rectangular support is not
@@ -113,6 +116,7 @@ RECTANGULAR_TRAINING_FAMILIES = {
 RECTANGULAR_TRAINING_TASKS = {
     "ppliteseg": frozenset({"semantic"}),
     "unet": frozenset({"semantic"}),
+    "ddrnet": frozenset({"semantic"}),
 }
 _DEFAULT_RECTANGULAR_TRAINING_TASKS = frozenset({"detect"})
 

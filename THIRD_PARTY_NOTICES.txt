@@ -952,6 +952,23 @@ Used for: PIDNet semantic segmentation family
           redistributed by LibreYOLO.
 
 --------------------------------------------------------------------
+DDRNet (ydhongHIT)
+--------------------------------------------------------------------
+Source: https://github.com/ydhongHIT/DDRNet
+        pinned commit de0db317c5af4b0946231f475cf74ca4f51b8ac2
+        (segmentation/DDRNet_23_slim.py, DDRNet_23.py, DDRNet_39.py)
+License: MIT
+Copyright (c) 2020 xingkong
+Used for: DDRNet semantic segmentation family
+          (libreyolo/models/ddrnet/). Module names follow upstream so the
+          official checkpoints load after a key rename; the shared residual
+          blocks, DAPPM and head come from the PIDNet port, which inherited
+          them from DDRNet. Converted Cityscapes weights are hosted under
+          MIT on an implied basis and are trained on Cityscapes, whose
+          terms are non-commercial; see libreyolo/models/ddrnet/NOTICE and
+          weights/LICENSE_NOTICE.txt.
+
+--------------------------------------------------------------------
 SuperGradients / PP-LiteSeg
 --------------------------------------------------------------------
 Source: https://github.com/Deci-AI/super-gradients

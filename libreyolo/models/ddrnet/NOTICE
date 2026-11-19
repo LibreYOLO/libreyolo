@@ -1,0 +1,106 @@
+LibreDDRNet - third-party attribution
+=====================================
+
+Code
+----
+
+The DDRNet architecture in this family (``nn.py``) is ported from the official
+implementation:
+
+    Source:    https://github.com/ydhongHIT/DDRNet
+    Commit:    de0db317c5af4b0946231f475cf74ca4f51b8ac2
+    Files:     segmentation/DDRNet_23_slim.py, segmentation/DDRNet_23.py,
+               segmentation/DDRNet_39.py
+    License:   MIT License
+    Copyright (c) 2020 xingkong
+
+Module names follow upstream so the official checkpoints load after a key
+rename (the ``model.`` training-wrapper prefix is stripped and the
+``loss.criterion.weight`` buffer dropped); learned parameters are unchanged.
+The residual blocks, DAPPM and segmentation head are shared with the in-tree
+PIDNet port (``libreyolo/models/pidnet/nn.py``, MIT, XuJiacong/PIDNet), which
+inherited them from DDRNet with identical definitions.
+
+The OHEM cross-entropy and 0.4 auxiliary-loss recipe in ``loss.py`` follows the
+paper ("Deep Dual-resolution Networks for Real-time and Accurate Semantic
+Segmentation of Road Scenes", Hong et al., arXiv:2101.06085, section III-D and
+IV-B); no upstream training code was copied.
+
+Parity: weights/parity_ddrnet.py loads the official Cityscapes checkpoints into
+the upstream ``DualResNet`` and into this port and asserts max_abs_diff == 0
+for the main logits in eval mode and the main and auxiliary logits in train
+mode; DDRNet-39 is checked on shared weights because upstream released no
+Cityscapes DDRNet-39 checkpoint.
+
+The LibreYOLO API surface, checkpoint integration, training integration, tests
+and documentation are original work for this repository and are MIT-licensed
+like the rest of LibreYOLO.
+
+Weights
+-------
+
+Upstream links its checkpoints from its README (Google Drive) and states no
+separate terms for them, so LibreYOLO hosts them under the repository's MIT
+license on that implied basis. This is LibreYOLO's disclosed interpretation,
+not a license confirmed by the publisher.
+
+Converted Cityscapes checkpoints (19 classes), identified by the SHA-256 of
+the upstream file:
+
+  LibreDDRNets-sem.pt  DDRNet-23-slim, val mIoU 77.8 (upstream README)
+      https://drive.google.com/file/d/1d_K3Af5fKHYwxSo8HkxpnhiekhwovmiP
+      688dd42edbd623d21a6fe67c4b90ef8a5913d2824214a49bb60d94c61e6544b4
+  LibreDDRNetm-sem.pt  DDRNet-23, val mIoU 79.5 (upstream README)
+      https://drive.google.com/file/d/16viDZhbmuc3y7OSsUo2vhA7V6kYO0KX6
+      66b68a4e61b2ab41fba5e967acd708ee3d9dd4771fb1e1a245a9a6b5bbd1db4e
+
+These were trained on Cityscapes. The Cityscapes license
+(https://www.cityscapes-dataset.com/license/) permits distributing abstract
+derivative models from which the dataset cannot be recovered, and restricts
+the dataset and its derivatives to NON-COMMERCIAL use. Check those terms before
+using the pretrained Cityscapes checkpoints commercially. The dataset itself is
+not redistributed by LibreYOLO. Weights trained from the ImageNet backbones or
+from scratch on your own data carry no Cityscapes term; a fine-tune started
+from a Cityscapes checkpoint inherits it.
+
+Upstream released no Cityscapes DDRNet-39 checkpoint; size ``l`` is code-ready
+and trains from its ImageNet backbone.
+
+ImageNet-1K classifiers used to initialize training, mirrored byte-for-byte
+under their upstream filenames:
+
+  DDRNet23s_imagenet.pth (LibreYOLO/LibreDDRNets-imagenet)
+      https://drive.google.com/file/d/1mg5tMX7TJ9ZVcAiGSB4PEihPtrJyalB4
+      f6d03fa29b80e2e648f89a7639eb0c6d6c088e8f70f2cba1b2872b314a5c54b6
+  DDRNet23_imagenet.pth (LibreYOLO/LibreDDRNetm-imagenet)
+      https://drive.google.com/file/d/1VoUsERBeuCaiuQJufu8PqpKKtGvCTdug
+      571959df93dce2db4b57d788362eb049a941e21b1b076a57112f8256216d1c08
+  DDRNet39_imagenet.pth (LibreYOLO/LibreDDRNetl-imagenet)
+      https://drive.google.com/file/d/122CMx6DZBaRRf-dOHYwuDY9vG0_UQ10i
+      b97be13428534508791e3897f7921d58d4886142bea25a8fa2f582acb26c25fc
+
+These were trained on ImageNet-1K, whose terms of access are for
+non-commercial research and educational use.
+
+MIT License
+-----------
+
+Copyright (c) 2020 xingkong
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

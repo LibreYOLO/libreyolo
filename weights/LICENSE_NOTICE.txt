@@ -589,6 +589,21 @@ project the weights were derived from. Per-family summary:
              the Apache-2.0 license mmsegmentation declares for it. The
              Cityscapes dataset has separate terms and is not redistributed.
 
+    DDRNet (LibreDDRNet{s,m}-sem)                      MIT (implied)
+             upstream: ydhongHIT/DDRNet (MIT, commit de0db317, Copyright
+             2020 xingkong). Weights: the official DDRNet-23-slim and
+             DDRNet-23 Cityscapes checkpoints linked from the upstream README
+             (SHA-256 pinned in libreyolo/models/ddrnet/convert.py), hosted
+             under the repository's MIT license on an implied basis: upstream
+             states no separate weight terms, so this is LibreYOLO's
+             disclosed interpretation, not a publisher-confirmed license.
+             They were trained on Cityscapes, whose license restricts the
+             dataset and its derivatives to NON-COMMERCIAL use; the dataset
+             is not redistributed. The ImageNet-1K backbones used to
+             initialize training (LibreDDRNet{s,m,l}-imagenet) are byte-for-
+             byte mirrors of the upstream files on the same implied basis.
+             Upstream released no Cityscapes DDRNet-39 checkpoint.
+
     LingBot-Vision (LibreLingBotVision{s,b,l}-sem)     Apache-2.0
              upstream: robbyant/lingbot-vision (code and released backbone
              weights Apache-2.0, Copyright 2026 LingBot-Vision Contributors; backbone

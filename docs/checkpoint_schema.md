@@ -215,6 +215,14 @@ does not establish a weight license. Fine-tunes and U-Net DDP bootstrap
 checkpoints preserve these fields. Explicit scratch training clears inherited
 weight terms. Other families retain their existing flat DDP bootstrap tensors.
 
+DDRNet semantic checkpoints use the same geometry and weight-provenance fields.
+Raw imports of the two official Cityscapes artifacts are identified by SHA-256
+and get `weight_license: "MIT"`, the upstream license URL, `weight_dataset:
+"Cityscapes"` and Cityscapes class names; `weight_commercial_use` is left unset
+because the dataset terms are separate. Any other DDRNet tensor layout gets no
+weight license. Fine-tunes and DDRNet DDP bootstrap checkpoints preserve these
+fields, as for U-Net.
+
 The schema is intentionally flat. Existing LibreYOLO checkpoints and loaders
 already use top-level keys such as `model_family`, `size`, `nc`, `names`, and
 `task`; nesting the metadata would increase migration risk before release.

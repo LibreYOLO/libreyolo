@@ -1002,6 +1002,7 @@ _VAL_LOSS_FAMILIES = {
     "libreyolo.models.efficientnetv2.trainer": "EfficientNetV2Trainer",
     "libreyolo.models.ppliteseg.trainer": "PPLiteSegTrainer",
     "libreyolo.models.unet.trainer": "UNetTrainer",
+    "libreyolo.models.ddrnet.trainer": "DDRNetTrainer",
     "libreyolo.models.segformer.trainer": "SegformerTrainer",
     "libreyolo.models.lingbotvision.trainer": "LingBotVisionTrainer",
     "libreyolo.models.dinov2.trainer": "DINOv2Trainer",

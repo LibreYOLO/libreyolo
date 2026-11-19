@@ -2009,6 +2009,46 @@
     "available": true,
     "group": "g3"
   },
+  "ddrnet": {
+    "class": "libreyolo.models.ddrnet.model.LibreDDRNet",
+    "tasks": [
+      "semantic"
+    ],
+    "default_task": "semantic",
+    "sizes": {
+      "s": [
+        1024,
+        2048
+      ],
+      "m": [
+        1024,
+        2048
+      ],
+      "l": [
+        1024,
+        2048
+      ]
+    },
+    "default_imgsz": {
+      "s": [
+        1024,
+        2048
+      ],
+      "m": [
+        1024,
+        2048
+      ],
+      "l": [
+        1024,
+        2048
+      ]
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g2"
+  },
   "ppdoclayoutv3": {
     "class": "libreyolo.models.ppdoclayoutv3.model.LibrePPDocLayoutV3",
     "tasks": [
