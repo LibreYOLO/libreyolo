@@ -5023,8 +5023,10 @@ class CoreAIExporter(BaseExporter):
     suffix = ".aimodel"
     requires_onnx = False
     supports_int8 = False
-    supports_fp16 = False
-    apply_model_half = False
+    supports_fp16 = True
+    # FP16 casts the model (BaseExporter snapshots and restores it); the
+    # artifact keeps a float32 input/output contract, see coreai._Float16Compute.
+    apply_model_half = True
     supports_embedded_nms = False
 
     def __call__(self, *, dynamic: bool = False, **kwargs) -> str:
@@ -5100,15 +5102,21 @@ class CoreMLExporter(BaseExporter):
             task = getattr(self.model, "task", "detect")
             if not isinstance(task, str):
                 task = "detect"
-            if family == "yolo9" and task != "detect":
+            if family == "yolo9_e2e":
+                raise NotImplementedError(
+                    "nms=True is not supported for YOLO9-E2E: the model is "
+                    "NMS-free. Export with nms=False; LibreYOLO's CoreML "
+                    "backend decodes it without NMS."
+                )
+            if family in {"yolo9", "yolo9_p2"} and task != "detect":
                 raise NotImplementedError(
                     "CoreML embedded NMS currently supports YOLO9 detection "
                     "models only."
                 )
-            if family not in {"yolox", "yolo9"}:
+            if family not in {"yolox", "yolo9", "yolo9_p2"}:
                 raise NotImplementedError(
                     "CoreML embedded NMS currently supports YOLOX and YOLO9 "
-                    "detection models only."
+                    "(including YOLO9-P2) detection models only."
                 )
             if kwargs.get("max_det", 300) != 300:
                 raise NotImplementedError(

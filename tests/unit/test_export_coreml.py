@@ -534,3 +534,112 @@ def test_missing_coremltools_message_names_python_314(monkeypatch):
     monkeypatch.setattr(coreml_export.sys, "platform", "darwin")
     with pytest.raises(ImportError, match="Use Python 3.13 or earlier"):
         coreml_export._require_coremltools()
+
+
+class TestYolo9SiblingFamilies:
+    """YOLO9-P2 and YOLO9-E2E reuse YOLO9's CoreML contract (#1059)."""
+
+    @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
+    @pytest.mark.parametrize("precision", ["fp32", "fp16"])
+    def test_export_accepts_family(self, tmp_path, monkeypatch, family, precision):
+        fake, mlmodel = _patch_ct(monkeypatch)
+        from libreyolo.export.coreml import export_coreml
+
+        export_coreml(
+            _DummyModel().eval(),
+            torch.randn(1, 3, 64, 64),
+            output_path=str(tmp_path / "m.mlpackage"),
+            precision=precision,
+            metadata={"model_family": family, "precision": precision},
+            model_family=family,
+        )
+
+        expected = "FLOAT16" if precision == "fp16" else "FLOAT32"
+        assert fake.convert.call_args.kwargs["compute_precision"] == expected
+        assert mlmodel.user_defined_metadata["model_family"] == family
+        assert mlmodel.user_defined_metadata["precision"] == precision
+
+    def test_e2e_rejects_embedded_nms(self, tmp_path, monkeypatch):
+        _patch_ct(monkeypatch)
+        from libreyolo.export.coreml import export_coreml
+
+        with pytest.raises(NotImplementedError, match="YOLO9-E2E"):
+            export_coreml(
+                _DummyModel().eval(),
+                torch.randn(1, 3, 64, 64),
+                output_path=str(tmp_path / "m.mlpackage"),
+                nms=True,
+                model_family="yolo9_e2e",
+            )
+
+    def test_p2_nms_adapter_matches_yolo9(self):
+        from libreyolo.export.coreml import _NMSOutputAdapter
+
+        class _Head(torch.nn.Module):
+            def forward(self, x):
+                # (B, 4 + C, N): one xyxy box with two class scores.
+                return torch.tensor([[[10.0], [20.0], [30.0], [60.0], [0.9], [0.1]]])
+
+        confidence, coordinates = _NMSOutputAdapter(_Head(), "yolo9_p2")(
+            torch.zeros(1, 3, 8, 8)
+        )
+
+        torch.testing.assert_close(confidence, torch.tensor([[0.9, 0.1]]))
+        torch.testing.assert_close(coordinates, torch.tensor([[20.0, 40.0, 20.0, 40.0]]))
+
+    @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
+    def test_exporter_preflight_nms_routing(self, monkeypatch, family):
+        from libreyolo.export.exporter import BaseExporter, CoreMLExporter
+
+        calls = []
+        monkeypatch.setattr(
+            BaseExporter, "_preflight", lambda self, **kw: calls.append(kw)
+        )
+        exporter = CoreMLExporter.__new__(CoreMLExporter)
+        exporter.model = SimpleNamespace(_get_model_name=lambda: family, task="detect")
+
+        if family == "yolo9_e2e":
+            with pytest.raises(NotImplementedError, match="NMS-free"):
+                exporter._preflight(half=False, int8=False, data=None, nms=True)
+            assert not calls
+        else:
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+            assert len(calls) == 1
+
+    @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
+    def test_backend_letterboxes_like_yolo9(self, family):
+        from libreyolo.backends.coreml import CoreMLBackend
+        from libreyolo.preprocess.yolo9 import preprocess_numpy
+
+        backend = CoreMLBackend.__new__(CoreMLBackend)
+        backend.model_family = family
+        backend.letterbox_pad = "topleft"
+        image = np.random.default_rng(0).integers(0, 256, (72, 128, 3), np.uint8)
+
+        tensor, _img, _size, ratio = backend._preprocess(image, 64, "rgb")
+
+        expected, expected_ratio = preprocess_numpy(image, 64, letterbox_pad="topleft")
+        assert ratio == expected_ratio
+        np.testing.assert_allclose(tensor[0].numpy() / 255.0, expected, atol=1e-6)
+
+    def test_backend_embedded_nms_unletterboxes_p2(self):
+        from libreyolo.backends.coreml import CoreMLBackend
+
+        backend = CoreMLBackend.__new__(CoreMLBackend)
+        backend.model_family = "yolo9_p2"
+        backend.letterbox_pad = "center"
+        backend.output_names = ["confidence", "coordinates"]
+        confidence = np.array([[0.9, 0.1]], np.float32)
+        coordinates = np.array([[64.0, 64.0, 20.0, 10.0]], np.float32)
+
+        boxes, _scores, _ids, _ = backend._parse_embedded_nms(
+            [confidence, coordinates], 128, (1280, 720), conf=0.5
+        )
+
+        np.testing.assert_allclose(boxes, [[540.0, 310.0, 740.0, 410.0]], atol=1e-3)
+
+    def test_backend_family_set_matches_exporter(self):
+        from libreyolo.backends.coreml import _YOLO9_FAMILIES as backend_families
+        from libreyolo.export.coreml import _YOLO9_FAMILIES as export_families
+
+        assert backend_families == export_families

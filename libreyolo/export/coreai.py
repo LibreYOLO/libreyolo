@@ -627,6 +627,10 @@ def prepare_frozen_classifier_export(
 
     exporter = CoreAIExporter(model)
     half, int8 = exporter._validate(half, int8, data)
+    if half:
+        raise NotImplementedError(
+            "Core AI frozen-class export currently supports FP32 only."
+        )
     exporter._preflight(
         half=half,
         int8=int8,
@@ -635,6 +639,35 @@ def prepare_frozen_classifier_export(
     )
     metadata = exporter._build_metadata("fp32", False, None, imgsz=(height, width))
     return height, str(output_path), metadata
+
+
+def _outputs_to_float32(value: Any) -> Any:
+    if torch.is_tensor(value):
+        return value.float() if value.dtype == torch.float16 else value
+    if isinstance(value, tuple):
+        return tuple(_outputs_to_float32(item) for item in value)
+    if isinstance(value, list):
+        return [_outputs_to_float32(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _outputs_to_float32(item) for key, item in value.items()}
+    return value
+
+
+class _Float16Compute(nn.Module):
+    """Run an FP16 graph behind the FP32 input/output contract.
+
+    FP16 Core AI artifacts keep the same float32 input and outputs as FP32
+    ones (as Core ML's ``compute_precision=FLOAT16`` does), so consumers do not
+    change how they feed or read the model; only the weights and the
+    arithmetic in between are half precision.
+    """
+
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x: torch.Tensor) -> Any:
+        return _outputs_to_float32(self.model(x.to(torch.float16)))
 
 
 def export_coreai(
@@ -661,8 +694,11 @@ def export_coreai(
         raise NotImplementedError(
             "Core AI export uses a fixed input shape; dynamic=True is not supported."
         )
-    if precision != "fp32":
-        raise NotImplementedError("Core AI export currently supports FP32 only.")
+    if precision not in ("fp32", "fp16"):
+        raise NotImplementedError(
+            f"Core AI export supports FP32 and FP16 only, got {precision!r}."
+        )
+    half = precision == "fp16"
     TorchConverter, get_decomp_table = _require_coreai()
 
     # Third-party defect workarounds; see coreai_compat for what and why.
@@ -681,12 +717,19 @@ def export_coreai(
     # Reuse one wrapper function in conversion and parity tests so the
     # reference cannot accidentally retain YOLO-NAS's raw training maps.
     wrapped = _wrap_coreai_contract(nn_model, model_family)
+    if half:
+        # BaseExporter already cast the live model (and snapshots it for
+        # restore); casting the wrapper too covers buffers it registers.
+        wrapped = wrapped.half()
 
     # Fixed-canvas preparation is scoped so both successful conversion and any
     # capture/lowering failure leave the caller's live model unchanged.
-    with _prepare_coreai_graph(wrapped, dummy, model_family):
+    prepare_dummy = dummy.to(torch.float16) if half else dummy
+    with _prepare_coreai_graph(wrapped, prepare_dummy, model_family):
+        capture = _Float16Compute(wrapped) if half else wrapped
+        capture_dummy = dummy.to(torch.float32) if half else dummy
         logger.info("Step 1/3: Capturing the graph with torch.export")
-        exported = torch.export.export(wrapped, args=(dummy,))
+        exported = torch.export.export(capture, args=(capture_dummy,))
 
         logger.info("Step 2/3: Lowering to Core AI IR")
         table = dict(get_decomp_table())

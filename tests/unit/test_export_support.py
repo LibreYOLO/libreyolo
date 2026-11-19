@@ -954,3 +954,13 @@ def test_gtr_export_rejects_half_like_precision_support():
     model._quant_manifest = None
     with pytest.raises(ValueError, match="requires FP32"):
         model.export(format="onnx", half=True)
+
+
+def test_yolo9_siblings_share_the_coreml_tier():
+    from libreyolo.export.support import get_support
+
+    reference = get_support("yolo9", "detect", "coreml")
+    for family in ("yolo9_p2", "yolo9_e2e"):
+        entry = get_support(family, "detect", "coreml")
+        assert entry.tier == reference.tier == "available"
+        assert entry.reason == reference.reason
