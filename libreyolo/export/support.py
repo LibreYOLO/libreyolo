@@ -1813,11 +1813,33 @@ _add(
     constraint="raw fixed-96 ROI contract: roi_image -> mask_logits",
 )
 _add(
+    "available",
+    ("picosam3",),
+    ("segment",),
+    ("axelera",),
+    since="1.7",
+    reason=(
+        "INT8 export of the raw ROI CNN compiled with Axelera's toolchain, under the "
+        "same contract as ONNX (roi_image [1,3,96,96] -> mask_logits [1,1,96,96]); "
+        "cutting the ROI from a box and pasting the logits back stay in Python. The "
+        "stem's depthwise 3x3 on the image runs as an exact dense 3->3 conv. "
+        "Supported, not validated: there are no ground-truth masks in the pairing, so "
+        "the device is measured against FP32 (fidelity): on 2360 ground-truth-box "
+        "ROIs of 297 COCO val2017 images, mask IoU vs FP32 0.968 and pixel "
+        "agreement 0.992 (docs/axelera.md)."
+    ),
+    constraint=(
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 96x96 ROI input; calibration ROIs cut from the dataset's "
+        "ground-truth boxes (2 per image, 128 in total)"
+    ),
+)
+_add(
     "blocked",
     ("picosam3",),
     ("segment",),
-    tuple(fmt for fmt in EXPORT_FORMATS if fmt != "onnx"),
-    reason="PicoSAM3 currently exports its raw ROI CNN through ONNX only.",
+    tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "axelera")),
+    reason="PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.",
 )
 _add(
     "validated",

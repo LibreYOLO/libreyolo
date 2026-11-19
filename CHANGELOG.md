@@ -9,6 +9,7 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Axelera Metis export for PicoSAM3, previously ONNX only.** `LibrePicoSAM3().export(format="axelera")` compiles the raw 96x96 ROI CNN under the same contract as the ONNX export (`roi_image [1,3,96,96] -> mask_logits [1,1,96,96]`, batch 1); cutting the ROI from a box and pasting the logits back stay in Python. Calibration ROIs are cut from the dataset's ground-truth boxes as `predict(bboxes=...)` cuts them. The stem's depthwise 3x3 on the image runs as an exact dense 3->3 convolution (the compiler has no depthwise form for the input layer). On 2360 ground-truth-box ROIs of 297 COCO val2017 images the device masks match FP32 with mean IoU 0.968 and pixel agreement 0.992 (supported; fidelity, no ground-truth masks).
 - **Axelera Metis hybrid exports for EfficientDet-d3 and -d4, previously blocked.** Neither finds an L1 tiling whole-graph (d3: its BiFPN and heads; d4: its 272-channel backbone stage), so at d0's 512x512 canvas the EfficientNet backbone (d3) or its first five stages (d4) run on the Metis and the rest, the BiFPN, heads and decode on the host: 0.3814 vs 0.3853 (-0.39) and 0.3942 vs 0.3971 (-0.29) mAP50-95 against FP32 at the same canvas on 300 COCO val2017 images.
 - **Axelera Metis hybrid export for RTMDet-x detection, previously blocked.** The whole graph finds no L1 tiling for its PAFPN neck and heads, so the CSPNeXt-x backbone runs on the Metis and the neck, heads and decode run on the host: 0.5328 vs 0.5319 FP32 mAP50-95 (+0.09) on 300 COCO val2017 images.
 

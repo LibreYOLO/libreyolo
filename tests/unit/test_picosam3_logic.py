@@ -140,3 +140,102 @@ def test_raw_onnx_export_matches_pytorch(tmp_path):
     torch.testing.assert_close(
         torch.from_numpy(actual), torch.from_numpy(expected), atol=1e-5, rtol=1e-5
     )
+
+
+def _roi_dataset(tmp_path):
+    import numpy as np
+
+    root = tmp_path / "rois"
+    (root / "images" / "train").mkdir(parents=True)
+    (root / "labels" / "train").mkdir(parents=True)
+    rng = np.random.default_rng(0)
+    for index in range(3):
+        pixels = rng.integers(0, 255, size=(120, 160, 3), dtype=np.uint8)
+        Image.fromarray(pixels).save(root / "images" / "train" / f"{index}.jpg")
+        (root / "labels" / "train" / f"{index}.txt").write_text(
+            "0 0.5 0.5 0.4 0.5\n1 0.3 0.4 0.2 0.3\n2 0.7 0.6 0.3 0.2\n"
+        )
+    data = tmp_path / "rois.yaml"
+    data.write_text(
+        f"path: {root}\ntrain: images/train\nval: images/train\nnames:\n  0: a\n  1: b\n  2: c\n"
+    )
+    return data
+
+
+def test_axelera_and_onnx_exports_share_the_raw_roi_contract(tmp_path, monkeypatch):
+    """format="axelera" compiles the same raw graph as format="onnx" (static batch 1):
+    roi_image [1,3,96,96] -> mask_logits [1,1,96,96], calibrated on predict()'s own ROIs."""
+    onnx = pytest.importorskip("onnx")
+    import numpy as np
+
+    import libreyolo.export.axelera as axelera
+
+    model = _bare_picosam3()
+    recorded = {}
+
+    def recorder(**kwargs):
+        recorded.update(kwargs)
+        recorded["graph"] = onnx.load(kwargs["onnx_path"])
+        return kwargs["output_path"]
+
+    monkeypatch.setattr(axelera, "export_axelera", recorder)
+    data = _roi_dataset(tmp_path)
+    out = model.export("axelera", data=data, output_path=tmp_path / "pico_axelera_model")
+    assert out == str(tmp_path / "pico_axelera_model")
+
+    reference = onnx.load(model.export(output=tmp_path / "pico.onnx", dynamic=False))
+    ort = pytest.importorskip("onnxruntime")
+
+    def signature(graph):
+        def dims(value):
+            return [d.dim_value for d in value.type.tensor_type.shape.dim]
+
+        return (
+            [(v.name, dims(v)) for v in graph.graph.input],
+            [(v.name, dims(v)) for v in graph.graph.output],
+        )
+
+    assert signature(recorded["graph"]) == signature(reference)
+    assert signature(reference) == ([("roi_image", [1, 3, 96, 96])], [("mask_logits", [1, 1, 96, 96])])
+    # Same function: the Axelera graph only differs by the exact dense form of the stem's depthwise conv.
+    with torch.no_grad():
+        for layer in model.model.modules():
+            if isinstance(layer, torch.nn.Conv2d):
+                layer.weight.normal_(0, 0.2)
+            elif isinstance(layer, torch.nn.BatchNorm2d):
+                layer.weight.fill_(1.0)
+    recorded.clear()
+    model.export("axelera", data=data, output_path=tmp_path / "pico_axelera_model")
+    roi = np.random.default_rng(1).random((1, 3, 96, 96), dtype=np.float32)
+    run = lambda graph: ort.InferenceSession(graph.SerializeToString(), providers=["CPUExecutionProvider"]).run(
+        ["mask_logits"], {"roi_image": roi}
+    )[0]
+    np.testing.assert_allclose(
+        run(recorded["graph"]), run(onnx.load(model.export(output=tmp_path / "pico2.onnx", dynamic=False))), atol=1e-5
+    )
+    assert isinstance(model.model.encoder_stage1[0], torch.nn.Conv2d) and model.model.encoder_stage1[0].groups == 3
+    assert "Python" in recorded["metadata"]["contract"]
+    assert recorded["metadata"]["input_names"] == ["roi_image"]
+    calibration = recorded["calibration"]
+    assert len(calibration) == 6  # two ROIs per image, three images
+    assert all(c.shape == (1, 3, 96, 96) and c.dtype == np.float32 for c in calibration)
+    # Normalized exactly as predict() normalizes an ROI (checked against preprocess_roi below).
+    image = Image.open(sorted((tmp_path / "rois" / "images" / "train").glob("*.jpg"))[0]).convert("RGB")
+    box = [0.3 * 160, 0.25 * 120, 0.7 * 160, 0.75 * 120]
+    expected = preprocess_roi(image, padded_square_roi(box, 160, 120)).numpy()[None]
+    np.testing.assert_array_equal(calibration[0], expected)
+    assert recorded["quantization_scheme"] == LibrePicoSAM3.AXELERA_QUANTIZATION_SCHEME
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"data": "coco128.yaml"}, {"quantization_scheme": "per_tensor_min_max"}, {"verify": True}, {"fraction": 0.5}],
+)
+def test_onnx_export_rejects_axelera_only_arguments(tmp_path, kwargs):
+    with pytest.raises(TypeError, match="Axelera-only"):
+        _bare_picosam3().export(output=tmp_path / "pico.onnx", **kwargs)
+
+
+def test_axelera_export_is_batch_one(tmp_path):
+    with pytest.raises(ValueError, match="batch 1"):
+        _bare_picosam3().export("axelera", dynamic=True, output_path=tmp_path / "x_axelera_model")

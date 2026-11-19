@@ -118,7 +118,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | pe | classify | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | pe | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | available | ✓ |  |  | ✓ |
-| picosam3 | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
+| picosam3 | segment | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
 | pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | hybrid | ✓ | ✓ |  | ✓ |
 | ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  | hybrid |  |  |  |  |
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | available |  |  |  |  |
@@ -673,6 +673,7 @@ These converter paths are callable with the recorded validation context.
 - `pe` / `embed` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `picodet` / `detect` / `rknn`: Exact small variants passed RKNN Toolkit2 2.3.2 compilation, RK3588 PC-simulator raw-output gates, and matched post-NMS detections on a real image. Support is limited to YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s; on-device latency and parity have not been measured. Constraint: RKNN Toolkit2 2.3.2, RK3588 PC simulator, vendor floating build, batch 1, fixed square input
 - `picodet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the graph stops after each level's box-distribution and class convolutions, ESNet's channel shuffles become fixed permutation convolutions, and LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 Max against FP32 on a paired 1000-image COCO val2017 subset PicoDet-s loses 2.3, PicoDet-m 2.9 and PicoDet-l 1.7 mAP50-95 (docs/axelera.md). Constraint: supported sizes: s, m, l (measured drop, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `picosam3` / `segment` / `axelera`: INT8 export of the raw ROI CNN compiled with Axelera's toolchain, under the same contract as ONNX (roi_image [1,3,96,96] -> mask_logits [1,1,96,96]); cutting the ROI from a box and pasting the logits back stay in Python. The stem's depthwise 3x3 on the image runs as an exact dense 3->3 conv. Supported, not validated: there are no ground-truth masks in the pairing, so the device is measured against FP32 (fidelity): on 2360 ground-truth-box ROIs of 297 COCO val2017 images, mask IoU vs FP32 0.968 and pixel agreement 0.992 (docs/axelera.md). Constraint: axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 96x96 ROI input; calibration ROIs cut from the dataset's ground-truth boxes (2 per image, 128 in total)
 - `pidnet` / `semantic` / `tensorrt`: TensorRT 10.16 FP32 exports and runs, but repeated builds produced raw-logit cosine as low as 0.9970, below the 0.999 promotion gate.
 - `ppdoclayoutv3` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppdoclayoutv3` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
@@ -1882,18 +1883,17 @@ rest on the host CPU; each entry names the split.
 - `picodet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `picodet` / `detect` / `tflite`: LiteRT 2.1.2 cannot prepare the onnx2tf 2.6.7 artifact because a RESHAPE maps 19,200 input elements to 9,600 output elements.
 - `picodet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
-- `picosam3` / `segment` / `torchscript`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `executorch`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `tensorrt`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `openvino`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `paddle`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `mnn`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `rknn`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `axelera`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `ncnn`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `tflite`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `coreml`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `coreai`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
+- `picosam3` / `segment` / `torchscript`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `executorch`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `tensorrt`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `openvino`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `paddle`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `mnn`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `rknn`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `ncnn`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `tflite`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `coreml`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `coreai`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
 - `pidnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
