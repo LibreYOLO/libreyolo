@@ -276,6 +276,40 @@ def test_resolve_facerec_weight_downloads_bare_name(monkeypatch, tmp_path):
     assert calls["url"].endswith("librefacerec-l/resolve/main/librefacerec-l.onnx")
 
 
+@pytest.mark.parametrize(
+    "ref", ["LibreYOLO/librefacerec-l", "libreyolo/librefacerec-l.onnx"]
+)
+def test_resolve_facerec_weight_hub_id_uses_hf_cache(monkeypatch, tmp_path, ref):
+    from pathlib import Path as P
+
+    import huggingface_hub
+
+    from libreyolo.models.facerec.weights import resolve_facerec_weight
+
+    calls = {}
+
+    def fake_hf_hub_download(repo_id, filename, **kwargs):
+        calls.update(repo_id=repo_id, filename=filename)
+        return str(tmp_path / "hf-cache" / filename)
+
+    def no_url_download(*args, **kwargs):
+        raise AssertionError("Hub ids must not download into the working dir")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", fake_hf_hub_download)
+    monkeypatch.setattr(
+        "libreyolo.utils.download.download_url_to_path", no_url_download
+    )
+    got = resolve_facerec_weight(ref)
+    assert calls == {
+        "repo_id": "LibreYOLO/librefacerec-l",
+        "filename": "librefacerec-l.onnx",
+    }
+    assert P(got) == tmp_path / "hf-cache" / "librefacerec-l.onnx"
+    assert not (tmp_path / "LibreYOLO").exists()
+    assert not (tmp_path / "libreyolo").exists()
+
+
 def test_resolve_facerec_weight_unknown_name(tmp_path, monkeypatch):
     from libreyolo.models.facerec.weights import resolve_facerec_weight
 
