@@ -626,6 +626,8 @@ _COREML_VAL_PARITY_CASES = [
     ("yolo9", (48, 64, 3)),
     ("yolo9_p2", (48, 64, 3)),
     ("yolo9_e2e", (48, 64, 3)),
+    # YOLOX native predict() uses PIL bilinear while YOLOXValPreprocessor uses
+    # cv2 linear; (48, 64) exercises letterbox padding + BGR->RGB at scale 1.
     ("yolox", (48, 64, 3)),
     ("rtdetr", (64, 64, 3)),
     ("rfdetr", (64, 64, 3)),
@@ -684,6 +686,30 @@ def test_val_and_predict_feed_coreml_identical_pixels(family, shape):
     (predict_mode, predict_px), (val_mode, val_px) = seen
     assert predict_mode == val_mode == "RGB"
     assert val_px[0, 0].tolist() == [200, 100, 50]
+    np.testing.assert_array_equal(val_px, predict_px)
+
+
+@pytest.mark.parametrize(
+    "family", ["yolo9", "yolo9_p2", "yolo9_e2e", "rtdetr", "rfdetr"]
+)
+def test_val_and_predict_feed_coreml_identical_pixels_when_resized(family):
+    """Families whose native predict() and val() share OpenCV linear resize
+    must feed CoreML byte-identical pixels even on a non-square downscale."""
+    seen = []
+    backend = _make_stub_coreml_backend(family, seen)
+    rgb = np.random.default_rng(1).integers(0, 256, (91, 137, 3), np.uint8)
+
+    blob, *_ = backend._preprocess(rgb, 64, "rgb")
+    backend._run_inference(blob.numpy())
+
+    val_preproc = backend._get_val_preprocessor(img_size=64)
+    val_img, _ = val_preproc(
+        np.ascontiguousarray(rgb[..., ::-1]), np.zeros((0, 5)), (64, 64)
+    )
+    backend._forward(torch.from_numpy(np.asarray(val_img, np.float32)).unsqueeze(0))
+
+    (predict_mode, predict_px), (val_mode, val_px) = seen
+    assert predict_mode == val_mode == "RGB"
     np.testing.assert_array_equal(val_px, predict_px)
 
 

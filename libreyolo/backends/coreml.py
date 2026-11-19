@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import cv2
 import numpy as np
 import torch
 from PIL import Image
@@ -328,8 +329,23 @@ class CoreMLBackend(BaseBackend):
                 fill=114,
             )
             chw = padded.transpose(2, 0, 1).astype(np.float32)
+        elif family == "rtdetr":
+            # Matches preprocess.rtdetr and RTDETRValPreprocessor (uint8 cv2 linear).
+            ratio = 1.0
+            resized = cv2.resize(
+                np.array(img), (input_w, input_h), interpolation=cv2.INTER_LINEAR
+            )
+            chw = resized.transpose(2, 0, 1).astype(np.float32)
+        elif family == "rfdetr":
+            # Matches preprocess.rfdetr and RFDETRValPreprocessor (float32 cv2 linear).
+            ratio = 1.0
+            resized = cv2.resize(
+                np.asarray(img, dtype=np.float32),
+                (input_w, input_h),
+                interpolation=cv2.INTER_LINEAR,
+            )
+            chw = resized.transpose(2, 0, 1)
         else:
-            # rtdetr, rfdetr: plain resize to the exported input.
             ratio = 1.0
             resized = img.resize((input_w, input_h), Image.Resampling.BILINEAR)
             chw = np.array(resized).transpose(2, 0, 1).astype(np.float32)
