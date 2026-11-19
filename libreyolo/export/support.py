@@ -5447,8 +5447,8 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "COCO val2017 images)"
         ),
         "x": (
-            "measured mAP50-95 drop 1.71 points vs FP32 (0.475 vs 0.492 on 1000 "
-            "COCO val2017 images)"
+            "measured mAP50-95 drop 1.08 points vs FP32 (0.481 vs 0.492 on 1000 "
+            "COCO val2017 images; histogram activation ranges)"
         ),
     },
     ("yolo4", "detect", "axelera"): {

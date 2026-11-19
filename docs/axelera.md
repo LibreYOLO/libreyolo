@@ -58,7 +58,7 @@ a separate size:
 | PP-YOLOE | s | detect | COCO val2017, 1000 | 0.4085 | 0.3962 | -1.23 | supported | `ppyoloe/detect/s/2026-11-11/3` |
 | PP-YOLOE | m | detect | COCO val2017, 1000 | 0.4538 | 0.4416 | -1.22 | supported | `ppyoloe/detect/m/2026-11-11/2` |
 | PP-YOLOE | l | detect | COCO val2017, 1000 | 0.4771 | 0.4740 | -0.31 | validated | `ppyoloe/detect/l/2026-11-11/2` |
-| PP-YOLOE | x | detect | COCO val2017, 1000 | 0.4918 | 0.4747 | -1.71 | supported | `ppyoloe/detect/x/2026-11-11/2` |
+| PP-YOLOE | x | detect (histogram ranges) | COCO val2017, 1000 | 0.4918 | 0.4810 | -1.08 | supported | `ppyoloe/detect/x/2026-11-19/2` |
 | PicoDet | s | detect | COCO val2017, 1000 | 0.2687 | 0.2453 | -2.34 | supported | `picodet/detect/s/2026-11-11/7` |
 | PicoDet | m | detect | COCO val2017, 1000 | 0.3449 | 0.3163 | -2.86 | supported | `picodet/detect/m/2026-11-11/4` |
 | PicoDet | l | detect | COCO val2017, 1000 | 0.3971 | 0.3801 | -1.70 | supported | `picodet/detect/l/2026-11-11/4` |
@@ -229,7 +229,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLOv3 | detect | t, b, spp | see `docs/export_support.md` | t `yolo3/detect/t/2026-11-11/6`; b `yolo3/detect/b/2026-11-11/6`; spp `yolo3/detect/spp/2026-11-11/3` |
 | YOLOv4 | detect | t, b (b supported with a measured drop) | see `docs/export_support.md` | t `yolo4/detect/t/2026-11-11/5`; b `yolo4/detect/b/2026-11-11/6` |
 | YOLOv7 | detect | b | see `docs/export_support.md` | b `yolo7/detect/b/2026-11-11/4` |
-| PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-11/2` |
+| PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-19/2` |
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
 | RTMDet | detect | t, s, m, l (supported with a measured drop; x hybrid: CSPNeXt-x backbone on the Metis, neck and heads on the host, +0.09) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-17/8`, held-out `rtmdet/detect/s/2026-11-17/9`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x `rtmdet/detect/x/2026-11-18/2` |
 | RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -5.02, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-19/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
@@ -458,7 +458,7 @@ still are, in opposite directions (their rows).
 | PP-YOLOE-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4085 | 0.3962 | -1.23 (supported) |
 | PP-YOLOE-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4538 | 0.4416 | -1.22 (supported) |
 | PP-YOLOE-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4771 | 0.4740 | -0.31 |
-| PP-YOLOE-x | detect | COCO val2017, 1000 images | 64 coco128 | 0.4918 | 0.4747 | -1.71 (supported) |
+| PP-YOLOE-x (histogram ranges) | detect | COCO val2017, 1000 images | 64 coco128 | 0.4918 | 0.4810 | -1.08 (supported; -1.23 on 300, was -2.41 with min-max) |
 | PicoDet-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.2687 | 0.2453 | -2.34 (supported; -1.28 on 300) |
 | PicoDet-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.3449 | 0.3163 | -2.86 (supported) |
 | PicoDet-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.3971 | 0.3801 | -1.70 (supported) |
@@ -1080,7 +1080,7 @@ Other known limits:
 
 - YOLO-NAS-R (obb): validated on 300 DOTA-v2.0 tiles (the paired set prepared for this work), not on a 1000-image set.
 - YOLOX-n: supported, mAP50-95 1.81 points below FP32 (1.66 with 128 calibration images; section 7).
-- PP-YOLOE-s, -m and -x: supported, mAP50-95 1.2 to 1.7 points below FP32 (section 7). The loss is in the box-distribution outputs and does not come from their output range: windowing them, or histogram ranges, did not help. PP-YOLOE-l is validated.
+- PP-YOLOE-s, -m and -x: supported, mAP50-95 1.1 to 1.2 points below FP32 (section 7). The loss is in the box-distribution outputs and does not come from their output range: windowing them did not help, and histogram ranges help only PP-YOLOE-x (-1.08, was -1.71), which now uses them. PP-YOLOE-l is validated.
 - YOLOv4-b: supported, mAP50-95 1.52 points below FP32 with its recipe (section 7): its box outputs lose resolution in the Mish backbone; histogram ranges and a box-output window recover most of it (-6.8 to -1.52).
 - YOLO-NAS-pose n and s: supported, keypoint mAP50-95 1.3 and 2.2 points below FP32 (section 7); m and l are validated.
 - RF-DETR and other transformer-backbone families: attention, data-dependent

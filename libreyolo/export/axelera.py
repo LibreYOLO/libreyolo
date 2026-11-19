@@ -247,6 +247,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("rtmdet", "detect", "s"): {"pointwise_learned_rounding": True},
     # RTMDet-Ins-s: the same learned rounding on the shared CSPNeXt trunk.
     ("rtmdet", "segment", "s"): {"pointwise_learned_rounding": True},
+    # PP-YOLOE-x: histogram activation ranges (the other sizes keep min-max: hybrid hurts their DFL heads).
+    ("ppyoloe", "detect", "x"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
 }
 
 

@@ -1206,7 +1206,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
         ("mobilenetv4", "classify", "l"), ("yolonas", "pose", "s"),
         ("vgg", "classify", "16bn"), ("quicksrnet", "restore", "m2"),
-        ("realesrgan", "restore", "x4t"),
+        ("realesrgan", "restore", "x4t"), ("ppyoloe", "detect", "x"),
     }
     assert size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
     # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default
@@ -1225,6 +1225,17 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
     assert meta["output_windows"] == {"reg": [-6.0, 6.0]}
     assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+    # PP-YOLOE-x: histogram ranges; the other PP-YOLOE sizes keep the min-max default.
+    from libreyolo import LibrePPYOLOE
+
+    for size, scheme in (("x", "hybrid_per_tensor_per_channel"), ("l", "per_tensor_min_max")):
+        torch.manual_seed(0)
+        ppy = LibrePPYOLOE(None, size="s", nb_classes=3, device="cpu")
+        monkeypatch.setattr(ppy, "size", size)
+        out = ppy.export(format="axelera", data=data, imgsz=64,
+                         output_path=str(tmp_path / f"ppy{size}_axelera_model"))
+        meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
+        assert meta["axelera"]["quantization_scheme"] == scheme
     # MobileNetV4-s: no residual-stream transform, histogram ranges.
     import libreyolo.models.mobilenetv4.quantize as q
 
