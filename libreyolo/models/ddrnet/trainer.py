@@ -80,6 +80,15 @@ class DDRNetTrainer(
             ).to(self.device)
         return self._criterion
 
+    def validation_pixel_loss(self):
+        # Validation runs in eval mode, so only the main head is scored: the
+        # number is comparable to the training ``loss_ce`` component, not the
+        # aux-weighted total. ``ohem_min_kept`` counts pixels per batch, so
+        # the OHEM validation loss depends a little on val batch and imgsz.
+        if not bool(getattr(self.config, "ohem", True)):
+            return None
+        return self.criterion.criterion
+
     def on_forward(
         self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None
     ) -> dict:
