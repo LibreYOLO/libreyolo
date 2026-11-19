@@ -14,7 +14,8 @@ REPO = "https://github.com/LibreYOLO/libreyolo"
 RAW = "https://raw.githubusercontent.com/LibreYOLO/libreyolo/release/"
 BLOB = f"{REPO}/blob/release/"
 
-_FENCE = re.compile(r"^(```+|~~~+)(.*)$")
+# CommonMark: up to 3 spaces of indent; a backtick fence's info has no backticks
+_FENCE = re.compile(r"^ {0,3}(?:(`{3,})([^`]*)|(~{3,})(.*))$")
 _HEADING = re.compile(r"^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$")
 _MD_TARGET = re.compile(r"(\]\()([^)\s]+)")
 _HTML_ATTR = re.compile(r"(\b(?:src|href)=\")([^\"]+)(\")", re.IGNORECASE)
@@ -42,13 +43,14 @@ def long_description(readme: str) -> str:
     mermaid = False
     anchor = ""
     for line in readme.splitlines():
-        match = _FENCE.match(line.strip())
+        match = _FENCE.match(line.rstrip())
+        run, info = (
+            (match.group(1) or match.group(3), match.group(2) or match.group(4) or "")
+            if match
+            else ("", "")
+        )
         if fence:
-            if (
-                match
-                and match.group(1).startswith(fence)
-                and not match.group(2).strip()
-            ):
+            if match and run.startswith(fence) and not info.strip():
                 fence = ""
                 if mermaid:
                     mermaid = False
@@ -61,8 +63,8 @@ def long_description(readme: str) -> str:
                 out.append(line)
             continue
         if match:
-            fence = match.group(1)
-            mermaid = match.group(2).strip().lower() == "mermaid"
+            fence = run
+            mermaid = (info.split() or [""])[0].lower() == "mermaid"
             if not mermaid:
                 out.append(line)
             continue

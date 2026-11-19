@@ -2,6 +2,7 @@
 
 import importlib.util
 import re
+import runpy
 from pathlib import Path
 
 try:
@@ -13,7 +14,9 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
-_spec = importlib.util.spec_from_file_location("libreyolo_setup", Path("setup.py"))
+ROOT = Path(__file__).resolve().parents[2]
+
+_spec = importlib.util.spec_from_file_location("libreyolo_setup", ROOT / "setup.py")
 setup_py = importlib.util.module_from_spec(_spec)
 # __name__ is not "__main__" here, so setup() does not run
 _spec.loader.exec_module(setup_py)
@@ -23,7 +26,9 @@ BLOB = "https://github.com/LibreYOLO/libreyolo/blob/release/"
 
 
 def test_readme_is_built_by_setup_py():
-    project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]
     assert "readme" not in project
     assert "readme" in project["dynamic"]
 
@@ -60,8 +65,35 @@ def test_code_blocks_are_left_alone():
     assert setup_py.long_description(readme) == readme
 
 
+def test_setup_py_passes_the_built_description(monkeypatch):
+    setuptools = pytest.importorskip("setuptools")
+    seen = {}
+    monkeypatch.setattr(setuptools, "setup", lambda **kw: seen.update(kw))
+    runpy.run_path(str(ROOT / "setup.py"), run_name="__main__")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert seen["long_description"] == setup_py.long_description(readme)
+    assert seen["long_description_content_type"] == "text/markdown"
+
+
+def test_only_real_fences_open_a_block():
+    readme = (
+        "Example:\n\n    ```mermaid\n\n```foo``` inline\n\n## Install\n\n"
+        "[guide](CONTRIBUTING.md)\n"
+    )
+    out = setup_py.long_description(readme)
+    assert "## Install" in out
+    assert f"]({BLOB}CONTRIBUTING.md)" in out
+
+
+def test_mermaid_fence_with_attributes_is_replaced():
+    readme = "## Models\n\n~~~mermaid title=x\nflowchart TB\n~~~\n"
+    out = setup_py.long_description(readme)
+    assert "flowchart" not in out
+    assert "#models)" in out
+
+
 def test_the_real_readme_has_nothing_pypi_cannot_show():
-    out = setup_py.long_description(Path("README.md").read_text(encoding="utf-8"))
+    out = setup_py.long_description((ROOT / "README.md").read_text(encoding="utf-8"))
     assert "```mermaid" not in out
     targets = re.findall(r"\]\(([^)\s]+)", out) + re.findall(
         r'(?:src|href)="([^"]+)"', out
