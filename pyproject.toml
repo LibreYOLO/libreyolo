@@ -48,7 +48,9 @@ dependencies = [
     "torchvision>=0.19.0",
     "PyYAML>=6.0",
     "requests>=2.25.0",
-    "opencv-python>=4.11.0.86",
+    # 5.1.0.95 ships its macOS arm64 wheel for macOS 15+ only, so macOS 14
+    # installs build it from source; stay below it until that changes.
+    "opencv-python>=4.11.0.86,<5.1",
     "mss>=9.0.1",
     "tqdm>=4.65.0",
     "pycocotools>=2.0.0",
