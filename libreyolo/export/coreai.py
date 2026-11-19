@@ -70,6 +70,21 @@ _ANCHOR_FREEZE_FAMILIES = {
     "rtmdet",
 }
 _DARKNET_FAMILIES = {"yolo1", "yolo2", "yolo3", "yolo4"}
+# Families whose FP16 Core AI artifact was converted, run, and compared with
+# the eager model (float32 I/O, ~0.3 px box error at 320). Other families keep
+# float32-only ops in their graphs (RF-DETR's transformer fails torch.export
+# once cast), so FP16 is refused up front rather than failing mid-conversion.
+_FP16_FAMILIES = frozenset({"yolo9", "yolo9_p2", "yolo9_e2e"})
+
+
+def check_fp16_family(model_family: str | None) -> None:
+    """Raise unless *model_family* has a verified FP16 Core AI path."""
+    family = (model_family or "").lower()
+    if family not in _FP16_FAMILIES:
+        raise NotImplementedError(
+            f"Core AI FP16 export is supported for {sorted(_FP16_FAMILIES)} "
+            f"only; export {family or 'this model'!s} with half=False."
+        )
 _RTDETR_STATIC_FAMILIES = {
     "rtdetr",
     "rtdetrv2",
@@ -283,7 +298,19 @@ def _rebake_rfdetr_pos_embed(nn_model: nn.Module, dummy: torch.Tensor):
         mod.shape = (h, w)
         mod._export = False
         try:
+            # The bake's antialiased bicubic has no CPU float16 kernel, so an
+            # FP16 export bakes from a float32 copy and casts the result back.
+            if prev_pe.dtype != torch.float32:
+                embeddings.position_embeddings = nn.Parameter(
+                    prev_pe.detach().float(), requires_grad=prev_pe.requires_grad
+                )
             mod.export()
+            baked = embeddings.position_embeddings
+            if baked.dtype != prev_pe.dtype:
+                embeddings.position_embeddings = nn.Parameter(
+                    baked.detach().to(prev_pe.dtype),
+                    requires_grad=baked.requires_grad,
+                )
         except Exception as exc:  # noqa: BLE001 - leave the graph to fail loudly
             logger.warning(
                 "Could not re-bake the RF-DETR position embedding for %dx%d "
@@ -699,6 +726,8 @@ def export_coreai(
             f"Core AI export supports FP32 and FP16 only, got {precision!r}."
         )
     half = precision == "fp16"
+    if half:
+        check_fp16_family(model_family)
     TorchConverter, get_decomp_table = _require_coreai()
 
     # Third-party defect workarounds; see coreai_compat for what and why.

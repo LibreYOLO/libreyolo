@@ -199,7 +199,7 @@ class _NMSOutputAdapter(nn.Module):
             # YOLOX export output: (B, N, 5 + C), cxcywh + objectness + class scores.
             confidence = out[..., 5:] * out[..., 4:5]
             coordinates = out[..., :4]
-        elif self.model_family in _YOLO9_FAMILIES:
+        elif self.model_family == "yolo9":
             # YOLO9 export output: (B, 4 + C, N), xyxy + class scores.
             pred = out.transpose(1, 2)
             xyxy = pred[..., :4]

@@ -5048,6 +5048,10 @@ class CoreAIExporter(BaseExporter):
         # by ADR 0011. Dependency validation still happens before the
         # destructive LoRA merge in BaseExporter.__call__.
         super()._preflight(**kwargs)
+        if kwargs.get("half"):
+            from .coreai import check_fp16_family
+
+            check_fp16_family(self.model._get_model_name())
 
         # Check the optional dependency HERE, not at conversion time. Preflight
         # runs before __call__ merges any live LoRA adapters, and that merge is
@@ -5108,15 +5112,15 @@ class CoreMLExporter(BaseExporter):
                     "NMS-free. Export with nms=False; LibreYOLO's CoreML "
                     "backend decodes it without NMS."
                 )
-            if family in {"yolo9", "yolo9_p2"} and task != "detect":
+            if family == "yolo9" and task != "detect":
                 raise NotImplementedError(
                     "CoreML embedded NMS currently supports YOLO9 detection "
                     "models only."
                 )
-            if family not in {"yolox", "yolo9", "yolo9_p2"}:
+            if family not in {"yolox", "yolo9"}:
                 raise NotImplementedError(
                     "CoreML embedded NMS currently supports YOLOX and YOLO9 "
-                    "(including YOLO9-P2) detection models only."
+                    "detection models only."
                 )
             if kwargs.get("max_det", 300) != 300:
                 raise NotImplementedError(

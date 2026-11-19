@@ -400,3 +400,84 @@ def test_require_coreai_explains_the_python_floor(monkeypatch):
     monkeypatch.setattr(coreai.sys, "version_info", (3, 10, 14, "final", 0))
     with pytest.raises(ImportError, match=r"Python 3\.11 or newer.*Python 3\.10"):
         coreai._require_coreai()
+
+
+def test_rfdetr_rebake_runs_in_float32_for_half_models():
+    """CPU antialiased bicubic has no float16 kernel: the FP16 re-bake must
+    resize in float32 and hand back a float16 parameter, then restore."""
+    import math
+
+    import torch.nn.functional as F
+
+    class _Embeddings(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.position_embeddings = nn.Parameter(torch.randn(1, 1 + 4 * 4, 8))
+
+    class _Backbone(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.encoder = nn.Module()
+            self.encoder.embeddings = _Embeddings()
+            self.shape = (64, 64)
+            self._export = False
+
+        def export(self):
+            pe = self.encoder.embeddings.position_embeddings
+            grid = int(math.sqrt(pe.shape[1] - 1))
+            patches = pe[:, 1:].reshape(1, grid, grid, -1).permute(0, 3, 1, 2)
+            with torch.no_grad():
+                resized = F.interpolate(
+                    patches, size=(self.shape[0] // 16, self.shape[1] // 16),
+                    mode="bicubic", align_corners=False, antialias=True,
+                )
+            flat = resized.permute(0, 2, 3, 1).reshape(1, -1, pe.shape[-1])
+            self.encoder.embeddings.position_embeddings = nn.Parameter(
+                torch.cat((pe[:, :1], flat), dim=1)
+            )
+            self._export = True
+
+    model = _Backbone().half()
+    original = model.encoder.embeddings.position_embeddings
+
+    restore = coreai._rebake_rfdetr_pos_embed(model, torch.zeros(1, 3, 96, 96))
+    baked = model.encoder.embeddings.position_embeddings
+    assert baked.dtype == torch.float16
+    assert baked.shape == (1, 1 + 6 * 6, 8)
+    assert model.shape == (96, 96)
+
+    restore()
+    assert model.encoder.embeddings.position_embeddings is original
+    assert model.shape == (64, 64)
+
+
+def test_low_level_fp16_rejects_unverified_family_before_import(monkeypatch):
+    def dependency_must_not_run():
+        raise AssertionError("FP16 family check must run before the import")
+
+    monkeypatch.setattr(coreai, "_require_coreai", dependency_must_not_run)
+    with pytest.raises(NotImplementedError, match="half=False"):
+        coreai.export_coreai(
+            nn.Identity(),
+            torch.zeros(1, 3, 8, 8),
+            output_path="unused",
+            precision="fp16",
+            model_family="rfdetr",
+        )
+
+
+@pytest.mark.parametrize(
+    ("family", "allowed"),
+    [("yolo9", True), ("yolo9_p2", True), ("yolo9_e2e", True), ("rfdetr", False)],
+)
+def test_preflight_gates_fp16_by_family(monkeypatch, family, allowed):
+    monkeypatch.setattr(BaseExporter, "_preflight", lambda self, **kwargs: None)
+    monkeypatch.setattr(coreai, "_require_coreai", lambda: (None, None))
+    exporter = CoreAIExporter(_Wrapper(family))
+
+    exporter._preflight(half=False, int8=False, data=None)
+    if allowed:
+        exporter._preflight(half=True, int8=False, data=None)
+    else:
+        with pytest.raises(NotImplementedError, match="half=False"):
+            exporter._preflight(half=True, int8=False, data=None)

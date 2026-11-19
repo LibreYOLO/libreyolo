@@ -572,20 +572,13 @@ class TestYolo9SiblingFamilies:
                 model_family="yolo9_e2e",
             )
 
-    def test_p2_nms_adapter_matches_yolo9(self):
+    def test_p2_low_level_rejects_embedded_nms(self):
+        """Apple's NMS layer is class-agnostic and the reader keeps one class
+        per box, so P2 (multi-label, class-aware natively) stays blocked."""
         from libreyolo.export.coreml import _NMSOutputAdapter
 
-        class _Head(torch.nn.Module):
-            def forward(self, x):
-                # (B, 4 + C, N): one xyxy box with two class scores.
-                return torch.tensor([[[10.0], [20.0], [30.0], [60.0], [0.9], [0.1]]])
-
-        confidence, coordinates = _NMSOutputAdapter(_Head(), "yolo9_p2")(
-            torch.zeros(1, 3, 8, 8)
-        )
-
-        torch.testing.assert_close(confidence, torch.tensor([[0.9, 0.1]]))
-        torch.testing.assert_close(coordinates, torch.tensor([[20.0, 40.0, 20.0, 40.0]]))
+        with pytest.raises(NotImplementedError, match="yolo9_p2"):
+            _NMSOutputAdapter(_DummyModel(), "yolo9_p2")(torch.zeros(1, 3, 8, 8))
 
     @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
     def test_exporter_preflight_nms_routing(self, monkeypatch, family):
@@ -598,13 +591,13 @@ class TestYolo9SiblingFamilies:
         exporter = CoreMLExporter.__new__(CoreMLExporter)
         exporter.model = SimpleNamespace(_get_model_name=lambda: family, task="detect")
 
-        if family == "yolo9_e2e":
-            with pytest.raises(NotImplementedError, match="NMS-free"):
-                exporter._preflight(half=False, int8=False, data=None, nms=True)
-            assert not calls
-        else:
+        match = "NMS-free" if family == "yolo9_e2e" else "YOLOX and YOLO9 detection"
+        with pytest.raises(NotImplementedError, match=match):
             exporter._preflight(half=False, int8=False, data=None, nms=True)
-            assert len(calls) == 1
+        assert not calls
+        # Without nms the family passes straight through to the shared checks.
+        exporter._preflight(half=False, int8=False, data=None, nms=False)
+        assert len(calls) == 1
 
     @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
     def test_backend_letterboxes_like_yolo9(self, family):
@@ -621,22 +614,6 @@ class TestYolo9SiblingFamilies:
         expected, expected_ratio = preprocess_numpy(image, 64, letterbox_pad="topleft")
         assert ratio == expected_ratio
         np.testing.assert_allclose(tensor[0].numpy() / 255.0, expected, atol=1e-6)
-
-    def test_backend_embedded_nms_unletterboxes_p2(self):
-        from libreyolo.backends.coreml import CoreMLBackend
-
-        backend = CoreMLBackend.__new__(CoreMLBackend)
-        backend.model_family = "yolo9_p2"
-        backend.letterbox_pad = "center"
-        backend.output_names = ["confidence", "coordinates"]
-        confidence = np.array([[0.9, 0.1]], np.float32)
-        coordinates = np.array([[64.0, 64.0, 20.0, 10.0]], np.float32)
-
-        boxes, _scores, _ids, _ = backend._parse_embedded_nms(
-            [confidence, coordinates], 128, (1280, 720), conf=0.5
-        )
-
-        np.testing.assert_allclose(boxes, [[540.0, 310.0, 740.0, 410.0]], atol=1e-3)
 
     def test_backend_family_set_matches_exporter(self):
         from libreyolo.backends.coreml import _YOLO9_FAMILIES as backend_families
