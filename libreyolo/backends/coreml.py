@@ -33,6 +33,10 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
+# Families exported with YOLO9's letterbox preprocessing and (B, 4 + C, N)
+# output contract; mirrors libreyolo.export.coreml._YOLO9_FAMILIES.
+_YOLO9_FAMILIES = frozenset({"yolo9", "yolo9_p2", "yolo9_e2e"})
+
 
 def _to_compute_unit(compute_units: str):
     """Same mapping as the exporter — duplicated to avoid pulling export deps in."""
@@ -313,7 +317,7 @@ class CoreMLBackend(BaseBackend):
             padded = Image.new("RGB", (input_w, input_h), (114, 114, 114))
             padded.paste(resized, (0, 0))
             chw = np.array(padded).transpose(2, 0, 1).astype(np.float32)
-        elif family == "yolo9":
+        elif family in _YOLO9_FAMILIES:
             # Same letterbox as the .pt (pad placement from export metadata).
             padded, ratio, _dx, _dy = apply_letterbox_hwc(
                 np.array(img),
@@ -384,7 +388,7 @@ class CoreMLBackend(BaseBackend):
         elif family == "rtdetr":
             boxes[:, [0, 2]] *= orig_w
             boxes[:, [1, 3]] *= orig_h
-        elif family == "yolo9":
+        elif family in _YOLO9_FAMILIES:
             input_h, input_w = _imgsz_hw(effective_imgsz)
             ratio, _, _, dx, dy = letterbox_geometry(
                 orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
@@ -403,6 +407,19 @@ class CoreMLBackend(BaseBackend):
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
         return boxes, max_scores, class_ids, None
 
+    def _forward(self, input_tensor):
+        """Validation entry point: map the val preprocessor's tensor to bytes.
+
+        ``predict`` feeds ``_run_inference`` the RGB byte image from
+        ``_preprocess``; validation instead passes the family's val
+        preprocessor output, which for the YOLO9 families is RGB in [0, 1].
+        The package's ImageType input takes bytes, so without this every
+        pixel would truncate to 0 or 1 in the uint8 conversion.
+        """
+        if (self.model_family or "").lower() in _YOLO9_FAMILIES:
+            input_tensor = input_tensor * 255.0
+        return super()._forward(input_tensor)
+
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run CoreML inference on a (1, 3, H, W) canonical RGB uint8 blob.
 
@@ -417,7 +434,7 @@ class CoreMLBackend(BaseBackend):
         self._check_fixed_input_size(blob, "CoreML")
 
         hwc = np.transpose(blob[0], (1, 2, 0))
-        uint8 = np.ascontiguousarray(np.clip(hwc, 0, 255).astype(np.uint8))
+        uint8 = np.ascontiguousarray(np.clip(np.rint(hwc), 0, 255).astype(np.uint8))
         # Grayscale packages (``channels: 1``) take an "L" image.
         pil = Image.fromarray(uint8[..., 0] if uint8.shape[2] == 1 else uint8)
 

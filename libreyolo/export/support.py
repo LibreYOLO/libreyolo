@@ -1489,7 +1489,7 @@ _add(
 )
 _add(
     "available",
-    ("yolox", "yolo9", "rtdetr", "rfdetr"),
+    ("yolox", "yolo9", "yolo9_p2", "yolo9_e2e", "rtdetr", "rfdetr"),
     ("detect",),
     ("coreml",),
     reason="Conversion is available, but runtime parity requires a macOS runner.",

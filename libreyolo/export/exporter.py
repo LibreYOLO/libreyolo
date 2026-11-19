@@ -116,26 +116,37 @@ def _restore_rfdetr_export_state(snapshots):
 def _snapshot_tensor_slots(root):
     """Record every parameter and buffer slot of ``root`` with its tensor.
 
-    ``Module.half()``/``.to()`` rebind parameter data and replace buffer
-    tensors rather than writing into them, so keeping the original tensors
-    is enough to restore exact values, dtype and device afterwards.
+    ``Module.half()``/``.to()`` rebind parameter data (and existing ``.grad``
+    tensors) and replace buffer tensors rather than writing into them, so
+    keeping the original tensors is enough to restore exact values, dtype and
+    device afterwards, including gradients pending an optimizer step.
     """
     slots = []
     for module in root.modules():
         for name, param in module._parameters.items():
             if param is not None:
-                slots.append((module._parameters, name, param, param.data))
+                grad = param.grad
+                grad_state = None if grad is None else (grad, grad.data)
+                slots.append((module._parameters, name, param, param.data, grad_state))
         for name, buf in module._buffers.items():
             if buf is not None:
-                slots.append((module._buffers, name, buf, None))
+                slots.append((module._buffers, name, buf, None, None))
     return slots
 
 
 def _restore_tensor_slots(slots):
-    for store, name, tensor, data in slots:
+    for store, name, tensor, data, grad_state in slots:
         store[name] = tensor
-        if data is not None:
-            tensor.data = data
+        if data is None:
+            continue
+        # ``.half()`` swaps the gradient's ``.data`` in place, so detach it
+        # before restoring the parameter, then restore and reattach it.
+        tensor.grad = None
+        tensor.data = data
+        if grad_state is not None:
+            grad, grad_data = grad_state
+            grad.data = grad_data
+            tensor.grad = grad
 
 
 def _classify_eval_metadata(model) -> dict:
@@ -5023,8 +5034,10 @@ class CoreAIExporter(BaseExporter):
     suffix = ".aimodel"
     requires_onnx = False
     supports_int8 = False
-    supports_fp16 = False
-    apply_model_half = False
+    supports_fp16 = True
+    # FP16 casts the model (BaseExporter snapshots and restores it); the
+    # artifact keeps a float32 input/output contract, see coreai._Float16Compute.
+    apply_model_half = True
     supports_embedded_nms = False
 
     def __call__(self, *, dynamic: bool = False, **kwargs) -> str:
@@ -5046,6 +5059,10 @@ class CoreAIExporter(BaseExporter):
         # by ADR 0011. Dependency validation still happens before the
         # destructive LoRA merge in BaseExporter.__call__.
         super()._preflight(**kwargs)
+        if kwargs.get("half"):
+            from .coreai import check_fp16_family
+
+            check_fp16_family(self.model._get_model_name())
 
         # Check the optional dependency HERE, not at conversion time. Preflight
         # runs before __call__ merges any live LoRA adapters, and that merge is
@@ -5100,6 +5117,12 @@ class CoreMLExporter(BaseExporter):
             task = getattr(self.model, "task", "detect")
             if not isinstance(task, str):
                 task = "detect"
+            if family == "yolo9_e2e":
+                raise NotImplementedError(
+                    "nms=True is not supported for YOLO9-E2E: the model is "
+                    "NMS-free. Export with nms=False; LibreYOLO's CoreML "
+                    "backend decodes it without NMS."
+                )
             if family == "yolo9" and task != "detect":
                 raise NotImplementedError(
                     "CoreML embedded NMS currently supports YOLO9 detection "

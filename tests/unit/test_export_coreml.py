@@ -534,3 +534,123 @@ def test_missing_coremltools_message_names_python_314(monkeypatch):
     monkeypatch.setattr(coreml_export.sys, "platform", "darwin")
     with pytest.raises(ImportError, match="Use Python 3.13 or earlier"):
         coreml_export._require_coremltools()
+
+
+class TestYolo9SiblingFamilies:
+    """YOLO9-P2 and YOLO9-E2E reuse YOLO9's CoreML contract (#1059)."""
+
+    @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
+    @pytest.mark.parametrize("precision", ["fp32", "fp16"])
+    def test_export_accepts_family(self, tmp_path, monkeypatch, family, precision):
+        fake, mlmodel = _patch_ct(monkeypatch)
+        from libreyolo.export.coreml import export_coreml
+
+        export_coreml(
+            _DummyModel().eval(),
+            torch.randn(1, 3, 64, 64),
+            output_path=str(tmp_path / "m.mlpackage"),
+            precision=precision,
+            metadata={"model_family": family, "precision": precision},
+            model_family=family,
+        )
+
+        expected = "FLOAT16" if precision == "fp16" else "FLOAT32"
+        assert fake.convert.call_args.kwargs["compute_precision"] == expected
+        assert mlmodel.user_defined_metadata["model_family"] == family
+        assert mlmodel.user_defined_metadata["precision"] == precision
+
+    def test_e2e_rejects_embedded_nms(self, tmp_path, monkeypatch):
+        _patch_ct(monkeypatch)
+        from libreyolo.export.coreml import export_coreml
+
+        with pytest.raises(NotImplementedError, match="YOLO9-E2E"):
+            export_coreml(
+                _DummyModel().eval(),
+                torch.randn(1, 3, 64, 64),
+                output_path=str(tmp_path / "m.mlpackage"),
+                nms=True,
+                model_family="yolo9_e2e",
+            )
+
+    def test_p2_low_level_rejects_embedded_nms(self):
+        """Apple's NMS layer is class-agnostic and the reader keeps one class
+        per box, so P2 (multi-label, class-aware natively) stays blocked."""
+        from libreyolo.export.coreml import _NMSOutputAdapter
+
+        with pytest.raises(NotImplementedError, match="yolo9_p2"):
+            _NMSOutputAdapter(_DummyModel(), "yolo9_p2")(torch.zeros(1, 3, 8, 8))
+
+    @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
+    def test_exporter_preflight_nms_routing(self, monkeypatch, family):
+        from libreyolo.export.exporter import BaseExporter, CoreMLExporter
+
+        calls = []
+        monkeypatch.setattr(
+            BaseExporter, "_preflight", lambda self, **kw: calls.append(kw)
+        )
+        exporter = CoreMLExporter.__new__(CoreMLExporter)
+        exporter.model = SimpleNamespace(_get_model_name=lambda: family, task="detect")
+
+        match = "NMS-free" if family == "yolo9_e2e" else "YOLOX and YOLO9 detection"
+        with pytest.raises(NotImplementedError, match=match):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+        assert not calls
+        # Without nms the family passes straight through to the shared checks.
+        exporter._preflight(half=False, int8=False, data=None, nms=False)
+        assert len(calls) == 1
+
+    @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
+    def test_backend_letterboxes_like_yolo9(self, family):
+        from libreyolo.backends.coreml import CoreMLBackend
+        from libreyolo.preprocess.yolo9 import preprocess_numpy
+
+        backend = CoreMLBackend.__new__(CoreMLBackend)
+        backend.model_family = family
+        backend.letterbox_pad = "topleft"
+        image = np.random.default_rng(0).integers(0, 256, (72, 128, 3), np.uint8)
+
+        tensor, _img, _size, ratio = backend._preprocess(image, 64, "rgb")
+
+        expected, expected_ratio = preprocess_numpy(image, 64, letterbox_pad="topleft")
+        assert ratio == expected_ratio
+        np.testing.assert_allclose(tensor[0].numpy() / 255.0, expected, atol=1e-6)
+
+    def test_backend_family_set_matches_exporter(self):
+        from libreyolo.backends.coreml import _YOLO9_FAMILIES as backend_families
+        from libreyolo.export.coreml import _YOLO9_FAMILIES as export_families
+
+        assert backend_families == export_families
+
+
+@pytest.mark.parametrize("family", ["yolo9", "yolo9_p2", "yolo9_e2e"])
+def test_val_and_predict_feed_coreml_identical_pixels(family):
+    """val() hands _forward the YOLO9 val preprocessor's [0, 1] tensor while
+    predict() hands _run_inference bytes; both must reach CoreML as the same
+    RGB image (a 0-1 tensor cast straight to uint8 is almost black)."""
+    from libreyolo.backends.coreml import CoreMLBackend
+    from libreyolo.validation.preprocessors import YOLO9ValPreprocessor
+
+    seen = []
+    backend = CoreMLBackend.__new__(CoreMLBackend)
+    backend.model_family = family
+    backend.letterbox_pad = "topleft"
+    backend.output_names = ["out"]
+    backend._fixed_input_hw = None
+    backend.input_channels = 3
+    backend.model = MagicMock()
+    backend.model.predict.side_effect = lambda feed: (
+        seen.append(np.asarray(feed["image"]).copy()) or {"out": np.zeros(1)}
+    )
+    rgb = np.random.default_rng(0).integers(0, 256, (48, 64, 3), np.uint8)
+    rgb[0, 0] = 128
+
+    blob, *_ = backend._preprocess(rgb, 64, "rgb")
+    backend._run_inference(blob.numpy())
+    val_img, _ = YOLO9ValPreprocessor(img_size=(64, 64))(
+        np.ascontiguousarray(rgb[..., ::-1]), np.zeros((0, 5)), (64, 64)
+    )
+    backend._forward(torch.from_numpy(val_img).unsqueeze(0))
+
+    predict_px, val_px = seen
+    assert val_px[0, 0].tolist() == [128, 128, 128]
+    np.testing.assert_array_equal(val_px, predict_px)
