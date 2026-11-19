@@ -620,3 +620,37 @@ class TestYolo9SiblingFamilies:
         from libreyolo.export.coreml import _YOLO9_FAMILIES as export_families
 
         assert backend_families == export_families
+
+
+@pytest.mark.parametrize("family", ["yolo9", "yolo9_p2", "yolo9_e2e"])
+def test_val_and_predict_feed_coreml_identical_pixels(family):
+    """val() hands _forward the YOLO9 val preprocessor's [0, 1] tensor while
+    predict() hands _run_inference bytes; both must reach CoreML as the same
+    RGB image (a 0-1 tensor cast straight to uint8 is almost black)."""
+    from libreyolo.backends.coreml import CoreMLBackend
+    from libreyolo.validation.preprocessors import YOLO9ValPreprocessor
+
+    seen = []
+    backend = CoreMLBackend.__new__(CoreMLBackend)
+    backend.model_family = family
+    backend.letterbox_pad = "topleft"
+    backend.output_names = ["out"]
+    backend._fixed_input_hw = None
+    backend.input_channels = 3
+    backend.model = MagicMock()
+    backend.model.predict.side_effect = lambda feed: (
+        seen.append(np.asarray(feed["image"]).copy()) or {"out": np.zeros(1)}
+    )
+    rgb = np.random.default_rng(0).integers(0, 256, (48, 64, 3), np.uint8)
+    rgb[0, 0] = 128
+
+    blob, *_ = backend._preprocess(rgb, 64, "rgb")
+    backend._run_inference(blob.numpy())
+    val_img, _ = YOLO9ValPreprocessor(img_size=(64, 64))(
+        np.ascontiguousarray(rgb[..., ::-1]), np.zeros((0, 5)), (64, 64)
+    )
+    backend._forward(torch.from_numpy(val_img).unsqueeze(0))
+
+    predict_px, val_px = seen
+    assert val_px[0, 0].tolist() == [128, 128, 128]
+    np.testing.assert_array_equal(val_px, predict_px)

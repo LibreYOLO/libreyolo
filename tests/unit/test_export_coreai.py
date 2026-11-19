@@ -481,3 +481,33 @@ def test_preflight_gates_fp16_by_family(monkeypatch, family, allowed):
     else:
         with pytest.raises(NotImplementedError, match="half=False"):
             exporter._preflight(half=True, int8=False, data=None)
+
+
+def test_direct_fp16_export_restores_caller_weights_on_failure(monkeypatch):
+    """export_coreai casts the caller's module (the YOLO9 wrapper is the
+    module itself); a failed conversion must still leave it FP32."""
+    monkeypatch.setattr(coreai, "_require_coreai", lambda: (None, dict))
+    monkeypatch.setattr(coreai_compat, "apply", lambda: None)
+
+    def fail_capture(*args, **kwargs):
+        raise RuntimeError("injected capture failure")
+
+    monkeypatch.setattr(torch.export, "export", fail_capture)
+    model = nn.Conv2d(3, 4, 1)
+    model.weight.grad = torch.full_like(model.weight, 0.1234567)
+    weight = model.weight.detach().clone()
+    grad = model.weight.grad.clone()
+
+    with pytest.raises(RuntimeError, match="injected"):
+        coreai.export_coreai(
+            model,
+            torch.zeros(1, 3, 8, 8),
+            output_path="unused.aimodel",
+            precision="fp16",
+            model_family="yolo9",
+        )
+
+    assert model.weight.dtype == torch.float32
+    assert torch.equal(model.weight.detach(), weight)
+    assert model.weight.grad.dtype == torch.float32
+    assert torch.equal(model.weight.grad, grad)

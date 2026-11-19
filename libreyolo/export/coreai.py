@@ -746,10 +746,32 @@ def export_coreai(
     # Reuse one wrapper function in conversion and parity tests so the
     # reference cannot accidentally retain YOLO-NAS's raw training maps.
     wrapped = _wrap_coreai_contract(nn_model, model_family)
-    if half:
-        # BaseExporter already cast the live model (and snapshots it for
-        # restore); casting the wrapper too covers buffers it registers.
-        wrapped = wrapped.half()
+    with ExitStack() as restore_stack:
+        if half:
+            # The wrapper is usually the caller's own module. Snapshot before
+            # casting so a direct call leaves it FP32 even if conversion fails
+            # (BaseExporter keeps its own snapshot on top of this one).
+            from .exporter import _restore_tensor_slots, _snapshot_tensor_slots
+
+            slots = _snapshot_tensor_slots(wrapped)
+            restore_stack.callback(_restore_tensor_slots, slots)
+            wrapped = wrapped.half()
+        return _convert_and_save(
+            wrapped,
+            dummy,
+            half=half,
+            model_family=model_family,
+            output_path=output_path,
+            metadata=metadata,
+            converter=(TorchConverter, get_decomp_table),
+        )
+
+
+def _convert_and_save(
+    wrapped, dummy, *, half, model_family, output_path, metadata, converter
+):
+    """Capture, lower, optimize and write the Core AI asset."""
+    TorchConverter, get_decomp_table = converter
 
     # Fixed-canvas preparation is scoped so both successful conversion and any
     # capture/lowering failure leave the caller's live model unchanged.

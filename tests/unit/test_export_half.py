@@ -107,3 +107,21 @@ def test_half_export_loads_and_predicts(half_export):
     image = np.random.default_rng(0).integers(0, 256, (48, 64, 3), dtype=np.uint8)
     result = backend.predict(image, conf=0.0)
     assert result.orig_shape == (48, 64)
+
+
+def test_tensor_slot_snapshot_restores_gradients():
+    """A half export between backward() and optimizer.step() must hand the
+    gradients back unchanged: Module.half() casts existing .grad tensors."""
+    from libreyolo.export.exporter import _restore_tensor_slots, _snapshot_tensor_slots
+
+    model = torch.nn.Linear(2, 1)
+    model.weight.grad = torch.full_like(model.weight, 0.1234567)
+    grad = model.weight.grad
+
+    slots = _snapshot_tensor_slots(model)
+    model.half()
+    _restore_tensor_slots(slots)
+
+    assert model.weight.dtype == torch.float32
+    assert model.weight.grad is grad
+    assert model.weight.grad.dtype == torch.float32

@@ -116,26 +116,37 @@ def _restore_rfdetr_export_state(snapshots):
 def _snapshot_tensor_slots(root):
     """Record every parameter and buffer slot of ``root`` with its tensor.
 
-    ``Module.half()``/``.to()`` rebind parameter data and replace buffer
-    tensors rather than writing into them, so keeping the original tensors
-    is enough to restore exact values, dtype and device afterwards.
+    ``Module.half()``/``.to()`` rebind parameter data (and existing ``.grad``
+    tensors) and replace buffer tensors rather than writing into them, so
+    keeping the original tensors is enough to restore exact values, dtype and
+    device afterwards, including gradients pending an optimizer step.
     """
     slots = []
     for module in root.modules():
         for name, param in module._parameters.items():
             if param is not None:
-                slots.append((module._parameters, name, param, param.data))
+                grad = param.grad
+                grad_state = None if grad is None else (grad, grad.data)
+                slots.append((module._parameters, name, param, param.data, grad_state))
         for name, buf in module._buffers.items():
             if buf is not None:
-                slots.append((module._buffers, name, buf, None))
+                slots.append((module._buffers, name, buf, None, None))
     return slots
 
 
 def _restore_tensor_slots(slots):
-    for store, name, tensor, data in slots:
+    for store, name, tensor, data, grad_state in slots:
         store[name] = tensor
-        if data is not None:
-            tensor.data = data
+        if data is None:
+            continue
+        # ``.half()`` swaps the gradient's ``.data`` in place, so detach it
+        # before restoring the parameter, then restore and reattach it.
+        tensor.grad = None
+        tensor.data = data
+        if grad_state is not None:
+            grad, grad_data = grad_state
+            grad.data = grad_data
+            tensor.grad = grad
 
 
 def _classify_eval_metadata(model) -> dict:
