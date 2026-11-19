@@ -28,7 +28,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Recognition",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-readme = "README.md"
+dynamic = ["readme"]  # the PyPI page, built from README.md by setup.py (#1057)
 requires-python = ">=3.10"
 license = "MIT"
 license-files = [
