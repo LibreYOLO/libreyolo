@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_HF_BASE = "https://huggingface.co/LibreYOLO"
+_HF_ORG = "LibreYOLO"
+_HF_BASE = f"https://huggingface.co/{_HF_ORG}"
 
 #: Canonical downloadable artifacts: filename -> HF resolve URL.
 FACEREC_WEIGHT_URLS = {
@@ -53,6 +54,14 @@ def resolve_facerec_weight(model_path: str) -> str:
             f"names: {known}. For third-party recognition models, pass the "
             f"path to a local ArcFace-convention ONNX file instead."
         )
+
+    # Hub id form (``LibreYOLO/librefacerec-l``): fetch into the shared
+    # huggingface_hub cache, never into a ``LibreYOLO/`` folder in the working
+    # directory, which would shadow every later ``LibreYOLO/<repo>`` Hub id.
+    if path.parent.as_posix().lower() == _HF_ORG.lower():
+        from huggingface_hub import hf_hub_download
+
+        return hf_hub_download(repo_id=f"{_HF_ORG}/{name[:-5]}", filename=name)
 
     # Bare name (or weights/-prefixed name from the factory resolver).
     dest = path if path.parent != Path(".") else Path("weights") / name
