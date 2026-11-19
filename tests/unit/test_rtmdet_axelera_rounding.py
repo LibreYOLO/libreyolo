@@ -59,13 +59,13 @@ def test_without_samples_nothing_is_rounded():
     assert learn_pointwise_int8_rounding(copy.deepcopy(net), []) == 0
 
 
-def test_only_rtmdet_s_detect_has_the_recipe():
+def test_only_rtmdet_s_has_the_recipe():
     from libreyolo.export.axelera import size_recipe
 
-    assert size_recipe("rtmdet", "detect", "s") == {"pointwise_learned_rounding": True}
-    for size in ("t", "m", "l", "x"):
-        assert "pointwise_learned_rounding" not in size_recipe("rtmdet", "detect", size)
-    assert "pointwise_learned_rounding" not in size_recipe("rtmdet", "segment", "s")
+    for task in ("detect", "segment"):
+        assert size_recipe("rtmdet", task, "s") == {"pointwise_learned_rounding": True}
+        for size in ("t", "m", "l", "x"):
+            assert "pointwise_learned_rounding" not in size_recipe("rtmdet", task, size)
 
 
 def test_the_recipe_reaches_the_export(tmp_path, monkeypatch):
@@ -90,3 +90,23 @@ def test_the_recipe_reaches_the_export(tmp_path, monkeypatch):
     out = Path(model.export(format="axelera", data=str(_dataset(tmp_path / "t")), imgsz=64,
                             output_path=str(tmp_path / "rtmt_axelera_model")))
     assert "pointwise_learned_rounding" not in yaml.safe_load((out / "metadata.yaml").read_text())
+
+
+def test_the_recipe_reaches_the_segment_export(tmp_path, monkeypatch):
+    """RTMDet-Ins-s: the same learned rounding on the segmentation export (raw-head layout)."""
+    import yaml
+
+    import libreyolo.models.rtmdet.quantize as q
+    from libreyolo import LibreRTMDet
+    from tests.unit.test_axelera_backend import _dataset, _install_fake_sdk
+
+    _install_fake_sdk(monkeypatch)
+    monkeypatch.setattr(q.learn_pointwise_int8_rounding, "__defaults__", (5, q.INT8_ROUNDING_SEED))
+    torch.manual_seed(0)
+    model = LibreRTMDet(None, size="t", nb_classes=3, task="segment", device="cpu")
+    monkeypatch.setattr(model, "size", "s")  # the s recipe on a t-sized stand-in
+    out = Path(model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64,
+                            output_path=str(tmp_path / "rtmins_axelera_model")))
+    meta = yaml.safe_load((out / "metadata.yaml").read_text())
+    assert meta["output_layout"] == "rtmdet_ins_raw_heads_v1"
+    assert meta["pointwise_learned_rounding"]["convs"] == meta["pointwise_equalized"]["blocks"] > 0

@@ -1176,6 +1176,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("retinanet", "detect", "r50"),
         ("deeplabv3", "semantic", "r50"), ("deeplabv3", "semantic", "r101"),
         ("vgg", "classify", "19bn"), ("rtmdet", "detect", "s"),
+        # RTMDet-Ins-s learned rounding (test_rtmdet_axelera_rounding).
+        ("rtmdet", "segment", "s"),
         # RetinaNet-R50v2 recipe hybrid (test_retinanet_r50v2_hybrid_body_split_reproduces_the_native_model).
         ("retinanet", "detect", "r50v2"),
         # CenterNet recipe hybrids (test_centernet_hybrid_body_split_reproduces_the_native_model).

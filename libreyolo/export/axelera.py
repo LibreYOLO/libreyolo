@@ -245,6 +245,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # RTMDet-s: learned INT8 rounding of the CSPNeXt pointwise convolutions
     # after their input equalization (models/rtmdet/quantize).
     ("rtmdet", "detect", "s"): {"pointwise_learned_rounding": True},
+    # RTMDet-Ins-s: the same learned rounding on the shared CSPNeXt trunk.
+    ("rtmdet", "segment", "s"): {"pointwise_learned_rounding": True},
 }
 
 

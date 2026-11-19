@@ -143,7 +143,7 @@ a separate size:
 | EfficientDet | d3 | detect (512x512 canvas; hybrid: EfficientNet backbone on the Metis; BiFPN, heads and decode on the host) | COCO val2017, 300 | 0.3853 | 0.3814 | -0.39 (vs FP32 at 512) | hybrid | `efficientdet/detect/d3/2026-11-18` |
 | EfficientDet | d4 | detect (512x512 canvas; hybrid: EfficientNet stages 0-4 on the Metis; stages 5-6, BiFPN, heads and decode on the host) | COCO val2017, 300 | 0.3971 | 0.3942 | -0.29 (vs FP32 at 512) | hybrid | `efficientdet/detect/d4/2026-11-18` |
 | RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3250 | -1.44 | supported | `rtmdet/segment/t/2026-11-12/2` |
-| RTMDet-Ins | s | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3719 | 0.3139 | -5.80 | supported | `rtmdet/segment/s/2026-11-12/4` |
+| RTMDet-Ins | s | segment (mask mAP50-95; learned INT8 rounding of the pointwise convs) | COCO val2017, 1000 | 0.3719 | 0.3392 | -3.27 (box -5.02) | supported | `rtmdet/segment/s/2026-11-19/4` |
 | RTMDet-Ins | m | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4011 | 0.3932 | -0.79 (box -3.96) | supported | `rtmdet/segment/m/2026-11-12/2` |
 | RTMDet-Ins | l | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4163 | 0.4113 | -0.50 (box -5.34) | supported | `rtmdet/segment/l/2026-11-12/2` |
 | Mask R-CNN | r50 | segment (mask mAP50-95; hybrid: backbone and FPN on the Metis, RPN, box and mask heads on the host; 800x800 canvas) | COCO val2017, 300 | 0.4045 | 0.4039 | -0.06 (box +0.02) | hybrid | `mask_rcnn/segment/r50/2026-11-16` |
@@ -232,7 +232,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-11/2` |
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
 | RTMDet | detect | t, s, m, l (supported with a measured drop; x hybrid: CSPNeXt-x backbone on the Metis, neck and heads on the host, +0.09) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-17/8`, held-out `rtmdet/detect/s/2026-11-17/9`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x `rtmdet/detect/x/2026-11-18/2` |
-| RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -7.26, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-12/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
+| RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -5.02, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-19/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
 | Mask R-CNN | detect, segment | r50 (hybrid at a fixed 800x800 canvas, as Faster R-CNN; for segment the host adds the mask head and mask paste) | see `docs/export_support.md` | r50 segment `mask_rcnn/segment/r50/2026-11-16`; detect `mask_rcnn/detect/r50/2026-11-16` |
 | FCOS | detect | r50 (supported with a measured drop; six compiled parts, GroupNorm and the decode on the host) | see `docs/export_support.md` | r50 `fcos/detect/r50/2026-11-15/3` |
 | RetinaNet | detect | r50 (supported: 1024x1024 canvas by default, -1.11 end to end; imgsz=800 is about 1.64x less compute at -2.25; r50v2 hybrid: ResNet-50 body on the Metis, FPN and GroupNorm heads on the host, -2.40) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-14/4`; r50v2 `retinanet/detect/r50v2/2026-11-17` |
@@ -540,7 +540,7 @@ still are, in opposite directions (their rows).
 | EfficientDet-d3 (hybrid, 512x512 canvas) | detect | COCO val2017, 300 images | 128 coco128 | 0.3853 | 0.3814 | -0.39 (hybrid; FP32 at the same canvas) |
 | EfficientDet-d4 (hybrid, 512x512 canvas) | detect | COCO val2017, 300 images | 128 coco128 | 0.3971 | 0.3942 | -0.29 (hybrid; FP32 at the same canvas) |
 | RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3250 | -1.44 (supported; box -2.51) |
-| RTMDet-Ins-s | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3719 | 0.3139 | -5.80 (supported; box -7.26) |
+| RTMDet-Ins-s | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3719 | 0.3392 | -3.27 (supported; box -5.02; on 300 mask -3.20, box -5.19) |
 | RTMDet-Ins-m | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4011 | 0.3932 | -0.79 (supported: box -3.96; on 300 mask -0.67, box -4.56) |
 | RTMDet-Ins-l | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4163 | 0.4113 | -0.50 (supported: box -5.34; on 300 mask -0.58, box -5.75) |
 | RTMDet-Ins-x | segment (mask) | COCO val2017, 1000 images | 64 coco128 | - | - | does not compile (blocked) |
@@ -688,6 +688,9 @@ CPU-quantized model (300 images) all 128 coco128 images instead of 64 cost
 activation-only factor RTMDet-Ins-s collapses (mask 0.080 vs 0.402 on 300
 images); with the balanced one it scores -5.80 mask / -7.26 box on 1000,
 and RTMDet-Ins-t is unchanged within noise (-1.44 / -2.51 vs -1.40 / -2.64).
+RTMDet-Ins-s also takes RTMDet-s's learned rounding (same recipe key):
+-3.27 mask / -5.02 box on the 1000 images, and -3.20 / -5.19 on 300 (was
+-6.63 / -8.20).
 
 RTMDet-Ins runs the same trunk on the device and returns, per level, the
 box, class and dynamic-kernel outputs, plus the stride-8 mask feature

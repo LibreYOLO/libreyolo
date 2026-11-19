@@ -4299,7 +4299,7 @@ _add(
         "feature, and LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS, "
         "dynamic-kernel mask decode) runs on the host. Supported, not "
         "validated: on a Metis M.2 Max the mask / box mAP50-95 drops below FP32 "
-        "are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 5.80 / 7.26, RTMDet-Ins-m "
+        "are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 3.27 / 5.02 (with learned INT8 rounding of its pointwise convolutions), RTMDet-Ins-m "
         "0.79 / 3.96 and RTMDet-Ins-l 0.50 / 5.34 on a paired 1000-image COCO "
         "val2017 subset (docs/axelera.md)."
     ),
@@ -5418,10 +5418,11 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "balanced CSPNeXt pointwise equalization)"
         ),
         "s": (
-            "measured mask mAP50-95 drop 5.80 points vs FP32 (0.3139 vs 0.3719 "
-            "on 1000 COCO val2017 images; box 0.3445 vs 0.4171, -7.26; 64 "
-            "coco128 calibration images, per-channel depthwise ranges and "
-            "balanced CSPNeXt pointwise equalization)"
+            "measured mask mAP50-95 drop 3.27 points vs FP32 (0.3392 vs 0.3719 "
+            "on 1000 COCO val2017 images; box 0.3669 vs 0.4171, -5.02; 64 "
+            "coco128 calibration images, per-channel depthwise ranges, "
+            "balanced CSPNeXt pointwise equalization and learned INT8 rounding "
+            "of the pointwise convolutions)"
         ),
         "m": (
             "measured box mAP50-95 drop 3.96 points vs FP32 (box 0.4149 vs 0.4545, "
