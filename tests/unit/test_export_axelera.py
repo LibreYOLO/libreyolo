@@ -13,6 +13,10 @@ import pytest
 from libreyolo.backends import axelera as axrt
 from libreyolo.export import axelera as ax
 
+_PARKED = pytest.mark.skip(
+    reason="hybrid export parked by decision 2026-11-19 (part of the network runs on the host); branch axelera-hybrid-parked"
+)
+
 
 @pytest.fixture(autouse=True)
 def _libreyolo_logs_reach_caplog(monkeypatch):
@@ -1078,9 +1082,9 @@ def test_support_matrix_rows_for_axelera():
     assert yolo3.tier == "validated" and "validated sizes: t, b, spp" in yolo3.constraint
     assert precision_support("yolo3", "detect", "axelera") == (True, True)
     vgg = get_support("vgg", "classify", "axelera")
-    assert vgg.tier == "validated" and "validated sizes: 16, 19, 16bn; hybrid sizes: 19bn" in vgg.constraint
+    assert vgg.tier == "validated" and "validated sizes: 16, 19, 16bn; supported sizes: 19bn" in vgg.constraint
     assert precision_support("vgg", "classify", "axelera") == (True, True)
-    assert ("vgg", "classify", "axelera") not in SIZE_ACCURACY_NOTES
+    assert sorted(SIZE_ACCURACY_NOTES[("vgg", "classify", "axelera")]) == ["19bn"]
     assert ("vgg", "classify", "axelera") not in UNMEASURED_SIZES
     picodet = get_support("picodet", "detect", "axelera")
     assert picodet.tier == "available" and "supported sizes: s, m, l " in picodet.constraint
@@ -1096,8 +1100,9 @@ def test_support_matrix_rows_for_axelera():
     retinanet = get_support("retinanet", "detect", "axelera")
     assert retinanet.tier == "available" and "supported sizes: r50 " in retinanet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("retinanet", "detect", "axelera")]) == ["r50"]
-    assert ("retinanet", "detect", "axelera") not in BLOCKED_SIZES
-    assert "hybrid sizes: r50v2 " in retinanet.constraint
+    assert "GroupNorm" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
+    assert "six compiled parts" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
+    assert "axelera-hybrid-parked" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
     assert ("retinanet", "detect", "axelera") not in UNMEASURED_SIZES
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
@@ -1214,7 +1219,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     assert size_recipe("vgg", "classify", "16bn") == {
         "quantization_scheme": "hybrid_per_tensor_per_channel"
     }
-    assert size_recipe("vgg", "classify", "19bn") == {"hybrid_split": "backbone"}
+    assert size_recipe("vgg", "classify", "19bn") == {}  # whole graph (hybrid parked 2026-11-19)
     data = str(_dataset(tmp_path))
     # YOLOv4-b: histogram ranges and a [-6, 6] window on the box output.
     torch.manual_seed(0)
@@ -1673,11 +1678,10 @@ def test_deeplabv3_resnet_sizes_run_their_aspp_as_shifted_1x1():
     from libreyolo.export.support import BLOCKED_SIZES, SIZE_ACCURACY_NOTES
     from libreyolo.models.deeplabv3.nn import ASPPConv, LibreDeepLabv3Net
 
-    # R50/R101 run their backbone on Metis and the ASPP + head on the host (test_deeplabv3_axelera_split.py);
-    # aspp_shift stays in their recipes for the whole-graph form.
+    # R50/R101 run whole on the Metis (the backbone-split hybrid is parked, decision 2026-11-19).
     for size in ("r50", "r101"):
-        assert ax.size_recipe("deeplabv3", "semantic", size) == {"aspp_shift": True, "hybrid_split": "backbone"}
-        assert size not in SIZE_ACCURACY_NOTES[("deeplabv3", "semantic", "axelera")]
+        assert ax.size_recipe("deeplabv3", "semantic", size) == {"aspp_shift": True}
+        assert size in SIZE_ACCURACY_NOTES[("deeplabv3", "semantic", "axelera")]
     assert "mv3" in SIZE_ACCURACY_NOTES[("deeplabv3", "semantic", "axelera")]
     assert ax.size_recipe("deeplabv3", "semantic", "mv3") == {}
     assert ("deeplabv3", "semantic", "axelera") not in BLOCKED_SIZES
@@ -1920,6 +1924,7 @@ def test_structurally_blocked_axelera_families_name_the_reason(family, task, key
     assert entry.tier == "blocked" and keyword in entry.reason
 
 
+@_PARKED
 def test_tinyformer_detect_is_a_stem_split_hybrid():
     from libreyolo.export.support import get_support
 
@@ -1960,6 +1965,7 @@ def test_ppliteseg_is_supported_with_its_measured_fidelity():
     assert ("ppliteseg", "semantic", "axelera") not in UNMEASURED_SIZES
 
 
+@_PARKED
 def test_pidnet_is_a_layer5_split_hybrid():
     from libreyolo.export.axelera import size_recipe
     from libreyolo.export.support import UNMEASURED_SIZES, get_support
@@ -2011,10 +2017,10 @@ def test_efficientdet_d1_axelera_recipe_is_the_512_canvas():
     assert ("efficientdet", "detect", "axelera") not in UNMEASURED_SIZES
     from libreyolo.export.support import BLOCKED_SIZES, get_support
 
-    assert ("efficientdet", "detect", "axelera") not in BLOCKED_SIZES
-    for size in ("d3", "d4"):
-        assert ax.size_recipe("efficientdet", "detect", size)["hybrid_split"] == "backbone"
-    assert "hybrid sizes: d3 and d4" in get_support("efficientdet", "detect", "axelera").constraint
+    for size in ("d3", "d4"):  # whole graph does not compile; the hybrid is parked (decision 2026-11-19)
+        reason = BLOCKED_SIZES[("efficientdet", "detect", "axelera")][size]
+        assert "does not compile" in reason and "axelera-hybrid-parked" in reason
+    assert "d3 and d4 do not compile" in get_support("efficientdet", "detect", "axelera").constraint
 
 
 def test_axelera_canvas_recipe_sets_only_the_default_imgsz(monkeypatch):
@@ -2395,6 +2401,7 @@ def test_efficientdet_class_head_part_is_opt_in_per_size():
         assert "class_head_part" not in size_recipe("efficientdet", "detect", size)
 
 
+@_PARKED
 def test_centernet_is_a_body_split_hybrid():
     from libreyolo.export.axelera import size_recipe
     from libreyolo.export.support import get_support
@@ -2408,6 +2415,7 @@ def test_centernet_is_a_body_split_hybrid():
     assert ("centernet", "detect", "axelera") not in UNMEASURED_SIZES
 
 
+@_PARKED
 def test_zipdepth_is_a_gcb_split_hybrid():
     from libreyolo.export.axelera import size_recipe
     from libreyolo.export.support import UNMEASURED_SIZES, get_support
@@ -2419,6 +2427,7 @@ def test_zipdepth_is_a_gcb_split_hybrid():
     assert ("zipdepth", "depth", "axelera") not in UNMEASURED_SIZES
 
 
+@_PARKED
 def test_hrnet_is_a_stage3_split_hybrid():
     from libreyolo.export.axelera import size_recipe
     from libreyolo.export.support import UNMEASURED_SIZES, get_support
@@ -2464,6 +2473,7 @@ def test_rrdb_x2_parts_unshuffle_exactly_and_compose_to_the_network():
     np.testing.assert_allclose(chained.numpy(), whole.numpy(), rtol=1e-5, atol=1e-5)
 
 
+@_PARKED
 def test_dekr_is_a_stage3_split_hybrid():
     from libreyolo.export.axelera import size_recipe
     from libreyolo.export.support import get_support
@@ -2552,13 +2562,14 @@ def test_stem_residual_skip_conv_reads_a_stem_resolution_skip_through_an_identit
     assert deeper.graph.SerializeToString() == before
 
 
-def test_rtmdet_x_detect_is_hybrid_and_segment_stays_blocked():
+def test_rtmdet_x_detect_and_segment_are_blocked():
     from libreyolo.export.axelera import size_recipe
     from libreyolo.export.support import BLOCKED_SIZES, get_support
 
     reason = BLOCKED_SIZES[("rtmdet", "segment", "axelera")]["x"]
     assert "backbone alone compiles" in reason and "multi-input calibration" in reason
-    assert "x" not in BLOCKED_SIZES.get(("rtmdet", "detect", "axelera"), {})
-    assert size_recipe("rtmdet", "detect", "x")["hybrid_split"] == "backbone"
-    assert "hybrid sizes: x" in get_support("rtmdet", "detect", "axelera").constraint
+    detect = BLOCKED_SIZES[("rtmdet", "detect", "axelera")]["x"]
+    assert "does not compile" in detect and "axelera-hybrid-parked" in detect
+    assert size_recipe("rtmdet", "detect", "x")["hybrid_split"] == "backbone"  # parked recipe, never reached
+    assert "x does not compile" in get_support("rtmdet", "detect", "axelera").constraint
 

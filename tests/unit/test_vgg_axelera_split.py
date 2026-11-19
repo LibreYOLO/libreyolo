@@ -11,6 +11,10 @@ import torch.nn as nn
 
 from tests.unit.test_axelera_backend import _dataset, _image, _install_fake_sdk
 
+_PARKED = pytest.mark.skip(
+    reason="hybrid export parked by decision 2026-11-19 (part of the network runs on the host); branch axelera-hybrid-parked"
+)
+
 pytestmark = [pytest.mark.unit, pytest.mark.vgg]
 pytest.importorskip("onnxruntime")
 
@@ -53,6 +57,7 @@ def test_features_part_and_host_tail_equal_the_model():
         torch.testing.assert_close(tail(feat)[0], net(x), rtol=0, atol=0)
 
 
+@_PARKED
 def test_only_19bn_selects_the_split():
     from libreyolo.export.axelera import size_recipe
 
@@ -61,6 +66,7 @@ def test_only_19bn_selects_the_split():
         assert "hybrid_split" not in size_recipe("vgg", "classify", size)
 
 
+@_PARKED
 def test_split_export_runs_the_chain_like_the_onnx_backend(sdk, tmp_path):
     import yaml
 
@@ -93,7 +99,7 @@ def test_without_the_recipe_the_whole_graph_runs_on_metis(sdk, tmp_path, monkeyp
     import libreyolo.export.axelera as axelera
 
     recipes = dict(axelera.AXELERA_SIZE_RECIPES)
-    recipes.pop(("vgg", "classify", "19bn"))
+    recipes.pop(("vgg", "classify", "19bn"), None)
     monkeypatch.setattr(axelera, "AXELERA_SIZE_RECIPES", recipes)
     artifact = Path(_model().export(
         format="axelera", data=str(_dataset(tmp_path)), imgsz=224, output_path=str(tmp_path / "vggw_axelera_model"),

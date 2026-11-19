@@ -10,6 +10,10 @@ import torch
 
 from tests.unit.test_axelera_backend import _dataset, _image, _install_fake_sdk
 
+_PARKED = pytest.mark.skip(
+    reason="hybrid export parked by decision 2026-11-19 (part of the network runs on the host); branch axelera-hybrid-parked"
+)
+
 pytestmark = pytest.mark.unit
 pytest.importorskip("onnxruntime")
 
@@ -39,6 +43,7 @@ def test_backbone_part_and_host_tail_equal_the_model():
         torch.testing.assert_close(tail(*head(x))[0], net(x), rtol=0, atol=0)
 
 
+@_PARKED
 def test_r50_and_r101_recipes_select_the_split_and_mv3_keeps_the_whole_graph():
     from libreyolo.export.axelera import size_recipe
 
@@ -47,6 +52,7 @@ def test_r50_and_r101_recipes_select_the_split_and_mv3_keeps_the_whole_graph():
     assert "hybrid_split" not in size_recipe("deeplabv3", "semantic", "mv3")
 
 
+@_PARKED
 def test_split_export_runs_the_chain_like_the_onnx_backend(sdk, tmp_path):
     import yaml
 

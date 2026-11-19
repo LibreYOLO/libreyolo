@@ -4136,17 +4136,13 @@ _add(
         "convolutions (fc6 as one row convolution per row of the 7x7 map, an "
         "exact graph pass), and the host applies the softmax. On a Metis M.2 "
         "Max, VGG-16, VGG-19 and VGG-16-BN (histogram activation ranges) are "
-        "within 1.0 top-1 point of FP32 on a paired 1000-image ImageNetV2 set. "
-        "VGG-19-BN is hybrid: conv blocks 1-4 run on Metis and conv block 5, "
-        "the average pool and the classifier on the host as FP32 ONNX (whole "
-        "on the device, the error compounds through block 5), top-1 0.2 below "
-        "FP32 on the same set and 0.2 above on a held-out one (docs/axelera.md)."
+        "within 1.0 top-1 point of FP32 on a paired 1000-image ImageNetV2 set; "
+        "VGG-19-BN is supported with a larger measured drop (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "validated sizes: 16, 19, 16bn; hybrid sizes: 19bn (conv blocks 1-4 on "
-        "Metis, block 5 + classifier on the host, AXELERA_SIZE_RECIPES "
-        "hybrid_split); calibrated with in-domain images (data=). "
+        "validated sizes: 16, 19, 16bn; supported sizes: 19bn (measured drop, "
+        "SIZE_ACCURACY_NOTES); calibrated with in-domain images (data=). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed 224 input"
     ),
@@ -4245,20 +4241,18 @@ _add(
     ("axelera",),
     reason=(
         "INT8 export compiled with Axelera's toolchain; the whole DeepLabV3 graph "
-        "runs on the Metis AIPU for MobileNetV3 after exact graph rewrites (the "
-        "ASPP image-pooling branch becomes a broadcast add, oversized ASPP "
-        "convolutions are split by channels), and the host upsamples the class "
-        "logits; supported, mIoU 3.77 points below FP32 on a paired 300-image "
-        "COCO val2017 set with VOC-21 masks. R50 and R101 are hybrid: the ResNet "
-        "backbone runs on Metis and the ASPP, head and upsampling on the host "
-        "(the rewritten ASPP diverges on the device), mIoU 0.40 (R50) and 0.09 "
-        "(R101) below FP32 on the same set (docs/axelera.md)."
+        "runs on the Metis AIPU after exact graph rewrites (the ASPP "
+        "image-pooling branch becomes a broadcast add, oversized ASPP "
+        "convolutions are split by channels, and for R50/R101 each dilated ASPP "
+        "convolution runs as per-tap 1x1 convolutions plus zero-filled shifts), "
+        "and the host upsamples the class logits. Supported, not validated: on a "
+        "paired 300-image COCO val2017 set with VOC-21 masks mIoU stays below "
+        "FP32 by 3.77 points (MobileNetV3), 5.09 (R50) and 20.93 (R101; "
+        "docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: mv3 (measured drop, SIZE_ACCURACY_NOTES); hybrid sizes: "
-        "r50, r101 (backbone on Metis, ASPP + head on the host, AXELERA_SIZE_RECIPES "
-        "hybrid_split). "
+        "supported sizes: mv3, r50, r101 (measured drops, SIZE_ACCURACY_NOTES). "
         "axelera-devkit / axelera-rt 1.9.0, Linux "
         "x86_64 compile, INT8, batch 1, fixed 520x520 input"
     ),
@@ -4280,12 +4274,9 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); hybrid "
-        "sizes: x (the whole graph finds no L1 tiling for its neck and heads: the "
-        "CSPNeXt-x backbone runs on the Metis, the PAFPN neck, heads and decode on "
-        "the host as an FP32 ONNX graph; +0.09 mAP50-95 vs FP32; one .axm part, one "
-        "host ONNX graph, needs onnxruntime). axelera-devkit / axelera-rt 1.9.0, "
-        "Linux x86_64 compile, INT8, batch 1, fixed input size"
+        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does "
+        "not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "compile, INT8, batch 1, fixed input size"
     ),
 )
 _add(
@@ -4515,18 +4506,13 @@ _add(
         "below the PyTorch model's own val() on 1000 COCO val2017 images (0.3410 "
         "vs 0.3521): 0.49 from the canvas (FP32 0.3472) and 0.62 from INT8. "
         "The 1024 canvas is about 1.64x the device compute of 800; imgsz=800 "
-        "is faster and scores 2.25 below (0.3296). RetinaNet-R50v2 is hybrid: "
-        "its heads normalize every convolution with GroupNorm, so the ResNet-50 "
-        "body runs on Metis and the FPN, heads and box decode on the host as "
-        "FP32 ONNX, 2.40 mAP50-95 below FP32 on 300 COCO val2017 images "
-        "(docs/axelera.md)."
+        "is faster and scores 2.25 below (0.3296; docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
         "supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed "
-        "1024x1024 canvas by default (imgsz=800 for speed); hybrid sizes: r50v2 "
-        "(ResNet-50 body on Metis, FPN + GroupNorm heads on the host, 800x800 "
-        "canvas, AXELERA_SIZE_RECIPES hybrid_split). "
+        "1024x1024 canvas by default (imgsz=800 for speed); r50v2 is blocked "
+        "(GroupNorm head, BLOCKED_SIZES). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1"
     ),
 )
@@ -4550,12 +4536,8 @@ _add(
     since="1.7",
     constraint=(
         "supported sizes: d0, d1 and d2 (d1 and d2 at a fixed 512x512 canvas; "
-        "measured drops, SIZE_ACCURACY_NOTES); hybrid sizes: d3 and d4 at the "
-        "same 512x512 canvas (the whole graph finds no L1 tiling: the EfficientNet "
-        "backbone, for d4 its stages 0-4, runs on the Metis, the rest of the "
-        "backbone, the BiFPN, heads and decode on the host as an FP32 ONNX graph; "
-        "-0.39 and -0.29 mAP50-95 vs FP32 at 512; one .axm part, one host ONNX "
-        "graph, needs onnxruntime). "
+        "measured drops, SIZE_ACCURACY_NOTES); d3 and d4 do not compile "
+        "(BLOCKED_SIZES). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed input size"
     ),
@@ -4665,92 +4647,43 @@ _add(
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("dekr",),
     ("pose",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: the HRNet-w32 trunk's stem, layer 1 and stages 2-3 "
-        "are compiled with Axelera's toolchain and run on the Metis AIPU; stage "
-        "4, the heatmap head and the per-keypoint offset heads run on the host "
-        "CPU as an FP32 ONNX graph through ONNX Runtime. The whole 640x640 graph "
-        "has no working Metis build with SDK 1.9 (output paging fails the "
-        "compile after 8.3 hours; with paging off the device is lost), and "
-        "HRNet's stage 4 drifts on the device (docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
-        "and metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed 640x640 input"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("hrnet",),
     ("pose",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: HRNet's stem, layer 1 and stages 2-3 (three "
-        "resolution branches) are compiled with Axelera's toolchain and run on "
-        "the Metis AIPU; stage 4 and the heatmap layer run on the host CPU as "
-        "an FP32 ONNX graph through ONNX Runtime. Whole-graph, the device output "
-        "drifts away from the SDK's own quantized model through stage 4's "
-        "multi-branch fusion modules (device vs quantized cosine 0.983 after "
-        "stage 3, 0.21 at the heatmaps) (docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
-        "and metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed 256x192 (w32) or 384x288 (w48) person crop"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("zipdepth",),
     ("depth",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: ZipDepth's encoder through stage 3's fourth "
-        "block (its strip attention as an exact pooling form) is compiled with "
-        "Axelera's toolchain and runs on the Metis AIPU; the rest of stage 3, "
-        "with the GCNet context block, stage 4 and the decoder run on the host "
-        "CPU as an FP32 ONNX graph through ONNX Runtime. The context block "
-        "weights its 576 stage-3 positions with a softmax that has no AIPU form "
-        "within SDK 1.9, and the device drifts through the last stage-3 blocks "
-        "(docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
-        "and metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed 384x384 input"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("centernet",),
     ("detect",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: the body without deformable convolutions (the "
-        "ResNet-18 body of ResDCN-18, the DLA-34 base) is compiled with "
-        "Axelera's toolchain and runs on the Metis AIPU; the modulated "
-        "deformable convolutions of the up-path (grid_sample at learned "
-        "offsets, which the quantizer has no form for), the heads and the peak "
-        "decode run on the host CPU as an FP32 ONNX graph through ONNX Runtime "
-        "(docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
-        "and metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed 512x512 input"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
@@ -4797,26 +4730,13 @@ _add(
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("tinyformer",),
     ("detect",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: the convolutional stem of TinyFormer's backbone and "
-        "its 4-scale fusion neck are compiled with Axelera's toolchain and run on "
-        "the Metis AIPU; the ViT tower, the level projections, the attention "
-        "encoder layer and the deformable-attention decoder run on the host CPU as "
-        "FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Host-bound. "
-        "The stem's two inner GELUs run as x * sigmoid(1.702 x) (in FP32 the top-10 "
-        "detection scores move by less than 0.013; cocoval300 mAP50-95 0.5167 vs "
-        "0.5175 for TinyFormer-s)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs "
-        "and metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed square input"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
@@ -4889,26 +4809,13 @@ _add(
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("pidnet",),
     ("semantic",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: PIDNet's stem and its P, I and D branches through "
-        "layer 5 are compiled with Axelera's toolchain and run on the Metis "
-        "AIPU, with both PagFM fusions in an exact form (sigmoid(-z) * x + "
-        "sigmoid(z) * y); the PAPPM pooling module, the branch fusion and the "
-        "segmentation head run on the host CPU as an FP32 ONNX graph through "
-        "ONNX Runtime. Whole-graph, INT8 collapses the output (cosine vs FP32 "
-        "about 0): the original fusion blend flips sign when quantized and "
-        "PAPPM's upsample-and-add sums lose the signal (docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph "
-        "and metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed 1024x1024 input"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
@@ -4959,184 +4866,93 @@ _add(
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("rtdetr", "rtdetrv2", "dfine", "deim", "deimv2", "rtdetrv4"),
     ("detect",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: the CNN backbone with the encoder's input "
-        "projections, and the convolutional fusion neck with the decoder's input "
-        "projections, are compiled with Axelera's toolchain and run on the Metis "
-        "AIPU; the attention encoder layer and the decoder (query selection, "
-        "deformable attention) run on the host CPU as FP32 ONNX graphs through "
-        "ONNX Runtime (docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs "
-        "and metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed square input"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("faster_rcnn",),
     ("detect",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export at a fixed square canvas: the input normalization, "
-        "the backbone and the FPN are compiled with Axelera's toolchain and run on "
-        "the Metis AIPU; the region proposal network, RoIAlign, the box head and "
-        "NMS run on the host CPU as an FP32 ONNX graph through ONNX Runtime "
-        "(docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and "
-        "metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed square canvas (images are stretched to it)"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("ppdoclayoutv3",),
     ("detect",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: the HGNetV2 backbone and the encoder input "
-        "projections are compiled with Axelera's toolchain and run on the Metis "
-        "AIPU; the hybrid encoder (attention, FPN/PAN, mask features), the "
-        "mask-enhanced decoder and the reading-order head run on the host CPU as "
-        "an FP32 ONNX graph through ONNX Runtime (docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and "
-        "metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed square input (images are stretched to it)"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("mask_rcnn",),
     ("detect", "segment"),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export at a fixed square canvas, as Faster R-CNN: the input "
-        "normalization, the ResNet-50-FPN v2 backbone and the FPN are compiled "
-        "with Axelera's toolchain and run on the Metis AIPU; the region proposal "
-        "network, RoIAlign, the box and mask heads, NMS and the mask paste run on "
-        "the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and "
-        "metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed 800x800 canvas (images are stretched to it)"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("rtdetrv2", "riodetrv2"),
     ("obb",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export (as RT-DETRv2 detect): the HGNetv2 backbone with the "
-        "encoder's input projections, and the convolutional fusion neck with the "
-        "decoder's input projections, are compiled with Axelera's toolchain and run "
-        "on the Metis AIPU; the attention encoder layer and the rotated-box decoder "
-        "run on the host CPU as FP32 ONNX graphs through ONNX Runtime "
-        "(docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs "
-        "and metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed 1024x1024 input canvas"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("dinodetr",),
     ("detect",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: the ResNet-50 backbone is compiled with Axelera's "
-        "toolchain and runs on the Metis AIPU; the input projections (GroupNorm), "
-        "the deformable transformer with its two-stage query selection and the "
-        "prediction heads run on the host CPU as an FP32 ONNX graph through ONNX "
-        "Runtime (docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and "
-        "metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed square input"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("deformable_detr",),
     ("detect",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: the ResNet-50 backbone is compiled with Axelera's "
-        "toolchain and runs on the Metis AIPU; the input projections (GroupNorm), "
-        "the multi-scale deformable transformer and the prediction heads run on "
-        "the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and "
-        "metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed square input"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("dfine",),
     ("segment",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export (as D-FINE detect): the HGNetv2 backbone with the "
-        "encoder's input projections, and the convolutional fusion neck, are "
-        "compiled with Axelera's toolchain and run on the Metis AIPU, as do the mask "
-        "decoder's two convolutions; the attention encoder layer, the decoder, the "
-        "mask decoder's GroupNorms and the per-query mask product run on the host "
-        "CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. Four .axm parts, four host ONNX graphs "
-        "and metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed square input"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
-    "hybrid",
+    "blocked",
     ("detr",),
     ("detect",),
     ("axelera",),
     reason=(
-        "Hybrid INT8 export: the ResNet backbone and the input projection are "
-        "compiled with Axelera's toolchain and run on the Metis AIPU; the "
-        "transformer encoder and decoder and the prediction heads run on the host "
-        "CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md)."
-    ),
-    since="1.7",
-    constraint=(
-        "measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and "
-        "metadata parts; keep them together. Needs onnxruntime at run time. "
-        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
-        "fixed square input"
+        "not supported on Metis: part of the network runs on the host (hybrid parked "
+        "by decision 2026-11-19; branch axelera-hybrid-parked)."
     ),
 )
 _add(
@@ -5353,6 +5169,27 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
             "through the same path)"
         ),
+        "r50": (
+            "measured mIoU drop 5.09 points vs FP32 (0.4734 vs 0.5243 on 300 COCO "
+            "val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
+            "through the same path; ASPP as per-tap 1x1 convolutions plus shifts)"
+        ),
+        "r101": (
+            "measured mIoU drop 20.93 points vs FP32 (0.3795 vs 0.5888 on 300 "
+            "COCO val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
+            "through the same path; ASPP as per-tap 1x1 convolutions plus shifts). "
+            "The loss happens on the device (device vs CPU-quantized output "
+            "cosine 0.895; the CPU-quantized model itself stays within 0.4 mIoU "
+            "of FP32 on 100 of those images, so no quantization recipe recovers "
+            "it): check accuracy on your data, or use r50 or mv3"
+        ),
+    },
+    ("vgg", "classify", "axelera"): {
+        "19bn": (
+            "measured top-1 drop 5.1 points vs FP32 (0.593 vs 0.644 on 1000 "
+            "ImageNetV2 images, 250 ImageNetV2 calibration images, min-max "
+            "ranges; histogram ranges gave -6.0)"
+        ),
     },
     ("rtmdet", "detect", "axelera"): {
         "t": (
@@ -5482,6 +5319,48 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
 #: format, each with its structural reason. Accuracy never lands a size here
 #: (that is SIZE_ACCURACY_NOTES); the export raises for these.
 BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("rtmdet", "detect", "axelera"): {
+        "x": (
+            "does not compile for Metis at 640x640 with the 1.9 SDK: the "
+            "compiler's LowerTIR pass still overflows its on-chip buffers after 4 "
+            "iterations (after 2 h 21 min, 7 GB peak RSS; a plain retry fails the "
+            "same way after 2 h 27 min). Its CSPNeXt-x backbone alone compiles (24 "
+            "minutes), so the overflow is in the neck and heads; use RTMDet-l"
+            "; a hybrid (part of the network on the host) is parked by decision 2026-11-19 on branch axelera-hybrid-parked"
+        ),
+    },
+    ("retinanet", "detect", "axelera"): {
+        "r50v2": (
+            "does not run usefully on Metis with the 1.9 SDK: its head normalizes "
+            "every convolution with GroupNorm (per-image statistics), which the "
+            "INT8 toolchain has no form for. Measured multi-part route (as FCOS): "
+            "trunk and head convolutions as six compiled parts with GroupNorm on "
+            "the host compile and run, but score 0.033 mAP50-95 against FP32's "
+            "0.396 on 300 COCO val2017 images; its ResNet-50 v2 trunk does not "
+            "survive INT8 (CPU-quantized cosine vs FP32 0.56-0.78 per-tensor, "
+            "0.93-0.97 hybrid; cross-layer equalization does not help); use "
+            "RetinaNet-r50"
+            "; a hybrid (part of the network on the host) is parked by decision 2026-11-19 on branch axelera-hybrid-parked"
+        ),
+    },
+    ("efficientdet", "detect", "axelera"): {
+        "d3": (
+            "does not compile for Metis with the 1.9 SDK: lowering finds no L1 "
+            "tiling even with one-row tiles, at its native 896 (2.52 MB needed, "
+            "2.15 MB available) and at a 512 canvas (2.58 vs 2.14 MB); its "
+            "160-channel BiFPN and heads set the need, not the canvas; use d2"
+            "; a hybrid (part of the network on the host) is parked by decision 2026-11-19 on branch axelera-hybrid-parked"
+        ),
+        "d4": (
+            "does not compile for Metis with the 1.9 SDK: lowering finds no L1 "
+            "tiling even with one-row tiles, at its native 1024 (2.69 MB needed, "
+            "0.94 MB available) and at a 512 canvas (2.10 vs 1.22 MB). Prefix "
+            "cuts at 512 put the overflow in the EfficientNet-B4 backbone: its "
+            "first five stages compile, the 272-channel stage (blocks.5) alone "
+            "needs 3.12 MB of L1 against 2.47 MB; use d2"
+            "; a hybrid (part of the network on the host) is parked by decision 2026-11-19 on branch axelera-hybrid-parked"
+        ),
+    },
     ("dinodetr", "detect", "axelera"): {
         "swinl": (
             "out of scope: its backbone is a Swin-L vision transformer, so a hybrid "
@@ -5522,9 +5401,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
-    ("tinyformer", "detect", "axelera"): {
-        size: "has not been measured on a Metis yet" for size in ("m", "l", "x", "xl")
-    },
     ("yolo9_p2", "detect", "axelera"): {
         "t": (
             "has not been measured on a Metis yet: no trained YOLO9-P2-t "

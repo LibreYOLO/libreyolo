@@ -16,6 +16,10 @@ import torch
 
 from tests.unit.test_axelera_backend import _dataset, _image, _install_fake_sdk
 
+_PARKED = pytest.mark.skip(
+    reason="hybrid export parked by decision 2026-11-19 (part of the network runs on the host); branch axelera-hybrid-parked"
+)
+
 pytestmark = pytest.mark.unit
 pytest.importorskip("onnxruntime")
 
@@ -35,6 +39,7 @@ def _rtdetr():
     return LibreRTDETR._from_scratch(size="r18", device="cpu", seed=0)
 
 
+@_PARKED
 def test_rtdetr_axelera_is_a_hybrid_int8_row():
     from libreyolo.export.support import get_support, precision_support
 
@@ -124,6 +129,7 @@ def _export(model, tmp_path, name):
     )
 
 
+@_PARKED
 @pytest.mark.parametrize("split", ["neck", "backbone"])
 def test_rtdetr_hybrid_export_runs_the_chain(sdk, tmp_path, monkeypatch, split):
     import yaml
@@ -183,6 +189,7 @@ def test_rtdetr_hybrid_calibration_takes_square_sizes(sdk):
         preprocess(_image(), (IMGSZ, 2 * IMGSZ))
 
 
+@_PARKED
 def test_unknown_hybrid_split_is_rejected(sdk, tmp_path, monkeypatch):
     from libreyolo.export import axelera
 
@@ -201,6 +208,7 @@ def test_unmeasured_rtdetr_sizes_are_not_available_yet():
     assert not set(unmeasured) & set(BLOCKED_SIZES.get(("rtdetr", "detect", "axelera"), {}))
 
 
+@_PARKED
 def test_hybrid_neck_part_compiles_per_tensor(sdk, tmp_path, monkeypatch):
     """Depthwise backbones compile per channel; the neck part (graph input into a depthwise conv) stays per tensor."""
     import yaml
@@ -221,6 +229,7 @@ def test_hybrid_neck_part_compiles_per_tensor(sdk, tmp_path, monkeypatch):
     assert "per_tensor_min_max" in second and "hybrid_per_tensor_per_channel" not in second
 
 
+@_PARKED
 def test_rtdetrv2_is_hybrid_and_its_parts_reproduce_the_native_model():
     from libreyolo.export.exporter import _AXELERA_HYBRID_OUTPUTS, _DETRBackboneWrapper, _detr_neck_parts
     from libreyolo.export.exporter import _unfrozen_batchnorms
@@ -242,6 +251,7 @@ def test_rtdetrv2_is_hybrid_and_its_parts_reproduce_the_native_model():
     )
 
 
+@_PARKED
 def test_detr_hybrid_is_backbone_only_and_reproduces_the_native_model(sdk, tmp_path, monkeypatch):
     from libreyolo.export import axelera
     from libreyolo.export.exporter import (
@@ -271,6 +281,7 @@ def test_detr_hybrid_is_backbone_only_and_reproduces_the_native_model(sdk, tmp_p
         AxeleraExporter(model)._hybrid_split()
 
 
+@_PARKED
 @pytest.mark.parametrize("family", ["dfine", "deim", "rtdetrv4"])
 def test_dfine_line_is_hybrid_and_its_parts_reproduce_the_native_model(family):
     from libreyolo.export.exporter import _AXELERA_HYBRID_OUTPUTS, _DETRBackboneWrapper, _detr_neck_parts
@@ -299,6 +310,7 @@ def test_dfine_line_is_hybrid_and_its_parts_reproduce_the_native_model(family):
     )
 
 
+@_PARKED
 def test_faster_rcnn_hybrid_export_runs_the_chain(sdk, tmp_path, monkeypatch):
     import yaml
 
@@ -353,6 +365,7 @@ def test_faster_rcnn_measured_sizes_leave_the_unmeasured_list():
     assert ("faster_rcnn", "detect", "axelera") not in UNMEASURED_SIZES
 
 
+@_PARKED
 def test_deimv2_small_sizes_take_the_encoder_split_and_reproduce_the_native_model():
     from libreyolo.export.exporter import AxeleraExporter, _detr_conv_encoder_parts, _unfrozen_batchnorms
     from libreyolo.export.support import BLOCKED_SIZES, get_support
@@ -412,6 +425,7 @@ def test_mask_rcnn_hybrid_chain_matches_the_export_wrapper(task):
         torch.testing.assert_close(got[3], want[3], atol=1e-2, rtol=0)
 
 
+@_PARKED
 def test_mask_rcnn_hybrid_segment_export_runs_the_chain(sdk, tmp_path, monkeypatch):
     import yaml
 
@@ -474,6 +488,7 @@ def test_ppdoclayout_hybrid_chain_matches_the_export_wrapper():
         torch.testing.assert_close(g, w, atol=1e-4, rtol=1e-4)
 
 
+@_PARKED
 def test_ppdoclayout_hybrid_export_runs_the_chain(sdk, tmp_path, monkeypatch):
     import yaml
 
@@ -502,6 +517,7 @@ def test_ppdoclayout_hybrid_export_runs_the_chain(sdk, tmp_path, monkeypatch):
     assert result.boxes.xyxy.shape[-1] == 4
 
 
+@_PARKED
 def test_deformable_detr_hybrid_is_backbone_only_and_reproduces_the_native_model():
     from libreyolo.export.exporter import (
         AxeleraExporter,
@@ -526,6 +542,7 @@ def test_deformable_detr_hybrid_is_backbone_only_and_reproduces_the_native_model
     )
 
 
+@_PARKED
 def test_dfine_segment_hybrid_chain_passes_the_low_level_tap(sdk, tmp_path, monkeypatch):
     import yaml
 
@@ -593,6 +610,7 @@ def test_dfine_segment_mask_convolution_parts_reproduce_the_host_mask_decoder():
         assert torch.allclose(actual, want, atol=1e-5)
 
 
+@_PARKED
 def test_dinodetr_hybrid_is_backbone_only_and_reproduces_the_native_model():
     from libreyolo.export.exporter import (
         AxeleraExporter,
@@ -618,6 +636,7 @@ def test_dinodetr_hybrid_is_backbone_only_and_reproduces_the_native_model():
     )
 
 
+@_PARKED
 def test_every_deformable_detr_size_is_measured_on_axelera():
     from libreyolo.export.support import UNMEASURED_SIZES, get_support
 
@@ -625,6 +644,7 @@ def test_every_deformable_detr_size_is_measured_on_axelera():
     assert ("deformable_detr", "detect", "axelera") not in UNMEASURED_SIZES
 
 
+@_PARKED
 def test_rtdetrv2_obb_hybrid_neck_split_reproduces_the_native_model():
     from libreyolo.export.exporter import (
         AxeleraExporter,
@@ -651,6 +671,7 @@ def test_rtdetrv2_obb_hybrid_neck_split_reproduces_the_native_model():
     )
 
 
+@_PARKED
 @pytest.mark.parametrize("size", ["n", "s"])
 def test_riodetrv2_obb_hybrid_neck_split_reproduces_the_native_model(size):
     from libreyolo.export.exporter import (
@@ -859,6 +880,7 @@ def test_rtmdet_x_hybrid_backbone_split_reproduces_the_export_output():
     torch.testing.assert_close(got, want, atol=1e-4, rtol=1e-4)
 
 
+@_PARKED
 def test_tinyformer_stem_split_reproduces_the_native_model_within_the_sigmoid_gelu_bound():
     from libreyolo.export.exporter import _STEM_SIGMOID_GELU, AxeleraExporter, _vit_stem_parts
     from libreyolo.export.support import get_support

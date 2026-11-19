@@ -15,7 +15,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | alexnet | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | ben2 | matte | ✓ | ✓ | available | available | available |  |  |  |  | available |  |  |  |
 | birefnet | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |  |
-| centernet | detect | ✓ | ✓ | available | available | available |  |  |  | hybrid |  |  |  |  |
+| centernet | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | clip | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  | ✓ |
 | clip | embed | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | convnext | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
@@ -24,20 +24,20 @@ CPU (details below), and an empty cell is blocked in preflight.
 | ddcolor | restore |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | deeplabv3 | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | available |  |  |  |  |
 | deepseekocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| deformable_detr | detect | ✓ | available | available | available | available |  |  |  | hybrid |  |  |  |  |
-| deim | detect | ✓ | ✓ |  | available | available | ✓ | ✓ |  | hybrid |  |  |  | ✓ |
-| deimv2 | detect | available | ✓ |  | available | available | ✓ | available |  | hybrid |  |  |  | ✓ |
+| deformable_detr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |  |
+| deim | detect | ✓ | ✓ |  | available | available | ✓ | ✓ |  |  |  |  |  | ✓ |
+| deimv2 | detect | available | ✓ |  | available | available | ✓ | available |  |  |  |  |  | ✓ |
 | deit | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  | available |  |  |  |
-| dekr | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  | hybrid |  |  |  |  |
+| dekr | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | depth_anything | depth | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  | ✓ |
 | depth_anything3 | depth | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | detany3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| detr | detect | ✓ | ✓ | available | available | available |  |  |  | hybrid |  |  |  |  |
+| detr | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | dexined | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available |  | ✓ |  |  |
-| dfine | detect | ✓ | ✓ |  | available | ✓ | ✓ | ✓ |  | hybrid |  |  |  | ✓ |
-| dfine | segment | ✓ | ✓ |  | available | ✓ |  |  |  | hybrid |  |  |  |  |
+| dfine | detect | ✓ | ✓ |  | available | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |
+| dfine | segment | ✓ | ✓ |  | available | ✓ |  |  |  |  |  |  |  |  |
 | diffusion_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| dinodetr | detect | ✓ | available | available | available | available |  |  |  | hybrid |  |  |  |  |
+| dinodetr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |  |
 | dinov2 | semantic | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | dinov2 | classify | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  |  | available |
 | dinov2 | embed | ✓ | ✓ | available | available | available |  |  |  |  |  | ✓ |  |  |
@@ -55,7 +55,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | falconocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | falconperception | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | falconperception | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| faster_rcnn | detect | ✓ |  |  |  |  |  |  |  | hybrid |  |  |  |  |
+| faster_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | fcn | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | ✓ |  |  |  |  |
 | fcos | detect | ✓ | ✓ |  |  | available |  |  |  | available |  |  |  |  |
 | fcos3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -75,7 +75,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | gtr | obb | available | available |  |  |  |  |  |  |  |  |  |  |  |
 | gtr | depth | available | available |  |  |  |  |  |  |  |  |  |  |  |
 | gtr | semantic | available | available |  |  |  |  |  |  |  |  |  |  |  |
-| hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  | hybrid |  |  |  |  |
+| hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | hvi_cidnet | restore |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | instanthmr | mesh | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | internvl3 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -96,8 +96,8 @@ CPU (details below), and an empty cell is blocked in preflight.
 | marigold_v2 | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | marigold_v2 | normal |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | marigold_v2 | albedo |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| mask_rcnn | detect | ✓ |  |  |  |  |  |  |  | hybrid |  |  |  |  |
-| mask_rcnn | segment | ✓ |  |  |  |  |  |  |  | hybrid |  |  |  |  |
+| mask_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
+| mask_rcnn | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | memfof | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | midas | depth | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available | available |  |  |  |
 | mobilenetv4 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |  | ✓ |
@@ -119,8 +119,8 @@ CPU (details below), and an empty cell is blocked in preflight.
 | pe | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | available | ✓ |  |  | ✓ |
 | picosam3 | segment | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
-| pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | hybrid | ✓ | ✓ |  | ✓ |
-| ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  | hybrid |  |  |  |  |
+| pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
+| ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | available |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
@@ -137,11 +137,11 @@ CPU (details below), and an empty cell is blocked in preflight.
 | rfdetr | segment | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |  |
 | rfdetr | pose | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |  |
 | rfdetr | obb | ✓ | ✓ | ✓ | available | available |  |  |  |  |  |  |  |  |
-| riodetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  | hybrid |  |  |  |  |
-| rtdetr | detect | ✓ | ✓ | ✓ | available | ✓ |  | ✓ |  | hybrid |  |  | available | ✓ |
-| rtdetrv2 | detect | ✓ | ✓ | ✓ | available | available |  | ✓ |  | hybrid |  |  |  | ✓ |
-| rtdetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  | hybrid |  |  |  |  |
-| rtdetrv4 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | hybrid |  |  |  | ✓ |
+| riodetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| rtdetr | detect | ✓ | ✓ | ✓ | available | ✓ |  | ✓ |  |  |  |  | available | ✓ |
+| rtdetrv2 | detect | ✓ | ✓ | ✓ | available | available |  | ✓ |  |  |  |  |  | ✓ |
+| rtdetrv2 | obb | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
+| rtdetrv4 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |
 | rtmdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  | ✓ |
 | rtmdet | segment |  |  |  |  |  |  |  |  | available |  |  |  |  |
 | sam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -171,7 +171,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | swin | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  | available |  |  |  |
 | swinir | restore | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  | ✓ |  |  |
 | teed | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |  |  |
-| tinyformer | detect | available | available | available | available | available |  |  |  | hybrid |  |  |  |  |
+| tinyformer | detect | available | available | available | available | available |  |  |  |  |  |  |  |  |
 | trellis | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposplat | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposr | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -203,7 +203,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | yolonas | pose | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  | ✓ | ✓ |  |  |  |
 | yolonas | obb | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | yolox | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ | ✓ | available | ✓ |
-| zipdepth | depth | ✓ | ✓ | ✓ | available | ✓ |  |  |  | hybrid | ✓ |  |  | ✓ |
+| zipdepth | depth | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  | ✓ |  |  | ✓ |
 | trellis2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 
 ## Parity thresholds
@@ -503,7 +503,7 @@ A check mark applies only under any constraint listed here.
 - `vgg` / `classify` / `torchscript`: FP32, batch 1, fixed 224x224 input
 - `vgg` / `classify` / `tensorrt`: FP32, batch 1, fixed 224x224 input
 - `vgg` / `classify` / `openvino`: FP32, batch 1, fixed 224x224 input
-- `vgg` / `classify` / `axelera`: validated sizes: 16, 19, 16bn; hybrid sizes: 19bn (conv blocks 1-4 on Metis, block 5 + classifier on the host, AXELERA_SIZE_RECIPES hybrid_split); calibrated with in-domain images (data=). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
+- `vgg` / `classify` / `axelera`: validated sizes: 16, 19, 16bn; supported sizes: 19bn (measured drop, SIZE_ACCURACY_NOTES); calibrated with in-domain images (data=). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `vit` / `classify` / `onnx`: FP32, fixed 224x224 input
 - `vjepa2` / `embed` / `onnx`: FP32, dynamic batch, fixed frame count / crop / tubelet geometry per graph; ONNX needs opset >= 14 for scaled_dot_product_attention. The graph must be driven with a 5D clip: LibreYOLO's exported-backend path still preprocesses to a 4D image batch and raises NotImplementedError for this family.
 - `vjepa2` / `embed` / `torchscript`: FP32, dynamic batch, fixed frame count / crop / tubelet geometry per graph; ONNX needs opset >= 14 for scaled_dot_product_attention. The graph must be driven with a 5D clip: LibreYOLO's exported-backend path still preprocesses to a 4D image batch and raises NotImplementedError for this family.
@@ -603,7 +603,7 @@ These converter paths are callable with the recorded validation context.
 - `convnextv2` / `classify` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `convnextv2` / `classify` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `convnextv2` / `classify` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
-- `deeplabv3` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole DeepLabV3 graph runs on the Metis AIPU for MobileNetV3 after exact graph rewrites (the ASPP image-pooling branch becomes a broadcast add, oversized ASPP convolutions are split by channels), and the host upsamples the class logits; supported, mIoU 3.77 points below FP32 on a paired 300-image COCO val2017 set with VOC-21 masks. R50 and R101 are hybrid: the ResNet backbone runs on Metis and the ASPP, head and upsampling on the host (the rewritten ASPP diverges on the device), mIoU 0.40 (R50) and 0.09 (R101) below FP32 on the same set (docs/axelera.md). Constraint: supported sizes: mv3 (measured drop, SIZE_ACCURACY_NOTES); hybrid sizes: r50, r101 (backbone on Metis, ASPP + head on the host, AXELERA_SIZE_RECIPES hybrid_split). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 520x520 input
+- `deeplabv3` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole DeepLabV3 graph runs on the Metis AIPU after exact graph rewrites (the ASPP image-pooling branch becomes a broadcast add, oversized ASPP convolutions are split by channels, and for R50/R101 each dilated ASPP convolution runs as per-tap 1x1 convolutions plus zero-filled shifts), and the host upsamples the class logits. Supported, not validated: on a paired 300-image COCO val2017 set with VOC-21 masks mIoU stays below FP32 by 3.77 points (MobileNetV3), 5.09 (R50) and 20.93 (R101; docs/axelera.md). Constraint: supported sizes: mv3, r50, r101 (measured drops, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 520x520 input
 - `deformable_detr` / `detect` / `torchscript`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `deformable_detr` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `deformable_detr` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
@@ -636,7 +636,7 @@ These converter paths are callable with the recorded validation context.
 - `ec` / `pose` / `openvino`: Raw parity passes after Hungarian query alignment, but trained public boxes fall to 0.916 matched IoU.
 - `ec` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes.
 - `efficientdet` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
-- `efficientdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole EfficientDet graph runs on the Metis AIPU after exact rewrites of the BiFPN fusion (division by a constant as a multiplication, the stacked weighted sum as additions) and of the squeeze-excite averages (staged 2x2 pools), and the host decodes the boxes in float. Supported, not validated: on a Metis M.2 Max with per-channel activation ranges EfficientDet-d0 loses 1.78 mAP50-95 points against FP32 on 1000 COCO val2017 images; EfficientDet-d1 and -d2 run at d0's 512x512 canvas (their native 640 and 768 do not compile), which costs 3.10 and 5.31 points in FP32 and INT8 1.64 and 1.38 more (docs/axelera.md). Constraint: supported sizes: d0, d1 and d2 (d1 and d2 at a fixed 512x512 canvas; measured drops, SIZE_ACCURACY_NOTES); hybrid sizes: d3 and d4 at the same 512x512 canvas (the whole graph finds no L1 tiling: the EfficientNet backbone, for d4 its stages 0-4, runs on the Metis, the rest of the backbone, the BiFPN, heads and decode on the host as an FP32 ONNX graph; -0.39 and -0.29 mAP50-95 vs FP32 at 512; one .axm part, one host ONNX graph, needs onnxruntime). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `efficientdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole EfficientDet graph runs on the Metis AIPU after exact rewrites of the BiFPN fusion (division by a constant as a multiplication, the stacked weighted sum as additions) and of the squeeze-excite averages (staged 2x2 pools), and the host decodes the boxes in float. Supported, not validated: on a Metis M.2 Max with per-channel activation ranges EfficientDet-d0 loses 1.78 mAP50-95 points against FP32 on 1000 COCO val2017 images; EfficientDet-d1 and -d2 run at d0's 512x512 canvas (their native 640 and 768 do not compile), which costs 3.10 and 5.31 points in FP32 and INT8 1.64 and 1.38 more (docs/axelera.md). Constraint: supported sizes: d0, d1 and d2 (d1 and d2 at a fixed 512x512 canvas; measured drops, SIZE_ACCURACY_NOTES); d3 and d4 do not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `efficientdet` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `fcos` / `detect` / `openvino`: FP32 dynamic-shape conversion and high-confidence public predictions pass, but small score/box drift can change low-confidence NMS ordering. Constraint: OpenVINO CPU, FP32, batch 1, dynamic padded H/W
 - `fcos` / `detect` / `axelera`: INT8 multi-part export compiled with Axelera's toolchain. FCOS's head normalizes every convolution with GroupNorm (per-image statistics), which the INT8 toolchain has no form for, so the ResNet-FPN trunk, the four head convolutions (classification and regression towers stacked, on all five levels packed onto one canvas) and the predictor run on the Metis AIPU as six compiled parts, and the host applies each GroupNorm + ReLU and decodes the boxes. Supported, not validated: on a Metis M.2 Max FCOS-R50 loses 4.13 mAP50-95 points against FP32 on 1000 COCO val2017 images at its 800x800 canvas (docs/axelera.md). Constraint: supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES); fixed 800x800 canvas by default. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1
@@ -685,7 +685,7 @@ These converter paths are callable with the recorded validation context.
 - `quicksrnet` / `restore` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `quicksrnet` / `restore` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `quicksrnet` / `restore` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
-- `retinanet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain on one fixed square canvas (the image fitted inside, padded bottom-right; 1024x1024 by default for R50); the graph stops after the box-delta and class convolutions and LibreYOLO rebuilds the anchors on the host. Supported, not validated: on a Metis M.2 Max RetinaNet-R50 scores 1.11 mAP50-95 below the PyTorch model's own val() on 1000 COCO val2017 images (0.3410 vs 0.3521): 0.49 from the canvas (FP32 0.3472) and 0.62 from INT8. The 1024 canvas is about 1.64x the device compute of 800; imgsz=800 is faster and scores 2.25 below (0.3296). RetinaNet-R50v2 is hybrid: its heads normalize every convolution with GroupNorm, so the ResNet-50 body runs on Metis and the FPN, heads and box decode on the host as FP32 ONNX, 2.40 mAP50-95 below FP32 on 300 COCO val2017 images (docs/axelera.md). Constraint: supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed 1024x1024 canvas by default (imgsz=800 for speed); hybrid sizes: r50v2 (ResNet-50 body on Metis, FPN + GroupNorm heads on the host, 800x800 canvas, AXELERA_SIZE_RECIPES hybrid_split). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1
+- `retinanet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain on one fixed square canvas (the image fitted inside, padded bottom-right; 1024x1024 by default for R50); the graph stops after the box-delta and class convolutions and LibreYOLO rebuilds the anchors on the host. Supported, not validated: on a Metis M.2 Max RetinaNet-R50 scores 1.11 mAP50-95 below the PyTorch model's own val() on 1000 COCO val2017 images (0.3410 vs 0.3521): 0.49 from the canvas (FP32 0.3472) and 0.62 from INT8. The 1024 canvas is about 1.64x the device compute of 800; imgsz=800 is faster and scores 2.25 below (0.3296; docs/axelera.md). Constraint: supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed 1024x1024 canvas by default (imgsz=800 for speed); r50v2 is blocked (GroupNorm head, BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1
 - `rfdetr` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
 - `rfdetr` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes.
 - `rfdetr` / `segment` / `openvino`: After Hungarian query alignment, measured converted-runtime element match rates remain below validation: trained segment 69.0%, trained pose 72.75%, and input-sensitive OBB 91.25%.
@@ -705,7 +705,7 @@ These converter paths are callable with the recorded validation context.
 - `rtdetrv2` / `obb` / `openvino`: The official N checkpoint exports, reloads, and preserves the top public OBB within 0.041 pixels, but the complete decoder query set does not meet raw-output parity after matching. Constraint: OpenVINO 2026.2 CPU, FP32, batch 1, fixed 1024x1024 input canvas; export the ONNX intermediate on CPU
 - `rtdetrv4` / `detect` / `tensorrt`: A deterministic synthetic fixture exports, reloads, and predicts, but repeated TensorRT 10.16 FP32 builds change public top-k class membership or box geometry; a measured reconstruction reached 0 IoU with 50.4-pixel coordinate drift.
 - `rtmdet` / `detect` / `executorch`: The export-only graph unshares RTMDet's cross-level head convolutions to avoid duplicate XNNPACK batch-norm fusion parameter names. Full conversion, runtime execution, input sensitivity, deterministic random-weight raw parity, and detection parsing are covered. Constraint: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
-- `rtmdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the graph stops after each level's box and class convolutions, CSPNeXt pointwise-conv inputs are equalized on the export copy (FP32 outputs unchanged), and LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 4.40 (with learned INT8 rounding of its pointwise convolutions), RTMDet-m 2.66 and RTMDet-l 1.87 on a paired 1000-image COCO val2017 subset (docs/axelera.md). Constraint: supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); hybrid sizes: x (the whole graph finds no L1 tiling for its neck and heads: the CSPNeXt-x backbone runs on the Metis, the PAFPN neck, heads and decode on the host as an FP32 ONNX graph; +0.09 mAP50-95 vs FP32; one .axm part, one host ONNX graph, needs onnxruntime). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `rtmdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the graph stops after each level's box and class convolutions, CSPNeXt pointwise-conv inputs are equalized on the export copy (FP32 outputs unchanged), and LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 4.40 (with learned INT8 rounding of its pointwise convolutions), RTMDet-m 2.66 and RTMDet-l 1.87 on a paired 1000-image COCO val2017 subset (docs/axelera.md). Constraint: supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `rtmdet` / `segment` / `axelera`: INT8 export compiled with Axelera's toolchain; the device returns each level's box, class and dynamic-kernel outputs plus the stride-8 mask feature, and LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS, dynamic-kernel mask decode) runs on the host. Supported, not validated: on a Metis M.2 Max the mask / box mAP50-95 drops below FP32 are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 3.27 / 5.02 (with learned INT8 rounding of its pointwise convolutions), RTMDet-Ins-m 0.79 / 3.96 and RTMDet-Ins-l 0.50 / 5.34 on a paired 1000-image COCO val2017 subset (docs/axelera.md). Constraint: supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `swin` / `classify` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `swin` / `classify` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -751,28 +751,6 @@ These converter paths are callable with the recorded validation context.
 These exports run part of the network on the target accelerator and the
 rest on the host CPU; each entry names the split.
 
-- `centernet` / `detect` / `axelera`: Hybrid INT8 export: the body without deformable convolutions (the ResNet-18 body of ResDCN-18, the DLA-34 base) is compiled with Axelera's toolchain and runs on the Metis AIPU; the modulated deformable convolutions of the up-path (grid_sample at learned offsets, which the quantizer has no form for), the heads and the peak decode run on the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 512x512 input
-- `deformable_detr` / `detect` / `axelera`: Hybrid INT8 export: the ResNet-50 backbone is compiled with Axelera's toolchain and runs on the Metis AIPU; the input projections (GroupNorm), the multi-scale deformable transformer and the prediction heads run on the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `deim` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `deimv2` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `dekr` / `pose` / `axelera`: Hybrid INT8 export: the HRNet-w32 trunk's stem, layer 1 and stages 2-3 are compiled with Axelera's toolchain and run on the Metis AIPU; stage 4, the heatmap head and the per-keypoint offset heads run on the host CPU as an FP32 ONNX graph through ONNX Runtime. The whole 640x640 graph has no working Metis build with SDK 1.9 (output paging fails the compile after 8.3 hours; with paging off the device is lost), and HRNet's stage 4 drifts on the device (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 640x640 input
-- `detr` / `detect` / `axelera`: Hybrid INT8 export: the ResNet backbone and the input projection are compiled with Axelera's toolchain and run on the Metis AIPU; the transformer encoder and decoder and the prediction heads run on the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `dfine` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `dfine` / `segment` / `axelera`: Hybrid INT8 export (as D-FINE detect): the HGNetv2 backbone with the encoder's input projections, and the convolutional fusion neck, are compiled with Axelera's toolchain and run on the Metis AIPU, as do the mask decoder's two convolutions; the attention encoder layer, the decoder, the mask decoder's GroupNorms and the per-query mask product run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Four .axm parts, four host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `dinodetr` / `detect` / `axelera`: Hybrid INT8 export: the ResNet-50 backbone is compiled with Axelera's toolchain and runs on the Metis AIPU; the input projections (GroupNorm), the deformable transformer with its two-stage query selection and the prediction heads run on the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `faster_rcnn` / `detect` / `axelera`: Hybrid INT8 export at a fixed square canvas: the input normalization, the backbone and the FPN are compiled with Axelera's toolchain and run on the Metis AIPU; the region proposal network, RoIAlign, the box head and NMS run on the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square canvas (images are stretched to it)
-- `hrnet` / `pose` / `axelera`: Hybrid INT8 export: HRNet's stem, layer 1 and stages 2-3 (three resolution branches) are compiled with Axelera's toolchain and run on the Metis AIPU; stage 4 and the heatmap layer run on the host CPU as an FP32 ONNX graph through ONNX Runtime. Whole-graph, the device output drifts away from the SDK's own quantized model through stage 4's multi-branch fusion modules (device vs quantized cosine 0.983 after stage 3, 0.21 at the heatmaps) (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 256x192 (w32) or 384x288 (w48) person crop
-- `mask_rcnn` / `detect` / `axelera`: Hybrid INT8 export at a fixed square canvas, as Faster R-CNN: the input normalization, the ResNet-50-FPN v2 backbone and the FPN are compiled with Axelera's toolchain and run on the Metis AIPU; the region proposal network, RoIAlign, the box and mask heads, NMS and the mask paste run on the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 800x800 canvas (images are stretched to it)
-- `mask_rcnn` / `segment` / `axelera`: Hybrid INT8 export at a fixed square canvas, as Faster R-CNN: the input normalization, the ResNet-50-FPN v2 backbone and the FPN are compiled with Axelera's toolchain and run on the Metis AIPU; the region proposal network, RoIAlign, the box and mask heads, NMS and the mask paste run on the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 800x800 canvas (images are stretched to it)
-- `pidnet` / `semantic` / `axelera`: Hybrid INT8 export: PIDNet's stem and its P, I and D branches through layer 5 are compiled with Axelera's toolchain and run on the Metis AIPU, with both PagFM fusions in an exact form (sigmoid(-z) * x + sigmoid(z) * y); the PAPPM pooling module, the branch fusion and the segmentation head run on the host CPU as an FP32 ONNX graph through ONNX Runtime. Whole-graph, INT8 collapses the output (cosine vs FP32 about 0): the original fusion blend flips sign when quantized and PAPPM's upsample-and-add sums lose the signal (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 1024x1024 input
-- `ppdoclayoutv3` / `detect` / `axelera`: Hybrid INT8 export: the HGNetV2 backbone and the encoder input projections are compiled with Axelera's toolchain and run on the Metis AIPU; the hybrid encoder (attention, FPN/PAN, mask features), the mask-enhanced decoder and the reading-order head run on the host CPU as an FP32 ONNX graph through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input (images are stretched to it)
-- `riodetrv2` / `obb` / `axelera`: Hybrid INT8 export (as RT-DETRv2 detect): the HGNetv2 backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the rotated-box decoder run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 1024x1024 input canvas
-- `rtdetr` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `rtdetrv2` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `rtdetrv2` / `obb` / `axelera`: Hybrid INT8 export (as RT-DETRv2 detect): the HGNetv2 backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the rotated-box decoder run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 1024x1024 input canvas
-- `rtdetrv4` / `detect` / `axelera`: Hybrid INT8 export: the CNN backbone with the encoder's input projections, and the convolutional fusion neck with the decoder's input projections, are compiled with Axelera's toolchain and run on the Metis AIPU; the attention encoder layer and the decoder (query selection, deformable attention) run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `tinyformer` / `detect` / `axelera`: Hybrid INT8 export: the convolutional stem of TinyFormer's backbone and its 4-scale fusion neck are compiled with Axelera's toolchain and run on the Metis AIPU; the ViT tower, the level projections, the attention encoder layer and the deformable-attention decoder run on the host CPU as FP32 ONNX graphs through ONNX Runtime (docs/axelera.md). Host-bound. The stem's two inner GELUs run as x * sigmoid(1.702 x) (in FP32 the top-10 detection scores move by less than 0.013; cocoval300 mAP50-95 0.5167 vs 0.5175 for TinyFormer-s). Constraint: measured sizes in docs/axelera.md. Two .axm parts, two host ONNX graphs and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed square input
-- `zipdepth` / `depth` / `axelera`: Hybrid INT8 export: ZipDepth's encoder through stage 3's fourth block (its strip attention as an exact pooling form) is compiled with Axelera's toolchain and runs on the Metis AIPU; the rest of stage 3, with the GCNet context block, stage 4 and the decoder run on the host CPU as an FP32 ONNX graph through ONNX Runtime. The context block weights its 576 stage-3 positions with a softmax that has no AIPU form within SDK 1.9, and the device drifts through the last stage-3 blocks (docs/axelera.md). Constraint: measured sizes in docs/axelera.md. One .axm part, one host ONNX graph and metadata parts; keep them together. Needs onnxruntime at run time. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 384x384 input
 
 ## Blocked combinations
 
@@ -829,6 +807,7 @@ rest on the host CPU; each entry names the split.
 - `centernet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `centernet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `centernet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `centernet` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `centernet` / `detect` / `ncnn`: NCNN cannot lower CenterNet's portable deformable sampling plus baked top-k decode contract. Use ONNX or TorchScript.
 - `centernet` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `centernet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -910,17 +889,20 @@ rest on the host CPU; each entry names the split.
 - `deformable_detr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `deformable_detr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `deformable_detr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `deformable_detr` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `deformable_detr` / `detect` / `ncnn`: NCNN export is not supported for Deformable DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deformable_detr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deformable_detr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `deformable_detr` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
 - `deim` / `detect` / `executorch`: The trained nano model captures, lowers, and serializes, but ExecuTorch 1.2 runtime execution fails with an invalid delegated tensor dimension order.
 - `deim` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `deim` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `deim` / `detect` / `ncnn`: NCNN export is not supported for DEIM: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deim` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deim` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `deimv2` / `detect` / `executorch`: The trained atto model captures, lowers, and serializes, but the ExecuTorch 1.2 runtime process terminates while executing forward.
 - `deimv2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `deimv2` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `deimv2` / `detect` / `ncnn`: NCNN export is not supported for DEIMv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deimv2` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deimv2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -935,6 +917,7 @@ rest on the host CPU; each entry names the split.
 - `dekr` / `pose` / `paddle`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `mnn`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `rknn`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
+- `dekr` / `pose` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `dekr` / `pose` / `ncnn`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `tflite`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `coreml`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
@@ -970,6 +953,7 @@ rest on the host CPU; each entry names the split.
 - `detr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `detr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `detr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `detr` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `detr` / `detect` / `ncnn`: NCNN export is not supported for DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `detr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `detr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -982,6 +966,7 @@ rest on the host CPU; each entry names the split.
 - `dexined` / `edge` / `coreai`: This edge runtime has no parity-valid artifact for the requested format.
 - `dfine` / `detect` / `executorch`: Strict capture reaches an unsupported ContextVar read in deformable attention. Forcing the manual exported grid-sample path permits serialization, but ExecuTorch 1.2 runtime execution still fails with an invalid delegated tensor dimension order.
 - `dfine` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `dfine` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `dfine` / `detect` / `ncnn`: NCNN export is not supported for D-FINE: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dfine` / `detect` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError.
 - `dfine` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -989,6 +974,7 @@ rest on the host CPU; each entry names the split.
 - `dfine` / `segment` / `paddle`: The trained LibreDFINEn segmentation graph converts and reloads, but mask-logit relative RMS error is 3.52% and minimum matched-mask IoU is only 0.582.
 - `dfine` / `segment` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dfine` / `segment` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `dfine` / `segment` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `dfine` / `segment` / `ncnn`: NCNN export is not supported for D-FINE: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dfine` / `segment` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError.
 - `dfine` / `segment` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1009,6 +995,7 @@ rest on the host CPU; each entry names the split.
 - `dinodetr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dinodetr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dinodetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `dinodetr` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `dinodetr` / `detect` / `ncnn`: NCNN export is not supported for DINO-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dinodetr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `dinodetr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1184,6 +1171,7 @@ rest on the host CPU; each entry names the split.
 - `faster_rcnn` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `faster_rcnn` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `faster_rcnn` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `faster_rcnn` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `faster_rcnn` / `detect` / `ncnn`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
 - `faster_rcnn` / `detect` / `tflite`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
 - `faster_rcnn` / `detect` / `coreml`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
@@ -1409,6 +1397,7 @@ rest on the host CPU; each entry names the split.
 - `hrnet` / `pose` / `paddle`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `mnn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `rknn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
+- `hrnet` / `pose` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `hrnet` / `pose` / `ncnn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `tflite`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `coreml`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
@@ -1658,6 +1647,7 @@ rest on the host CPU; each entry names the split.
 - `mask_rcnn` / `detect` / `paddle`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `mnn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `rknn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
+- `mask_rcnn` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `mask_rcnn` / `detect` / `ncnn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `tflite`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `coreml`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
@@ -1669,6 +1659,7 @@ rest on the host CPU; each entry names the split.
 - `mask_rcnn` / `segment` / `paddle`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `mnn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `rknn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
+- `mask_rcnn` / `segment` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `mask_rcnn` / `segment` / `ncnn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `tflite`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `coreml`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
@@ -1897,10 +1888,12 @@ rest on the host CPU; each entry names the split.
 - `pidnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `pidnet` / `semantic` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `pidnet` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
 - `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ppdoclayoutv3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `ppdoclayoutv3` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `ppdoclayoutv3` / `detect` / `ncnn`: NCNN export is not supported for PP-DocLayoutV3: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ppdoclayoutv3` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ppdoclayoutv3` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2054,27 +2047,32 @@ rest on the host CPU; each entry names the split.
 - `riodetrv2` / `obb` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `riodetrv2` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `riodetrv2` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `riodetrv2` / `obb` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `riodetrv2` / `obb` / `ncnn`: NCNN export is not supported for RiO-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `riodetrv2` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `riodetrv2` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `riodetrv2` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
 - `rtdetr` / `detect` / `paddle`: The trained graphs require ONNX GridSample at opset 16 or newer, while X2Paddle 1.6.0 accepts opset 15 or lower.
 - `rtdetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `rtdetr` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `rtdetr` / `detect` / `ncnn`: NCNN export is not supported for RT-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetr` / `detect` / `tflite`: LiteRT 2.1.2 rejects the onnx2tf 2.6.7 graph because a CONCATENATION receives incompatible 256 and 1 dimensions.
 - `rtdetrv2` / `detect` / `paddle`: The trained graphs require ONNX GridSample at opset 16 or newer, while X2Paddle 1.6.0 accepts opset 15 or lower.
 - `rtdetrv2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `rtdetrv2` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `rtdetrv2` / `detect` / `ncnn`: NCNN export is not supported for RT-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv2` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rtdetrv2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rtdetrv2` / `obb` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `rtdetrv2` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rtdetrv2` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `rtdetrv2` / `obb` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `rtdetrv2` / `obb` / `ncnn`: NCNN export is not supported for RT-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv2` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rtdetrv2` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rtdetrv2` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
 - `rtdetrv4` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `rtdetrv4` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `rtdetrv4` / `detect` / `ncnn`: NCNN export is not supported for RT-DETRv4: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv4` / `detect` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError at the native 640x640 canvas.
 - `rtdetrv4` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2413,6 +2411,7 @@ rest on the host CPU; each entry names the split.
 - `tinyformer` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `tinyformer` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `tinyformer` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `tinyformer` / `detect` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `tinyformer` / `detect` / `ncnn`: NCNN export is not supported for TinyFormer: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `tinyformer` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `tinyformer` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2687,6 +2686,7 @@ rest on the host CPU; each entry names the split.
 - `zipdepth` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `zipdepth` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `zipdepth` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `zipdepth` / `depth` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `zipdepth` / `depth` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct conversion does not support the edge-mode Pad operation in ZipDepth's convex upsampler.
 - `zipdepth` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `trellis2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).

@@ -199,13 +199,11 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # to 36 on a 65x65 map) find no L1 tiling; per-tap 1x1 convolutions plus
     # zero-filled shifts are the same function and compile (the backbone alone
     # compiles; one 1x1 with all nine taps stacked does not).
-    # DeepLabV3-R50: the same split recovers 4.7 mIoU (-0.40 vs -5.09 whole graph on 300 images).
-    ("deeplabv3", "semantic", "r50"): {"aspp_shift": True, "hybrid_split": "backbone"},
-    # DeepLabV3-R101's rewritten ASPP diverges on the device (cosine 0.53 vs the
-    # CPU-quantized model, the backbone alone 0.995): the backbone runs on Metis
-    # and the ASPP + head on the host. Without hybrid_split (aspp_shift alone)
-    # the whole graph runs on Metis at -20.9 mIoU.
-    ("deeplabv3", "semantic", "r101"): {"aspp_shift": True, "hybrid_split": "backbone"},
+    ("deeplabv3", "semantic", "r50"): {"aspp_shift": True},
+    # Whole graph on the Metis: -5.09 (R50) and -20.9 (R101) mIoU on 300 images;
+    # R101's rewritten ASPP diverges on the device (cosine 0.53 vs the
+    # CPU-quantized model). The backbone-split hybrid is parked (2026-11-19).
+    ("deeplabv3", "semantic", "r101"): {"aspp_shift": True},
     # Histogram ranges recover most of the Mish backbone's loss (-6.8 -> -1.4);
     # the box-output window takes the rest of the way to -1.52 on 1000 images.
     ("yolo4", "detect", "b"): {
@@ -230,10 +228,6 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # take it from -2.9 to -0.2 top-1. VGG-19-BN does not follow (-6.0 vs -5.1
     # with min-max) and plain VGG-16/19 stay on min-max.
     ("vgg", "classify", "16bn"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
-    # VGG-19-BN: on the device the error compounds through conv block 5, so
-    # blocks 1-4 run on Metis and block 5 + classifier on the host (FP32):
-    # top-1 -0.2 vs FP32 on 1000 ImageNetV2 images (+0.2 held-out) instead of -5.1.
-    ("vgg", "classify", "19bn"): {"hybrid_split": "backbone"},
     # QuickSRNet-m2: learned INT8 rounding of the equalized weights (plus bias
     # correction) instead of nearest rounding + bias correction: PSNR -0.20 dB vs
     # FP32 on 296 COCO crops (-0.17 held-out) instead of -0.46 dB.

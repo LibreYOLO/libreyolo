@@ -18,6 +18,10 @@ from libreyolo.export.support import EXPORT_FORMATS, SUPPORT, get_support
 from libreyolo.models.inventory import collect_model_inventory
 from libreyolo.tasks import TASKS, task_to_suffix
 
+_PARKED = pytest.mark.skip(
+    reason="hybrid export parked by decision 2026-11-19 (part of the network runs on the host); branch axelera-hybrid-parked"
+)
+
 pytestmark = pytest.mark.unit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +54,7 @@ def test_matrix_uses_capability_statuses_only():
     assert {"validated", "available", "blocked"} <= tiers
 
 
+@_PARKED
 def test_hybrid_tier_exports_and_is_documented(monkeypatch, caplog):
     """A hybrid row is not blocked: preflight logs the split, INT8 stays allowed."""
     import logging

@@ -6,9 +6,12 @@
 > works with a larger measured drop, which the export logs once as a warning.
 > Accuracy never blocks an export; "blocked" is only for families that do not
 > compile, do not run or give meaningless output (`docs/export_support.md`).
-> "hybrid" means the convolutional part runs on the Metis and the attention
-> part (for DeepLabV3-R50/R101 and VGG-19-BN, the layers that drift on the
-> device) on the host CPU (section 8).
+> Every size runs its whole network on the Metis; the host only prepares the
+> input and decodes the outputs (boxes, NMS, masks), plus the light numpy steps
+> between compiled parts of SSD, FCOS and Real-ESRGAN (section 7). Exports that
+> run part of the network itself on the host ("hybrid") are not supported on
+> Metis: they are parked by decision 2026-11-19 on branch
+> `axelera-hybrid-parked` (section 11).
 > Results are from one Metis M.2 Max with axelera-devkit / axelera-rt 1.9.0.
 
 Measured on device, paired INT8 vs FP32 on the same images, each size with the
@@ -25,9 +28,6 @@ a separate size:
 | YOLO-NAS-pose | s | pose | COCO val2017 persons, 300 | 0.7565 | 0.7344 | -2.21 | supported | `yolonas/pose/s/2026-11-10/16` |
 | YOLO-NAS-pose | m | pose | COCO val2017 persons, 300 | 0.7885 | 0.7821 | -0.64 | validated | `yolonas/pose/m/2026-11-11/2` |
 | YOLO-NAS-pose | l | pose | COCO val2017 persons, 300 | 0.7922 | 0.7884 | -0.38 | validated | `yolonas/pose/l/2026-11-10/2` |
-| HRNet | w32 | pose (hybrid: stem to stage 3 on the Metis; stage 4 and the heatmap layer on the host; 256x192 person crops from GT boxes) | COCO val2017 persons, 300 (1172 crops) | 0.7658 | 0.7631 | -0.27 | hybrid | `hrnet/pose/w32/2026-11-17/2` |
-| HRNet | w48 | pose (hybrid: stem to stage 3 on the Metis; stage 4 and the heatmap layer on the host; 384x288 person crops from GT boxes; calibration 597 COCO person crops, fraction 1.0) | COCO val2017 persons, 300 (1172 crops) | 0.7855 | 0.7833 | -0.22 | hybrid | `hrnet/pose/w48/2026-11-18/2` |
-| DEKR | w32 | pose (hybrid: HRNet-w32 stem to stage 3 on the Metis; stage 4, heatmap and offset heads on the host; 640x640) | COCO val2017 persons, 300 | 0.6523 | 0.6426 | -0.97 | hybrid | `dekr/pose/w32/2026-11-18/2` |
 | YOLO-NAS-R | s | obb | DOTA-v2.0 val, 300 tiles | 0.3844 | 0.3747 | -0.97 | validated | `yolonas/obb/s/2026-11-10/2` |
 | YOLO-NAS-R | m | obb | DOTA-v2.0 val, 300 tiles | 0.4141 | 0.4105 | -0.36 | validated | `yolonas/obb/m/2026-11-10` |
 | YOLO-NAS-R | l | obb | DOTA-v2.0 val, 300 tiles | 0.4327 | 0.4348 | +0.21 | validated | `yolonas/obb/l/2026-11-10` |
@@ -66,87 +66,17 @@ a separate size:
 | RTMDet | s | detect (learned INT8 rounding of the pointwise convs) | COCO val2017, 1000 | 0.4121 | 0.3681 | -4.40 | supported | `rtmdet/detect/s/2026-11-17/8` |
 | RTMDet | m | detect | COCO val2017, 1000 | 0.4727 | 0.4461 | -2.66 | supported | `rtmdet/detect/m/2026-11-12/2` |
 | RTMDet | l | detect | COCO val2017, 1000 | 0.4805 | 0.4618 | -1.87 | supported | `rtmdet/detect/l/2026-11-12/2` |
-| RTMDet | x | detect (hybrid: CSPNeXt-x backbone on the Metis; PAFPN neck, heads and decode on the host) | COCO val2017, 300 | 0.5319 | 0.5328 | +0.09 | hybrid | `rtmdet/detect/x/2026-11-18/2` |
 | FCOS | r50 | detect (800x800 canvas; 6 compiled parts, GroupNorm on the host) | COCO val2017, 1000 | 0.3818 | 0.3405 | -4.13 | supported | `fcos/detect/r50/2026-11-15/3` |
 | RetinaNet | r50 | detect (1024x1024 canvas, default) | COCO val2017, 1000 | 0.3472 | 0.3410 | -0.62 (canvas -0.49 more; -1.11 vs own resize) | supported | `retinanet/detect/r50/2026-11-14/4` |
 | RetinaNet | r50 | detect (800x800 canvas, imgsz=800) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas -2.03 more; -2.25 vs own resize) | option (imgsz=800) | `retinanet/detect/r50/2026-11-14/3` |
-| RetinaNet | r50v2 | detect (hybrid: ResNet-50 body on the Metis; FPN, GroupNorm heads and decode on the host; 800x800 canvas) | COCO val2017, 300 | 0.3962 | 0.3722 | -2.40 | hybrid | `retinanet/detect/r50v2/2026-11-17` |
-| CenterNet | resdcn18 | detect (hybrid: ResNet-18 body on the Metis; deformable up-path, heads and peak decode on the host; 512x512) | COCO val2017, 300 | 0.2824 | 0.2604 | -2.20 | hybrid | `centernet/detect/resdcn18/2026-11-17/2` |
-| CenterNet | dla34 | detect (hybrid: DLA-34 base on the Metis; deformable aggregation, heads and peak decode on the host; 512x512) | COCO val2017, 300 | 0.3702 | 0.3575 | -1.27 | hybrid | `centernet/detect/dla34/2026-11-17/2` |
 | SSD | 300 | detect (two parts, L2Norm on the host) | COCO val2017, 1000 | 0.2408 | 0.2403 | -0.05 | validated | `ssd/detect/300/2026-11-13/2` |
-| RT-DETR | r18 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 1000 | 0.4535 | 0.4528 | -0.07 | hybrid | `rtdetr/detect/r18/2026-11-15/2` |
-| RT-DETR | r34 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4985 | 0.4982 | -0.03 | hybrid | `rtdetr/detect/r34/2026-11-15` |
-| RT-DETR | r50 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5413 | 0.5368 | -0.45 | hybrid | `rtdetr/detect/r50/2026-11-15` |
-| RT-DETR | r50m | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5139 | 0.5072 | -0.67 | hybrid | `rtdetr/detect/r50m/2026-11-15` |
-| RT-DETR | r101 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5518 | 0.5502 | -0.16 | hybrid | `rtdetr/detect/r101/2026-11-15` |
-| RT-DETR | l | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5402 | 0.5376 | -0.26 | hybrid | `rtdetr/detect/l/2026-11-15` |
-| RT-DETR | x | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5587 | 0.5573 | -0.14 | hybrid | `rtdetr/detect/x/2026-11-15` |
-| RT-DETRv2 | r18 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4965 | 0.4840 | -1.25 | hybrid | `rtdetrv2/detect/r18/2026-11-15` |
-| RT-DETRv2 | r34 | detect (hybrid: backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5050 | 0.4847 | -2.03 | hybrid | `rtdetrv2/detect/r34/2026-11-15` |
-| RT-DETRv2 | r50 | detect (hybrid: backbone and neck on the Metis, attention on the host; neck part with histogram ranges) | COCO val2017, 300 | 0.5494 | 0.5322 | -1.72 | hybrid | `rtdetrv2/detect/r50/2026-11-16` |
-| RT-DETRv2 | r50m | detect (hybrid: backbone and neck on the Metis, attention on the host; neck part with histogram ranges) | COCO val2017, 300 | 0.5321 | 0.5065 | -2.56 | hybrid | `rtdetrv2/detect/r50m/2026-11-16/2` |
-| RT-DETRv2 | r101 | detect (hybrid: backbone and neck on the Metis, attention on the host; neck part with histogram ranges) | COCO val2017, 300 | 0.5522 | 0.5510 | -0.12 | hybrid | `rtdetrv2/detect/r101/2026-11-16` |
-| RT-DETRv2 | n | obb (hybrid: HGNetv2 backbone and neck on the Metis, attention and rotated-box decoder on the host; 1024x1024) | DOTA-v1.0 classes of DOTA val, 300 (`dota2val300-rio`) | 0.3804 | 0.3648 | -1.56 | hybrid | `rtdetrv2/obb/n/2026-11-17` |
-| RT-DETRv2 | s | obb (hybrid: HGNetv2 backbone and neck on the Metis, attention and rotated-box decoder on the host; 1024x1024) | DOTA-v1.0 classes of DOTA val, 300 (`dota2val300-rio`) | 0.5923 | 0.5793 | -1.30 | hybrid | `rtdetrv2/obb/s/2026-11-17` |
-| RT-DETRv2 | m | obb (hybrid: HGNetv2 backbone and neck on the Metis, attention and rotated-box decoder on the host; 1024x1024) | DOTA-v1.0 classes of DOTA val, 300 (`dota2val300-rio`) | 0.5918 | 0.5915 | -0.03 | hybrid | `rtdetrv2/obb/m/2026-11-18` |
-| RT-DETRv2 | l | obb (hybrid: HGNetv2 backbone and neck on the Metis, attention and rotated-box decoder on the host; 1024x1024) | DOTA-v1.0 classes of DOTA val, 300 (`dota2val300-rio`) | 0.6223 | 0.6213 | -0.10 | hybrid | `rtdetrv2/obb/l/2026-11-18` |
-| RT-DETRv2 | x | obb (hybrid: HGNetv2 backbone and neck on the Metis, attention and rotated-box decoder on the host; 1024x1024) | DOTA-v1.0 classes of DOTA val, 300 (`dota2val300-rio`) | 0.6506 | 0.6458 | -0.48 | hybrid | `rtdetrv2/obb/x/2026-11-18` |
-| RiO-DETRv2 | n | obb (hybrid as RT-DETRv2-obb; neck part with histogram ranges; 1024x1024) | DOTA-v1.0 classes of DOTA val, 300 (`dota2val300-rio`) | 0.5581 | 0.4912 | -6.69 | hybrid | `riodetrv2/obb/n/2026-11-17` |
-| RiO-DETRv2 | s | obb (hybrid as RT-DETRv2-obb; neck part with histogram ranges; 1024x1024) | DOTA-v1.0 classes of DOTA val, 300 (`dota2val300-rio`) | 0.5958 | 0.5859 | -0.99 | hybrid | `riodetrv2/obb/s/2026-11-17` |
-| RiO-DETRv2 | m | obb (hybrid as RT-DETRv2-obb; neck part with histogram ranges; 1024x1024) | DOTA-v1.0 classes of DOTA val, 300 (`dota2val300-rio`) | 0.6323 | 0.6325 | +0.02 | hybrid | `riodetrv2/obb/m/2026-11-17` |
-| RiO-DETRv2 | l | obb (hybrid as RT-DETRv2-obb; neck part with histogram ranges; 1024x1024) | DOTA-v1.0 classes of DOTA val, 300 (`dota2val300-rio`) | 0.6239 | 0.6169 | -0.70 | hybrid | `riodetrv2/obb/l/2026-11-17` |
-| RiO-DETRv2 | x | obb (hybrid as RT-DETRv2-obb; neck part with histogram ranges; 1024x1024) | DOTA-v1.0 classes of DOTA val, 300 (`dota2val300-rio`) | 0.6964 | 0.6955 | -0.09 | hybrid | `riodetrv2/obb/x/2026-11-17` |
-| D-FINE | n | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4248 | 0.4209 | -0.39 | hybrid | `dfine/detect/n/2026-11-15` |
-| D-FINE | s | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5155 | 0.4989 | -1.66 | hybrid | `dfine/detect/s/2026-11-16` |
-| D-FINE | m | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5653 | 0.5572 | -0.81 | hybrid | `dfine/detect/m/2026-11-16` |
-| D-FINE | l | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5862 | 0.5739 | -1.23 | hybrid | `dfine/detect/l/2026-11-16` |
-| D-FINE | x | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.6098 | 0.6039 | -0.59 | hybrid | `dfine/detect/x/2026-11-16/2` |
-| D-FINE | n | segment (hybrid: HGNetv2 backbone, neck and mask convolutions on the Metis; attention, decoder and mask GroupNorms on the host) | COCO val2017 (masks), 300 | 0.3536 | 0.3485 | -0.51 | hybrid | `dfine/segment/n/2026-11-17/3` |
-| D-FINE | s | segment (hybrid: HGNetv2 backbone, neck and mask convolutions on the Metis; attention, decoder and mask GroupNorms on the host) | COCO val2017 (masks), 300 | 0.4051 | 0.3035 | -10.16 | hybrid | `dfine/segment/s/2026-11-17/4` |
-| D-FINE | m | segment (hybrid: HGNetv2 backbone, neck and mask convolutions on the Metis; attention, decoder and mask GroupNorms on the host) | COCO val2017 (masks), 300 | 0.4263 | 0.4257 | -0.06 | hybrid | `dfine/segment/m/2026-11-17` |
-| D-FINE | l | segment (hybrid: HGNetv2 backbone, neck and mask convolutions on the Metis; attention, decoder and mask GroupNorms on the host) | COCO val2017 (masks), 300 | 0.4431 | 0.4388 | -0.43 | hybrid | `dfine/segment/l/2026-11-17` |
-| D-FINE | x | segment (hybrid: HGNetv2 backbone, neck and mask convolutions on the Metis; attention, decoder and mask GroupNorms on the host) | COCO val2017 (masks), 300 | 0.4512 | 0.4500 | -0.12 | hybrid | `dfine/segment/x/2026-11-17` |
-| DEIM | n | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4238 | 0.4213 | -0.25 | hybrid | `deim/detect/n/2026-11-15` |
-| DEIM | s | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4980 | 0.4429 | -5.51 | hybrid | `deim/detect/s/2026-11-16` |
-| DEIM | m | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5358 | 0.5390 | +0.32 | hybrid | `deim/detect/m/2026-11-16` |
-| DEIM | l | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5614 | 0.5592 | -0.22 | hybrid | `deim/detect/l/2026-11-16` |
-| DEIM | x | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5783 | 0.5766 | -0.17 | hybrid | `deim/detect/x/2026-11-16` |
-| RT-DETRv4 | s | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5090 | 0.4984 | -1.06 | hybrid | `rtdetrv4/detect/s/2026-11-16` |
-| RT-DETRv4 | m | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5546 | 0.5466 | -0.80 | hybrid | `rtdetrv4/detect/m/2026-11-16` |
-| RT-DETRv4 | l | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5699 | 0.5679 | -0.20 | hybrid | `rtdetrv4/detect/l/2026-11-16` |
-| RT-DETRv4 | x | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.5782 | 0.5731 | -0.51 | hybrid | `rtdetrv4/detect/x/2026-11-16` |
-| DEIMv2 | atto | detect (hybrid: whole convolutional model up to the decoder on the Metis; 320x320) | COCO val2017, 300 | 0.2299 | 0.1951 | -3.48 | hybrid | `deimv2/detect/atto/2026-11-16` |
-| DEIMv2 | femto | detect (hybrid: whole convolutional model up to the decoder on the Metis; 416x416) | COCO val2017, 300 | 0.3078 | 0.2801 | -2.77 | hybrid | `deimv2/detect/femto/2026-11-16` |
-| DEIMv2 | pico | detect (hybrid: whole convolutional model up to the decoder on the Metis) | COCO val2017, 300 | 0.3852 | 0.3697 | -1.55 | hybrid | `deimv2/detect/pico/2026-11-16` |
-| DEIMv2 | n | detect (hybrid: HGNetv2 backbone and neck on the Metis, attention on the host) | COCO val2017, 300 | 0.4247 | 0.4188 | -0.59 | hybrid | `deimv2/detect/n/2026-11-16` |
-| TinyFormer | s | detect (hybrid: conv stem and 4-scale fusion neck on the Metis; ViT tower, projections, attention and decoder on the host; host-bound, 0.75 img/s) | COCO val2017, 300 | 0.5175 | 0.5066 | -1.09 | hybrid | `tinyformer/detect/s/2026-11-18/3` |
-| DETR | r50 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.3879 | 0.3852 | -0.27 | hybrid | `detr/detect/r50/2026-11-15` |
-| DETR | r50dc5 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.4172 | 0.4125 | -0.47 | hybrid | `detr/detect/r50dc5/2026-11-16` |
-| DETR | r101 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.4019 | 0.3732 | -2.87 | hybrid | `detr/detect/r101/2026-11-16` |
-| DETR | r101dc5 | detect (hybrid: ResNet backbone on the Metis, transformer on the host; 800x800) | COCO val2017, 300 | 0.4232 | 0.4172 | -0.60 | hybrid | `detr/detect/r101dc5/2026-11-16` |
-| Deformable DETR | r50 | detect (hybrid: ResNet backbone on the Metis, GroupNorm projections and deformable transformer on the host; 800x800) | COCO val2017, 300 | 0.4176 | 0.4171 | -0.05 | hybrid | `deformable_detr/detect/r50/2026-11-16` |
-| Deformable DETR | r50ss | detect (hybrid as r50; single-scale; 800x800) | COCO val2017, 300 | 0.3704 | 0.3682 | -0.22 | hybrid | `deformable_detr/detect/r50ss/2026-11-17` |
-| Deformable DETR | r50ssdc5 | detect (hybrid as r50; single-scale, dilated C5; 800x800) | COCO val2017, 300 | 0.3920 | 0.3900 | -0.20 | hybrid | `deformable_detr/detect/r50ssdc5/2026-11-17` |
-| Deformable DETR | r50refine | detect (hybrid as r50; iterative box refinement; 800x800) | COCO val2017, 300 | 0.4559 | 0.4526 | -0.33 | hybrid | `deformable_detr/detect/r50refine/2026-11-17` |
-| Deformable DETR | r50twostage | detect (hybrid as r50; box refinement, two-stage; 800x800) | COCO val2017, 300 | 0.4503 | 0.4504 | +0.01 | hybrid | `deformable_detr/detect/r50twostage/2026-11-17` |
-| DINO-DETR | r50 | detect (hybrid: ResNet backbone on the Metis; GroupNorm projections, deformable transformer and two-stage query selection on the host; 800x800) | COCO val2017, 300 | 0.4714 | 0.4710 | -0.04 | hybrid | `dinodetr/detect/r50/2026-11-17` |
-| DINO-DETR | r50s5 | detect (hybrid: 4-level ResNet backbone on the Metis; GroupNorm projections, 5-level deformable transformer and two-stage query selection on the host; 800x800; host-bound, 0.07 img/s) | COCO val2017, 300 | 0.4917 | 0.4891 | -0.26 | hybrid | `dinodetr/detect/r50s5/2026-11-17` |
-| Faster R-CNN | n | detect (hybrid: backbone and FPN on the Metis, RPN and RoI heads on the host; 320x320 canvas) | COCO val2017, 300 | 0.2005 | 0.1896 | -1.09 (canvas -3.30 more) | hybrid | `faster_rcnn/detect/n/2026-11-15` |
-| Faster R-CNN | s | detect (hybrid as n; 800x800 canvas) | COCO val2017, 300 | 0.2907 | 0.2867 | -0.40 | hybrid | `faster_rcnn/detect/s/2026-11-16` |
-| Faster R-CNN | m | detect (hybrid as n; ResNet-50-FPN; 800x800 canvas) | COCO val2017, 300 | 0.3472 | 0.3456 | -0.16 (canvas -3.12 more) | hybrid | `faster_rcnn/detect/m/2026-11-16` |
-| Faster R-CNN | l | detect (hybrid as n; ResNet-50-FPN v2; 800x800 canvas) | COCO val2017, 300 | 0.4468 | 0.4489 | +0.21 | hybrid | `faster_rcnn/detect/l/2026-11-16` |
-| Mask R-CNN | r50 | detect (hybrid: the segment export's Metis part, the host stops before the mask branch; 800x800 canvas) | COCO val2017, 300 | 0.4476 | 0.4481 | +0.05 | hybrid | `mask_rcnn/detect/r50/2026-11-16` |
-| PP-DocLayoutV3 | l | detect (document layout; matched-box F1 vs FP32 boxes at IoU 0.5; hybrid: HGNetV2 on the Metis, encoder, decoder and reading-order head on the host) | DocLayNet val pages, 300 | 1.0000 | 0.9795 | -0.0205 (score r 0.947) | hybrid | `ppdoclayoutv3/detect/l/2026-11-16` |
 | EfficientDet | d0 | detect | COCO val2017, 1000 | 0.3363 | 0.3185 | -1.78 | supported | `efficientdet/detect/d0/2026-11-12/3` |
 | EfficientDet | d1 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3639 | 0.3475 | -1.64 (canvas -3.10 more) | supported | `efficientdet/detect/d1/2026-11-13/3` |
 | EfficientDet | d2 | detect (512x512 canvas) | COCO val2017, 1000 | 0.3744 | 0.3606 | -1.38 (canvas -5.31 more) | supported | `efficientdet/detect/d2/2026-11-14` |
-| EfficientDet | d3 | detect (512x512 canvas; hybrid: EfficientNet backbone on the Metis; BiFPN, heads and decode on the host) | COCO val2017, 300 | 0.3853 | 0.3814 | -0.39 (vs FP32 at 512) | hybrid | `efficientdet/detect/d3/2026-11-18` |
-| EfficientDet | d4 | detect (512x512 canvas; hybrid: EfficientNet stages 0-4 on the Metis; stages 5-6, BiFPN, heads and decode on the host) | COCO val2017, 300 | 0.3971 | 0.3942 | -0.29 (vs FP32 at 512) | hybrid | `efficientdet/detect/d4/2026-11-18` |
 | RTMDet-Ins | t | segment (mask mAP50-95) | COCO val2017, 1000 | 0.3394 | 0.3250 | -1.44 | supported | `rtmdet/segment/t/2026-11-12/2` |
 | RTMDet-Ins | s | segment (mask mAP50-95; learned INT8 rounding of the pointwise convs) | COCO val2017, 1000 | 0.3719 | 0.3392 | -3.27 (box -5.02) | supported | `rtmdet/segment/s/2026-11-19/4` |
 | RTMDet-Ins | m | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4011 | 0.3932 | -0.79 (box -3.96) | supported | `rtmdet/segment/m/2026-11-12/2` |
 | RTMDet-Ins | l | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4163 | 0.4113 | -0.50 (box -5.34) | supported | `rtmdet/segment/l/2026-11-12/2` |
-| Mask R-CNN | r50 | segment (mask mAP50-95; hybrid: backbone and FPN on the Metis, RPN, box and mask heads on the host; 800x800 canvas) | COCO val2017, 300 | 0.4045 | 0.4039 | -0.06 (box +0.02) | hybrid | `mask_rcnn/segment/r50/2026-11-16` |
 | ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 | validated | `resnet/classify/18/2026-11-10/2` |
 | ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated | `resnet/classify/34/2026-11-10` |
 | ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 | validated | `resnet/classify/50/2026-11-10` |
@@ -161,7 +91,7 @@ a separate size:
 | VGG | 16 | classify (top-1) | ImageNetV2, 1000 | 0.608 | 0.606 | -0.2 | validated | `vgg/classify/16/2026-11-12` |
 | VGG | 19 | classify (top-1) | ImageNetV2, 1000 | 0.610 | 0.619 | +0.9 | validated | `vgg/classify/19/2026-11-12` |
 | VGG | 16bn | classify (top-1) | ImageNetV2, 1000 | 0.633 | 0.631 | -0.2 | validated | `vgg/classify/16bn/2026-11-12/2` |
-| VGG | 19bn | classify (top-1; conv blocks 1-4 on Metis, block 5 + classifier on the host) | ImageNetV2, 1000 | 0.644 | 0.642 | -0.2 | hybrid | `vgg/classify/19bn/2026-11-17/3` |
+| VGG | 19bn | classify (top-1) | ImageNetV2, 1000 | 0.644 | 0.593 | -5.1 | supported | `vgg/classify/19bn/2026-11-12` |
 | AlexNet | b | classify (top-1) | ImageNetV2, 1000 | 0.434 | 0.440 | +0.6 | validated | `alexnet/classify/b/2026-11-13` |
 | FCN | r50 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6515 | 0.6492 | -0.23 | validated | `fcn/semantic/r50/2026-11-11/2` |
 | FCN | r101 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.6798 | 0.6779 | -0.19 | validated | `fcn/semantic/r101/2026-11-11` |
@@ -170,20 +100,15 @@ a separate size:
 | Real-ESRGAN | x4t | restore 4x (PSNR, dB) | COCO crops from 64 px, 296 | 22.49 | 22.30 | -0.19 | validated | `realesrgan/restore/x4t/2026-11-16` |
 | Real-ESRGAN | x2 | restore 2x (PSNR, dB; three compiled parts) | COCO crops from 128 px, 296 | 25.07 | 24.73 | -0.34 | supported | `realesrgan/restore/x2/2026-11-16` |
 | MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported | `midas/depth/s/2026-11-11/4` |
-| ZipDepth | bnpu | depth (hybrid: encoder through stage 3 block 4 on the Metis; the rest of stage 3 with the GCNet block, stage 4 and the decoder on the host; agreement with FP32) | COCO val2017 at 384 px, 300 | reference | AbsRel 0.030, delta1 0.989 | AbsRel 0.030 | hybrid | `zipdepth/depth/bnpu/2026-11-18/4` |
-| ZipDepth | b | depth (hybrid: as bnpu, encoder through stage 3 block 4 on the Metis; the rest on the host; agreement with FP32; calibration 128 coco128 images, fraction 1.0) | COCO val2017 at 384 px, 300 | reference | AbsRel 0.029, delta1 0.990 | AbsRel 0.029 | hybrid | `zipdepth/depth/b/2026-11-18/2` |
 | DexiNed | b | edge (edge-pixel F1 vs FP32 edges at 0.5; 352x352) | COCO val2017 at 352 px, 300 | 1.0000 | 0.9651 | -0.0349 (cosine 0.997) | supported | `dexined/edge/b/2026-11-16` |
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
-| DeepLabV3 | r50 | semantic (mIoU; backbone on Metis, ASPP + head on the host) | COCO val2017 VOC-21, 300 | 0.5243 | 0.5203 | -0.40 | hybrid | `deeplabv3/semantic/r50/2026-11-17/3` |
-| DeepLabV3 | r101 | semantic (mIoU; backbone on Metis, ASPP + head on the host) | COCO val2017 VOC-21, 300 | 0.5888 | 0.5879 | -0.09 | hybrid | `deeplabv3/semantic/r101/2026-11-17/4` |
+| DeepLabV3 | r50 | semantic (mIoU; ASPP as per-tap 1x1 convolutions plus shifts) | COCO val2017 VOC-21, 300 | 0.5243 | 0.4734 | -5.09 | supported | `deeplabv3/semantic/r50/2026-11-17/2` |
+| DeepLabV3 | r101 | semantic (mIoU; ASPP as per-tap 1x1 convolutions plus shifts) | COCO val2017 VOC-21, 300 | 0.5888 | 0.3795 | -20.93 | supported | `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | s | semantic (fidelity mIoU vs FP32 labels; 512x1024) | COCO val2017, 1000 | 1.0000 | 0.7767 | -0.2233 | supported | `unet/semantic/s/2026-11-16` |
 | PP-LiteSeg | t50 | semantic (fidelity mIoU vs FP32 labels; 512x1024; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8502 | -0.1498 | supported | `ppliteseg/semantic/t50/2026-11-18` |
 | PP-LiteSeg | b50 | semantic (fidelity mIoU vs FP32 labels; 512x1024; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8571 | -0.1429 | supported | `ppliteseg/semantic/b50/2026-11-18` |
 | PP-LiteSeg | t75 | semantic (fidelity mIoU vs FP32 labels; 768x1536; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8068 | -0.1932 | supported | `ppliteseg/semantic/t75/2026-11-18` |
 | PP-LiteSeg | b75 | semantic (fidelity mIoU vs FP32 labels; 768x1536; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8484 | -0.1516 | supported | `ppliteseg/semantic/b75/2026-11-18` |
-| PIDNet | s | semantic (fidelity mIoU vs FP32 labels; hybrid: branches through layer 5 on the Metis, PAPPM, branch fusion and head on the host; 1024x1024) | COCO val2017, 300 | 1.0000 | 0.8773 | -0.1227 | hybrid | `pidnet/semantic/s/2026-11-18/3` |
-| PIDNet | m | semantic (fidelity mIoU vs FP32 labels; hybrid as s; 1024x1024; calibration 32 coco128, fraction=0.25: at the default fraction=1.0 the SDK calibrates m at about 65 s per image on CPU, over 2 h) | COCO val2017, 96 | 1.0000 | 0.8401 | -0.1599 | hybrid | `pidnet/semantic/m/2026-11-18/2` |
-| PIDNet | l | semantic (fidelity mIoU vs FP32 labels; hybrid as s, DAPPM and Bag fusion on the host; 1024x1024; calibration 32 coco128, fraction=0.25) | COCO val2017, 100 | 1.0000 | 0.8288 | -0.1712 | hybrid | `pidnet/semantic/l/2026-11-18` |
 | PicoSAM3 | pico | segment (raw ROI CNN: roi_image [1,3,96,96] -> mask_logits [1,1,96,96]; mask IoU vs FP32 masks at logit 0 on ground-truth-box ROIs; stem depthwise conv as an exact dense conv) | COCO val2017, 297 images, 2360 ROIs | 1.0000 | 0.9683 | -0.0317 (pixel agreement 0.992, logit cosine 0.9985) | supported | `picosam3/segment/pico/2026-11-19` |
 
 Detection and pose report mAP50-95; ImageNetV2 is used locally under its
@@ -201,8 +126,6 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | --- | --- | --- | --- | --- |
 | YOLO-NAS | detect | s, m, l | see `docs/export_support.md` | s `yolonas/detect/s/2026-11-08/3`; m `yolonas/detect/m/2026-11-08`; l `yolonas/detect/l/2026-11-10` |
 | YOLO-NAS | pose | n, s, m, l (n and s supported with a measured drop) | see `docs/export_support.md` | n `yolonas/pose/n/2026-11-11`; s `yolonas/pose/s/2026-11-10/16`; m `yolonas/pose/m/2026-11-11/2`; l `yolonas/pose/l/2026-11-10/2` |
-| HRNet | pose | w32 (hybrid at the 256x192 person crop: stem to stage 3 on the Metis; stage 4, where the device drifts, and the heatmap layer on the host; w48 the same split at its 384x288 crop) | see `docs/export_support.md` | w32 `hrnet/pose/w32/2026-11-17/2`, w48 `hrnet/pose/w48/2026-11-18/2` |
-| DEKR | pose | w32 (hybrid at 640x640: the HRNet trunk to stage 3 on the Metis; stage 4 and the heads on the host) | see `docs/export_support.md` | w32 `dekr/pose/w32/2026-11-18/2` |
 | YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) | s `yolonas/obb/s/2026-11-10/2`; m `yolonas/obb/m/2026-11-10`; l `yolonas/obb/l/2026-11-10` |
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` | t `yolo9/detect/t/2026-11-10/7`; s `yolo9/detect/s/2026-11-10/2`; m `yolo9/detect/m/2026-11-10/2`; c `yolo9/detect/c/2026-11-10/2` |
 | YOLO9-P2 | detect | s (t: no published checkpoint) | see `docs/export_support.md` | s `yolo9_p2/detect/s/2026-11-15` |
@@ -210,18 +133,16 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` | 18 `resnet/classify/18/2026-11-10/2`; 34 `resnet/classify/34/2026-11-10`; 50 `resnet/classify/50/2026-11-10`; 101 `resnet/classify/101/2026-11-10` |
 | MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` | s `mobilenetv4/classify/s/2026-11-11/3`; m `mobilenetv4/classify/m/2026-11-11/2`; l `mobilenetv4/classify/l/2026-11-10` |
 | EfficientNetV2 | classify | b1, b3 (validated); b0, b2 (supported with measured drops); b1-b3 read their stage-0 residual skip through an exact identity 1x1 conv | see `docs/export_support.md` | b0 `efficientnetv2/classify/b0/2026-11-11/5`; b1 `efficientnetv2/classify/b1/2026-11-17`; b2 `efficientnetv2/classify/b2/2026-11-17`; b3 `efficientnetv2/classify/b3/2026-11-17` |
-| VGG | classify | 16, 19, 16bn; 19bn (hybrid: conv blocks 1-4 on Metis, block 5 + classifier on the host; held-out ImageNetV2 +0.2) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12/2`; 19bn `vgg/classify/19bn/2026-11-17/3`, held-out `vgg/classify/19bn/2026-11-17/4` |
+| VGG | classify | 16, 19, 16bn; 19bn (supported with a measured drop, -5.1) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12/2`; 19bn `vgg/classify/19bn/2026-11-12` |
 | AlexNet | classify | b | see `docs/export_support.md` | b `alexnet/classify/b/2026-11-13` |
 | FCN | semantic | r50, r101 | see `docs/export_support.md` | r50 `fcn/semantic/r50/2026-11-11/2`; r101 `fcn/semantic/r101/2026-11-11` |
 | QuickSRNet | restore | m2 (learned INT8 rounding; held-out half -0.17 dB) | see `docs/export_support.md` | m2 `quicksrnet/restore/m2/2026-11-16/5`, held-out `quicksrnet/restore/m2/2026-11-16/6` |
 | Real-ESRGAN | restore | x4 (three compiled parts + a host add), x4t (equalized trunk; held-out half -0.20 dB); x2 (three compiled parts, supported with a measured drop) | see `docs/export_support.md` | x4 `realesrgan/restore/x4/2026-11-16`; x4t `realesrgan/restore/x4t/2026-11-16`, held-out `realesrgan/restore/x4t/2026-11-16/2`; x2 `realesrgan/restore/x2/2026-11-16` |
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
-| ZipDepth | depth | bnpu (hybrid at 384x384: the encoder through stage 3 block 4 on the Metis; the GCNet context block, whose softmax has no AIPU form, and the rest on the host; b the same cut) | see `docs/export_support.md` | bnpu `zipdepth/depth/bnpu/2026-11-18/4`, b `zipdepth/depth/b/2026-11-18/2` |
 | DexiNed | edge | b (supported with a measured fidelity; whole graph; the user supplies the upstream BIPED-trained checkpoint, non-commercial) | see `docs/export_support.md` | b `dexined/edge/b/2026-11-16` |
-| DeepLabV3 | semantic | mv3 (supported with a measured drop); r50, r101 (hybrid: backbone on Metis, ASPP + head on the host) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-17/3`; r101 `deeplabv3/semantic/r101/2026-11-17/4` |
+| DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops: -3.77, -5.09, -20.93) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-17/2`; r101 `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | semantic | s (supported with a measured fidelity; whole graph at the 512x1024 training crop, compile about 12.7 h) | see `docs/export_support.md` | s `unet/semantic/s/2026-11-16` |
 | PP-LiteSeg | semantic | t50, b50, t75, b75 (supported with a measured fidelity; whole graph at 512x1024 (t50, b50) or 768x1536 (t75, b75), the UAFM blends in an exact INT8-friendly form) | see `docs/export_support.md` | t50 `ppliteseg/semantic/t50/2026-11-18`; b50 `ppliteseg/semantic/b50/2026-11-18`; t75 `ppliteseg/semantic/t75/2026-11-18`; b75 `ppliteseg/semantic/b75/2026-11-18` |
-| PIDNet | semantic | s, m, l (hybrid at 1024x1024: the stem and the P, I and D branches through layer 5 on the Metis, the PagFM fusions in an exact INT8-friendly form; PAPPM, the branch fusion and the head on the host; m and l calibrated with fraction=0.25) | see `docs/export_support.md` | s `pidnet/semantic/s/2026-11-18/3`; m `pidnet/semantic/m/2026-11-18/2`; l `pidnet/semantic/l/2026-11-18` |
 | PicoSAM3 | segment | pico (supported with a measured fidelity; the raw 96x96 ROI CNN, the same contract as the ONNX export: cutting the ROI from a box and pasting the mask logits back stay in Python) | see `docs/export_support.md` | pico `picosam3/segment/pico/2026-11-19` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
 | YOLOv1 | detect | b | see `docs/export_support.md` | b `yolo1/detect/b/2026-11-15/2` |
@@ -231,29 +152,14 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLOv7 | detect | b | see `docs/export_support.md` | b `yolo7/detect/b/2026-11-11/4` |
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-19/2` |
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
-| RTMDet | detect | t, s, m, l (supported with a measured drop; x hybrid: CSPNeXt-x backbone on the Metis, neck and heads on the host, +0.09) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-17/8`, held-out `rtmdet/detect/s/2026-11-17/9`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x `rtmdet/detect/x/2026-11-18/2` |
+| RTMDet | detect | t, s, m, l (supported with a measured drop; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-17/8`, held-out `rtmdet/detect/s/2026-11-17/9`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x blocked `rtmdet/detect/x/2026-11-17` |
 | RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -5.02, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-19/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
-| Mask R-CNN | detect, segment | r50 (hybrid at a fixed 800x800 canvas, as Faster R-CNN; for segment the host adds the mask head and mask paste) | see `docs/export_support.md` | r50 segment `mask_rcnn/segment/r50/2026-11-16`; detect `mask_rcnn/detect/r50/2026-11-16` |
 | FCOS | detect | r50 (supported with a measured drop; six compiled parts, GroupNorm and the decode on the host) | see `docs/export_support.md` | r50 `fcos/detect/r50/2026-11-15/3` |
-| RetinaNet | detect | r50 (supported: 1024x1024 canvas by default, -1.11 end to end; imgsz=800 is about 1.64x less compute at -2.25; r50v2 hybrid: ResNet-50 body on the Metis, FPN and GroupNorm heads on the host, -2.40) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-14/4`; r50v2 `retinanet/detect/r50v2/2026-11-17` |
-| CenterNet | detect | resdcn18, dla34 (hybrid at 512x512: the body without deformable convolutions on the Metis; the deformable up-path, heads and peak decode on the host) | see `docs/export_support.md` | resdcn18 `centernet/detect/resdcn18/2026-11-17/2`; dla34 `centernet/detect/dla34/2026-11-17/2` |
+| RetinaNet | detect | r50 (supported: 1024x1024 canvas by default, -1.11 end to end; imgsz=800 is about 1.64x less compute at -2.25; r50v2 blocked: GroupNorm heads) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-14/4`; r50v2 blocked `retinanet/detect/r50v2/2026-11-14` |
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
-| EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 and d4 hybrid at 512: backbone or its first five stages on the Metis, the rest on the host) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 `efficientdet/detect/d3/2026-11-18`; d4 `efficientdet/detect/d4/2026-11-18` |
+| EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 and d4 blocked: do not compile) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 blocked `efficientdet/detect/d3/2026-11-14`; d4 blocked `efficientdet/detect/d4/2026-11-15/4` |
 | Other families | all | all | not measured yet (section 11) | - |
-| RT-DETR | detect | r18, r34, r50, r50m, r101, l, x (hybrid: CNN backbone and fusion neck on the Metis, attention encoder layer and decoder on the host) | see `docs/export_support.md` | r18 `rtdetr/detect/r18/2026-11-15/2` (300: `rtdetr/detect/r18/2026-11-15`); r34 `rtdetr/detect/r34/2026-11-15`; r50 `rtdetr/detect/r50/2026-11-15`; r50m `rtdetr/detect/r50m/2026-11-15`; r101 `rtdetr/detect/r101/2026-11-15`; l `rtdetr/detect/l/2026-11-15`; x `rtdetr/detect/x/2026-11-15` |
-| RT-DETRv2 | detect | r18, r34, r50, r50m, r101 (hybrid, as RT-DETR: v1 backbone and fusion neck on the Metis, v2 decoder on the host) | see `docs/export_support.md` | r18 `rtdetrv2/detect/r18/2026-11-15`; r34 `rtdetrv2/detect/r34/2026-11-15`; r50 `rtdetrv2/detect/r50/2026-11-16`; r50m `rtdetrv2/detect/r50m/2026-11-16/2`; r101 `rtdetrv2/detect/r101/2026-11-16` |
-| RT-DETRv2 | obb | n, s, m, l, x (hybrid, as RT-DETRv2 detect: HGNetv2 backbone and fusion neck on the Metis; attention encoder layer and rotated-box decoder on the host; calibrated on DOTA) | see `docs/export_support.md` | n `rtdetrv2/obb/n/2026-11-17`, s `rtdetrv2/obb/s/2026-11-17`, m `rtdetrv2/obb/m/2026-11-18`, l `rtdetrv2/obb/l/2026-11-18`, x `rtdetrv2/obb/x/2026-11-18` |
-| RiO-DETRv2 | obb | n, s, m, l, x (hybrid, as RT-DETRv2-obb: HGNetv2 backbone and fusion neck on the Metis, the neck part with histogram ranges; attention encoder layer and rotated-box decoder on the host; DOTA-v1.0 weights, calibrated on DOTA) | see `docs/export_support.md` | n `riodetrv2/obb/n/2026-11-17`; s `riodetrv2/obb/s/2026-11-17`; m `riodetrv2/obb/m/2026-11-17`; l `riodetrv2/obb/l/2026-11-17`; x `riodetrv2/obb/x/2026-11-17` |
-| D-FINE | detect | n, s, m, l, x (hybrid, as RT-DETR: HGNetv2 backbone and fusion neck on the Metis, attention encoder layer and decoder on the host) | see `docs/export_support.md` | n `dfine/detect/n/2026-11-15`; s `dfine/detect/s/2026-11-16`; m `dfine/detect/m/2026-11-16`; l `dfine/detect/l/2026-11-16`; x `dfine/detect/x/2026-11-16/2` |
-| D-FINE | segment | n, s, m, l, x (hybrid, as D-FINE detect: HGNetv2 backbone and fusion neck on the Metis; mask decoder convolutions on the Metis; attention encoder layer, decoder and mask GroupNorms on the host) | see `docs/export_support.md` | n `dfine/segment/n/2026-11-17/3`, s `dfine/segment/s/2026-11-17/4`, m `dfine/segment/m/2026-11-17`, l `dfine/segment/l/2026-11-17`, x `dfine/segment/x/2026-11-17` |
-| DEIM | detect | n, s, m, l, x (hybrid, as D-FINE; s with a measured drop of 5.51) | see `docs/export_support.md` | n `deim/detect/n/2026-11-15`; s `deim/detect/s/2026-11-16`; m `deim/detect/m/2026-11-16`; l `deim/detect/l/2026-11-16`; x `deim/detect/x/2026-11-16` |
-| RT-DETRv4 | detect | s, m, l, x (hybrid, as D-FINE) | see `docs/export_support.md` | s `rtdetrv4/detect/s/2026-11-16`; m `rtdetrv4/detect/m/2026-11-16`; l `rtdetrv4/detect/l/2026-11-16`; x `rtdetrv4/detect/x/2026-11-16` |
-| DEIMv2 | detect | atto, femto, pico (hybrid: backbone, convolutional encoder and decoder input projections on the Metis, decoder on the host), n (hybrid, as D-FINE); s, m, l and x are out of scope (DINOv3 ViT backbones) | see `docs/export_support.md` | atto `deimv2/detect/atto/2026-11-16`; femto `deimv2/detect/femto/2026-11-16`; pico `deimv2/detect/pico/2026-11-16`; n `deimv2/detect/n/2026-11-16` |
-| DETR | detect | r50, r50dc5, r101, r101dc5 (hybrid: ResNet backbone and input projection on the Metis, transformer encoder, decoder and heads on the host) | see `docs/export_support.md` | r50 `detr/detect/r50/2026-11-15`; r50dc5 `detr/detect/r50dc5/2026-11-16`; r101 `detr/detect/r101/2026-11-16`; r101dc5 `detr/detect/r101dc5/2026-11-16` |
-| PP-DocLayoutV3 | detect | l (hybrid: the HGNetV2 backbone and encoder input projections on the Metis; the attention encoder, mask-enhanced decoder and reading-order head on the host; measured as fidelity to FP32 on DocLayNet pages) | see `docs/export_support.md` | l `ppdoclayoutv3/detect/l/2026-11-16` |
-| Deformable DETR | detect | r50, r50ss, r50ssdc5, r50refine, r50twostage (hybrid: ResNet-50 body on the Metis; input projections with GroupNorm, deformable transformer and heads on the host) | see `docs/export_support.md` | r50 `deformable_detr/detect/r50/2026-11-16`; r50ss `deformable_detr/detect/r50ss/2026-11-17`; r50ssdc5 `deformable_detr/detect/r50ssdc5/2026-11-17`; r50refine `deformable_detr/detect/r50refine/2026-11-17`; r50twostage `deformable_detr/detect/r50twostage/2026-11-17` |
-| DINO-DETR | detect | r50, r50s5 (hybrid, as Deformable DETR: ResNet-50 body on the Metis; input projections with GroupNorm, deformable transformer and heads on the host; swinl out of scope, Swin-L transformer backbone) | see `docs/export_support.md` | r50 `dinodetr/detect/r50/2026-11-17`, r50s5 `dinodetr/detect/r50s5/2026-11-17` |
-| Faster R-CNN | detect | n, s, m, l (hybrid at a fixed canvas, 320x320 for n and 800x800 for s, m and l: backbone and FPN on the Metis, RPN, RoIAlign, box head and NMS on the host) | see `docs/export_support.md` | n `faster_rcnn/detect/n/2026-11-15`; s `faster_rcnn/detect/s/2026-11-16`; m `faster_rcnn/detect/m/2026-11-16`; l `faster_rcnn/detect/l/2026-11-16` |
+| HRNet, DEKR, ZipDepth, PIDNet, CenterNet, Faster R-CNN, Mask R-CNN, DETR, Deformable DETR, DINO-DETR, RT-DETR, RT-DETRv2, RiO-DETRv2, D-FINE, DEIM, DEIMv2, RT-DETRv4, PP-DocLayoutV3, TinyFormer; RTMDet-x, RetinaNet-r50v2, EfficientDet-d3/d4 | as measured | none | not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked); section 11 | - |
 | RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
 
 The tiers in `docs/export_support.md` are generated from
@@ -470,75 +376,9 @@ still are, in opposite directions (their rows).
 | RetinaNet-R50 (1024x1024 canvas, default) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3472 | 0.3410 | -0.62 (supported: -1.11 vs own resize) |
 | RetinaNet-R50 (800x800 canvas, imgsz=800) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas -2.03) |
 | SSD300 (two parts) | detect | COCO val2017, 1000 images | 128 coco128 | 0.2408 | 0.2403 | -0.05 (+0.09 on 300) |
-| RT-DETR-r18 (hybrid) | detect | COCO val2017, 1000 images | 64 coco128 | 0.4535 | 0.4528 | -0.07 (hybrid; -0.12 on 300) |
-| RT-DETR-r34 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4985 | 0.4982 | -0.03 (hybrid) |
-| RT-DETR-r50 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5413 | 0.5368 | -0.45 (hybrid) |
-| RT-DETR-r50m (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5139 | 0.5072 | -0.67 (hybrid) |
-| RT-DETR-r101 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5518 | 0.5502 | -0.16 (hybrid) |
-| RT-DETR-l (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5402 | 0.5376 | -0.26 (hybrid; HGNetv2 backbone part per channel, neck part per tensor) |
-| RT-DETR-x (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5587 | 0.5573 | -0.14 (hybrid; HGNetv2 backbone part per channel, neck part per tensor) |
-| RT-DETRv2-r18 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4965 | 0.4840 | -1.25 (hybrid) |
-| RT-DETRv2-r34 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5050 | 0.4847 | -2.03 (hybrid) |
-| RT-DETRv2-r50 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5494 | 0.5322 | -1.72 (hybrid; neck part histogram ranges, -3.79 per tensor min-max) |
-| RT-DETRv2-r50m (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5321 | 0.5065 | -2.56 (hybrid; neck part histogram ranges, -3.67 per tensor min-max) |
-| RT-DETRv2-r101 (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5522 | 0.5510 | -0.12 (hybrid; neck part histogram ranges) |
-| RT-DETRv2-n-obb (hybrid, 1024x1024) | obb (mAP50-95 OBB) | DOTA val, 300 images, DOTA-v1.0 classes | 64 DOTA | 0.3804 | 0.3648 | -1.56 (hybrid) |
-| RT-DETRv2-s-obb (hybrid, 1024x1024) | obb (mAP50-95 OBB) | DOTA val, 300 images, DOTA-v1.0 classes | 64 DOTA | 0.5923 | 0.5793 | -1.30 (hybrid) |
-| RT-DETRv2-m-obb (hybrid, 1024x1024) | obb (mAP50-95 OBB) | DOTA val, 300 images, DOTA-v1.0 classes | 64 DOTA | 0.5918 | 0.5915 | -0.03 (hybrid) |
-| RT-DETRv2-l-obb (hybrid, 1024x1024) | obb (mAP50-95 OBB) | DOTA val, 300 images, DOTA-v1.0 classes | 64 DOTA | 0.6223 | 0.6213 | -0.10 (hybrid) |
-| RT-DETRv2-x-obb (hybrid, 1024x1024) | obb (mAP50-95 OBB) | DOTA val, 300 images, DOTA-v1.0 classes | 64 DOTA | 0.6506 | 0.6458 | -0.48 (hybrid) |
-| RiO-DETRv2-n-obb (hybrid, 1024x1024) | obb (mAP50-95 OBB) | DOTA val, 300 images, DOTA-v1.0 classes | 64 DOTA | 0.5581 | 0.4912 | -6.69 (hybrid) |
-| RiO-DETRv2-s-obb (hybrid, 1024x1024) | obb (mAP50-95 OBB) | DOTA val, 300 images, DOTA-v1.0 classes | 64 DOTA | 0.5958 | 0.5859 | -0.99 (hybrid) |
-| RiO-DETRv2-m-obb (hybrid, 1024x1024) | obb (mAP50-95 OBB) | DOTA val, 300 images, DOTA-v1.0 classes | 64 DOTA | 0.6323 | 0.6325 | +0.02 (hybrid) |
-| RiO-DETRv2-l-obb (hybrid, 1024x1024) | obb (mAP50-95 OBB) | DOTA val, 300 images, DOTA-v1.0 classes | 64 DOTA | 0.6239 | 0.6169 | -0.70 (hybrid) |
-| RiO-DETRv2-x-obb (hybrid, 1024x1024) | obb (mAP50-95 OBB) | DOTA val, 300 images, DOTA-v1.0 classes | 64 DOTA | 0.6964 | 0.6955 | -0.09 (hybrid) |
-| D-FINE-n (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4248 | 0.4209 | -0.39 (hybrid; backbone part per channel, neck part per tensor) |
-| D-FINE-s (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5155 | 0.4989 | -1.66 (hybrid; backbone part per channel, neck part per tensor) |
-| D-FINE-m (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5653 | 0.5572 | -0.81 (hybrid; backbone part per channel, neck part per tensor) |
-| D-FINE-l (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5862 | 0.5739 | -1.23 (hybrid; backbone part per channel, neck part per tensor) |
-| D-FINE-x (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.6098 | 0.6039 | -0.59 (hybrid; backbone part per channel, neck part per tensor) |
-| D-FINE-n-seg (hybrid) | segment (mask mAP50-95; box 0.4091 -> 0.4085) | COCO val2017, 300 images | 64 coco128 | 0.3536 | 0.3485 | -0.51 (hybrid) |
-| D-FINE-s-seg (hybrid) | segment (mask mAP50-95; box 0.4709 -> 0.3622) | COCO val2017, 300 images | 64 coco128 | 0.4051 | 0.3035 | -10.16 (hybrid; the backbone's stride-32 output drifts, cosine 0.75) |
-| D-FINE-m-seg (hybrid) | segment (mask mAP50-95; box 0.5014 -> 0.5016) | COCO val2017, 300 images | 64 coco128 | 0.4263 | 0.4257 | -0.06 (hybrid) |
-| D-FINE-l-seg (hybrid) | segment (mask mAP50-95; box 0.5221 -> 0.5156) | COCO val2017, 300 images | 64 coco128 | 0.4431 | 0.4388 | -0.43 (hybrid) |
-| D-FINE-x-seg (hybrid) | segment (mask mAP50-95; box 0.5214 -> 0.5177) | COCO val2017, 300 images | 64 coco128 | 0.4512 | 0.4500 | -0.12 (hybrid) |
-| DEIM-n (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4238 | 0.4213 | -0.25 (hybrid; backbone part per channel, neck part per tensor) |
-| DEIM-s (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4980 | 0.4429 | -5.51 (hybrid; the loss is in the backbone part's stride-32 output, no scheme recovers it) |
-| DEIM-m (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5358 | 0.5390 | +0.32 (hybrid; backbone part per channel, neck part per tensor) |
-| DEIM-l (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5614 | 0.5592 | -0.22 (hybrid; backbone part per channel, neck part per tensor) |
-| DEIM-x (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5783 | 0.5766 | -0.17 (hybrid; backbone part per channel, neck part per tensor) |
-| RT-DETRv4-s (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5090 | 0.4984 | -1.06 (hybrid; backbone part per channel, neck part per tensor) |
-| RT-DETRv4-m (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5546 | 0.5466 | -0.80 (hybrid; backbone part per channel, neck part per tensor) |
-| RT-DETRv4-l (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5699 | 0.5679 | -0.20 (hybrid; backbone part per channel, neck part per tensor) |
-| RT-DETRv4-x (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5782 | 0.5731 | -0.51 (hybrid; backbone part per channel, neck part per tensor) |
-| DEIMv2-atto (hybrid, 320x320) | detect | COCO val2017, 300 images | 64 coco128 | 0.2299 | 0.1951 | -3.48 (hybrid; one compiled part, decoder on the host) |
-| DEIMv2-femto (hybrid, 416x416) | detect | COCO val2017, 300 images | 64 coco128 | 0.3078 | 0.2801 | -2.77 (hybrid; one compiled part, decoder on the host) |
-| DEIMv2-pico (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.3852 | 0.3697 | -1.55 (hybrid; one compiled part, decoder on the host) |
-| DEIMv2-n (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.4247 | 0.4188 | -0.59 (hybrid; backbone part per channel, neck part per tensor) |
-| TinyFormer-s (hybrid) | detect | COCO val2017, 300 images | 64 coco128 | 0.5175 | 0.5066 | -1.09 (hybrid; stem and neck parts per tensor min-max; the stem's inner GELUs as x * sigmoid(1.702 x), FP32 0.5167) |
-| DETR-r50 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.3879 | 0.3852 | -0.27 (hybrid) |
-| DETR-r50dc5 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4172 | 0.4125 | -0.47 (hybrid) |
-| DETR-r101 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4019 | 0.3732 | -2.87 (hybrid) |
-| DETR-r101dc5 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4232 | 0.4172 | -0.60 (hybrid) |
-| Deformable DETR-r50 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4176 | 0.4171 | -0.05 (hybrid) |
-| Deformable DETR-r50ss (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.3704 | 0.3682 | -0.22 (hybrid) |
-| Deformable DETR-r50ssdc5 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.3920 | 0.3900 | -0.20 (hybrid) |
-| Deformable DETR-r50refine (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4559 | 0.4526 | -0.33 (hybrid) |
-| Deformable DETR-r50twostage (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4503 | 0.4504 | +0.01 (hybrid) |
-| DINO-DETR-r50 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4714 | 0.4710 | -0.04 (hybrid) |
-| DINO-DETR-r50s5 (hybrid, 800x800) | detect | COCO val2017, 300 images | 64 coco128 | 0.4917 | 0.4891 | -0.26 (hybrid) |
-| Faster R-CNN-n (hybrid, 320x320 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2005 | 0.1896 | -1.09 (hybrid; canvas -3.30 vs the native 0.2335; measured with the first 64 coco128 images, fraction=0.5: with all 128, the default, the CPU-quantized model scores 2.2 points higher on 100 of these images) |
-| Faster R-CNN-s (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.2907 | 0.2867 | -0.40 (hybrid; FP32 at the same canvas; measured with the first 64 coco128 images, fraction=0.5: with all 128, the default, the CPU-quantized model gives -2.32 on these images instead of -0.33) |
-| Faster R-CNN-m (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.3472 | 0.3456 | -0.16 (hybrid; canvas -3.12 vs the native 0.3784) |
-| Faster R-CNN-l (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.4468 | 0.4489 | +0.21 (hybrid) |
-| Mask R-CNN-r50 (hybrid, 800x800 canvas) | segment | COCO val2017, 300 images | 64 coco128 | 0.4045 | 0.4039 | -0.06 mask, +0.02 box (hybrid; FP32 at the same canvas) |
-| Mask R-CNN-r50 (hybrid, 800x800 canvas) | detect | COCO val2017, 300 images | 64 coco128 | 0.4476 | 0.4481 | +0.05 (hybrid; same Metis part as segment) |
-| PP-DocLayoutV3-l (hybrid, 800x800) | detect | DocLayNet v1.2 val, 300 pages | 64 other DocLayNet pages | 1.0000 | 0.9795 | matched-box F1 vs FP32 (fidelity; score correlation 0.947, matched IoU 0.991) |
 | EfficientDet-d0 | detect | COCO val2017, 1000 images | 128 coco128 | 0.3363 | 0.3185 | -1.78 (supported) |
 | EfficientDet-d1 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3639 | 0.3475 | -1.64 (supported; canvas -3.10 more) |
 | EfficientDet-d2 (512x512 canvas) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3744 | 0.3606 | -1.38 (supported; canvas -5.31 more) |
-| EfficientDet-d3 (hybrid, 512x512 canvas) | detect | COCO val2017, 300 images | 128 coco128 | 0.3853 | 0.3814 | -0.39 (hybrid; FP32 at the same canvas) |
-| EfficientDet-d4 (hybrid, 512x512 canvas) | detect | COCO val2017, 300 images | 128 coco128 | 0.3971 | 0.3942 | -0.29 (hybrid; FP32 at the same canvas) |
 | RTMDet-Ins-t | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3394 | 0.3250 | -1.44 (supported; box -2.51) |
 | RTMDet-Ins-s | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3719 | 0.3392 | -3.27 (supported; box -5.02; on 300 mask -3.20, box -5.19) |
 | RTMDet-Ins-m | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4011 | 0.3932 | -0.79 (supported: box -3.96; on 300 mask -0.67, box -4.56) |
@@ -559,7 +399,7 @@ them):
 | VGG-16 | 224 | 0.608 | 0.606 | -0.2 | 7 min |
 | VGG-19 | 224 | 0.610 | 0.619 | +0.9 | - |
 | VGG-16-BN (histogram ranges) | 224 | 0.633 | 0.631 | -0.2 | - |
-| VGG-19-BN (hybrid: block 5 + classifier on the host) | 224 | 0.644 | 0.642 | -0.2 | 2.4 min |
+| VGG-19-BN | 224 | 0.644 | 0.593 | -5.1 | - |
 | AlexNet | 224 | 0.434 | 0.440 | +0.6 | 3 min |
 
 Calibrating a classifier on coco128 (the fallback when `data=` is omitted)
@@ -574,17 +414,14 @@ is 0.812 vs FP32 0.819. The batch-norm variants fold the norm into the
 convolutions, which widens their min-max ranges: VGG-16-BN compiles with
 histogram ranges (-2.9 with min-max, -0.2 with histogram).
 
-VGG-19-BN runs hybrid: conv blocks 1-4 (through the fourth max pool) run on
-the Metis AIPU with min-max ranges, and conv block 5, the average pool and the
-classifier run on the host as FP32 ONNX. Top-1 is 0.642 vs 0.644 FP32 on the
-1000 images (-0.2) and 0.608 vs 0.606 on a held-out 1000-image ImageNetV2 set
-(+0.2). Run whole on the Metis it loses 5.1 points with min-max ranges and 6.0
-with histogram ranges, although the CPU-quantized model loses only 2.4 and 1.9:
-the device output drifts from the CPU-quantized model layer by layer through
+VGG-19-BN runs whole on the Metis and is supported with a measured drop: top-1
+0.593 vs 0.644 FP32 on the 1000 images (-5.1) with min-max ranges, -6.0 with
+histogram ranges, although the CPU-quantized model loses only 2.4 and 1.9: the
+device output drifts from the CPU-quantized model layer by layer through conv
 block 5 (output cosine 0.984 at the fourth pool, 0.785 after the last
-convolution), with no single diverging operator. Without ``hybrid_split`` in
-its per-size recipe the whole-graph form is exported (ledger
-`vgg/classify/19bn/2026-11-12`).
+convolution), with no single diverging operator (ledger
+`vgg/classify/19bn/2026-11-12`). Running block 5 and the classifier on the
+host recovers it (-0.2), but that is a hybrid and is parked (section 11).
 
 MobileNetV4 needs more than the ResNet recipe: with plain min-max ranges
 size s lost 6.2 top-1 points. LibreYOLO equalizes its residual streams per
@@ -618,18 +455,17 @@ device only:
 | FCN-ResNet50 | 520 | 0.6515 | 0.6492 | -0.23 | 26 min |
 | FCN-ResNet101 | 520 | 0.6798 | 0.6779 | -0.19 | 51 min |
 
-DeepLabV3-ResNet50 and -ResNet101 run hybrid: the ResNet backbone through
-layer4 runs on the Metis AIPU, and the ASPP (plain dilated convolutions), the
-head and the logit upsampling run on the host as FP32 ONNX. On the 300 images
-mIoU is 0.5203 vs 0.5243 FP32 for R50 (-0.40) and 0.5879 vs 0.5888 for R101
-(-0.09). Run whole on the Metis, with each dilated ASPP convolution rewritten as
-per-tap 1x1 convolutions plus zero-filled shifts (they find no L1 tiling at
-output stride 8 as dilated convolutions), they lose 5.09 (R50) and 20.93 (R101):
-the CPU-quantized model stays within 0.4 mIoU of FP32, and a device bisect puts
-the divergence in the rewritten ASPP (device vs CPU-quantized cosine 0.995 for
-the backbone alone, 0.53 with the ASPP). Without ``hybrid_split`` in their
-per-size recipe the whole-graph form is exported (ledger
-`deeplabv3/semantic/r50/2026-11-17/2`, `deeplabv3/semantic/r101/2026-11-14`).
+DeepLabV3-ResNet50 and -ResNet101 run whole on the Metis, each dilated ASPP
+convolution rewritten as per-tap 1x1 convolutions plus zero-filled shifts (as
+dilated convolutions they find no L1 tiling at output stride 8). On the 300
+images mIoU is 0.4734 vs 0.5243 FP32 for R50 (-5.09) and 0.3795 vs 0.5888 for
+R101 (-20.93): the CPU-quantized model stays within 0.4 mIoU of FP32, and a
+device bisect puts the divergence in the rewritten ASPP (device vs
+CPU-quantized cosine 0.995 for the backbone alone, 0.53 with the ASPP). Both
+are supported with these drops; for R101 check accuracy on your data, or use
+R50 or MobileNetV3. Running the ASPP and head on the host recovers them (-0.40
+and -0.09), but that is a hybrid and is parked (section 11). Ledgers
+`deeplabv3/semantic/r50/2026-11-17/2`, `deeplabv3/semantic/r101/2026-11-14`.
 
 Values are mAP50-95 (box, rotated box for obb, keypoint OKS for pose). On
 mAP50 the obb deltas are -1.36 (s), -0.11 (m) and -0.43 (l).
@@ -729,13 +565,9 @@ not by the canvas. EfficientDet-d4 finds no tiling at 1024 or 512 either,
 and prefix cuts put its overflow in the EfficientNet-B4 backbone's
 272-channel stage (3.12 MB needed, 2.47 MB available).
 
-Both therefore export hybrid at the 512 canvas (recipe `hybrid_split`): d3's
-EfficientNet backbone, and d4's backbone stages 0-4, run on the Metis with
-the family's exact rewrites, each output through a weight-identity 1x1
-convolution; the remaining stages, the BiFPN, the class and box heads and
-the decode run on the host as one FP32 ONNX graph. On 300 COCO val2017
-images against FP32 at the same canvas: d3 0.3814 vs 0.3853 (-0.39), d4
-0.3942 vs 0.3971 (-0.29); the 512 canvas costs both small objects.
+EfficientDet-d3 and -d4 are therefore blocked. Running their EfficientNet
+backbone (d4: stages 0-4) on the Metis and the rest on the host works (-0.39
+and -0.29 against FP32 at 512), but that is a hybrid and is parked (section 11).
 
 SSD300 runs in two compiled parts with one host step between them (layout
 `ssd_raw_heads_v1`, metadata `parts`). Its conv4_3 L2Norm divides each
@@ -764,60 +596,6 @@ FP32 graph on held-out images carried through the chain the same way
 (`<stem>.parity.json`). The backend sums the time spent on the AIPU parts and
 on the host steps in `chain_timing` (`images`, `aipu_ms`, `host_ms`); each
 multi-part model's support note gives that split as measured.
-
-RT-DETR-r18 (hybrid, section 8) runs 83% of its multiply-accumulates on the
-Metis (25.7 of 30.8 GMACs: the ResNet backbone and the fusion neck), but the
-host steps take most of the time: per image, 82 ms on the AIPU parts and
-302 ms in the two host ONNX graphs at batch 1 (27 and 200 ms at batch 8),
-2.5 img/s end to end at batch 1 and 4.1 img/s at batch 8. RT-DETR-r34
-runs 87% of its MACs on the Metis (40.8 of 46.8 G) at 2.8 and 4.6 img/s
-(AIPU 75 ms, host 274 ms per image at batch 1); RT-DETR-r50 88% (60.9 of
-68.9 G) at 1.5 and 1.7 img/s (AIPU 102 ms, host 567 ms); RT-DETR-r50m 90% (45.2 of
-50.3 G) at 2.0 and 2.3 img/s (AIPU 102 ms, host 395 ms); RT-DETR-r101 93% (121.7
-of 130.3 G) at 1.4 and 1.5 img/s (AIPU 138 ms, host 578 ms); RT-DETR-l (HGNetv2) 86%
-(47.9 of 55.8 G) at 2.2 and 2.2 img/s (AIPU 89 ms, host 363 ms); RT-DETR-x 93%
-(109.4 of 118.0 G) at 1.5 and 2.4 img/s (AIPU 149 ms, host 485 ms).
-RT-DETRv2-r18 (same split) runs 84% on the Metis at 1.7 and 2.3 img/s;
-RT-DETRv2-r34 at 3.4 and 4.2 img/s, RT-DETRv2-r50 at 3.1 and 4.0 img/s, RT-DETRv2-r101 at 1.4 and 2.6 img/s, RT-DETRv2-r50m at 1.9 and 4.0 img/s. RT-DETRv2's neck part compiles with
-histogram ranges: on r50 per-tensor min-max left its finest memory map at a
-0.68 held-out cosine and the export 3.79 points below FP32, histogram 0.91 and
-1.72 points; r18 and r34 keep their measured min-max neck until re-measured. D-FINE-n runs 83% of its MACs on the Metis
-(3.1 of 3.7 G) at 3.7 and 7.0 img/s, D-FINE-s 80% at 5.2 and 6.4 img/s, D-FINE-m 89% at 3.4 and 3.5 img/s, D-FINE-l 91% at 1.7 and 2.0 img/s, D-FINE-x 96% at 2.8 and 3.3 img/s; DEIM-n (the same
-network shape) at 4.7 and 8.4 img/s, DEIM-m 89% at 3.8 and 4.5 img/s, DEIM-l 91% at 2.2 and 4.0 img/s, DEIM-x 96% at 2.7 and 3.6 img/s. RT-DETRv4-s (the same split)
-80% at 4.6 and 5.6 img/s, RT-DETRv4-m 89% at 2.8 and 3.1 img/s, RT-DETRv4-l 91% at
-2.6 and 3.1 img/s, RT-DETRv4-x 96% at 2.6 and 3.2 img/s.
-DEIMv2-n runs at 10.0 and 12.1 img/s; DEIMv2 atto, femto and pico, whose encoder
-has no attention, run everything but the decoder on the Metis (95%, 93% and 96%
-of their MACs) at 42.7, 12.4 and 7.9 img/s at batch 1.
-TinyFormer-s runs only 22% of its MACs on the Metis (6.3 of 28.4 G: the conv
-stem and the fusion neck); its ViT tower (21.1 G) runs on the host, so it is
-host-bound at 0.75 and 0.77 img/s (AIPU 199 ms, host 1,106 ms at batch 1 on a
-loaded host). The stem's two inner GELUs run as x * sigmoid(1.702 x) folded into
-SiLU (the exact GELU does not quantize and its tanh form does not compile);
-their last GELUs run on the host.
-DETR-r50 (backbone only, 800x800) runs 87% of its MACs on the Metis (52.5 of
-60.2 G) at 2.0 and 2.3 img/s, but only 36 ms of its 459 ms chain at batch 1:
-its six-layer encoder over all 625 positions and the decoder run on the host.
-The dilated sizes (r50dc5, r101dc5) feed the host transformer a stride-16 map
-(2,500 positions) and run at 0.6-0.9 img/s; DETR-r101 runs at 4.0 img/s.
-D-FINE-seg's mask decoder normalizes with GroupNorm (no AIPU form), so its two
-convolutions are compiled parts of their own and the GroupNorms run on the host
-between them: D-FINE-n-seg runs 81% of its MACs on the Metis at 4.1 img/s (4.3
-at batch 8; 3.0 / 3.6 with the whole mask decoder on the host), D-FINE-s-seg
-85% at 2.3 img/s (2.8; 1.8 / 1.9); m, l and x run 89-93% of their MACs on the
-Metis at 1.6-1.7 img/s (1.8-2.8 at batch 8). D-FINE-s-seg loses 10 pt: its
-segmentation-trained backbone quantizes worse than D-FINE-s detect's.
-Deformable DETR-r50 runs 43% of its MACs on the Metis but is host-bound: its
-input projections normalize with GroupNorm (no AIPU form) and its deformable
-encoder samples four levels, so it runs at 0.3 img/s.
-DINO-DETR-r50 takes the same cut (29% of its MACs on the Metis); its 900-query
-two-stage decoder makes it slower still, 0.2 img/s. DINO-DETR-r50s5 adds a
-stride-4 level, so its host transformer is 467 G of the 519 G MACs (10% on the
-Metis) and it runs at 0.07 img/s (15 s per image on the host).
-Faster R-CNN-n runs 81% of its MACs on the Metis (0.58 of 0.72 G) at 5.1 and
-6.5 img/s; its RPN and box head take 167 of the 182 ms chain. Those were
-measured with 4 host threads on a busy 18-core NUC (load average about 20),
-so they are a floor; the host share depends on the CPU.
 
 RetinaNet resizes each image so its shorter side is 800 pixels (longer
 side up to 1333), so its input shape changes from image to image. The Metis
@@ -938,55 +716,13 @@ Real-ESRGAN-x4 (the RRDB network) does not fit as one graph: its constants overf
 
 Real-ESRGAN-x2 uses the same RRDB body and the same three parts. Its network first folds each 2x2 pixel block into channels (pixel unshuffle); the export writes that as an exact one-hot stride-2 convolution so it runs on the AIPU inside part 1. At a 128x128 canvas (a 64x64 trunk, as x4) the device keeps PSNR at 24.73 dB vs 25.07 dB FP32 on the 296 cocosr crops (-0.34 dB, SSIM 0.717; ledger `realesrgan/restore/x2/2026-11-16`). That is just over the 0.3 dB bar, so x2 is supported, not validated. Its whole graph hit the same DDR-pool limit as x4 (319 MiB of constants, 248 MiB pool; ledger `realesrgan/restore/x2/2026-11-15`).
 
-Hybrid exports (support tier `hybrid`, RT-DETR) run only the convolutional
-parts on the Metis. RT-DETR's attention encoder layer, its query selection
-(TopK over every feature position) and its decoder's deformable attention
-(sampling at learned offsets, softmax, LayerNorm) have no AIPU form, so the
-artifact chains four steps (`parts` in `metadata.yaml`):
-
-```text
-image -> [Metis: ResNet backbone, encoder input projections] -> 3 feature maps
-      -> [host ONNX: attention encoder on the stride-32 map, levels stacked into one canvas]
-      -> [Metis: fusion neck, decoder input projections] -> 3 memory maps
-      -> [host ONNX: query selection, decoder] -> pred_logits, pred_boxes -> Results
-```
-
-DEIMv2's small sizes (atto, femto, pico) have an encoder without attention
-(projections, pooling and CSP blocks), so their hybrid export is one compiled
-part, the backbone, the whole encoder and the decoder's input projections, and
-the decoder on the host (`hybrid` split `encoder`).
-
-Faster R-CNN is two-stage: proposals are chosen at run time and RoIAlign crops
-them, so only the first stage's convolutions compile. The Metis part takes the
-fixed square canvas (the image stretched to the model's `min_size`, RGB in
-[0, 1]) and runs the input normalization, the backbone and the FPN; the host
-graph adds the FPN's extra pooled level and runs the region proposal network,
-RoIAlign, the box head and NMS, ending at the ONNX export's `boxes`, `scores`
-and `labels`. The stretch costs accuracy against the native aspect-preserving
-resize, so section 7 gives the INT8 drop against FP32 at the same canvas and
-the canvas cost separately.
-
-Mask R-CNN-r50 shares Faster R-CNN-l's ResNet-50-FPN v2 and runs the same Metis part. Its host graph adds the mask branch: RoIAlign at 14x14 on the kept boxes, four convolutions, the mask predictor, and the paste of each soft mask onto the canvas; the backend resizes the masks to the image with the boxes. On 300 COCO val2017 images at the 800x800 canvas the device gives mask mAP50-95 0.4039 vs 0.4045 FP32 (box 0.4323 vs 0.4321; ledger `mask_rcnn/segment/r50/2026-11-16`). The detect task compiles the same Metis part (identical graph and calibration) and its host graph stops before the mask branch: box mAP50-95 0.4481 vs 0.4476 FP32 at the same canvas (ledger `mask_rcnn/detect/r50/2026-11-16`).
-
-PP-DocLayoutV3-l (document layout) splits after its HGNetV2-L backbone: the Metis part returns the stride-4 stage (the mask branch's input) and the encoder's input projections at strides 8, 16 and 32; the host runs the attention encoder, the mask-enhanced decoder and the reading-order head. With no document-layout labels on the measuring machine it is measured as fidelity: on 300 DocLayNet v1.2 validation pages (calibrated on 64 other pages) the device keeps 97.9% matched-box F1 against FP32 at IoU 0.5 (score correlation 0.947; ledger `ppdoclayoutv3/detect/l/2026-11-16`).
-
-DETR (the original, single-level detector) has no convolutional neck: its
-hybrid export is two steps, the ResNet backbone and the 1x1 input projection
-on the Metis, then the sine positions, the transformer and the prediction
-heads on the host (`hybrid` split `backbone`).
-
-A compiled part takes one input, so the host stacks the three levels on
-channels at stride 8 (coarser levels nearest-upsampled, each scaled by the
-power of two that brings its calibration peak nearest the largest level's,
-so all share the canvas's one INT8 scale well);
-the neck part slices them back and undoes the upsampling and the scale with
-constant 1x1 convolutions, exactly (strided ones are dense with the scale on
-the diagonal: the compiler rejects a strided 1x1 depthwise convolution there). The host steps run in FP32 through ONNX
-Runtime (`onnxruntime` must be installed; `OMP_NUM_THREADS` caps its
-threads) and end at the ONNX export's `pred_logits` and `pred_boxes`
-(layout `graph_outputs_v1`), which the shared parser decodes. The backend's
-`chain_timing` holds the time spent in the AIPU parts and in the host steps;
-section 7 quotes the measured split.
+Hybrid exports, which run part of the network itself on the host (the
+RT-DETR and DETR families, Faster and Mask R-CNN, HRNet, DEKR, ZipDepth,
+PIDNet, CenterNet, TinyFormer, PP-DocLayoutV3 and some sizes of other
+families), are not supported on Metis: they are parked by decision
+2026-11-19 on branch `axelera-hybrid-parked` (section 11). The multi-part
+mechanism above stays for exports whose host steps are light numpy
+operations between compiled parts (SSD, FCOS, Real-ESRGAN).
 
 `metadata.yaml` holds LibreYOLO's export metadata (`schema_version`,
 `model_family`, `task`, `names`, `imgsz`, ...) plus:
@@ -1004,7 +740,7 @@ section 7 quotes the measured split.
 | `anchors`, `scale_x_y` | anchor boxes in input pixels per level (YOLOv2's grid-cell anchors are converted), and Darknet's centre scaling (anchor-based heads) |
 | `parts` | multi-part exports only (SSD300): the compiled parts and host steps in order. A compiled part is `{axm, input, outputs}` (`input` is `images` for the first part, which is also `axm`), plus `per_item: true` and `item_shapes` for a part that runs a stack of items one at a time; a host operation is `{host, input or inputs, output or outputs, ...parameters}` with `host` one of the backend's `HOST_OPS` (`l2norm`: `scale` per channel; a parameter `"@npz:<key>"` is an array from `host_arrays`); a host ONNX graph is `{onnx, inputs, outputs}`, run on the CPU by ONNX Runtime. The backend runs them in order and assembles `output_names` from their outputs; artifacts without `parts` are one `.axm`. |
 | `host_arrays` | multi-part exports whose host operations take arrays: the `.npz` holding them |
-| `hybrid` | hybrid exports only: `split` (`neck`, `backbone` or `encoder`), what runs on the AIPU and on the host, the canvas level scales, and the neck part's quantization scheme (always per tensor: its input feeds a depthwise convolution, which the compiler cannot take per-channel input ranges for at a part boundary) |
+| `hybrid` | hybrid exports only (parked, section 11): `split` (`neck`, `backbone` or `encoder`), what runs on the AIPU and on the host, the canvas level scales, and the neck part's quantization scheme (always per tensor: its input feeds a depthwise convolution, which the compiler cannot take per-channel input ranges for at a part boundary) |
 | `class_index_map` | logit columns kept after the softmax (SSD300 and RetinaNet: COCO-91 to the 80 classes) |
 | `axelera` | SDK version, quantization scheme, cores, resources, compiler overrides, calibration source and image count (of the first part, for multi-part exports) |
 | `weights_license` | reminder of the weight license |
@@ -1031,13 +767,15 @@ compiles their own.
 
 ## 11. Known limits and out of scope
 
+Parked (not supported on Metis: part of the network runs on the host; hybrid parked by decision 2026-11-19, branch `axelera-hybrid-parked`, which keeps the code, tests and measurements): HRNet w32/w48 and DEKR w32 (pose), ZipDepth bnpu/b (depth), PIDNet s/m/l (semantic), CenterNet resdcn18/dla34, Faster R-CNN n/s/m/l, Mask R-CNN r50 (detect, segment), DETR r50/r50dc5/r101/r101dc5, Deformable DETR (5 sizes), DINO-DETR r50/r50s5, RT-DETR (7 sizes), RT-DETRv2 detect (5) and obb (5), RiO-DETRv2 obb (5), D-FINE detect and segment (5 each), DEIM (5), DEIMv2 atto/femto/pico/n, RT-DETRv4 (4), PP-DocLayoutV3 l, TinyFormer s, RTMDet x, RetinaNet r50v2 and EfficientDet d3/d4 (whole graph does not compile or does not run usefully, see the blocked reasons).
+
 Blocked for structural reasons (accuracy never blocks an export):
 
 - L2CS (gaze): its only checkpoint is trained on Gaze360, whose licence forbids redistributing models trained on it; LibreYOLO fetches it from the authors and does not mirror it, so no Axelera export is measured or shipped.
 - RTMDet-Ins-x: at 640x640 lowering fails in AssignTilingFactors (ScheduleMemory, LowerTIR): no tiling factor fits L1 (3.99 MB needed, 3.32 MB available; 2 h 08 min, 8.1 GB peak RSS; ledger `rtmdet/segment/x/2026-11-12`). Use RTMDet-Ins-l. Its CSPNeXt-x backbone alone compiles in 24 min, so the overflow is in the neck and heads; a backbone | neck+head split would need the three backbone levels packed into one input (the quantizer takes no multi-input calibration; ledger `rtmdet/segment/x/2026-11-17`).
 - MiDaS-l (DPT ViT-L, 384 px): quantization stops at the quantizer's ONNX import ("unexpected input value type") on the ViT encoder (48 LayerNormalization, 24 Softmax, 28 Erf, attention MatMuls; the same graph's 5 Resize nodes also occur in MiDaS-s, which compiles). It peaks at 18 GB of host RAM before failing. Use MiDaS-s.
 - ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them. The channel mean and variance have exact AIPU forms, but the per-pixel reciprocal square root feeding ConvNeXt's GELU has none; a host split at every LayerNorm would need about 23 parts for ConvNeXt-t, so a hybrid export (convolutions on the Metis, LayerNorms on the host) is the route if ConvNeXt is ever needed (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).
-- EC and TinyFormer decoders: gather-based deformable attention; no quantizer converter for its GreaterOrEqual bounds masks (ledgers `ec/detect/s/2026-11-11`, `tinyformer/detect/s/2026-11-11`), so the decoder runs on the host in the hybrid export.
+- EC and TinyFormer decoders: gather-based deformable attention; no quantizer converter for its GreaterOrEqual bounds masks (ledgers `ec/detect/s/2026-11-11`, `tinyformer/detect/s/2026-11-11`), so only a hybrid (decoder on the host) could run them, and hybrids are parked (above).
 - GTR (all tasks): its ViT runs on the host, and its multi-scale neck (at most ~48% of GTR-s detect's MACs) follows every convolution with a channel LayerNorm (GTR-s: 30 convolutions, 30 LayerNorm2d), so a hybrid export would need about 30 single-convolution parts (ledger `gtr/detect/s/2026-11-18`).
 - TEED: the Smish activation takes a logarithm, which quantization stops on; no trained weights are published (ledger `teed/edge/t/2026-11-11/2`).
 
@@ -1049,9 +787,8 @@ Not measured on a Metis yet (nothing is known to fail; the export raises until a
 - Other families.
 
 Out of scope (not attempted): models whose backbone is itself a transformer. FeyNobg (BiRefNet, Swin-L) is one of them.
-A hybrid export runs a convolutional backbone on the Metis and the attention
-layers on the host CPU; with an attention backbone almost nothing would be
-left on the Metis. This covers ViT, DeiT, Swin, DINOv2, CLIP, SigLIP2, PE,
+Even a hybrid export (parked, see above) would leave almost nothing on the
+Metis with an attention backbone. This covers ViT, DeiT, Swin, DINOv2, CLIP, SigLIP2, PE,
 SegFormer, EoMT, Depth Anything (1, 3 and video), the SAM family (SAM,
 MobileSAM), the detectors built on such backbones (RF-DETR and LW-DETR on
 DINOv2/ViT, Grounding DINO on Swin, OWLv2 on ViT), vision-language models,
@@ -1071,10 +808,10 @@ generative models and 3D models. Checked against LibreYOLO's own model code
   LayerNorm after every convolution (section 11, known limits).
 - DEIMv2 s, m, l and x: DINOv3 ViT backbones with a spatial-tuning adapter
   (vit_tiny, vit_tinyplus, dinov3_vits16, dinov3_vits16plus). The atto,
-  femto, pico and n sizes use HGNetv2 and export as hybrid (section 7).
+  femto, pico and n sizes use HGNetv2; they are hybrids, parked (above).
 - DINO-DETR swinl: a Swin-L backbone (shifted-window attention, embed 192,
-  depths 2/2/18/2, window 12). The r50 and r50s5 sizes use ResNet-50 and are
-  hybrid candidates.
+  depths 2/2/18/2, window 12). The r50 and r50s5 sizes use ResNet-50; they
+  are hybrids, parked (above).
 
 Other known limits:
 
@@ -1085,9 +822,8 @@ Other known limits:
 - YOLO-NAS-pose n and s: supported, keypoint mAP50-95 1.3 and 2.2 points below FP32 (section 7); m and l are validated.
 - RF-DETR and other transformer-backbone families: attention, data-dependent
   TopK and grid sampling are outside what the compiler places on the AIPU.
-  RT-DETR, whose backbone is a CNN, exports as hybrid instead (section 8):
-  its backbone and fusion neck run on the Metis, its attention encoder layer
-  and decoder on the host.
+  RT-DETR, whose backbone is a CNN, could run as a hybrid (backbone and
+  fusion neck on the Metis, attention on the host); hybrids are parked (above).
 - MobileNetV4 (classify) s and l: supported, top-1 1.7 points below FP32
   at best (section 7). Per-tensor INT8 of the inverted-residual streams (the
   stage-2 stream of s spans about +-400 while its median channel stays

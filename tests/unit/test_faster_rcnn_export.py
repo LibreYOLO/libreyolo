@@ -122,7 +122,7 @@ def test_export_support_is_explicit_for_every_format():
     entries = {fmt: get_support("faster_rcnn", "detect", fmt) for fmt in EXPORT_FORMATS}
     assert entries["onnx"].tier == "validated"
     # Axelera: hybrid, backbone + FPN on the Metis, RPN/RoI heads on the host (docs/axelera.md).
-    assert entries["axelera"].tier == "hybrid"
+    assert entries["axelera"].tier == "blocked"  # hybrid parked (decision 2026-11-19)
     assert all(
         entry.tier == "blocked"
         for fmt, entry in entries.items()
