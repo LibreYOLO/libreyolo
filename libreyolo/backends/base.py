@@ -5010,18 +5010,20 @@ class BaseBackend(ABC):
         max_det: int = 300,
         color_format: str = "auto",
         save_stem: Optional[str] = None,
+        preprocessed: Optional[tuple] = None,
     ) -> Results:
         """Run inference on a single image.
 
         ``save_stem`` overrides the saved filename stem for in-memory images
-        (which have no path to derive one from).
+        (which have no path to derive one from). ``preprocessed`` is this
+        image's ``_preprocess`` result when the caller already computed it.
         """
         image_path = image if isinstance(image, (str, Path)) else None
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
-        input_tensor, original_img, original_size, ratio = self._preprocess(
-            image, effective_imgsz, color_format
-        )
+        if preprocessed is None:
+            preprocessed = self._preprocess(image, effective_imgsz, color_format)
+        input_tensor, original_img, original_size, ratio = preprocessed
 
         blob = _to_blob(input_tensor)
 
@@ -5329,6 +5331,25 @@ class BaseBackend(ABC):
         """
         return [function(image) for image in images]
 
+    def _prepare_batch(
+        self, chunk: List, imgsz: Optional[ImageSize], color_format: str
+    ) -> List:
+        """Preprocess a chunk for :meth:`_predict_batch` (``preprocessed=``).
+
+        One ``(input_tensor, original_img, original_size, ratio, image_path)``
+        tuple per image, in order.
+        """
+        effective_imgsz = self._resolve_predict_imgsz(imgsz)
+
+        def prepare(image):
+            input_tensor, original_img, original_size, ratio = self._preprocess(
+                image, effective_imgsz, color_format
+            )
+            image_path = image if isinstance(image, (str, Path)) else None
+            return (input_tensor, original_img, original_size, ratio, image_path)
+
+        return self._map_images(prepare, list(chunk))
+
     def _predict_batch(
         self,
         chunk: List,
@@ -5342,6 +5363,7 @@ class BaseBackend(ABC):
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         color_format: str = "auto",
+        preprocessed: Optional[List] = None,
     ) -> List[Results]:
         """Run one stacked forward pass over a chunk of images.
 
@@ -5353,15 +5375,8 @@ class BaseBackend(ABC):
         rejects the batched call.
         """
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
-
-        def prepare(image):
-            input_tensor, original_img, original_size, ratio = self._preprocess(
-                image, effective_imgsz, color_format
-            )
-            image_path = image if isinstance(image, (str, Path)) else None
-            return (input_tensor, original_img, original_size, ratio, image_path)
-
-        preprocessed = self._map_images(prepare, list(chunk))
+        if preprocessed is None:
+            preprocessed = self._prepare_batch(chunk, imgsz, color_format)
 
         tensors = [item[0] for item in preprocessed]
         all_outputs = None

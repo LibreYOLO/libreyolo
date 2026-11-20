@@ -23,6 +23,7 @@ from ...postprocess.rtmdet import (  # noqa: F401  (backward-compatible re-expor
     _make_grid_priors,
     postprocess,
 )
+from ...preprocess import normalize_hwc_to_chw
 from ...utils.image_loader import ImageInput, ImageLoader
 
 
@@ -64,9 +65,10 @@ def preprocess_numpy(
     padded.paste(img_resized, (0, 0))
 
     # RGB -> BGR; mean/std applied in BGR space (mmdet config has bgr_to_rgb=False).
-    arr = np.array(padded, dtype=np.float32)[:, :, ::-1]
-    arr = (arr - _RTMDET_BGR_MEAN) / _RTMDET_BGR_STD
-    return np.ascontiguousarray(arr.transpose(2, 0, 1)), ratio
+    chw = normalize_hwc_to_chw(
+        np.asarray(padded), _RTMDET_BGR_MEAN, _RTMDET_BGR_STD, reverse_channels=True
+    )
+    return chw, ratio
 
 
 def preprocess_image(

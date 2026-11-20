@@ -295,8 +295,9 @@ The host steps dominate end-to-end time on this hardware, so pass a list of
 images with `batch=N` (for example `npu(images, batch=8)`): the N images go
 to the device in one submission, and their preprocessing, decode and
 `Results` building run in parallel on host threads (`OMP_NUM_THREADS`, by
-default up to 4). The outputs are identical to processing the images one at
-a time.
+default up to 4). With a list of images (any `batch`), the next image or chunk
+is preprocessed while the device runs the current one (single-part exports).
+The outputs are identical to processing the images one at a time.
 
 ## 6. Migrating from Ultralytics
 

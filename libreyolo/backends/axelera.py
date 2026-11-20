@@ -856,6 +856,65 @@ class AxeleraBackend(BaseBackend):
             return [function(image) for image in images]
         return _host_map(function, images)
 
+    def _process_in_batches(self, images, batch: int = 1, **kwargs):
+        # Pipeline a multi-image predict: while the device runs one step (an
+        # image, or a chunk of ``batch`` images) and its results are built, the
+        # next step is preprocessed on a prefetch thread (a chunk spreads over
+        # the host pool). Every step is processed exactly as before and in
+        # order, so the results are unchanged.
+        batched = (
+            batch > 1
+            and self._supports_batched_inference()
+            and not getattr(self, "_batched_inference_failed", False)
+        )
+        step = batch if batched else 1
+        # Multi-part exports run host steps between their compiled parts on the
+        # calling thread; a concurrent prefetch competes with them for the
+        # host cores (SSD-300 measured 0.85x), so they stay sequential.
+        if len(images) <= step or self._chain is not None:
+            return super()._process_in_batches(images, batch=batch, **kwargs)
+        import contextvars
+        from concurrent.futures import ThreadPoolExecutor
+
+        context = contextvars.copy_context()
+        imgsz, color_format = kwargs.get("imgsz"), kwargs.get("color_format", "auto")
+        start_idx = kwargs.pop("start_idx", 0)
+        steps = [images[i : i + step] for i in range(0, len(images), step)]
+        if batched:
+            prepare = lambda chunk: self._prepare_batch(chunk, imgsz, color_format)  # noqa: E731
+        else:
+            effective_imgsz = self._resolve_predict_imgsz(imgsz)
+            prepare = lambda chunk: self._preprocess(chunk[0], effective_imgsz, color_format)  # noqa: E731
+        results = []
+        with ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="libreyolo-axelera-prefetch"
+        ) as prefetch:
+            pending = prefetch.submit(context.copy().run, prepare, steps[0])
+            for index, chunk in enumerate(steps):
+                preprocessed = pending.result()
+                if index + 1 < len(steps):
+                    pending = prefetch.submit(context.copy().run, prepare, steps[index + 1])
+                offset = start_idx + index * step
+                if batched:
+                    results.extend(
+                        self._predict_batch(
+                            chunk, start_idx=offset, preprocessed=preprocessed, **kwargs
+                        )
+                    )
+                else:
+                    image = chunk[0]
+                    results.append(
+                        self._predict_single(
+                            image,
+                            save_stem=(
+                                None if isinstance(image, (str, Path)) else f"image{offset}"
+                            ),
+                            preprocessed=preprocessed,
+                            **kwargs,
+                        )
+                    )
+        return results
+
     def _supports_batched_inference(self) -> bool:
         # The compiled model takes one image; batched calls go through the
         # runtime's batch submission, which keeps several cores busy.
