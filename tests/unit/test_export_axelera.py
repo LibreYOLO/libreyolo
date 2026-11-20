@@ -1982,7 +1982,8 @@ def test_pidnet_is_supported_as_pool_parts_with_its_measured_fidelity():
     entry = get_support("pidnet", "semantic", "axelera")
     assert entry.tier == "available" and "three compiled parts" in entry.reason and "0.864" in entry.reason
     assert "0.864" in SIZE_ACCURACY_NOTES[("pidnet", "semantic", "axelera")]["s"]
-    assert sorted(UNMEASURED_SIZES[("pidnet", "semantic", "axelera")]) == ["l", "m"]
+    assert "0.820" in SIZE_ACCURACY_NOTES[("pidnet", "semantic", "axelera")]["l"]
+    assert sorted(UNMEASURED_SIZES[("pidnet", "semantic", "axelera")]) == ["m"]
 
 
 @_PARKED

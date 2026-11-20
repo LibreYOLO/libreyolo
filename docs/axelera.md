@@ -110,6 +110,7 @@ a separate size:
 | DeepLabV3 | r101 | semantic (mIoU; ASPP as per-tap 1x1 convolutions plus shifts) | COCO val2017 VOC-21, 300 | 0.5888 | 0.3795 | -20.93 | supported | `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | s | semantic (fidelity mIoU vs FP32 labels; 512x1024; histogram ranges) | COCO val2017, 1000 | 1.0000 | 0.8562 | -0.1438 | supported | `unet/semantic/s/2026-11-20` |
 | PIDNet | s | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts joined by bilinear upsample + concat; whole graph collapses in INT8; faster than the CPU at batch 1 and 8: 5.17 / 7.36 vs 2.89 / 2.93 img/s at 4 host threads) | COCO val2017, 300 | 1.0000 | 0.8640 | -0.1360 | supported | `pidnet/semantic/s/2026-11-20/4`, speed `/5` |
+| PIDNet | l | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts, DAPPM + Bag; faster than the CPU at batch 1 and 8: 1.92 / 4.07 vs 0.48 / 0.49 img/s at 4 host threads) | COCO val2017, 100 | 1.0000 | 0.8204 | -0.1796 | supported | `pidnet/semantic/l/2026-11-20`, speed `/2` |
 | PP-LiteSeg | t50 | semantic (fidelity mIoU vs FP32 labels; 512x1024; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8502 | -0.1498 | supported | `ppliteseg/semantic/t50/2026-11-18` |
 | PP-LiteSeg | b50 | semantic (fidelity mIoU vs FP32 labels; 512x1024; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8571 | -0.1429 | supported | `ppliteseg/semantic/b50/2026-11-18` |
 | PP-LiteSeg | t75 | semantic (fidelity mIoU vs FP32 labels; 768x1536; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8068 | -0.1932 | supported | `ppliteseg/semantic/t75/2026-11-18` |
@@ -150,7 +151,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | Face detection | embed | librefacerec-det (supported with a measured fidelity; `LibreFaceEmbedder.export(format="axelera", component="detector")` compiles the family's face detector at a 640 canvas; `LibreFaceEmbedder(head, face_detector="librefacerec-det_axelera_model")` runs it, lists, directories and video files 8 images per call by default; slower than the CPU at batch 1) | not in `docs/export_support.md` (the face embedder is outside the export matrix) | det `facerec/embed/det/2026-11-20/2`, speed `/3` |
 | DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops: -3.77, -5.09, -20.93) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-17/2`; r101 `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | semantic | s (supported with a measured fidelity; whole graph at the 512x1024 training crop with histogram ranges, compile about 11-13 h) | see `docs/export_support.md` | s `unet/semantic/s/2026-11-20` |
-| PIDNet | semantic | s (supported with a measured fidelity; three compiled parts: branches + pooling layers, pooling sums, fusion + head; the host only upsamples (bilinear) and concatenates); m and l not measured yet | see `docs/export_support.md` | s `pidnet/semantic/s/2026-11-20/4` |
+| PIDNet | semantic | s, l (supported with a measured fidelity; three compiled parts: branches + pooling layers, pooling sums, fusion + head; the host only upsamples (bilinear) and concatenates); m not measured yet | see `docs/export_support.md` | s `pidnet/semantic/s/2026-11-20/4`; l `pidnet/semantic/l/2026-11-20` |
 | PP-LiteSeg | semantic | t50, b50, t75, b75 (supported with a measured fidelity; whole graph at 512x1024 (t50, b50) or 768x1536 (t75, b75), the UAFM blends in an exact INT8-friendly form) | see `docs/export_support.md` | t50 `ppliteseg/semantic/t50/2026-11-18`; b50 `ppliteseg/semantic/b50/2026-11-18`; t75 `ppliteseg/semantic/t75/2026-11-18`; b75 `ppliteseg/semantic/b75/2026-11-18` |
 | PicoSAM3 | segment | pico (supported with a measured fidelity; the raw 96x96 ROI CNN, the same contract as the ONNX export: cutting the ROI from a box and pasting the mask logits back stay in Python) | see `docs/export_support.md` | pico `picosam3/segment/pico/2026-11-19` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
@@ -630,7 +631,11 @@ sum conv (Bag), then the head. PIDNet-s on 300 COCO val2017 images at
 (per part, device vs FP32 cosine 0.994 or better; logits 0.998). Speed on
 this NUC at 4 host threads: 5.17 img/s at batch 1 and 7.36 at batch 8,
 against 2.89 and 2.93 for the best FP32 CPU runs (OpenVINO b1, ONNX Runtime
-b8). m and l use the same recipe and are not measured yet.
+b8). PIDNet-l (DAPPM + Bag, whose chained pooling sums and Bag sum + BN
+run as fixed convs the same way): fidelity mIoU 0.820, 95.1% of pixels
+agree on 100 images; 1.92 img/s at batch 1 and 4.07 at batch 8 against
+0.48 and 0.49 on the CPU (ONNX Runtime). m uses the same recipe and is not
+measured yet.
 
 RTMDet-x does not compile as one graph: its PAFPN neck finds no L1 tiling
 (LowerTIR still overflows after 4 iterations, whole graph or backbone + neck),
