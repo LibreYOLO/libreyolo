@@ -244,7 +244,21 @@ def _host_fcos_decode(y, *, boxes, n_cls, anchors, class_indices) -> np.ndarray:
     return np.concatenate([xyxy, lvl, scores], axis=-1)[None].astype(np.float32)
 
 
+def _host_concat(*xs, upsample) -> np.ndarray:
+    """Channel concat of parts' outputs, each first upsampled by its integer factor (nearest, as ``nn.Upsample``).
+
+    Pure data movement: RTMDet's PAFPN joins as ``cat([upsample(high), low])`` and ``cat([down, high])``.
+    """
+    arrays = []
+    for x, factor in zip(xs, upsample):
+        x = np.asarray(x, dtype=np.float32)
+        f = int(factor)
+        arrays.append(x.repeat(f, axis=2).repeat(f, axis=3) if f > 1 else x)
+    return np.concatenate(arrays, axis=1)
+
+
 HOST_OPS: dict[str, Any] = {
+    "concat": _host_concat,
     "l2norm": _host_l2norm,
     "add": _host_add,
     "pack_levels": _host_pack_levels,

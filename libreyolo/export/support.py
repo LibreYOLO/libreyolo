@@ -4270,14 +4270,15 @@ _add(
         "LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 "
         "Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 4.40 "
         "(with learned INT8 rounding of its pointwise convolutions), RTMDet-m "
-        "2.66 and RTMDet-l 1.87 on a paired 1000-image COCO val2017 subset "
+        "2.66, RTMDet-l 1.87 and RTMDet-x 3.40 (five compiled parts: its PAFPN "
+        "does not fit compiled whole) on a paired 1000-image COCO val2017 subset "
         "(docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does "
-        "not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
-        "compile, INT8, batch 1, fixed input size"
+        "supported sizes: t, s, m, l, x (measured drop, SIZE_ACCURACY_NOTES; x as "
+        "five compiled parts, AXELERA_SIZE_RECIPES). axelera-devkit / axelera-rt 1.9.0, "
+        "Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
 _add(
@@ -5212,6 +5213,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "per-channel depthwise ranges and balanced CSPNeXt pointwise "
             "equalization)"
         ),
+        "x": (
+            "measured mAP50-95 drop 3.40 points vs FP32 (0.4788 vs 0.5128 on 1000 "
+            "COCO val2017 images; -2.92 on 300; 64 coco128 calibration images, "
+            "per-channel depthwise ranges and balanced CSPNeXt pointwise "
+            "equalization; five compiled parts joined on the host by nearest "
+            "upsampling and channel concatenation)"
+        ),
     },
     ("efficientdet", "detect", "axelera"): {
         "d0": (
@@ -5315,16 +5323,6 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
 #: format, each with its structural reason. Accuracy never lands a size here
 #: (that is SIZE_ACCURACY_NOTES); the export raises for these.
 BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
-    ("rtmdet", "detect", "axelera"): {
-        "x": (
-            "does not compile for Metis at 640x640 with the 1.9 SDK: the "
-            "compiler's LowerTIR pass still overflows its on-chip buffers after 4 "
-            "iterations (after 2 h 21 min, 7 GB peak RSS; a plain retry fails the "
-            "same way after 2 h 27 min). Its CSPNeXt-x backbone alone compiles (24 "
-            "minutes), so the overflow is in the neck and heads; use RTMDet-l"
-            "; a hybrid (part of the network on the host) is parked by decision 2026-11-19 on branch axelera-hybrid-parked"
-        ),
-    },
     ("retinanet", "detect", "axelera"): {
         "r50v2": (
             "does not run usefully on Metis with the 1.9 SDK: its head normalizes "

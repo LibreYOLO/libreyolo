@@ -1107,8 +1107,8 @@ def test_support_matrix_rows_for_axelera():
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
     rtmdet = get_support("rtmdet", "detect", "axelera")
-    assert rtmdet.tier == "available" and "supported sizes: t, s, m, l " in rtmdet.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["l", "m", "s", "t"]
+    assert rtmdet.tier == "available" and "supported sizes: t, s, m, l, x " in rtmdet.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["l", "m", "s", "t", "x"]
     assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]) == ["l", "m", "s", "t"]
     effdet = get_support("efficientdet", "detect", "axelera")
     assert effdet.tier == "available"
@@ -1197,7 +1197,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("pidnet", "semantic", "s"), ("pidnet", "semantic", "m"), ("pidnet", "semantic", "l"),
         # EfficientDet-d3/d4 recipe hybrids (test_efficientdet_hybrid_backbone_split_reproduces_the_export_output).
         ("efficientdet", "detect", "d3"), ("efficientdet", "detect", "d4"),
-        # RTMDet-x detect recipe hybrid (test_rtmdet_x_hybrid_backbone_split_reproduces_the_export_output).
+        # RTMDet-x neck_parts (test_rtmdet_neck_parts_chain_reproduces_the_raw_heads).
         ("rtmdet", "detect", "x"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
@@ -1357,13 +1357,19 @@ def test_rtmdet_ins_x_is_blocked_with_its_compile_failure(tmp_path):
         model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
 
 
-def test_rtmdet_x_detect_exports_as_the_backbone_hybrid():
-    """RTMDet-x detect no longer raises: its recipe routes it to the backbone hybrid (decoded ``output``)."""
+def test_rtmdet_x_detect_exports_as_full_metis_neck_parts():
+    """RTMDet-x detect is a full-Metis multi-part export (recipe ``neck_parts``), not a hybrid."""
     from libreyolo import LibreRTMDet
+    from libreyolo.export.axelera import size_recipe
     from libreyolo.export.exporter import AxeleraExporter
+    from libreyolo.export.support import BLOCKED_SIZES
 
     exporter = AxeleraExporter(LibreRTMDet(None, size="x", nb_classes=3, device="cpu"))
-    assert exporter._hybrid_outputs() == ("output",) and exporter._hybrid_split() == "backbone"
+    assert exporter._hybrid_outputs() == ()
+    assert size_recipe("rtmdet", "detect", "x") == {
+        "neck_parts": True, "quantization_scheme": "hybrid_per_tensor_per_channel",
+    }
+    assert "x" not in BLOCKED_SIZES.get(("rtmdet", "detect", "axelera"), {})
 
 
 def test_unmeasured_sizes_are_not_exportable_and_not_called_blocked(tmp_path):
@@ -2568,16 +2574,12 @@ def test_stem_residual_skip_conv_reads_a_stem_resolution_skip_through_an_identit
     assert deeper.graph.SerializeToString() == before
 
 
-def test_rtmdet_x_detect_and_segment_are_blocked():
-    from libreyolo.export.axelera import size_recipe
-    from libreyolo.export.support import BLOCKED_SIZES, get_support
+def test_rtmdet_ins_x_segment_is_blocked():
+    from libreyolo.export.support import BLOCKED_SIZES
 
     reason = BLOCKED_SIZES[("rtmdet", "segment", "axelera")]["x"]
     assert "backbone alone compiles" in reason and "multi-input calibration" in reason
-    detect = BLOCKED_SIZES[("rtmdet", "detect", "axelera")]["x"]
-    assert "does not compile" in detect and "axelera-hybrid-parked" in detect
-    assert size_recipe("rtmdet", "detect", "x")["hybrid_split"] == "backbone"  # parked recipe, never reached
-    assert "x does not compile" in get_support("rtmdet", "detect", "axelera").constraint
+    assert "x" not in BLOCKED_SIZES.get(("rtmdet", "detect", "axelera"), {})
 
 
 def test_network_learned_rounding_reaches_single_part_raw_head_exports(exporter_sdk, tmp_path, monkeypatch):
@@ -2597,3 +2599,36 @@ def test_network_learned_rounding_reaches_single_part_raw_head_exports(exporter_
                        output_path=str(tmp_path / "y4t_axelera_model"))
     meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
     assert meta["network_learned_rounding"]["layers"] > 0
+
+
+def test_rtmdet_neck_parts_chain_reproduces_the_raw_heads():
+    """RTMDet ``neck_parts`` in FP32: the stem part, then one compiled part per PAFPN block joined on the host by
+    nearest upsampling + channel concatenation, reproduces every raw-head output of the whole graph."""
+    import torch
+
+    from libreyolo import LibreRTMDet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import (
+        _RTMDET_NECK_STEPS,
+        _RTMDetNeckPart,
+        _RTMDetRawHeadsWrapper,
+        _RTMDetStemPart,
+    )
+
+    torch.manual_seed(0)
+    net = LibreRTMDet(None, size="x", nb_classes=3, device="cpu").model.eval()
+    raw = _RTMDetRawHeadsWrapper(net, "detect").eval()
+    stem = _RTMDetStemPart(net).eval()
+    x = torch.rand(1, 3, 128, 128, generator=torch.Generator().manual_seed(1)) * 255
+    with torch.no_grad():
+        want = dict(zip(raw.output_names, raw(x)))
+        values = dict(zip(stem.output_names, (t.numpy() for t in stem(x))))
+        produced = []
+        for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+            values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+            part = _RTMDetNeckPart(raw, stage).eval()
+            values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[joined])))))
+            produced += [n for n in part.output_names if n in want]
+    assert sorted(produced) == sorted(raw.output_names)
+    for name in raw.output_names:
+        torch.testing.assert_close(torch.from_numpy(values[name]), want[name], atol=1e-4, rtol=1e-4)

@@ -1560,6 +1560,128 @@ class _RTMDetRawHeadsWrapper(torch.nn.Module):
         return _relu6_window(conv, x, *window)
 
 
+class _RTMDetStemPart(torch.nn.Module):
+    """Part 1 of RTMDet's multi-part export (recipe ``neck_parts``): CSPNeXt backbone and the neck's first reduce.
+
+    Returns ``c3``, ``c4`` (backbone levels, each through an identity 1x1 conv: they also feed later backbone
+    stages, and the SDK's graph cleaner rejects a part output that also feeds another node) and ``r5``
+    (``reduce_layers[0]`` on the stride-32 level). Compiled whole, RTMDet-x's PAFPN finds no L1 tiling although
+    each of its blocks compiles alone in about a minute; the neck therefore runs as one compiled part per CSP
+    block (:class:`_RTMDetNeckPart`), joined on the host by nearest upsampling and channel concatenation only.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("c3", "c4", "r5")
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        c3, c4 = (int(c) for c in model.neck.in_channels[:2])
+        self.identity = torch.nn.ModuleList(
+            [_ChannelScale(torch.ones(c3), as_conv=True), _ChannelScale(torch.ones(c4), as_conv=True)]
+        )
+
+    def forward(self, x):
+        c3, c4, c5 = self.model.backbone(x)
+        return self.identity[0](c3), self.identity[1](c4), self.model.neck.reduce_layers[0](c5)
+
+
+#: RTMDet ``neck_parts`` run order after the stem part: (host concat inputs, upsample factors, its output, the
+#: compiled part reading it). Matches CSPNeXtPAFPN.forward for three levels.
+_RTMDET_NECK_STEPS = (
+    (("r5", "c4"), (2, 1), "cat_td0", "td0"),
+    (("r4", "c3"), (2, 1), "cat_td1", "td1"),
+    (("d3", "r4"), (1, 1), "cat_bu0", "bu0"),
+    (("d4", "r5"), (1, 1), "cat_bu1", "bu1"),
+)
+
+
+def _csp_merged_entry(csp: torch.nn.Module) -> torch.nn.Module:
+    """``main_conv`` and ``short_conv`` of a CSP layer as ONE 1x1 ConvBNAct (outputs stacked, main first; exact).
+
+    A compiled part's graph input that fans out into two convolutions is cut into two AIPU functions, and an
+    identity depthwise entry gets per-channel input ranges under the depthwise scheme, which the SDK cannot
+    strip from a graph input; one merged convolution is the single entry op and costs nothing extra.
+    """
+    from ..models.rtmdet.nn import ConvBNAct
+
+    main, short = csp.main_conv, csp.short_conv
+    merged = ConvBNAct(main.conv.in_channels, 2 * main.conv.out_channels, 1)
+    with torch.no_grad():
+        merged.conv.weight.copy_(torch.cat([main.conv.weight, short.conv.weight]))
+        for name in ("weight", "bias", "running_mean", "running_var"):
+            getattr(merged.bn, name).copy_(torch.cat([getattr(main.bn, name), getattr(short.bn, name)]))
+        merged.bn.eps = main.bn.eps
+    return merged.eval()
+
+
+def _csp_forward(csp: torch.nn.Module, merged: torch.nn.Module, x: torch.Tensor) -> torch.Tensor:
+    """CSPLayer.forward with the merged entry conv."""
+    both = merged(x)
+    mid = both.shape[1] // 2
+    out = torch.cat((csp.blocks(both[:, :mid]), both[:, mid:]), dim=1)
+    if csp.channel_attention:
+        out = csp.attention(out)
+    return csp.final_conv(out)
+
+
+class _RTMDetNeckPart(torch.nn.Module):
+    """One compiled part of RTMDet's ``neck_parts`` export: a PAFPN CSP block on its host-joined input.
+
+    ``td0``: top-down block 0 + ``reduce_layers[1]`` -> ``r4``. ``td1``: top-down block 1, then ``downsamples[0]``
+    -> ``d3`` and ``out_convs[0]`` + the stride-8 head -> ``p3_reg``, ``p3_cls``. ``bu0``: bottom-up block 0, then
+    ``downsamples[1]`` -> ``d4`` and the stride-16 output conv + head. ``bu1``: bottom-up block 1, the stride-32
+    output conv + head. The CSP block's ``main_conv`` and ``short_conv`` both read the input; they run as one
+    merged 1x1 conv (:func:`_csp_merged_entry`), the part's single entry op.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, raw: "_RTMDetRawHeadsWrapper", stage: str):
+        super().__init__()
+        self.raw, self.stage = raw, stage
+        neck = raw.model.neck
+        c3, c4, c5 = (int(c) for c in neck.in_channels)
+        self.output_names = {
+            "td0": ("r4",),
+            "td1": ("d3", "p3_reg", "p3_cls"),
+            "bu0": ("d4", "p4_reg", "p4_cls"),
+            "bu1": ("p5_reg", "p5_cls"),
+        }[stage]
+        self.block = {
+            "td0": neck.top_down_blocks[0],
+            "td1": neck.top_down_blocks[1],
+            "bu0": neck.bottom_up_blocks[0],
+            "bu1": neck.bottom_up_blocks[1],
+        }[stage]
+        self.entry = _csp_merged_entry(self.block)
+
+    def _head(self, idx, feat):
+        head = self.raw.model.head
+        cls_feat = reg_feat = feat
+        for layer in head.cls_convs[idx]:
+            cls_feat = layer(cls_feat)
+        for layer in head.reg_convs[idx]:
+            reg_feat = layer(reg_feat)
+        return (
+            self.raw._final_conv("reg", head.rtm_reg[idx], reg_feat),
+            self.raw._final_conv("cls", head.rtm_cls[idx], cls_feat),
+        )
+
+    def forward(self, x):
+        neck = self.raw.model.neck
+        y = _csp_forward(self.block, self.entry, x)
+        if self.stage == "td0":
+            return (neck.reduce_layers[1](y),)
+        if self.stage == "td1":
+            return (neck.downsamples[0](y), *self._head(0, neck.out_convs[0](y)))
+        if self.stage == "bu0":
+            return (neck.downsamples[1](y), *self._head(1, neck.out_convs[1](y)))
+        return self._head(2, neck.out_convs[2](y))
+
+
 class _RTMDetInsRawHeadsWrapper(torch.nn.Module):
     """RTMDet-Ins graph cut after each level's ``rtm_reg``/``rtm_cls``/``rtm_kernel``.
 
@@ -6999,6 +7121,16 @@ class AxeleraExporter(BaseExporter):
                 else _RTMDetRawHeadsWrapper
             )
             self._raw_wrapper = wrapper_cls(copy_, self._task()).eval()
+            if self._size_recipe().get("neck_parts") and self._task() == "detect":
+                # Multi-part: backbone + first reduce, then one compiled part per PAFPN CSP
+                # block (output convs and heads ride with their level); the host only
+                # upsamples (nearest) and concatenates channels between them.
+                self._metadata_wrapper = self._raw_wrapper
+                self._rtmdet_neck_parts = {
+                    stage: _RTMDetNeckPart(self._raw_wrapper, stage).eval()
+                    for *_, stage in _RTMDET_NECK_STEPS
+                }
+                self._raw_wrapper = _RTMDetStemPart(copy_).eval()
         else:
             fused = _fused_yolonas_copy(live, full_fusion=True)
             samples = self._equalization_samples() if self._task() == "pose" else []
@@ -7035,6 +7167,42 @@ class AxeleraExporter(BaseExporter):
             output_names=list(self._raw_wrapper.output_names),
             dynamic_axes=None,
         )
+        if getattr(self, "_rtmdet_neck_parts", None):
+            from ..backends.axelera import HOST_OPS
+
+            with torch.no_grad():
+                values = dict(zip(self._raw_wrapper.output_names, (t.numpy() for t in self._raw_wrapper(dummy))))
+            steps = []
+            for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+                part = self._rtmdet_neck_parts[stage]
+                values[joined] = HOST_OPS["concat"](*(values[name] for name in inputs), upsample=factors)
+                path = str(out.with_name(f"{out.name}.export_intermediate.{stage}.onnx"))
+                self._intermediate_paths = [*getattr(self, "_intermediate_paths", []), path]
+                sample = torch.from_numpy(values[joined])
+                _export_onnx_graph(
+                    part,
+                    torch.zeros_like(sample),
+                    output_path=path,
+                    opset=opset,
+                    simplify=simplify,
+                    half=False,
+                    metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                    input_names=[joined],
+                    output_names=list(part.output_names),
+                    dynamic_axes=None,
+                )
+                with torch.no_grad():
+                    values.update(zip(part.output_names, (t.numpy() for t in part(sample))))
+                steps.append(
+                    {"host": "concat", "inputs": list(inputs), "output": joined, "upsample": list(factors)}
+                )
+                steps.append({"compile": path, "reference": part, "input": joined, "merge_pad": False})
+            self._hybrid_parts = steps
+            logger.info(
+                "Axelera: RTMDet as %d compiled parts (backbone + first reduce, then one per PAFPN block with "
+                "its level's output conv and head); the host only upsamples and concatenates between them",
+                1 + len(_RTMDET_NECK_STEPS),
+            )
         if self._chain_tail is not None:
             with torch.no_grad():
                 tail_input = torch.zeros_like(self._raw_wrapper(dummy)[0])
@@ -7296,7 +7464,7 @@ class AxeleraExporter(BaseExporter):
 
     def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
         meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
-        wrapper = self._raw_wrapper
+        wrapper = getattr(self, "_metadata_wrapper", None) or self._raw_wrapper
         if isinstance(wrapper, _RestoreBodyWrapper):
             meta.update(
                 {
@@ -7545,8 +7713,7 @@ class AxeleraExporter(BaseExporter):
 
             compiled = 1 + sum("compile" in part for part in self._hybrid_parts)
             logger.info(
-                "Step 2/2: Quantizing and compiling for Axelera Metis (hybrid, %d compiled "
-                "parts; the transformer runs on the host)",
+                "Step 2/2: Quantizing and compiling for Axelera Metis (%d compiled parts)",
                 compiled,
             )
             return export_axelera_parts(

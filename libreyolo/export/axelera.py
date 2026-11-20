@@ -189,9 +189,11 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "hybrid_split": "backbone",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
-    # RTMDet-x (640): the CSPNeXt-x backbone on the Metis; the PAFPN neck and heads (no L1 tiling) on the host.
+    # RTMDet-x (640): compiled whole (or backbone + neck) the PAFPN finds no L1 tiling, while each of its blocks
+    # compiles alone; as compiled parts (backbone + first reduce, then one per PAFPN block with its level's
+    # output conv and head) every layer runs on the Metis, joined on the host by upsample + concat only.
     ("rtmdet", "detect", "x"): {
-        "hybrid_split": "backbone",
+        "neck_parts": True,
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
     ("retinanet", "detect", "r50v2"): {

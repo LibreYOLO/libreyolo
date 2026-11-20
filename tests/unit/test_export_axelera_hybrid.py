@@ -859,6 +859,7 @@ def test_pidnet_hybrid_layer5_split_reproduces_the_native_model(size):
     torch.testing.assert_close(again, want)
 
 
+@_PARKED
 def test_rtmdet_x_hybrid_backbone_split_reproduces_the_export_output():
     """RTMDet-x recipe hybrid in FP32: the CSPNeXt backbone (Metis part, identity-conv outputs) then the PAFPN
     neck and the head in export mode on the host reproduce the model's decoded export output."""
