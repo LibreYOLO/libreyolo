@@ -722,6 +722,17 @@ alone (the SDK's `axrunmodel`). Lists, directories and videos run at batch 8
 by default (section 5). The
 end-to-end numbers move with the host CPU and its load.
 
+A size is listed as validated or supported only if it is also faster with the
+network on the Metis than on the host CPU alone: its best end-to-end
+`predict()` throughput is at least that of the FP32 model on the CPU (ONNX
+Runtime or OpenVINO, whichever is faster) at the same host thread budget of 4
+threads, on the same images. Every size in section 1 meets this on the
+reference NUC; the closest margins were re-measured on 2026-11-20 at commit
+801b8eae8 and are PicoDet-s (1.5x) and YOLOX-n (2.0x), while most 640-pixel
+detectors run 5 to 35 times faster. Where the CPU reference cannot use
+LibreYOLO's ONNX export (RTMDet-Ins) it is the FP32 network forward alone,
+without decoding; for PicoSAM3 it is LibreYOLO's own PyTorch `predict()`.
+
 ## 8. How it works
 
 The exported graph stops after the detection head's final convolutions. The
