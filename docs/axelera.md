@@ -669,7 +669,8 @@ the scheme); pass `compiler_config={"quantization_scheme": ...}` to choose
 another.
 
 Throughput, YOLO-NAS-s detect, 640x640, raw model calls on the device
-(host quantize, AIPU, dequantize; measured while other jobs loaded the host):
+(host quantize, AIPU, dequantize; measured at commit 45bfb9136, 2026-11-11,
+while other jobs loaded the host):
 
 | Submission | Images per second |
 | --- | --- |
@@ -677,10 +678,24 @@ Throughput, YOLO-NAS-s detect, 640x640, raw model calls on the device
 | `predict(..., batch=8)` path | about 48 |
 | batch of 32, optimized runtime pipeline | about 73 |
 
-Host preprocessing (about 17 ms per image) and the host decode plus NMS add
-to the end-to-end time of a single `predict()` call. Latency tuning
-(`resources_used`, core allocation, an optimized pipeline in the backend) is
-future work.
+End to end through `predict()` (host preprocessing, the Metis, host decode,
+NMS and `Results`; the runtime's default 4 AIPU cores; 64 COCO val2017 images,
+ImageNetV2 for ResNet-50; 4 host threads on the reference NUC, an Intel Core
+Ultra 5 125H with a Metis M.2 Max), measured at commit f4801b7d4 (2026-11-20),
+images per second:
+
+| Model | batch 1 | batch 8 | batch 32 | device only |
+| --- | --- | --- | --- | --- |
+| ResNet-50 | 69 | 256 | 320 | 1118 |
+| YOLO9-s | 18 | 49 | 58 | 300 |
+| RTMDet-s | 25 | 71 | 79 | 365 |
+| PP-YOLOE-s | 19 | 59 | 63 | 383 |
+| YOLO-NAS-s | 21 | 58 | 63 | 365 |
+| PP-LiteSeg-t50 (512x1024) | 8 | 17 | - | 327 |
+
+The host side bounds these: the device-only column is the compiled model
+alone (the SDK's `axrunmodel`). Pass a list with `batch=N` (section 5). The
+end-to-end numbers move with the host CPU and its load.
 
 ## 8. How it works
 
