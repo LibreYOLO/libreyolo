@@ -77,6 +77,21 @@ detector is also swappable: pass `face_detector=` any LibreYOLO detector, an
 OpenCV face-detector ONNX path, or a callable; or bypass detection entirely
 with `face_boxes=[...]`.
 
+### Axelera Metis
+
+The recognition head compiles for an Axelera Metis; the face detector and the
+alignment stay on the host:
+
+```python
+model = LibreYOLO("librefacerec-l")
+model.export(format="axelera", data="coco128.yaml")  # faces found by the detector calibrate it
+npu = LibreYOLO("librefacerec-l_axelera_model")      # detection + alignment on the host, head on the Metis
+```
+
+On 890 aligned COCO val2017 faces the Metis embeddings have a mean cosine of
+0.993 with the FP32 head's, and every same/different decision at the 0.4
+threshold matches (`docs/axelera.md`).
+
 ## Design notes
 
 - **Per-reference storage, max-cosine scoring.** Enrolling K images of one

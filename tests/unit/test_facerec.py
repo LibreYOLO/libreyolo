@@ -660,3 +660,80 @@ def test_video_with_gallery_identifies_each_frame(tiny_onnx, monkeypatch):
         "clip.mp4", face_boxes=[(0, 0, 96, 96)], gallery=gallery, threshold=0.9
     )
     assert results[0].identities.name == ["alice"]
+
+
+def _face_dataset(tmp_path, n=3):
+    root = tmp_path / "faces"
+    for split in ("train", "val"):
+        (root / "images" / split).mkdir(parents=True)
+        (root / "labels" / split).mkdir(parents=True)
+        rng = np.random.default_rng(1)
+        for index in range(n):
+            pixels = rng.integers(0, 255, size=(160, 200, 3), dtype=np.uint8)
+            Image.fromarray(pixels).save(root / "images" / split / f"{index}.jpg")
+            (root / "labels" / split / f"{index}.txt").write_text("0 0.5 0.5 0.4 0.5\n")
+    data = tmp_path / "faces.yaml"
+    data.write_text(f"path: {root}\ntrain: images/train\nval: images/val\nnames:\n  0: face\n")
+    return data
+
+
+def _stub_detector(image_rgb):
+    from libreyolo.models.l2cs.face import FaceBox
+
+    h, w = image_rgb.shape[:2]
+    landmarks = np.array([[0.35 * w, 0.4 * h], [0.65 * w, 0.4 * h], [0.5 * w, 0.55 * h],
+                          [0.4 * w, 0.7 * h], [0.6 * w, 0.7 * h]], dtype=np.float32)
+    return [FaceBox(xyxy=(0.2 * w, 0.2 * h, 0.8 * w, 0.85 * h), score=0.9, landmarks=landmarks),
+            FaceBox(xyxy=(0.1 * w, 0.1 * h, 0.5 * w, 0.6 * h), score=0.8, landmarks=landmarks * 0.6)]
+
+
+def test_axelera_export_compiles_the_head_and_the_factory_runs_it(tmp_path, monkeypatch):
+    """export(format="axelera") compiles the recognition head at batch 1 on faces aligned like predict();
+    LibreYOLO("librefacerec-*_axelera_model") runs it (detection/alignment on the host) with the ONNX head's embeddings."""
+    onnx = pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    from tests.unit.test_axelera_backend import _install_fake_sdk
+
+    import libreyolo.export.axelera as axelera
+    from libreyolo import LibreYOLO
+    from libreyolo.models.facerec import LibreFaceEmbedder
+
+    _install_fake_sdk(monkeypatch)
+    head = tmp_path / "librefacerec-t.onnx"
+    _build_tiny_face_onnx(str(head), dim=8)
+    model = LibreFaceEmbedder(str(head), device="cpu", face_detector=_stub_detector)
+    seen = {}
+    real = axelera.export_axelera
+
+    def spy(**kwargs):
+        seen.update(kwargs)
+        seen["graph"] = onnx.load(kwargs["onnx_path"])
+        return real(**kwargs)
+
+    monkeypatch.setattr(axelera, "export_axelera", spy)
+    out = model.export("axelera", data=str(_face_dataset(tmp_path)), output_path=tmp_path / "librefacerec-t_axelera_model")
+    assert [d.dim_value for d in seen["graph"].graph.input[0].type.tensor_type.shape.dim] == [1, 3, 112, 112]
+    calibration = seen["calibration"]
+    assert len(calibration) == 6 and all(c.shape == (1, 3, 112, 112) and c.dtype == np.float32 for c in calibration)
+    meta = seen["metadata"]
+    assert meta["model_family"] == "facerec" and meta["task"] == "embed" and meta["embedding_dim"] == 8
+    assert "Python" in meta["contract"] and meta["preprocess"]["mean"] == 127.5
+    assert seen["quantization_scheme"] == LibreFaceEmbedder.AXELERA_QUANTIZATION_SCHEME
+    assert tuple(seen["graph_passes"]) == ("fc_rowconv",)
+
+    npu = LibreYOLO(out)
+    assert isinstance(npu, LibreFaceEmbedder) and npu.device == "axelera" and npu.dim == 8
+    img = Image.fromarray((np.random.default_rng(2).random((96, 96, 3)) * 255).astype(np.uint8))
+    got = npu(img, face_boxes=[(0, 0, 96, 96)]).embeddings.numpy().data
+    want = model(img, face_boxes=[(0, 0, 96, 96)]).embeddings.numpy().data
+    np.testing.assert_allclose(got, want, atol=1e-6)
+
+
+def test_axelera_export_refuses_other_formats_and_an_axelera_head(tiny_onnx):
+    from libreyolo.models.facerec import LibreFaceEmbedder
+
+    model = LibreFaceEmbedder(tiny_onnx, device="cpu")
+    with pytest.raises(NotImplementedError, match="format='axelera'"):
+        model.export("onnx")
+    with pytest.raises(ValueError, match="fraction"):
+        model.export("axelera", fraction=0.0)
