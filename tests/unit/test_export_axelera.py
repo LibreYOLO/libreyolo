@@ -1187,7 +1187,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("retinanet", "detect", "r50v2"),
         # CenterNet recipe hybrids (test_centernet_hybrid_body_split_reproduces_the_native_model).
         ("centernet", "detect", "resdcn18"), ("centernet", "detect", "dla34"),
-        # HRNet-w32/w48 recipe hybrids (test_hrnet_w32_hybrid_stage3_split_reproduces_the_native_model).
+        # HRNet-w32/w48 fusion_parts (test_hrnet_fusion_parts_chain_reproduces_the_native_model).
         ("hrnet", "pose", "w32"), ("hrnet", "pose", "w48"),
         # DEKR-w32 recipe hybrid (test_dekr_w32_hybrid_stage3_split_reproduces_the_native_model).
         ("dekr", "pose", "w32"),
@@ -2632,3 +2632,38 @@ def test_rtmdet_neck_parts_chain_reproduces_the_raw_heads():
     assert sorted(produced) == sorted(raw.output_names)
     for name in raw.output_names:
         torch.testing.assert_close(torch.from_numpy(values[name]), want[name], atol=1e-4, rtol=1e-4)
+
+
+def test_hrnet_fusion_parts_chain_reproduces_the_native_model():
+    """HRNet-w32 ``fusion_parts`` in FP32: the trunk, the stage-4 branch parts joined on the host by nearest
+    upsampling + channel concatenation (each fusion's sum as a fixed 1x1 conv in the next part), and the heatmap
+    part reproduce the native heatmaps; w32 is validated, w48 not measured yet."""
+    import torch
+
+    from libreyolo import LibreHRNet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.exporter import AxeleraExporter, _HRNetTrunkPart, _hrnet_fusion_steps
+    from libreyolo.export.support import UNMEASURED_SIZES, get_support
+
+    model = LibreHRNet(size="w32", device="cpu")
+    exporter = AxeleraExporter(model)
+    assert exporter._hybrid_outputs() == () and exporter._rectangular_imgsz_supported()
+    assert size_recipe("hrnet", "pose", "w32")["fusion_parts"] is True
+    entry = get_support("hrnet", "pose", "axelera")
+    assert entry.tier == "validated" and "validated sizes: w32" in entry.constraint
+    assert "w48" in UNMEASURED_SIZES[("hrnet", "pose", "axelera")]
+    net = model.model.eval()
+    trunk = _HRNetTrunkPart(net).eval()
+    steps = _hrnet_fusion_steps(net)
+    assert len(steps) == 13
+    x = torch.rand(1, 3, 256, 192, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = net(x)
+        values = dict(zip(trunk.output_names, (t.numpy() for t in trunk(x))))
+        for join, source, part in steps:
+            if join is not None:
+                inputs, factors, joined = join
+                values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+            values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[source])))))
+    torch.testing.assert_close(torch.from_numpy(values["heatmaps"]), want, atol=1e-4, rtol=1e-4)

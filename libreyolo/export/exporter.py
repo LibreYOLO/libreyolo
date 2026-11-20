@@ -4852,6 +4852,137 @@ def _hrnet_branches(transition, cfg, y):
     return [transition[i](y[-1]) if transition[i] is not None else y[i] for i in range(cfg["NUM_BRANCHES"])]
 
 
+def _hrnet_eye_conv(channels: int, copies: int = 1) -> torch.nn.Conv2d:
+    """A fixed 1x1 conv summing ``copies`` stacked ``channels``-wide inputs (identity for one copy; exact)."""
+    conv = torch.nn.Conv2d(channels * copies, channels, 1, bias=False)
+    with torch.no_grad():
+        conv.weight.copy_(torch.eye(channels).repeat(1, copies).view(channels, channels * copies, 1, 1))
+    return conv.requires_grad_(False).eval()
+
+
+class _HRNetTrunkPart(torch.nn.Module):
+    """Part 1 of HRNet's ``fusion_parts`` export: stem to stage 3 and the transition into stage 4.
+
+    Returns stage 4's four branch inputs (``s4in0``..``s4in3``), each through an identity 1x1 conv (exact): the
+    first three also feed the new branch's transition, and a part output may not feed another node.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        n = model.stage4_cfg["NUM_BRANCHES"]
+        self.output_names = tuple(f"s4in{i}" for i in range(n))
+        self.identity = torch.nn.ModuleList(
+            [_hrnet_eye_conv(c) for c in model._expanded_channels(model.stage4_cfg)]
+        )
+
+    def forward(self, x):
+        m = self.model
+        x = m.layer1(m.relu(m.bn2(m.conv2(m.relu(m.bn1(m.conv1(x)))))))
+        y = m.stage2([t(x) if t is not None else x for t in m.transition1])
+        y = m.stage3(_hrnet_branches(m.transition2, m.stage3_cfg, y))
+        return tuple(conv(t) for conv, t in zip(self.identity, _hrnet_branches(m.transition3, m.stage4_cfg, y)))
+
+
+class _HRNetBranchPart(torch.nn.Module):
+    """One branch of one stage-4 module of HRNet as a compiled part (``fusion_parts``).
+
+    Input: module 0 -> the trunk's ``s4in<j>``; later modules -> the host's channel concat of every branch's
+    contribution to this resolution (nearest-upsampled where it comes from a coarser branch), summed by a fixed
+    1x1 conv (identity blocks; exact) and ReLU'd, which is the previous module's fuse. Then the branch's
+    residual blocks and, per output resolution i of this module, its fuse transform toward i: the 1x1 conv + BN
+    (the 2^(j-i) nearest upsample is left to the host), the strided 3x3 chain, or the branch itself (identity).
+    Outputs ``m<k>_b<j>_to<i>``. The entry op (identity or sum conv) is dense: every branch block reads its input
+    twice (residual), and a part's graph input may not fan out.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module, module: int, branch: int):
+        super().__init__()
+        self.model, self.k, self.j = model, int(module), int(branch)
+        stage = model.stage4
+        mod = stage[self.k]
+        channels = mod.num_inchannels[self.j]
+        self.entry = _hrnet_eye_conv(channels, 1 if self.k == 0 else stage[self.k - 1].num_branches)
+        if self.k == 0 and channels < _HRNET_MIN_PART_INPUT:
+            # A narrow (32-channel) part input feeding a 1x1 conv fails the compiler's InCoreReplication type
+            # check; the host hands it over twice (concat with itself) and the entry reads the first copy only.
+            self.entry = _hrnet_eye_conv(channels, 2)
+            with torch.no_grad():
+                self.entry.weight[:, channels:] = 0.0
+        self.outputs = list(range(mod.num_branches if mod.multi_scale_output else 1))
+        self.output_names = tuple(f"m{self.k}_b{self.j}_to{i}" for i in self.outputs)
+        self.identity = _hrnet_eye_conv(int(mod.num_inchannels[self.j]))
+
+    def forward(self, x):
+        mod = self.model.stage4[self.k]
+        x = self.entry(x)
+        if self.k > 0:
+            x = torch.relu(x)
+        x = mod.branches[self.j](x)
+        outs = []
+        for i in self.outputs:
+            if i == self.j:
+                outs.append(self.identity(x))
+            elif self.j > i:
+                outs.append(mod.fuse_layers[i][self.j][1](mod.fuse_layers[i][self.j][0](x)))
+            else:
+                outs.append(mod.fuse_layers[i][self.j](x))
+        return tuple(outs)
+
+
+class _HRNetFinalPart(torch.nn.Module):
+    """Last part of HRNet's ``fusion_parts`` export: the last module's fuse (sum conv + ReLU) and the heatmap layer."""
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("heatmaps",)
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        last = model.stage4[len(model.stage4) - 1]
+        self.entry = _hrnet_eye_conv(int(last.num_inchannels[0]), last.num_branches)
+
+    def forward(self, x):
+        return (self.model.final_layer(torch.relu(self.entry(x))),)
+
+
+#: Narrowest compiled-part input HRNet's ``fusion_parts`` hands over as is (narrower inputs travel twice).
+_HRNET_MIN_PART_INPUT = 64
+
+
+def _hrnet_fusion_steps(model: torch.nn.Module):
+    """Run order of HRNet's ``fusion_parts`` export after the trunk: (host concat or None, compiled part)."""
+    steps = []
+    stage = model.stage4
+    for k in range(len(stage)):
+        mod = stage[k]
+        for j in range(mod.num_branches):
+            if k == 0 and mod.num_inchannels[j] < _HRNET_MIN_PART_INPUT:
+                source = f"m0_in{j}"
+                join = ([f"s4in{j}", f"s4in{j}"], [1, 1], source)
+            elif k == 0:
+                join = None
+                source = f"s4in{j}"
+            else:
+                prev = stage[k - 1]
+                inputs = [f"m{k - 1}_b{b}_to{j}" for b in range(prev.num_branches)]
+                factors = [2 ** (b - j) if b > j else 1 for b in range(prev.num_branches)]
+                source = f"m{k}_in{j}"
+                join = (inputs, factors, source)
+            steps.append((join, source, _HRNetBranchPart(model, k, j).eval()))
+    last = stage[len(stage) - 1]
+    inputs = [f"m{len(stage) - 1}_b{b}_to0" for b in range(last.num_branches)]
+    steps.append(((inputs, [2 ** b for b in range(last.num_branches)], "final_in"), "final_in", _HRNetFinalPart(model).eval()))
+    return steps
+
+
 class _HRNetBodyWrapper(torch.nn.Module):
     """Part 1 of a hybrid HRNet pose export (recipe ``hybrid_split``): stem to stage 3, all three branches.
 
@@ -6487,7 +6618,8 @@ class AxeleraExporter(BaseExporter):
         # Whole-graph dense exports and HRNet's hybrid keep their canvas (HRNet's
         # 256x192 person crop); the YOLO-NAS raw-head path stays square.
         return bool(self._graph_outputs()) or (
-            self.model._get_model_name() == "hrnet" and bool(self._hybrid_outputs())
+            self.model._get_model_name() == "hrnet"
+            and (bool(self._hybrid_outputs()) or bool(self._size_recipe().get("fusion_parts")))
         )
 
     def _shuffle_skip_restore(self) -> bool:
@@ -6641,6 +6773,65 @@ class AxeleraExporter(BaseExporter):
         self._raw_wrapper = trunk
         self._hybrid_parts = steps
         self._hybrid_host_arrays = arrays
+        return first
+
+    def _export_hrnet_fusion_parts_onnx(self, out: Path, imgsz, dummy, onnx_output, opset, simplify) -> str:
+        """HRNet pose as compiled parts (recipe ``fusion_parts``): trunk to stage 3, then one part per branch of
+        each stage-4 module and the heatmap layer; between parts the host only upsamples (nearest) and
+        concatenates channels, and each module's fuse sum runs in the next part as a fixed 1x1 conv."""
+        from ..backends.axelera import HOST_OPS
+        from .onnx import _export_onnx_graph
+
+        net = copy.deepcopy(self.model.model).eval()
+        trunk = _HRNetTrunkPart(net).eval()
+        steps_plan = _hrnet_fusion_steps(net)
+        logger.info(
+            "Step 1/2: Exporting HRNet as %d compiled parts (trunk, one per stage-4 branch and module, heatmap "
+            "layer); the host only upsamples and concatenates between them",
+            1 + len(steps_plan),
+        )
+        first = _export_onnx_graph(
+            trunk,
+            dummy,
+            output_path=onnx_output,
+            opset=opset,
+            simplify=simplify,
+            half=False,
+            metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+            input_names=["images"],
+            output_names=list(trunk.output_names),
+            dynamic_axes=None,
+        )
+        self._intermediate_paths = [onnx_output]
+        with torch.no_grad():
+            values = dict(zip(trunk.output_names, (t.numpy() for t in trunk(dummy))))
+        steps = []
+        for join, source, part in steps_plan:
+            if join is not None:
+                inputs, factors, joined = join
+                values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+                steps.append({"host": "concat", "inputs": list(inputs), "output": joined, "upsample": list(factors)})
+            sample = torch.from_numpy(values[source])
+            path = str(out.with_name(f"{out.name}.export_intermediate.{part.output_names[0]}.onnx"))
+            self._intermediate_paths.append(path)
+            _export_onnx_graph(
+                part,
+                torch.zeros_like(sample),
+                output_path=path,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=[source],
+                output_names=list(part.output_names),
+                dynamic_axes=None,
+            )
+            with torch.no_grad():
+                values.update(zip(part.output_names, (t.numpy() for t in part(sample))))
+            steps.append({"compile": path, "reference": part, "input": source, "merge_pad": False})
+        self._metadata_wrapper = _GraphOutputsWrapper(net, ("heatmaps",)).eval()
+        self._raw_wrapper = trunk
+        self._hybrid_parts = steps
         return first
 
     def _export_efficientdet_parts_onnx(self, out: Path, imgsz, dummy, onnx_output, opset, simplify) -> str:
@@ -6975,6 +7166,8 @@ class AxeleraExporter(BaseExporter):
             return self._export_rrdb_parts_onnx(out, imgsz, opset)
         if self.model._get_model_name() == "fcos" and self._task() == "detect":
             return self._export_fcos_parts_onnx(out, imgsz)
+        if self.model._get_model_name() == "hrnet" and self._size_recipe().get("fusion_parts"):
+            return self._export_hrnet_fusion_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
         if self.model._get_model_name() == "efficientdet" and self._size_recipe().get("class_head_part"):
             return self._export_efficientdet_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
         graph_outputs = () if self._hybrid_outputs() else self._graph_outputs()

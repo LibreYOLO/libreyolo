@@ -150,14 +150,15 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "hybrid_split": "backbone",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
-    # HRNet-w32: stem to stage 3 on the Metis; stage 4 (where the device drifts from the quantized model) on the host.
+    # HRNet-w32: stage 4 drifts on the device compiled with the rest; as compiled parts (trunk to stage 3, one per
+    # stage-4 branch and module, heatmap layer) joined by host upsample + concat, every layer runs on the Metis.
     ("hrnet", "pose", "w32"): {
-        "hybrid_split": "backbone",
+        "fusion_parts": True,
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
-    # HRNet-w48 (384x288): the w32 split (stage 4 drifts on the device in the same fusion modules).
+    # HRNet-w48 (384x288): the w32 parts (not measured yet: UNMEASURED_SIZES).
     ("hrnet", "pose", "w48"): {
-        "hybrid_split": "backbone",
+        "fusion_parts": True,
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
     # DEKR-w32 (640x640): the same trunk split; the whole graph has no working build (output paging / device lost).

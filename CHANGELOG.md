@@ -114,6 +114,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: HRNet-w32 pose runs on the Metis as 14 compiled parts and is validated (keypoint mAP50-95 -0.92 vs FP32; was parked as a hybrid).** Compiled as one graph its output drifts on the device through stage 4's fusion modules. New per-size recipe `fusion_parts`: the trunk to stage 3, one part per branch of each stage-4 module, and the heatmap layer; the host only upsamples (nearest) and concatenates between parts, and each fusion's sum runs in the next part as a fixed 1x1 conv. 0.7566 vs 0.7658 FP32 on 1172 COCO val2017 person crops. 16.4 img/s batched vs 6.87 for the best FP32 CPU run (4 host threads); slower than the CPU at batch 1 (3.69 vs 4.98 img/s). HRNet-w48 has not been measured this way yet.
+
 - **Axelera Metis: `predict()` batches lists, directories and video files 8 images at a time by default.** On the Metis the host steps bound end-to-end speed, and a batched submission keeps several AIPU cores busy while the host pre- and post-processes in parallel (YOLO9-s 18 img/s image by image, 49 at batch 8). `batch=None` is now the default for every backend and resolves to the backend's `default_predict_batch`: 8 for Axelera, 1 everywhere else (unchanged). `batch=1` opts out; `batch=0` raises. Video files now pass `batch` through as well (live streams and single images still run frame by frame). Results are bitwise identical to image-by-image calls.
 
 - **Axelera Metis: UNet-s calibrates with histogram activation ranges.** Per-size recipe `quantization_scheme: hybrid_per_tensor_per_channel` (whole graph, as before): fidelity mIoU against FP32 labels on 1000 COCO val2017 images is 0.856 (was 0.777 with min-max), with 95.3% of pixels agreeing (was 91.3%). It stays supported.

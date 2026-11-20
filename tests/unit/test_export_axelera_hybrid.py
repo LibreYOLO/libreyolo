@@ -769,6 +769,7 @@ def test_centernet_hybrid_body_split_reproduces_the_native_model(size):
 
 
 
+@_PARKED
 def test_hrnet_w32_hybrid_stage3_split_reproduces_the_native_model():
     """HRNet-w32 recipe hybrid in FP32: stem to stage 3 (Metis part, three branches) then stage 4 and
     the heatmap layer on the host reproduce the native heatmaps, at the fixed 256x192 person crop."""

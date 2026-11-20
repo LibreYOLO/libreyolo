@@ -75,7 +75,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | gtr | obb | available | available |  |  |  |  |  |  |  |  |  |  |  |
 | gtr | depth | available | available |  |  |  |  |  |  |  |  |  |  |  |
 | gtr | semantic | available | available |  |  |  |  |  |  |  |  |  |  |  |
-| hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  | ✓ |  |  |  |  |
 | hvi_cidnet | restore |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | instanthmr | mesh | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | internvl3 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -348,6 +348,7 @@ A check mark applies only under any constraint listed here.
 - `hrnet` / `pose` / `torchscript`: PyTorch 2.11, ONNX 1.20.1 / ONNX Runtime 1.26 or TorchScript, CPU FP32, batch 1, fixed checkpoint-native 256x192 (W32) or 384x288 (W48) person-crop input; the full-image person detector is not in-graph
 - `hrnet` / `pose` / `tensorrt`: TensorRT 10.16.1.11, CUDA 12.8, RTX 5070 Ti, FP32, batch 1, fixed checkpoint-native 256x192 (W32) or 384x288 (W48) person-crop input; the full-image person detector is not in-graph
 - `hrnet` / `pose` / `openvino`: OpenVINO 2026.2.1 CPU FP32, batch 1, fixed checkpoint-native 256x192 (W32) or 384x288 (W48) person-crop input; the full-image person detector is not in-graph
+- `hrnet` / `pose` / `axelera`: validated sizes: w32 (256x192 person crops; slower than the FP32 CPU at batch 1 with 4 host threads, 3.69 vs 4.98 img/s, 2.4x faster batched); w48 has not been measured as compiled parts (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, fixed crop input
 - `instanthmr` / `mesh` / `onnx`: raw fixed-288 person-crop contract: image, cliff_cond -> mhr_params, shape_params, cam_trans, joints_2d, joints_3d, vertices; mesh faces in metadata
 - `l2cs` / `gaze` / `onnx`: head-only contract: each input image is one face crop
 - `l2cs` / `gaze` / `torchscript`: head-only contract: each input image is one face crop
@@ -1397,7 +1398,6 @@ rest on the host CPU; each entry names the split.
 - `hrnet` / `pose` / `paddle`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `mnn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `rknn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
-- `hrnet` / `pose` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `hrnet` / `pose` / `ncnn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `tflite`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `coreml`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
