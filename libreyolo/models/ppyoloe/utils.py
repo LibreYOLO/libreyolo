@@ -21,7 +21,6 @@ import torch
 from PIL import Image
 
 from ...postprocess.ppyoloe import postprocess  # noqa: F401  (re-export)
-from ...preprocess import normalize_hwc_to_chw
 from ...utils.image_loader import ImageInput, ImageLoader
 
 __all__ = [
@@ -54,10 +53,12 @@ def preprocess_numpy(
     else:
         input_h = input_w = int(input_size)
 
-    resized = cv2.resize(
+    arr = cv2.resize(
         img_rgb_hwc, (input_w, input_h), interpolation=cv2.INTER_LINEAR
-    )
-    return normalize_hwc_to_chw(resized, PPYOLOE_MEAN, PPYOLOE_STD), 1.0
+    ).astype(np.float32)
+    arr -= np.array(PPYOLOE_MEAN, dtype=np.float32)
+    arr /= np.array(PPYOLOE_STD, dtype=np.float32)
+    return arr.transpose(2, 0, 1), 1.0
 
 
 def preprocess_image(

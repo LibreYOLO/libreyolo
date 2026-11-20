@@ -18,7 +18,7 @@ from ..postprocess.yolonas import (
     YOLO_NAS_RESIZE_SIZE,
 )
 from ..utils.image_loader import ImageInput, ImageLoader
-from . import as_batched_input, normalize_hwc_to_chw
+from . import as_batched_input
 
 YOLO_NAS_POSE_PAD_VALUE = 127
 YOLO_NAS_OBB_PAD_VALUE = 114
@@ -63,7 +63,8 @@ def preprocess_numpy(
         offset_y = (input_h - new_h) // 2
     padded.paste(img_resized, (offset_x, offset_y))
 
-    return normalize_hwc_to_chw(np.asarray(padded), scale=255.0), ratio
+    arr = np.array(padded, dtype=np.float32) / 255.0
+    return arr.transpose(2, 0, 1), ratio
 
 
 def preprocess_image(
@@ -155,7 +156,8 @@ def preprocess_obb_numpy(
     padded = np.full((input_h, input_w, 3), pad_value, dtype=np.uint8)
     padded[:new_h, :new_w] = bgr  # bottom-right padding
 
-    return normalize_hwc_to_chw(padded, scale=255.0), ratio
+    arr = padded.astype(np.float32) / 255.0
+    return arr.transpose(2, 0, 1), ratio
 
 
 def preprocess_obb_image(

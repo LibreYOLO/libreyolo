@@ -43,6 +43,13 @@ def normalize_hwc_to_chw(
     avoids the strided broadcast over the channel axis, the float HWC
     temporaries and the later copy of a transposed view (about 3-4x faster
     on a 640x640 image).
+
+    The result is a contiguous CHW array. A recipe that returned a transposed
+    view of an HWC buffer must keep doing so: ``np.stack`` of such views keeps the
+    channels-last memory order, and PyTorch then runs channels-last convolution
+    kernels whose float sums differ at the last bit (YOLO-NAS native val
+    best_conf, 2026-11-20), so the switch is only exact for recipes that were
+    already contiguous (RTMDet).
     """
     height, width, channels = img_hwc.shape
     mean = None if mean is None else np.asarray(mean, dtype=np.float32).reshape(-1)

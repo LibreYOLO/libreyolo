@@ -14,7 +14,7 @@ import numpy as np
 
 from ..postprocess.yolo9 import ImageSize, _input_size_hw
 from ..utils.image_loader import ImageInput, ImageLoader
-from . import as_batched_input, normalize_hwc_to_chw
+from . import as_batched_input
 
 
 def preprocess_numpy(
@@ -43,7 +43,8 @@ def preprocess_numpy(
     padded, ratio, _pad_left, _pad_top = apply_letterbox_hwc(
         img_rgb_hwc, input_h, input_w, pad=letterbox_pad, fill=114
     )
-    return normalize_hwc_to_chw(padded, scale=255.0), ratio
+    arr = np.ascontiguousarray(padded, dtype=np.float32) / 255.0
+    return arr.transpose(2, 0, 1), ratio
 
 
 def preprocess_image(

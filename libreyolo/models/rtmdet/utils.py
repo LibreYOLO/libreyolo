@@ -65,6 +65,8 @@ def preprocess_numpy(
     padded.paste(img_resized, (0, 0))
 
     # RGB -> BGR; mean/std applied in BGR space (mmdet config has bgr_to_rgb=False).
+    # Contiguous CHW, the same memory layout as before (ascontiguousarray of the transposed
+    # HWC result): batches stacked from these keep PyTorch on the same convolution kernels.
     chw = normalize_hwc_to_chw(
         np.asarray(padded), _RTMDET_BGR_MEAN, _RTMDET_BGR_STD, reverse_channels=True
     )
