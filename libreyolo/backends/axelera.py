@@ -279,8 +279,45 @@ def _host_concat(*xs, upsample, mode: str = "nearest") -> np.ndarray:
     return np.concatenate(arrays, axis=1)
 
 
+def _bilinear_resize_like_torch(x: np.ndarray, out_h: int, out_w: int) -> np.ndarray:
+    """``F.interpolate(x, (out_h, out_w), mode="bilinear", align_corners=False)`` in float32 numpy (NCHW)."""
+    _, _, in_h, in_w = x.shape
+
+    def axis(n_in, n_out):
+        scale = np.float32(n_in / n_out)
+        src = (np.arange(n_out, dtype=np.float32) + np.float32(0.5)) * scale - np.float32(0.5)
+        src = np.maximum(src, np.float32(0.0))
+        i0 = np.minimum(np.floor(src).astype(np.int64), n_in - 1)
+        i1 = np.minimum(i0 + 1, n_in - 1)
+        lam1 = (src - i0).astype(np.float32)
+        return i0, i1, (np.float32(1.0) - lam1), lam1
+
+    h0, h1, hl0, hl1 = axis(in_h, out_h)
+    w0, w1, wl0, wl1 = axis(in_w, out_w)
+    top = x[:, :, h0, :]
+    bottom = x[:, :, h1, :]
+    hl0, hl1 = hl0[None, None, :, None], hl1[None, None, :, None]
+    wl0, wl1 = wl0[None, None, None, :], wl1[None, None, None, :]
+    return (hl0 * (wl0 * top[..., w0] + wl1 * top[..., w1]) + hl1 * (wl0 * bottom[..., w0] + wl1 * bottom[..., w1])).astype(np.float32)
+
+
+def _host_resize_concat(*xs) -> np.ndarray:
+    """Channel concat of parts' outputs, each resized bilinearly (``align_corners=False``) to the first one's size.
+
+    Weight-free data movement: RTMDet-Ins's mask-feature module joins its three levels this way before its convs.
+    """
+    first = np.asarray(xs[0], dtype=np.float32)
+    out_h, out_w = first.shape[-2:]
+    arrays = [first]
+    for x in xs[1:]:
+        x = np.asarray(x, dtype=np.float32)
+        arrays.append(x if x.shape[-2:] == (out_h, out_w) else _bilinear_resize_like_torch(x, out_h, out_w))
+    return np.concatenate(arrays, axis=1)
+
+
 HOST_OPS: dict[str, Any] = {
     "concat": _host_concat,
+    "resize_concat": _host_resize_concat,
     "l2norm": _host_l2norm,
     "add": _host_add,
     "pack_levels": _host_pack_levels,

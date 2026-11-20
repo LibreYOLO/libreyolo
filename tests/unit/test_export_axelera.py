@@ -1109,7 +1109,7 @@ def test_support_matrix_rows_for_axelera():
     rtmdet = get_support("rtmdet", "detect", "axelera")
     assert rtmdet.tier == "available" and "supported sizes: t, s, m, l, x " in rtmdet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["l", "m", "s", "t", "x"]
-    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]) == ["l", "m", "s", "t"]
+    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]) == ["l", "m", "s", "t", "x"]
     effdet = get_support("efficientdet", "detect", "axelera")
     assert effdet.tier == "available"
     assert "supported sizes: d0, d1 and d2 " in effdet.constraint
@@ -1197,8 +1197,9 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("pidnet", "semantic", "s"), ("pidnet", "semantic", "m"), ("pidnet", "semantic", "l"),
         # EfficientDet-d3/d4 recipe hybrids (test_efficientdet_hybrid_backbone_split_reproduces_the_export_output).
         ("efficientdet", "detect", "d3"), ("efficientdet", "detect", "d4"),
-        # RTMDet-x neck_parts (test_rtmdet_neck_parts_chain_reproduces_the_raw_heads).
-        ("rtmdet", "detect", "x"),
+        # RTMDet-x / RTMDet-Ins-x neck_parts (test_rtmdet_neck_parts_chain_reproduces_the_raw_heads,
+        # test_rtmdet_ins_neck_parts_chain_reproduces_the_raw_heads).
+        ("rtmdet", "detect", "x"), ("rtmdet", "segment", "x"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),
@@ -1348,13 +1349,18 @@ def test_efficientnetv2_b0_exports_with_histogram_ranges(exporter_sdk, tmp_path,
                for r in caplog.records)
 
 
-def test_rtmdet_ins_x_is_blocked_with_its_compile_failure(tmp_path):
-    from libreyolo import LibreRTMDet
+def test_rtmdet_ins_x_exports_as_full_metis_neck_parts_with_a_mask_part():
+    """RTMDet-Ins-x is a full-Metis multi-part export (recipe ``neck_parts``: stem, one part per PAFPN block, mask
+    module), supported with its measured drop; it is no longer blocked."""
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.support import BLOCKED_SIZES, SIZE_ACCURACY_NOTES
 
-    model = LibreRTMDet(None, size="x", nb_classes=3, task="segment", device="cpu")
-    message = r"rtmdet-x segment export to axelera is blocked: it does not compile .*tiling factor fits L1"
-    with pytest.raises(NotImplementedError, match=message):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+    assert size_recipe("rtmdet", "segment", "x") == {
+        "neck_parts": True, "quantization_scheme": "hybrid_per_tensor_per_channel",
+    }
+    assert "x" not in BLOCKED_SIZES.get(("rtmdet", "segment", "axelera"), {})
+    note = SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]["x"]
+    assert "1.50" in note and "resize+concat between parts, no weights" in note
 
 
 def test_rtmdet_x_detect_exports_as_full_metis_neck_parts():
@@ -2585,12 +2591,56 @@ def test_stem_residual_skip_conv_reads_a_stem_resolution_skip_through_an_identit
     assert deeper.graph.SerializeToString() == before
 
 
-def test_rtmdet_ins_x_segment_is_blocked():
-    from libreyolo.export.support import BLOCKED_SIZES
+def test_rtmdet_ins_neck_parts_chain_reproduces_the_raw_heads():
+    """RTMDet-Ins ``neck_parts`` in FP32: stem, the PAFPN parts joined by nearest upsampling + concatenation, and the
+    mask part on the host's bilinear resize + concatenation reproduce every raw output of the whole graph."""
+    import torch
 
-    reason = BLOCKED_SIZES[("rtmdet", "segment", "axelera")]["x"]
-    assert "backbone alone compiles" in reason and "multi-input calibration" in reason
-    assert "x" not in BLOCKED_SIZES.get(("rtmdet", "detect", "axelera"), {})
+    from libreyolo import LibreRTMDet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import (
+        _RTMDET_NECK_STEPS,
+        _RTMDetInsMaskPart,
+        _RTMDetInsNeckPart,
+        _RTMDetInsRawHeadsWrapper,
+        _RTMDetStemPart,
+    )
+
+    torch.manual_seed(0)
+    net = LibreRTMDet(None, size="t", nb_classes=3, task="segment", device="cpu").model.eval()
+    raw = _RTMDetInsRawHeadsWrapper(net, "segment").eval()
+    stem = _RTMDetStemPart(net).eval()
+    x = torch.rand(1, 3, 128, 128, generator=torch.Generator().manual_seed(1)) * 255
+    with torch.no_grad():
+        want = dict(zip(raw.output_names, raw(x)))
+        values = dict(zip(stem.output_names, (t.numpy() for t in stem(x))))
+        for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+            values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+            part = _RTMDetInsNeckPart(raw, stage).eval()
+            values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[joined])))))
+        mask_in = HOST_OPS["resize_concat"](values["n3"], values["n4"], values["n5"])
+        values["mask_feat"] = _RTMDetInsMaskPart(raw).eval()(torch.from_numpy(mask_in))[0].numpy()
+    for name in raw.output_names:
+        torch.testing.assert_close(torch.from_numpy(values[name]), want[name], atol=1e-4, rtol=1e-4)
+
+
+def test_host_resize_concat_matches_torch_bilinear():
+    import numpy as np
+    import torch
+
+    from libreyolo.backends.axelera import HOST_OPS
+
+    rng = np.random.default_rng(0)
+    a, b, c = (rng.standard_normal((1, 4, h, w)).astype(np.float32) for h, w in ((20, 24), (10, 12), (5, 6)))
+    got = HOST_OPS["resize_concat"](a, b, c)
+    want = torch.cat(
+        [torch.from_numpy(a)]
+        + [torch.nn.functional.interpolate(torch.from_numpy(t), size=a.shape[2:], mode="bilinear", align_corners=False)
+           for t in (b, c)],
+        dim=1,
+    ).numpy()
+    assert got.shape == (1, 12, 20, 24)
+    np.testing.assert_allclose(got, want, atol=1e-5)
 
 
 def test_network_learned_rounding_reaches_single_part_raw_head_exports(exporter_sdk, tmp_path, monkeypatch):
@@ -2752,3 +2802,68 @@ def test_hrnet_fusion_parts_chain_reproduces_the_native_model():
                 values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
             values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[source])))))
     torch.testing.assert_close(torch.from_numpy(values["heatmaps"]), want, atol=1e-4, rtol=1e-4)
+
+def test_device_output_order_takes_a_single_output_part_returning_a_bare_tensor():
+    """A one-output part may return a bare tensor; the probe must not iterate its batch rows."""
+    import numpy as np
+    import torch
+
+    from libreyolo.export.axelera import device_output_order
+
+    class Bare(torch.nn.Module):
+        output_names = ("feat",)
+
+        def forward(self, x):
+            return x * 2
+
+    part = Bare().eval()
+    sample = np.random.default_rng(0).random((1, 8, 4, 4), dtype=np.float32)
+    assert device_output_order(lambda t: (part(t),), part, sample) == ["feat"]
+
+
+def test_rtmdet_multi_part_modules_return_one_tensor_per_output_name():
+    """Every RTMDet / RTMDet-Ins compiled-part module returns a tuple with one tensor per ``output_names`` entry, and
+    the export's output-order probe names them all (a bare tensor once failed the probe after a 2 h compile)."""
+    import numpy as np
+    import torch
+
+    from libreyolo import LibreRTMDet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.axelera import device_output_order
+    from libreyolo.export.exporter import (
+        _RTMDET_NECK_STEPS,
+        _RTMDetInsMaskPart,
+        _RTMDetInsNeckPart,
+        _RTMDetInsRawHeadsWrapper,
+        _RTMDetNeckPart,
+        _RTMDetRawHeadsWrapper,
+        _RTMDetStemPart,
+    )
+
+    torch.manual_seed(0)
+    for task, raw_cls, neck_cls in (
+        ("detect", _RTMDetRawHeadsWrapper, _RTMDetNeckPart),
+        ("segment", _RTMDetInsRawHeadsWrapper, _RTMDetInsNeckPart),
+    ):
+        net = LibreRTMDet(None, size="t", nb_classes=3, task=task, device="cpu").model.eval()
+        raw = raw_cls(net, task).eval()
+        parts = [("images", _RTMDetStemPart(net).eval())]
+        x = torch.rand(1, 3, 64, 64) * 255
+        values = {}
+        with torch.no_grad():
+            stem_out = parts[0][1](x)
+            values.update(zip(parts[0][1].output_names, (t.numpy() for t in stem_out)))
+            for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+                values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+                part = neck_cls(raw, stage).eval()
+                parts.append((joined, part))
+                values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[joined])))))
+            if task == "segment":
+                values["mask_in"] = HOST_OPS["resize_concat"](values["n3"], values["n4"], values["n5"])
+                parts.append(("mask_in", _RTMDetInsMaskPart(raw).eval()))
+        values["images"] = x.numpy()
+        for name, part in parts:
+            with torch.no_grad():
+                out = part(torch.from_numpy(values[name]))
+            assert isinstance(out, tuple) and len(out) == len(part.output_names), type(part).__name__
+            assert device_output_order(lambda t, p=part: p(t), part, values[name]) == list(part.output_names)

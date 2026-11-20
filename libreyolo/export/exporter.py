@@ -1692,6 +1692,76 @@ class _RTMDetNeckPart(torch.nn.Module):
         return self._head(2, neck.out_convs[2](y))
 
 
+class _RTMDetInsNeckPart(_RTMDetNeckPart):
+    """RTMDet-Ins's ``neck_parts`` compiled parts: as :class:`_RTMDetNeckPart`, with each level's kernel tower and
+    the level's neck output ``n<k>`` (through an identity 1x1 conv: it also feeds the heads in the same part) for
+    the mask-feature module, which runs as its own part (:class:`_RTMDetInsMaskPart`)."""
+
+    def __init__(self, raw: "_RTMDetInsRawHeadsWrapper", stage: str):
+        super().__init__(raw, stage)
+        self.output_names = {
+            "td0": ("r4",),
+            "td1": ("d3", "n3", "p3_reg", "p3_cls", "p3_kernel"),
+            "bu0": ("d4", "n4", "p4_reg", "p4_cls", "p4_kernel"),
+            "bu1": ("n5", "p5_reg", "p5_cls", "p5_kernel"),
+        }[stage]
+        if stage != "td0":
+            width = int(raw.model.neck.out_convs[0].conv.out_channels)
+            self.neck_out = _ChannelScale(torch.ones(width), as_conv=True)
+
+    def _head(self, idx, feat):
+        head = self.raw.model.head
+        cls_feat = reg_feat = kernel_feat = feat
+        for layer in head.cls_convs[idx]:
+            cls_feat = layer(cls_feat)
+        for layer in head.reg_convs[idx]:
+            reg_feat = layer(reg_feat)
+        for layer in head.kernel_convs[idx]:
+            kernel_feat = layer(kernel_feat)
+        reg_window = self.raw.output_windows.get("reg")
+        if reg_window is None:
+            reg = torch.nn.functional.relu(head.rtm_reg[idx](reg_feat))
+        else:
+            reg = _relu6_window(head.rtm_reg[idx], reg_feat, *reg_window)
+        return (
+            reg,
+            self.raw._final_conv("cls", head.rtm_cls[idx], cls_feat),
+            self.raw._final_conv("kernel", head.rtm_kernel[idx], kernel_feat),
+        )
+
+    def forward(self, x):
+        neck = self.raw.model.neck
+        y = _csp_forward(self.block, self.entry, x)
+        if self.stage == "td0":
+            return (neck.reduce_layers[1](y),)
+        if self.stage == "td1":
+            n3 = neck.out_convs[0](y)
+            return (neck.downsamples[0](y), self.neck_out(n3), *self._head(0, n3))
+        if self.stage == "bu0":
+            n4 = neck.out_convs[1](y)
+            return (neck.downsamples[1](y), self.neck_out(n4), *self._head(1, n4))
+        n5 = neck.out_convs[2](y)
+        return (self.neck_out(n5), *self._head(2, n5))
+
+
+class _RTMDetInsMaskPart(torch.nn.Module):
+    """RTMDet-Ins's mask-feature module as a compiled part, on the host-joined input: ``n3`` with ``n4`` and ``n5``
+    resized bilinearly to its size and concatenated (``resize_concat``, weight-free) -> fusion conv, stacked convs,
+    projection -> ``mask_feat``."""
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("mask_feat",)
+
+    def __init__(self, raw: "_RTMDetInsRawHeadsWrapper"):
+        super().__init__()
+        self.mask = raw.model.head.mask_head
+
+    def forward(self, x):
+        # A tuple, as every compiled part returns: the export's output-order probe iterates the outputs.
+        return (self.mask.projection(self.mask.stacked_convs(self.mask.fusion_conv(x))),)
+
+
 class _RTMDetInsRawHeadsWrapper(torch.nn.Module):
     """RTMDet-Ins graph cut after each level's ``rtm_reg``/``rtm_cls``/``rtm_kernel``.
 
@@ -7614,17 +7684,22 @@ class AxeleraExporter(BaseExporter):
                 else _RTMDetRawHeadsWrapper
             )
             self._raw_wrapper = wrapper_cls(copy_, self._task()).eval()
-            if self._size_recipe().get("neck_parts") and self._task() == "detect":
+            if self._size_recipe().get("neck_parts"):
                 # Multi-part: backbone + first reduce, then one compiled part per PAFPN CSP
                 # block (output convs and heads ride with their level); the host only
-                # upsamples (nearest) and concatenates channels between them.
+                # upsamples (nearest) and concatenates channels between them. RTMDet-Ins adds
+                # its mask-feature module as a last part on the bilinearly resized levels.
+                segment = self._task() == "segment"
+                neck_cls = _RTMDetInsNeckPart if segment else _RTMDetNeckPart
                 self._metadata_wrapper = self._raw_wrapper
                 with_td0 = self._size_recipe().get("neck_parts") == "stem_td0"
                 self._rtmdet_neck_parts = {
-                    stage: _RTMDetNeckPart(self._raw_wrapper, stage).eval()
+                    stage: neck_cls(self._raw_wrapper, stage).eval()
                     for *_, stage in _RTMDET_NECK_STEPS
                     if not (with_td0 and stage == "td0")
                 }
+                if segment:
+                    self._rtmdet_mask_part = _RTMDetInsMaskPart(self._raw_wrapper).eval()
                 self._raw_wrapper = _RTMDetStemPart(copy_, with_td0=with_td0).eval()
         else:
             fused = _fused_yolonas_copy(live, full_fusion=True)
@@ -7694,6 +7769,26 @@ class AxeleraExporter(BaseExporter):
                     {"host": "concat", "inputs": list(inputs), "output": joined, "upsample": list(factors)}
                 )
                 steps.append({"compile": path, "reference": part, "input": joined, "merge_pad": False})
+            mask_part = getattr(self, "_rtmdet_mask_part", None)
+            if mask_part is not None:
+                inputs, joined = ("n3", "n4", "n5"), "mask_in"
+                values[joined] = HOST_OPS["resize_concat"](*(values[name] for name in inputs))
+                path = str(out.with_name(f"{out.name}.export_intermediate.mask.onnx"))
+                self._intermediate_paths = [*getattr(self, "_intermediate_paths", []), path]
+                _export_onnx_graph(
+                    mask_part,
+                    torch.zeros_like(torch.from_numpy(values[joined])),
+                    output_path=path,
+                    opset=opset,
+                    simplify=simplify,
+                    half=False,
+                    metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                    input_names=[joined],
+                    output_names=list(mask_part.output_names),
+                    dynamic_axes=None,
+                )
+                steps.append({"host": "resize_concat", "inputs": list(inputs), "output": joined})
+                steps.append({"compile": path, "reference": mask_part, "input": joined, "merge_pad": False})
             self._hybrid_parts = steps
             logger.info(
                 "Axelera: RTMDet as %d compiled parts (backbone + first reduce, then one per PAFPN block with "

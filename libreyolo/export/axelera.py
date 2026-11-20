@@ -252,6 +252,9 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("rtmdet", "detect", "s"): {"pointwise_learned_rounding": True},
     # RTMDet-Ins-s: the same learned rounding on the shared CSPNeXt trunk.
     ("rtmdet", "segment", "s"): {"pointwise_learned_rounding": True},
+    # RTMDet-Ins-x: as RTMDet-x (neck_parts), plus the mask-feature module as a last compiled part on n3..n5
+    # joined on the host by a weight-free bilinear resize + concat.
+    ("rtmdet", "segment", "x"): {"neck_parts": True, "quantization_scheme": "hybrid_per_tensor_per_channel"},
     # PP-YOLOE-x: histogram activation ranges (the other sizes keep min-max: hybrid hurts their DFL heads).
     ("ppyoloe", "detect", "x"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
 }
@@ -2142,7 +2145,11 @@ def device_output_order(quantized, reference_model, sample) -> list[str]:
     names = list(reference_model.output_names)
     tensor = torch.from_numpy(np.ascontiguousarray(sample, dtype=np.float32))
     with torch.no_grad():
-        reference = [t.detach().cpu().numpy() for t in reference_model(tensor)]
+        expected = reference_model(tensor)
+        if isinstance(expected, torch.Tensor):
+            # One output: iterating a bare tensor would yield its batch rows.
+            expected = (expected,)
+        reference = [t.detach().cpu().numpy() for t in expected]
         produced = quantized(tensor)
     if isinstance(produced, torch.Tensor):
         produced = (produced,)

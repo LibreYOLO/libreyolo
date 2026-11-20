@@ -4293,13 +4293,16 @@ _add(
         "dynamic-kernel mask decode) runs on the host. Supported, not "
         "validated: on a Metis M.2 Max the mask / box mAP50-95 drops below FP32 "
         "are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 3.27 / 5.02 (with learned INT8 rounding of its pointwise convolutions), RTMDet-Ins-m "
-        "0.79 / 3.96 and RTMDet-Ins-l 0.50 / 5.34 on a paired 1000-image COCO "
-        "val2017 subset (docs/axelera.md)."
+        "0.79 / 3.96, RTMDet-Ins-l 0.50 / 5.34 and RTMDet-Ins-x 1.50 / 4.48 on a "
+        "paired 1000-image COCO val2017 subset (docs/axelera.md). RTMDet-Ins-x "
+        "runs as six compiled parts (backbone + first reduce, one per PAFPN "
+        "block with its level's heads, the mask-feature module); host: "
+        "resize+concat between parts, no weights."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does "
-        "not compile (BLOCKED_SIZES). axelera-devkit / "
+        "supported sizes: t, s, m, l, x (measured drop, SIZE_ACCURACY_NOTES; x "
+        "as six compiled parts). axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
@@ -5324,6 +5327,14 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "coco128 calibration images, per-channel depthwise ranges and "
             "balanced CSPNeXt pointwise equalization)"
         ),
+        "x": (
+            "measured mask mAP50-95 drop 1.50 points vs FP32 (0.4077 vs 0.4227 "
+            "on 1000 COCO val2017 images; box 0.4394 vs 0.4842, -4.48; 64 "
+            "coco128 calibration images, per-channel depthwise ranges). Six "
+            "compiled parts: backbone + first reduce, one per PAFPN block with "
+            "its level's heads, and the mask-feature module; host: resize+concat "
+            "between parts, no weights"
+        ),
     },
     ("ppyoloe", "detect", "axelera"): {
         "s": (
@@ -5429,18 +5440,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "(48 LayerNormalization, 24 Softmax, 28 Erf and the attention MatMuls "
             "at 384 px) stops at the quantizer's ONNX import ('unexpected input "
             "value type'), after 6 min and an 18 GB peak; use MiDaS-s"
-        ),
-    },
-    ("rtmdet", "segment", "axelera"): {
-        "x": (
-            "does not compile for Metis at 640x640 with the 1.9 SDK: lowering "
-            "fails in AssignTilingFactors (ScheduleMemory, LowerTIR) because no "
-            "tiling factor fits L1 (3.99 MB needed, 3.32 MB available; after 2 h "
-            "08 min, 8.1 GB peak RSS). Its CSPNeXt-x backbone alone compiles (24 "
-            "minutes, as for detect-x), so the overflow is in the neck and heads; "
-            "a backbone | neck+head split would need the three backbone levels "
-            "packed into one input, since the SDK's quantizer takes no "
-            "multi-input calibration; use RTMDet-Ins-l"
         ),
     },
 

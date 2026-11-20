@@ -79,6 +79,7 @@ a separate size:
 | RTMDet-Ins | s | segment (mask mAP50-95; learned INT8 rounding of the pointwise convs) | COCO val2017, 1000 | 0.3719 | 0.3392 | -3.27 (box -5.02) | supported | `rtmdet/segment/s/2026-11-19/4` |
 | RTMDet-Ins | m | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4011 | 0.3932 | -0.79 (box -3.96) | supported | `rtmdet/segment/m/2026-11-12/2` |
 | RTMDet-Ins | l | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4163 | 0.4113 | -0.50 (box -5.34) | supported | `rtmdet/segment/l/2026-11-12/2` |
+| RTMDet-Ins | x | segment (mask mAP50-95; six compiled parts, host: resize+concat between parts, no weights) | COCO val2017, 1000 | 0.4227 | 0.4077 | -1.50 (box -4.48) | supported | `rtmdet/segment/x/2026-11-20/2` |
 | ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 | validated | `resnet/classify/18/2026-11-10/2` |
 | ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated | `resnet/classify/34/2026-11-10` |
 | ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 | validated | `resnet/classify/50/2026-11-10` |
@@ -164,7 +165,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-19/2` |
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
 | RTMDet | detect | t, s, m, l, x (supported with a measured drop; x as four compiled parts) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-17/8`, held-out `rtmdet/detect/s/2026-11-17/9`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x `rtmdet/detect/x/2026-11-20/13`, speed `rtmdet/detect/x/2026-11-20/14` |
-| RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -5.02, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-19/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
+| RTMDet-Ins | segment | t, s, m, l, x (supported with a measured drop, box -2.51, -5.02, -3.96, -5.34 and -4.48; x as six compiled parts) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-19/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x `rtmdet/segment/x/2026-11-20/2` |
 | FCOS | detect | r50 (supported with a measured drop; six compiled parts, GroupNorm and the decode on the host) | see `docs/export_support.md` | r50 `fcos/detect/r50/2026-11-15/3` |
 | RetinaNet | detect | r50 (supported: 1024x1024 canvas by default, -1.11 end to end; imgsz=800 is about 1.64x less compute at -2.25; r50v2 blocked: GroupNorm heads) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-14/4`; r50v2 blocked `retinanet/detect/r50v2/2026-11-14` |
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
@@ -406,7 +407,7 @@ still are, in opposite directions (their rows).
 | RTMDet-Ins-s | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.3719 | 0.3392 | -3.27 (supported; box -5.02; on 300 mask -3.20, box -5.19) |
 | RTMDet-Ins-m | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4011 | 0.3932 | -0.79 (supported: box -3.96; on 300 mask -0.67, box -4.56) |
 | RTMDet-Ins-l | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4163 | 0.4113 | -0.50 (supported: box -5.34; on 300 mask -0.58, box -5.75) |
-| RTMDet-Ins-x | segment (mask) | COCO val2017, 1000 images | 64 coco128 | - | - | does not compile (blocked) |
+| RTMDet-Ins-x | segment (mask) | COCO val2017, 1000 images | 64 coco128 | 0.4227 | 0.4077 | -1.50 (supported: box -4.48; on 300 mask -1.63, box -4.79; six compiled parts) |
 
 Classifiers, top-1 on 1000 ImageNetV2 MatchedFrequency images (one per
 class, a set with ImageNet's licence terms used locally only), calibrated on
@@ -658,6 +659,21 @@ against 0.80 img/s for the best FP32 CPU run (ONNX Runtime, batch 8; OpenVINO
 resident (one per AIPU core), and a fifth part makes every part reload on
 each call. A five-part split (one part per PAFPN block) scored slightly better
 (-3.40 on 1000, -2.92 on 300) but ran 2.73 img/s at batch 1 and 6.4 at batch 8.
+
+RTMDet-Ins-x uses the five-part form (one part per PAFPN block) and adds the
+mask-feature module as a sixth part. Each PAFPN part also carries its level's kernel tower and returns the
+level's neck output; before the mask part the host resizes the stride-16 and
+stride-32 outputs bilinearly to stride 8 and concatenates them with the
+stride-8 output (host: resize+concat between parts, no weights; the same kind
+of host data movement as FCOS's per-level GroupNorm). It scores mask 0.4077 vs
+0.4227 FP32 (-1.50) and box 0.4394 vs 0.4842 (-4.48) on 1000 images. Speed on
+this NUC (measured under load, 1-min load about 10): 1.69 img/s at batch 1,
+3.53 at batch 8 and 4.49 at batch 32 end to end, against 0.44 img/s for its
+FP32 network forward alone on the CPU (ONNX Runtime, 4 threads; RTMDet-Ins has
+no LibreYOLO ONNX export, so this reference has no mask decode). With six
+parts every call reloads models on the device (the Metis keeps at most four
+compiled models resident), so batches of 8 or more are much faster than
+single images.
 
 RTMDet-Ins runs the same trunk on the device and returns, per level, the
 box, class and dynamic-kernel outputs, plus the stride-8 mask feature
@@ -941,7 +957,6 @@ Parked (not supported on Metis: part of the network runs on the host; hybrid par
 Blocked for structural reasons (accuracy never blocks an export):
 
 - L2CS (gaze): its only checkpoint is trained on Gaze360, whose licence forbids redistributing models trained on it; LibreYOLO fetches it from the authors and does not mirror it, so no Axelera export is measured or shipped.
-- RTMDet-Ins-x: at 640x640 lowering fails in AssignTilingFactors (ScheduleMemory, LowerTIR): no tiling factor fits L1 (3.99 MB needed, 3.32 MB available; 2 h 08 min, 8.1 GB peak RSS; ledger `rtmdet/segment/x/2026-11-12`). Use RTMDet-Ins-l. Its CSPNeXt-x backbone alone compiles in 24 min, so the overflow is in the neck and heads; a backbone | neck+head split would need the three backbone levels packed into one input (the quantizer takes no multi-input calibration; ledger `rtmdet/segment/x/2026-11-17`).
 - MiDaS-l (DPT ViT-L, 384 px): quantization stops at the quantizer's ONNX import ("unexpected input value type") on the ViT encoder (48 LayerNormalization, 24 Softmax, 28 Erf, attention MatMuls; the same graph's 5 Resize nodes also occur in MiDaS-s, which compiles). It peaks at 18 GB of host RAM before failing. Use MiDaS-s.
 - ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them. The channel mean and variance have exact AIPU forms, but the per-pixel reciprocal square root feeding ConvNeXt's GELU has none; a host split at every LayerNorm would need about 23 parts for ConvNeXt-t, so a hybrid export (convolutions on the Metis, LayerNorms on the host) is the route if ConvNeXt is ever needed (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).
 - EC and TinyFormer decoders: gather-based deformable attention; no quantizer converter for its GreaterOrEqual bounds masks (ledgers `ec/detect/s/2026-11-11`, `tinyformer/detect/s/2026-11-11`), so only a hybrid (decoder on the host) could run them, and hybrids are parked (above).
