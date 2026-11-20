@@ -4854,9 +4854,9 @@ _add(
         "runs on the Metis AIPU at its 512x1024 training crop and the host "
         "upsamples the class logits. Supported, not validated: UNet is trained "
         "on Cityscapes, so the paired measurement is fidelity to FP32 on 1000 "
-        "COCO val2017 images (device labels against FP32 labels: mIoU 0.777, "
-        "91.3% of pixels agree; docs/axelera.md). The SDK 1.9 compile takes "
-        "about 12.7 hours (6.7 GB peak RSS); at the full 1024x2048 frame "
+        "COCO val2017 images (device labels against FP32 labels: mIoU 0.856, "
+        "95.3% of pixels agree, with histogram activation ranges; docs/axelera.md). "
+        "The SDK 1.9 compile takes about 11-13 hours; at the full 1024x2048 frame "
         "lowering finds no L1 tiling (4.7 MB needed, 4.1 MB available)."
     ),
     since="1.7",
@@ -5154,9 +5154,9 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
     },
     ("unet", "semantic", "axelera"): {
         "s": (
-            "measured fidelity mIoU 0.777 vs FP32 labels (91.3% of pixels agree "
-            "on 1000 COCO val2017 images at 512x1024; UNet is Cityscapes-trained "
-            "and no Cityscapes masks were used)"
+            "measured fidelity mIoU 0.856 vs FP32 labels (95.3% of pixels agree "
+            "on 1000 COCO val2017 images at 512x1024, histogram activation ranges; "
+            "UNet is Cityscapes-trained and no Cityscapes masks were used)"
         ),
     },
     ("deeplabv3", "semantic", "axelera"): {

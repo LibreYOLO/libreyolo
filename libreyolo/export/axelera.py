@@ -120,7 +120,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("fcos", "detect", "r50"): {"canvas": 800},
     # U-Net-S at its 1024x2048 evaluation frame finds no L1 tiling (4.7 MB
     # needed, 4.1 MB available); at its 512x1024 training crop it compiles.
-    ("unet", "semantic", "s"): {"canvas": (512, 1024)},
+    # UNet-s: its 512x1024 training crop; histogram activation ranges (fidelity mIoU 0.856 vs 0.777 with min-max).
+    ("unet", "semantic", "s"): {"canvas": (512, 1024), "quantization_scheme": "hybrid_per_tensor_per_channel"},
     # Real-ESRGAN-x2: the same RRDB body (its whole graph overflows the DDR pool too) after an exact
     # one-hot pixel-unshuffle convolution; 128x128 canvas (a 64x64 trunk, as x4 at 64).
     ("realesrgan", "restore", "x2"): {

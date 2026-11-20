@@ -1988,8 +1988,8 @@ def test_unet_is_supported_with_its_measured_fidelity():
 
     entry = get_support("unet", "semantic", "axelera")
     assert entry.tier == "available"
-    assert "0.777" in entry.reason and "512x1024" in entry.constraint
-    assert "0.777" in SIZE_ACCURACY_NOTES[("unet", "semantic", "axelera")]["s"]
+    assert "0.856" in entry.reason and "512x1024" in entry.constraint
+    assert "0.856" in SIZE_ACCURACY_NOTES[("unet", "semantic", "axelera")]["s"]
 
 
 def test_efficientdet_canvas_copy_runs_smaller_and_leaves_the_model_alone():
@@ -2447,6 +2447,7 @@ def test_unet_axelera_export_uses_its_training_crop_and_dense_logits():
     from libreyolo.export.exporter import _AXELERA_GRAPH_OUTPUTS
 
     assert AXELERA_SIZE_RECIPES[("unet", "semantic", "s")]["canvas"] == (512, 1024)
+    assert AXELERA_SIZE_RECIPES[("unet", "semantic", "s")]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
     assert _AXELERA_GRAPH_OUTPUTS[("unet", "semantic")] == ("semantic_logits",)
 
 
