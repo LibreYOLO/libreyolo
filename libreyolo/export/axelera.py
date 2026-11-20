@@ -218,6 +218,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("mobilenetv4", "classify", "s"): {
         "quantization_scheme": "hybrid_per_tensor_per_channel",
         "stream_transform": False,
+        # Learned INT8 rounding of every layer: ImageNetV2 top-1 -0.7 (was -1.7).
+        "network_learned_rounding": 64,
     },
     ("mobilenetv4", "classify", "l"): {
         "quantization_scheme": "per_tensor_min_max",

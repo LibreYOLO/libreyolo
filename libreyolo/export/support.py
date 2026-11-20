@@ -4092,14 +4092,15 @@ _add(
         "INT8 export compiled with Axelera's toolchain; LibreYOLO equalizes and "
         "bounds MobileNetV4's residual streams before export, calibrates with "
         "histogram activation ranges, and the whole classifier runs on the "
-        "Metis AIPU. On a Metis M.2 Max, MobileNetV4-m is within 1.0 top-1 "
-        "point of FP32 on a paired 1000-image ImageNetV2 set when calibrated on "
-        "images from its own domain (docs/axelera.md)."
+        "Metis AIPU. On a Metis M.2 Max, MobileNetV4-m, and -s with learned "
+        "INT8 rounding of every layer, are within 1.0 top-1 point of FP32 on a "
+        "paired 1000-image ImageNetV2 set when calibrated on images from their "
+        "own domain (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "validated sizes: m; s and l are supported with a measured drop "
-        "(SIZE_ACCURACY_NOTES, docs/axelera.md), "
+        "validated sizes: m, s (learned INT8 rounding, AXELERA_SIZE_RECIPES); l "
+        "is supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md), "
         "calibrated with in-domain images (data=). axelera-devkit / axelera-rt "
         "1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input"
     ),
@@ -5078,11 +5079,6 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
         ),
     },
     ("mobilenetv4", "classify", "axelera"): {
-        "s": (
-            "measured top-1 drop 1.7 points vs FP32 (0.607 vs 0.624 on a paired "
-            "1000-image ImageNetV2 set; histogram ranges, no residual-stream "
-            "transform)"
-        ),
         "l": (
             "measured top-1 drop 1.7 points vs FP32 (0.710 vs 0.727 on a paired "
             "1000-image ImageNetV2 set; min-max ranges with the residual-stream "

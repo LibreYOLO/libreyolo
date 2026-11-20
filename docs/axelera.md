@@ -81,7 +81,7 @@ a separate size:
 | ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated | `resnet/classify/34/2026-11-10` |
 | ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 | validated | `resnet/classify/50/2026-11-10` |
 | ResNet | 101 | classify (top-1) | ImageNetV2, 1000 | 0.713 | 0.708 | -0.5 | validated | `resnet/classify/101/2026-11-10` |
-| MobileNetV4 | s | classify (top-1) | ImageNetV2, 1000 | 0.624 | 0.607 | -1.7 | supported | `mobilenetv4/classify/s/2026-11-11/3` |
+| MobileNetV4 | s | classify (top-1; learned INT8 rounding of every layer) | ImageNetV2, 1000 | 0.624 | 0.617 | -0.7 | validated | `mobilenetv4/classify/s/2026-11-20/6` |
 | MobileNetV4 | m | classify (top-1) | ImageNetV2, 1000 | 0.682 | 0.684 | +0.2 | validated | `mobilenetv4/classify/m/2026-11-11/2` |
 | MobileNetV4 | l | classify (top-1) | ImageNetV2, 1000 | 0.727 | 0.710 | -1.7 | supported | `mobilenetv4/classify/l/2026-11-10` |
 | EfficientNetV2 | b0 | classify (top-1) | ImageNetV2, 1000 | 0.667 | 0.656 | -1.1 | supported | `efficientnetv2/classify/b0/2026-11-11/5` |
@@ -132,7 +132,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLO9-P2 | detect | s (t: no published checkpoint) | see `docs/export_support.md` | s `yolo9_p2/detect/s/2026-11-15` |
 | YOLO9-E2E | detect | t, s, m, c | see `docs/export_support.md` | t `yolo9_e2e/detect/t/2026-11-13`; s `yolo9_e2e/detect/s/2026-11-13`; m `yolo9_e2e/detect/m/2026-11-13`; c `yolo9_e2e/detect/c/2026-11-13` |
 | ResNet | classify | 18, 34, 50, 101 | see `docs/export_support.md` | 18 `resnet/classify/18/2026-11-10/2`; 34 `resnet/classify/34/2026-11-10`; 50 `resnet/classify/50/2026-11-10`; 101 `resnet/classify/101/2026-11-10` |
-| MobileNetV4 | classify | s, m, l (s and l supported with a measured drop) | see `docs/export_support.md` | s `mobilenetv4/classify/s/2026-11-11/3`; m `mobilenetv4/classify/m/2026-11-11/2`; l `mobilenetv4/classify/l/2026-11-10` |
+| MobileNetV4 | classify | s, m, l (l supported with a measured drop) | see `docs/export_support.md` | s `mobilenetv4/classify/s/2026-11-20/6`, held-out `mobilenetv4/classify/s/2026-11-20/7`; m `mobilenetv4/classify/m/2026-11-11/2`; l `mobilenetv4/classify/l/2026-11-10` |
 | EfficientNetV2 | classify | b1, b3 (validated); b0, b2 (supported with measured drops); b1-b3 read their stage-0 residual skip through an exact identity 1x1 conv | see `docs/export_support.md` | b0 `efficientnetv2/classify/b0/2026-11-11/5`; b1 `efficientnetv2/classify/b1/2026-11-17`; b2 `efficientnetv2/classify/b2/2026-11-17`; b3 `efficientnetv2/classify/b3/2026-11-17` |
 | VGG | classify | 16, 19, 16bn; 19bn (supported with a measured drop, -5.1) | see `docs/export_support.md` | 16 `vgg/classify/16/2026-11-12`; 19 `vgg/classify/19/2026-11-12`; 16bn `vgg/classify/16bn/2026-11-12/2`; 19bn `vgg/classify/19bn/2026-11-12` |
 | AlexNet | classify | b | see `docs/export_support.md` | b `alexnet/classify/b/2026-11-13` |
@@ -443,11 +443,26 @@ then calibrates with histogram activation ranges
 | Model | Input | FP32 top-1 | Metis INT8 top-1 | Delta | Compile (28 W host) |
 | --- | --- | --- | --- | --- | --- |
 | MobileNetV4-m | 224 | 0.682 | 0.684 | +0.2 | 3.1 min |
+| MobileNetV4-s | 224 | 0.624 | 0.617 | -0.7 | 6.3 min |
 
-MobileNetV4-s and -l are supported with a measured drop of 1.7 points each
-(s 0.607 vs 0.624 with histogram ranges and no stream transform; l 0.710
-vs 0.727 with min-max ranges and the stream transform; LibreYOLO applies
-these per-size recipes). The recipe
+MobileNetV4-s takes another route: histogram ranges, no stream transform,
+and learned INT8 rounding of every layer (per-size recipe
+`network_learned_rounding`, 64 calibration images, about 4 minutes at
+export). For each convolution and the classifier, layer by layer, the export
+chooses whether each weight rounds up or down on the per-channel INT8 grid
+the compiler uses, so that the layer's output matches the FP32 network's
+output for that layer on calibration images (in the style of AdaRound; the
+remaining mean shift goes into the batch norm). With nearest rounding s
+scored 0.607 (-1.7); with the learned rounding 0.617 (-0.7), and -0.9 on a
+held-out 1000-image ImageNetV2 set (0.603 vs 0.612; nearest rounding
+0.593). Matching each layer to
+the FP32 network's own layer output matters: matching the FP32 weights on the
+rounded network's inputs gained nothing on the CPU-quantized model.
+
+MobileNetV4-l is supported with a measured drop of 1.7 points (0.710 vs
+0.727 with min-max ranges and the stream transform; LibreYOLO applies this
+per-size recipe; learned rounding of every layer gained nothing on the
+CPU-quantized model). The recipe
 that passes on m costs s 2.6 and l 3.0 points. Axelera's
 `quantize_dw_channel_wise` and `smoothquant_coefficient` options changed
 nothing measurable.
@@ -834,9 +849,9 @@ Other known limits:
   TopK and grid sampling are outside what the compiler places on the AIPU.
   RT-DETR, whose backbone is a CNN, could run as a hybrid (backbone and
   fusion neck on the Metis, attention on the host); hybrids are parked (above).
-- MobileNetV4 (classify) s and l: supported, top-1 1.7 points below FP32
-  at best (section 7). Per-tensor INT8 of the inverted-residual streams (the
-  stage-2 stream of s spans about +-400 while its median channel stays
-  within +-14) is the cause. Use m.
+- MobileNetV4 (classify) l: supported, top-1 1.7 points below FP32 at best
+  (section 7). Per-tensor INT8 of the inverted-residual streams is the cause
+  (the stage-2 stream of s spans about +-400 while its median channel stays
+  within +-14; s gets within 1 point with learned rounding). Use m or s.
 - Europa and multi-device scheduling: not covered.
 - Large models on M.2 cards can hit the card's power limit.

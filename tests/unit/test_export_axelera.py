@@ -1124,8 +1124,8 @@ def test_support_matrix_rows_for_axelera():
     other = get_support("vit", "classify", "axelera")  # out of scope: transformer backbone
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
-    assert mnv4.tier == "validated" and "validated sizes: m;" in mnv4.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("mobilenetv4", "classify", "axelera")]) == ["l", "s"]
+    assert mnv4.tier == "validated" and "validated sizes: m, s " in mnv4.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("mobilenetv4", "classify", "axelera")]) == ["l"]
     assert sorted(SIZE_ACCURACY_NOTES[("yolox", "detect", "axelera")]) == ["n"]
     for notes in SIZE_ACCURACY_NOTES.values():
         assert all(note.startswith("measured ") and " vs FP32 " in note for note in notes.values())
@@ -1255,6 +1255,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
                        output_path=str(tmp_path / "mn4s_axelera_model"))
     meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
     assert calls == [] and meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+    # ... and learned INT8 rounding of every layer.
+    assert meta["network_learned_rounding"]["layers"] > 0
     # QuickSRNet-m2: learned INT8 rounding of the equalized weights.
     from libreyolo import LibreQuickSRNet
     import libreyolo.models.quicksrnet.quantize as srq
