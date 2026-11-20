@@ -87,7 +87,10 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: equalization through its PReLU activations,
 #: ``models/realesrgan/quantize.equalize_conv_activation_ranges``) and
 #: ``pointwise_learned_rounding`` (RTMDet: learned INT8 rounding of the CSPNeXt
-#: pointwise convolutions, ``models/rtmdet/quantize.learn_pointwise_int8_rounding``). Results
+#: pointwise convolutions, ``models/rtmdet/quantize.learn_pointwise_int8_rounding``) and
+#: ``network_learned_rounding`` (learned INT8 rounding of every Conv2d/Linear of a
+#: single-part export, layer by layer against the FP32 network's own layer outputs,
+#: on this many calibration images; ``export/learned_rounding.learn_int8_rounding``). Results
 #: with these recipes are in docs/axelera.md.
 AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # RT-DETRv2's neck part defaults to histogram ranges (exporter

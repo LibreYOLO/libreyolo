@@ -6741,6 +6741,30 @@ class AxeleraExporter(BaseExporter):
             return CSPNEXT_POINTWISE_EQUALIZATION_METHOD
         return CSPNEXT_POINTWISE_EQUALIZATION_METHOD_BY_TASK.get(self._task(), "act")
 
+    def _apply_network_learned_rounding(self, net: torch.nn.Module) -> int:
+        """Per-size recipe ``network_learned_rounding``: learned INT8 rounding of every layer of ``net``.
+
+        ``net`` is the export copy, after any exact transform. The value is the
+        number of calibration images to learn on (``True`` = 64). See
+        :mod:`libreyolo.export.learned_rounding`.
+        """
+        images = self._size_recipe().get("network_learned_rounding")
+        if not images:
+            self._network_rounded = 0
+            return 0
+        from . import learned_rounding
+
+        samples = self._equalization_samples(64 if images is True else int(images))
+        self._network_rounded = learned_rounding.learn_int8_rounding(
+            net, samples, steps=learned_rounding.LEARNED_ROUNDING_STEPS
+        )
+        logger.info(
+            "Axelera: INT8 rounding learned for %d layers on %d calibration images.",
+            self._network_rounded,
+            len(samples),
+        )
+        return self._network_rounded
+
     def _equalization_samples(self, limit: int = 32) -> list:
         """Up to ``limit`` calibration images (``[1, C, H, W]``), or ``[]``."""
         loader = getattr(self, "_calibration_loader", None)
@@ -6859,6 +6883,7 @@ class AxeleraExporter(BaseExporter):
                     _aspp_shift(nn_model),
                 )
             self._raw_wrapper = _GraphOutputsWrapper(nn_model, graph_outputs).eval()
+            self._apply_network_learned_rounding(self._raw_wrapper)
             logger.info("Step 1/2: Exporting %s ONNX (%s)", self._task(), onnx_output)
             return _export_onnx_graph(
                 self._raw_wrapper,
@@ -6878,6 +6903,7 @@ class AxeleraExporter(BaseExporter):
                 "stream_transform", True
             ):
                 self._prepare_mobilenetv4(net, dummy)
+            self._apply_network_learned_rounding(net)
             self._raw_wrapper = _ClassifyLogitsWrapper(net).eval()
             logger.info("Step 1/2: Exporting classifier ONNX (%s)", onnx_output)
             return _export_onnx_graph(
@@ -6994,6 +7020,8 @@ class AxeleraExporter(BaseExporter):
             self._raw_wrapper = _YOLONASRawHeadsWrapper(fused, self._task()).eval()
         out = Path(output_path)
         onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        if self._chain_tail is None:
+            self._apply_network_learned_rounding(self._raw_wrapper)
         logger.info("Step 1/2: Exporting raw-head ONNX (%s)", onnx_output)
         exported = _export_onnx_graph(
             self._raw_wrapper,
@@ -7394,6 +7422,8 @@ class AxeleraExporter(BaseExporter):
                     "graph_outputs": list(wrapper.output_names),
                 }
             )
+            if getattr(self, "_network_rounded", 0):
+                meta["network_learned_rounding"] = {"layers": int(self._network_rounded)}
             return meta
         if isinstance(wrapper, _ClassifyLogitsWrapper):
             meta.update(
@@ -7406,6 +7436,8 @@ class AxeleraExporter(BaseExporter):
                     "output_names": list(wrapper.output_names),
                 }
             )
+            if getattr(self, "_network_rounded", 0):
+                meta["network_learned_rounding"] = {"layers": int(self._network_rounded)}
             return meta
         heads = (  # YOLO-NAS heads
             wrapper.model.heads if isinstance(wrapper, _YOLONASRawHeadsWrapper) else None
@@ -7445,6 +7477,8 @@ class AxeleraExporter(BaseExporter):
             }
         if getattr(self, "_pointwise_rounded", 0):
             meta["pointwise_learned_rounding"] = {"convs": int(self._pointwise_rounded)}
+        if getattr(self, "_network_rounded", 0):
+            meta["network_learned_rounding"] = {"layers": int(self._network_rounded)}
         if getattr(wrapper, "anchor_sizes", None) is not None:  # RetinaNet
             meta["anchor_sizes"] = [list(sizes) for sizes in wrapper.anchor_sizes]
             meta["aspect_ratios"] = [list(r) for r in wrapper.aspect_ratios]

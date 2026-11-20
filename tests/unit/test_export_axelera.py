@@ -1247,6 +1247,9 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     calls = []
     original = q.prepare_for_int8
     monkeypatch.setattr(q, "prepare_for_int8", lambda *a, **k: calls.append(1) or original(*a, **k))
+    import libreyolo.export.learned_rounding as lr
+
+    monkeypatch.setattr(lr, "LEARNED_ROUNDING_STEPS", 3)
     small = LibreMobileNetV4(size="s", nb_classes=5, device="cpu")
     out = small.export(format="axelera", data=data, imgsz=64,
                        output_path=str(tmp_path / "mn4s_axelera_model"))
@@ -2573,3 +2576,21 @@ def test_rtmdet_x_detect_and_segment_are_blocked():
     assert size_recipe("rtmdet", "detect", "x")["hybrid_split"] == "backbone"  # parked recipe, never reached
     assert "x does not compile" in get_support("rtmdet", "detect", "axelera").constraint
 
+
+def test_network_learned_rounding_reaches_single_part_raw_head_exports(exporter_sdk, tmp_path, monkeypatch):
+    """Recipe ``network_learned_rounding`` rounds every layer of a raw-head export before its ONNX export."""
+    import torch
+    import yaml
+
+    import libreyolo.export.axelera as ax
+    import libreyolo.export.learned_rounding as lr
+    from libreyolo import LibreYOLO4
+
+    monkeypatch.setattr(lr, "LEARNED_ROUNDING_STEPS", 2)
+    monkeypatch.setitem(ax.AXELERA_SIZE_RECIPES, ("yolo4", "detect", "t"), {"network_learned_rounding": 2})
+    torch.manual_seed(0)
+    model = LibreYOLO4(None, size="t", nb_classes=3, device="cpu")
+    out = model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64,
+                       output_path=str(tmp_path / "y4t_axelera_model"))
+    meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
+    assert meta["network_learned_rounding"]["layers"] > 0
