@@ -483,3 +483,22 @@ def test_collected_video_frame_plots_by_decoding_its_frame(sample_video, tmp_pat
     monkeypatch.chdir(tmp_path)
     result.plot(save=True)
     assert (tmp_path / "results_test_video_4.jpg").exists()
+
+
+def test_run_video_inference_batches_frames_in_order(sample_video):
+    import types
+
+    calls = []
+
+    def one(pil_img):
+        raise AssertionError("the batched path must not call the per-frame function")
+
+    def many(pil_imgs):
+        calls.append(len(pil_imgs))
+        return [types.SimpleNamespace(mean=float(np.asarray(p).mean())) for p in pil_imgs]
+
+    results = list(run_video_inference(sample_video, one, predict_frames_fn=many, batch=4, progress=False))
+    assert calls == [4, 4, 2]
+    assert [r.frame_idx for r in results] == list(range(10))
+    means = [r.mean for r in results]
+    assert means == sorted(means)

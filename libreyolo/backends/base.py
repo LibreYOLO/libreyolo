@@ -4992,6 +4992,16 @@ class BaseBackend(ABC):
     # =========================================================================
     # Inference pipeline
     # =========================================================================
+    #: ``predict(batch=None)`` for list, directory and video-file sources: images per
+    #: inference call. Backends whose runtime gains from a batched submission raise it.
+    default_predict_batch: int = 1
+
+    def _resolve_predict_batch(self, batch: Optional[int]) -> int:
+        if batch is None:
+            return int(self.default_predict_batch)
+        if int(batch) < 1:
+            raise ValueError(f"batch must be >= 1, got {batch}")
+        return int(batch)
 
     @staticmethod
     def _keep_source(result, original_img, source=None):
@@ -5563,7 +5573,7 @@ class BaseBackend(ABC):
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         save: bool = False,
-        batch: int = 1,
+        batch: Optional[int] = None,
         # video parameters
         stream: bool = False,
         stream_buffer: bool = False,
@@ -5579,7 +5589,14 @@ class BaseBackend(ABC):
         ``agnostic_nms`` keeps only the highest-scoring box among boxes that
         overlap above ``iou``, whatever their classes, exactly as native
         ``predict()`` does (detect, segment, pose and OBB).
+
+        ``batch`` is how many images of a list, a directory or a video file
+        run per inference call. ``None`` takes the backend's default
+        (:attr:`default_predict_batch`: 1, or 8 on the Axelera Metis, whose
+        runtime keeps several cores busy on a batch); ``batch=1`` runs image
+        by image. Results do not depend on it.
         """
+        batch = self._resolve_predict_batch(batch)
         if agnostic_nms and check_agnostic_nms(True, getattr(self, "task", None)):
             # Re-enter with the request held in a context variable instead of
             # an argument (see _AGNOSTIC_NMS).
@@ -5637,6 +5654,7 @@ class BaseBackend(ABC):
                 show=show,
                 vid_stride=vid_stride,
                 output_path=output_path,
+                batch=batch,
             )
             if stream:
                 return gen
@@ -5830,8 +5848,13 @@ class BaseBackend(ABC):
         vid_stride: int = 1,
         output_path: Optional[str] = None,
         source_label: Optional[str] = None,
+        batch: int = 1,
     ) -> Generator[Results, None, None]:
-        """Run inference on a video file, yielding per-frame Results."""
+        """Run inference on a video file, yielding per-frame Results.
+
+        With ``batch > 1`` and a runtime that takes batched calls, frames run
+        ``batch`` at a time through :meth:`_process_in_batches` (same results).
+        """
         source_label = str(source) if source_label is None else source_label
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
@@ -5945,6 +5968,27 @@ class BaseBackend(ABC):
         def predict_frame(pil_img):
             return self._keep_source(predict_frame_result(pil_img), pil_img)
 
+        predict_frames = None
+        if batch > 1 and self._supports_batched_inference():
+
+            def predict_frames(pil_imgs):
+                results = list(
+                    self._process_in_batches(
+                        pil_imgs,
+                        batch=len(pil_imgs),
+                        conf=conf,
+                        iou=iou,
+                        imgsz=imgsz,
+                        classes=classes,
+                        max_det=max_det,
+                        color_format="rgb",
+                    )
+                )
+                for result, pil_img in zip(results, pil_imgs):
+                    result.path = source_label
+                    self._keep_source(result, pil_img)
+                return results
+
         yield from run_video_inference(
             source,
             predict_frame,
@@ -5952,6 +5996,8 @@ class BaseBackend(ABC):
             save=save,
             show=show,
             output_path=output_path,
+            predict_frames_fn=predict_frames,
+            batch=batch,
         )
 
     def _predict_screen(

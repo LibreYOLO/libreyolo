@@ -293,13 +293,16 @@ The input size is fixed by the export. `device="auto"`, `"axelera"`,
 host-side steps); a CUDA device is ignored with a warning. The directory can be copied to any Linux machine with a Metis device
 and `axelera-rt`; `axelera-devkit` is not needed there.
 
-The host steps dominate end-to-end time on this hardware, so pass a list of
-images with `batch=N` (for example `npu(images, batch=8)`): the N images go
-to the device in one submission, and their preprocessing, decode and
-`Results` building run in parallel on host threads (`OMP_NUM_THREADS`, by
-default up to 4). With a list of images (any `batch`), the next image or chunk
-is preprocessed while the device runs the current one (single-part exports).
-The outputs are identical to processing the images one at a time.
+The host steps dominate end-to-end time on this hardware, so a list of
+images, a directory or a video file runs 8 images per call by default
+(`npu(images)` is `npu(images, batch=8)`; set `batch=N` for another size and
+`batch=1` to run image by image). The N images go to the device in one
+submission, and their preprocessing, decode and `Results` building run in
+parallel on host threads (`OMP_NUM_THREADS`, by default up to 4). With a list
+or a directory, the next image or chunk is preprocessed while the device runs
+the current one (single-part exports). A single image and live streams
+(webcam, RTSP, screen) still run one frame at a time. The outputs are
+identical to processing the images one at a time.
 
 ## 6. Migrating from Ultralytics
 
@@ -700,7 +703,8 @@ images per second:
 | PP-LiteSeg-t50 (512x1024) | 8 | 17 | - | 327 |
 
 The host side bounds these: the device-only column is the compiled model
-alone (the SDK's `axrunmodel`). Pass a list with `batch=N` (section 5). The
+alone (the SDK's `axrunmodel`). Lists, directories and videos run at batch 8
+by default (section 5). The
 end-to-end numbers move with the host CPU and its load.
 
 ## 8. How it works

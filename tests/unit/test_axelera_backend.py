@@ -1412,3 +1412,47 @@ def test_result_building_runs_on_host_threads_only_for_dense_tasks(exports, monk
         name.startswith("libreyolo-axelera-host")
         for name in backend._map_images(lambda _: threading.current_thread().name, [0, 1, 2], stage="results")
     )
+
+
+def test_lists_directories_and_videos_run_batch_8_by_default_with_per_image_results(exports, tmp_path):
+    """On the Metis, predict() batches lists, directories and video files 8 at a time unless ``batch=1``;
+    every Result is bitwise the image-by-image one."""
+    cv2 = pytest.importorskip("cv2")
+    from PIL import Image
+
+    from libreyolo import LibreYOLO
+    from libreyolo.backends.base import BaseBackend
+
+    assert BaseBackend.default_predict_batch == 1
+    _, artifact = exports("yolo9")
+    backend = LibreYOLO(str(artifact))
+    assert backend.default_predict_batch == 8
+    rng = np.random.default_rng(11)
+    images = [rng.integers(0, 255, size=(96, 96, 3), dtype=np.uint8) for _ in range(10)]
+    folder = tmp_path / "images"
+    folder.mkdir()
+    for index, image in enumerate(images):
+        Image.fromarray(image).save(folder / f"{index:02d}.png")
+    video = str(tmp_path / "clip.mp4")
+    writer = cv2.VideoWriter(video, cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (96, 96))
+    for image in images:
+        writer.write(image)
+    writer.release()
+
+    def same(got, want):
+        assert len(got) == len(want) == len(images)
+        for a, b in zip(got, want):
+            assert a.path == b.path and getattr(a, "frame_idx", None) == getattr(b, "frame_idx", None)
+            for field in ("xyxy", "conf", "cls"):
+                np.testing.assert_array_equal(np.asarray(getattr(a.boxes, field)), np.asarray(getattr(b.boxes, field)))
+
+    for source in (images, str(folder), video):
+        backend._model.batches.clear()
+        default = list(backend(source, conf=0.01))
+        assert backend._model.batches == [8, 2], source if isinstance(source, str) else "list"
+        backend._model.batches.clear()
+        single = list(backend(source, conf=0.01, batch=1))
+        assert backend._model.batches == []
+        same(default, single)
+    with pytest.raises(ValueError, match="batch must be >= 1"):
+        backend(images, batch=0)

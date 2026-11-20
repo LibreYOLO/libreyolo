@@ -557,6 +557,10 @@ class AxeleraBackend(BaseBackend):
     # Compiled graphs have one input shape: restoration pads into that canvas
     # instead of running at the image's own size.
     fixed_input_shape = True
+    # Lists, directories and video files run 8 images per runtime call by
+    # default (``predict(batch=1)`` opts out): a batched submission keeps
+    # several AIPU cores busy and overlaps the host pre/post-processing.
+    default_predict_batch = 8
 
     def __init__(
         self,
