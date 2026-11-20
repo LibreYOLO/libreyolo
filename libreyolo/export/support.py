@@ -5344,7 +5344,11 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "does not compile for Metis with the 1.9 SDK: lowering finds no L1 "
             "tiling even with one-row tiles, at its native 896 (2.52 MB needed, "
             "2.15 MB available) and at a 512 canvas (2.58 vs 2.14 MB); its "
-            "160-channel BiFPN and heads set the need, not the canvas; use d2"
+            "160-channel BiFPN and heads set the need, not the canvas. Neither "
+            "compiler tiling options (force_oc_tiling, resources_used=1.0) nor "
+            "compiling it as parts (backbone + BiFPN, then each level's heads) "
+            "helps: one BiFPN operation needs 2.54 MB of L1 at one-row tiles "
+            "(2.32 MB available); use d2"
             "; a hybrid (part of the network on the host) is parked by decision 2026-11-19 on branch axelera-hybrid-parked"
         ),
         "d4": (
