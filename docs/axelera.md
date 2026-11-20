@@ -629,10 +629,15 @@ and prefix cuts put its overflow in the EfficientNet-B4 backbone's
 272-channel stage (3.12 MB needed, 2.47 MB available).
 
 Compiler tiling options do not change d3's need (force_oc_tiling, or
-resources_used=1.0, which raises only the L2 budget), and compiling d3 as
-parts (backbone and BiFPN, then each level's class and box heads) fails on
-the first part: one BiFPN operation needs 2.54 MB of L1 at one-row tiles,
-2.32 MB available (ledgers `efficientdet/detect/d3/2026-11-20` to `/3`).
+resources_used=1.0, which raises only the L2 budget). Each BiFPN node does
+compile alone, so d3 runs entirely on the Metis as 54 compiled parts (the
+backbone, one part per BiFPN node, one per level's heads; between parts the
+host only upsamples and concatenates, then decodes the anchors): 0.3718 vs
+0.3853 FP32 mAP50-95 on 300 COCO val2017 images (-1.35). End to end that
+chain is slower than FP32 on this CPU at the same 512 input: 1.09 vs 4.64
+img/s at batch 1 and 3.50 vs 4.48 at batch 8, so it is parked for speed
+(branch `axelera-effdet-parts`; ledgers `efficientdet/detect/d3/2026-11-20`
+to `/9`).
 
 EfficientDet-d3 and -d4 are therefore blocked. Running their EfficientNet
 backbone (d4: stages 0-4) on the Metis and the rest on the host works (-0.39
