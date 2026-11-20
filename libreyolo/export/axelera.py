@@ -176,18 +176,19 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "hybrid_split": "backbone",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
-    # PIDNet-s (1024): through layer 5 on the Metis (PagFM fusions in their exact sigmoid(-z) form); PAPPM, the
-    # branch fusion and the head on the host.
+    # PIDNet (1024): the whole graph collapses in INT8 (cosine ~0). As three compiled parts (branches through
+    # layer 5 with the pyramid pooling's per-branch layers; the pooling sums and compression; the branch fusion and
+    # head), sums folded into fixed 1x1 convs and joined on the host by bilinear upsample + concat only.
     ("pidnet", "semantic", "s"): {
-        "hybrid_split": "backbone",
+        "pool_parts": True,
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
     ("pidnet", "semantic", "m"): {
-        "hybrid_split": "backbone",
+        "pool_parts": True,
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
     ("pidnet", "semantic", "l"): {
-        "hybrid_split": "backbone",
+        "pool_parts": True,
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
     # RTMDet-x (640): compiled whole (or backbone + neck) the PAFPN finds no L1 tiling, while each of its blocks

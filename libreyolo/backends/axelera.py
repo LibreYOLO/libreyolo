@@ -244,16 +244,38 @@ def _host_fcos_decode(y, *, boxes, n_cls, anchors, class_indices) -> np.ndarray:
     return np.concatenate([xyxy, lvl, scores], axis=-1)[None].astype(np.float32)
 
 
-def _host_concat(*xs, upsample) -> np.ndarray:
-    """Channel concat of parts' outputs, each first upsampled by its integer factor (nearest, as ``nn.Upsample``).
+def _bilinear_matrix(n: int, factor: int) -> np.ndarray:
+    """``[n * factor, n]`` weights of a bilinear upsample by ``factor`` with ``align_corners=False`` (as
+    ``F.interpolate(..., size=n * factor, mode="bilinear")``)."""
+    out = np.zeros((n * factor, n), dtype=np.float32)
+    src = np.maximum((np.arange(n * factor, dtype=np.float32) + 0.5) / factor - 0.5, 0.0)
+    i0 = np.floor(src).astype(np.int64)
+    i1 = np.minimum(i0 + 1, n - 1)
+    lam = (src - i0).astype(np.float32)
+    rows = np.arange(n * factor)
+    np.add.at(out, (rows, i0), 1.0 - lam)
+    np.add.at(out, (rows, i1), lam)
+    return out
+
+
+def _host_concat(*xs, upsample, mode: str = "nearest") -> np.ndarray:
+    """Channel concat of parts' outputs, each first upsampled by its integer factor (``mode`` nearest, as
+    ``nn.Upsample``, or bilinear with ``align_corners=False``, as PIDNet's pyramid pooling).
 
     Pure data movement: RTMDet's PAFPN joins as ``cat([upsample(high), low])`` and ``cat([down, high])``.
     """
+    if mode not in ("nearest", "bilinear"):
+        raise ValueError(f"concat upsample mode must be 'nearest' or 'bilinear', got {mode!r}")
     arrays = []
     for x, factor in zip(xs, upsample):
         x = np.asarray(x, dtype=np.float32)
         f = int(factor)
-        arrays.append(x.repeat(f, axis=2).repeat(f, axis=3) if f > 1 else x)
+        if f > 1 and mode == "bilinear":
+            mh, mw = _bilinear_matrix(x.shape[2], f), _bilinear_matrix(x.shape[3], f)
+            x = np.einsum("oh,nchw,pw->ncop", mh, x, mw, optimize=True).astype(np.float32)
+        elif f > 1:
+            x = x.repeat(f, axis=2).repeat(f, axis=3)
+        arrays.append(x)
     return np.concatenate(arrays, axis=1)
 
 

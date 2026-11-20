@@ -119,7 +119,7 @@ CPU (details below), and an empty cell is blocked in preflight.
 | pe | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | available | ✓ |  |  | ✓ |
 | picosam3 | segment | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
-| pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
+| pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
 | ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | available |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -676,6 +676,7 @@ These converter paths are callable with the recorded validation context.
 - `picodet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the graph stops after each level's box-distribution and class convolutions, ESNet's channel shuffles become fixed permutation convolutions, and LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 Max against FP32 on a paired 1000-image COCO val2017 subset PicoDet-s loses 2.3, PicoDet-m 2.9 and PicoDet-l 1.7 mAP50-95 (docs/axelera.md). Constraint: supported sizes: s, m, l (measured drop, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `picosam3` / `segment` / `axelera`: INT8 export of the raw ROI CNN compiled with Axelera's toolchain, under the same contract as ONNX (roi_image [1,3,96,96] -> mask_logits [1,1,96,96]); cutting the ROI from a box and pasting the logits back stay in Python. The stem's depthwise 3x3 on the image runs as an exact dense 3->3 conv. Supported, not validated: there are no ground-truth masks in the pairing, so the device is measured against FP32 (fidelity): on 2360 ground-truth-box ROIs of 297 COCO val2017 images, mask IoU vs FP32 0.968 and pixel agreement 0.992 (docs/axelera.md). Constraint: axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 96x96 ROI input; calibration ROIs cut from the dataset's ground-truth boxes (2 per image, 128 in total)
 - `pidnet` / `semantic` / `tensorrt`: TensorRT 10.16 FP32 exports and runs, but repeated builds produced raw-logit cosine as low as 0.9970, below the 0.999 promotion gate.
+- `pidnet` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; PIDNet runs on the Metis AIPU as three compiled parts (the branches through layer 5 with the pyramid pooling's per-branch layers, the pooling sums, then the branch fusion and the head), joined on the host by bilinear upsampling and channel concatenation only. Compiled whole it collapses in INT8 (logit cosine about 0). Supported, not validated: PIDNet is trained on Cityscapes, so the paired measurement is fidelity to FP32 on 300 COCO val2017 images at 1024x1024 (s: mIoU 0.864, 95.0% of pixels agree; docs/axelera.md). Faster than the FP32 CPU (4 host threads): s 7.36 vs 2.93 img/s batched, 5.17 vs 2.89 at batch 1. Constraint: supported sizes: s (measured fidelity, SIZE_ACCURACY_NOTES); m and l not measured yet. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1 per part call, fixed 1024x1024 input (a multiple of 64)
 - `ppdoclayoutv3` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppdoclayoutv3` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `ppdoclayoutv3` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
@@ -1888,7 +1889,6 @@ rest on the host CPU; each entry names the split.
 - `pidnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `pidnet` / `semantic` / `axelera`: not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked).
 - `pidnet` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
 - `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.

@@ -834,6 +834,7 @@ def test_zipdepth_bnpu_hybrid_gcb_split_reproduces_the_native_model():
     torch.testing.assert_close(again, want)  # the rewrites stay on the wrapper's copy
 
 
+@_PARKED
 @pytest.mark.parametrize("size", ["s", "m", "l"])
 def test_pidnet_hybrid_layer5_split_reproduces_the_native_model(size):
     """PIDNet recipe hybrid (s, m, l) in FP32: the branches through layer 5 (Metis part; both PagFM fusions in the

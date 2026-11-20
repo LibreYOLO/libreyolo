@@ -4824,13 +4824,26 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "available",
     ("pidnet",),
     ("semantic",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "INT8 export compiled with Axelera's toolchain; PIDNet runs on the Metis AIPU "
+        "as three compiled parts (the branches through layer 5 with the pyramid "
+        "pooling's per-branch layers, the pooling sums, then the branch fusion and the "
+        "head), joined on the host by bilinear upsampling and channel concatenation "
+        "only. Compiled whole it collapses in INT8 (logit cosine about 0). Supported, "
+        "not validated: PIDNet is trained on Cityscapes, so the paired measurement is "
+        "fidelity to FP32 on 300 COCO val2017 images at 1024x1024 (s: mIoU 0.864, "
+        "95.0% of pixels agree; docs/axelera.md). Faster than the FP32 CPU (4 host "
+        "threads): s 7.36 vs 2.93 img/s batched, 5.17 vs 2.89 at batch 1."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: s (measured fidelity, SIZE_ACCURACY_NOTES); m and l not "
+        "measured yet. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1 per part call, fixed 1024x1024 input (a multiple of 64)"
     ),
 )
 _add(
@@ -5166,6 +5179,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "and no Cityscapes masks were used)"
         ),
     },
+    ("pidnet", "semantic", "axelera"): {
+        "s": (
+            "measured fidelity mIoU 0.864 vs FP32 labels (95.0% of pixels agree on "
+            "300 COCO val2017 images at 1024x1024, three compiled parts; PIDNet is "
+            "Cityscapes-trained and no Cityscapes masks were used)"
+        ),
+    },
     ("unet", "semantic", "axelera"): {
         "s": (
             "measured fidelity mIoU 0.856 vs FP32 labels (95.3% of pixels agree "
@@ -5416,6 +5436,10 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("pidnet", "semantic", "axelera"): {
+        "m": "has not been measured on a Metis yet as compiled parts (the pool_parts recipe of s)",
+        "l": "has not been measured on a Metis yet as compiled parts (the pool_parts recipe of s)",
+    },
     ("hrnet", "pose", "axelera"): {
         "w48": (
             "has not been measured on a Metis yet as compiled parts (the "

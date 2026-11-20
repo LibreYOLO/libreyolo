@@ -1193,7 +1193,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("dekr", "pose", "w32"),
         # ZipDepth-bnpu/b recipe hybrids (test_zipdepth_bnpu_hybrid_gcb_split_reproduces_the_native_model).
         ("zipdepth", "depth", "bnpu"), ("zipdepth", "depth", "b"),
-        # PIDNet recipe hybrids (test_pidnet_hybrid_layer5_split_reproduces_the_native_model).
+        # PIDNet pool_parts (test_pidnet_pool_parts_chain_reproduces_the_native_model).
         ("pidnet", "semantic", "s"), ("pidnet", "semantic", "m"), ("pidnet", "semantic", "l"),
         # EfficientDet-d3/d4 recipe hybrids (test_efficientdet_hybrid_backbone_split_reproduces_the_export_output).
         ("efficientdet", "detect", "d3"), ("efficientdet", "detect", "d4"),
@@ -1976,6 +1976,15 @@ def test_ppliteseg_is_supported_with_its_measured_fidelity():
     assert ("ppliteseg", "semantic", "axelera") not in UNMEASURED_SIZES
 
 
+def test_pidnet_is_supported_as_pool_parts_with_its_measured_fidelity():
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES, get_support
+
+    entry = get_support("pidnet", "semantic", "axelera")
+    assert entry.tier == "available" and "three compiled parts" in entry.reason and "0.864" in entry.reason
+    assert "0.864" in SIZE_ACCURACY_NOTES[("pidnet", "semantic", "axelera")]["s"]
+    assert sorted(UNMEASURED_SIZES[("pidnet", "semantic", "axelera")]) == ["l", "m"]
+
+
 @_PARKED
 def test_pidnet_is_a_layer5_split_hybrid():
     from libreyolo.export.axelera import size_recipe
@@ -2632,6 +2641,67 @@ def test_rtmdet_neck_parts_chain_reproduces_the_raw_heads():
     assert sorted(produced) == sorted(raw.output_names)
     for name in raw.output_names:
         torch.testing.assert_close(torch.from_numpy(values[name]), want[name], atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.parametrize("size", ["s", "l"])
+def test_pidnet_pool_parts_chain_reproduces_the_native_model(size):
+    """PIDNet ``pool_parts`` in FP32 (s: PAPPM + LightBag, l: DAPPM + Bag): the trunk with the pooling module's
+    per-branch layers (pools as separable depthwise convs), the pooling sums part and the fusion + head part, joined
+    on the host by bilinear upsampling + channel concat only, reproduce the native logits."""
+    import torch
+
+    from libreyolo import LibrePIDNet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.exporter import (
+        AxeleraExporter,
+        _PIDNetFusionHeadPart,
+        _PIDNetPoolMergePart,
+        _PIDNetTrunkPart,
+        _pidnet_pool_sizes,
+    )
+
+    torch.manual_seed(0)
+    model = LibrePIDNet(None, size=size, device="cpu")
+    assert AxeleraExporter(model)._hybrid_outputs() == ()
+    for s in ("s", "m", "l"):
+        assert size_recipe("pidnet", "semantic", s)["pool_parts"] is True
+    net = model.model.eval().requires_grad_(False)
+    trunk = _PIDNetTrunkPart(net, (256, 256)).eval()
+    merge = _PIDNetPoolMergePart(trunk.model.spp).eval()
+    head = _PIDNetFusionHeadPart(trunk.model).eval()
+    factors = [4 // h for h, _ in _pidnet_pool_sizes(trunk.model.spp, (4, 4))]
+    assert factors == [2, 4, 4, 4]
+    x = torch.rand(1, 3, 256, 256, generator=torch.Generator().manual_seed(1)) * 255
+    with torch.no_grad():
+        want = net(x)
+        v = dict(zip(trunk.output_names, (t.numpy() for t in trunk(x))))
+        pool_in = HOST_OPS["concat"](
+            *(v[n] for n in ("pp1", "pp2", "pp3", "pp4", "pp0", "ppsc")), upsample=[*factors, 1, 1], mode="bilinear"
+        )
+        spp = merge(torch.from_numpy(pool_in))[0].numpy()
+        fuse_in = HOST_OPS["concat"](v["p5"], spp, v["d5"], upsample=[1, 8, 1], mode="bilinear")
+        got = head(torch.from_numpy(fuse_in))[0]
+    assert all(type(m).__name__ != "PagFM" or "forward" not in vars(m) for m in net.modules())
+    scale = want.abs().max()
+    torch.testing.assert_close(got / scale, want / scale, atol=1e-5, rtol=0)
+
+
+def test_host_concat_bilinear_matches_interpolate():
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+
+    from libreyolo.backends.axelera import HOST_OPS
+
+    for n, f in ((1, 16), (2, 8), (4, 4), (8, 2), (16, 8), (3, 5)):
+        x = torch.rand(1, 3, n, n + 1, generator=torch.Generator().manual_seed(n))
+        want = F.interpolate(x, size=[n * f, (n + 1) * f], mode="bilinear", align_corners=False)
+        got = HOST_OPS["concat"](x.numpy(), np.ones((1, 2, n * f, (n + 1) * f), np.float32), upsample=[f, 1], mode="bilinear")
+        np.testing.assert_allclose(got[:, :3], want.numpy(), atol=1e-6)
+        assert (got[:, 3:] == 1).all()
+    nearest = HOST_OPS["concat"](np.arange(4, dtype=np.float32).reshape(1, 1, 2, 2), upsample=[2])
+    assert nearest.shape == (1, 1, 4, 4) and nearest[0, 0, 0, 1] == 0 and nearest[0, 0, 0, 2] == 1
 
 
 def test_hrnet_fusion_parts_chain_reproduces_the_native_model():

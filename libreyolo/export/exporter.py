@@ -5401,6 +5401,223 @@ class _PIDNetHostTailWrapper(torch.nn.Module):
         return (m.final_layer(m.dfm(p, x, d)),)
 
 
+class _PIDNetPool(torch.nn.Module):
+    """A pyramid pooling branch's average pool in a form the compiler takes (exact).
+
+    Windows up to 255 elements stay one ``AvgPool2d``. A larger one (the 17x17 / 8 pool, 289) runs as an explicit
+    zero pad and a (k, 1) pool, then a pad and a (1, k) pool: a box average is the product of two 1-D ones, and the
+    explicit pad is ``count_include_pad``. The global pool (``hw`` window) averages 2x2 blocks down to 4x4 first
+    (equal windows). Depthwise convolutions are no option: the compiler takes only square depthwise kernels.
+    """
+
+    def __init__(self, kernel, stride, padding, global_hw=None):
+        super().__init__()
+        self.k, self.s, self.p = _pair(kernel), _pair(stride), _pair(padding)
+        self.global_hw = global_hw
+
+    def forward(self, x):
+        import torch.nn.functional as F
+
+        if self.global_hw is not None:
+            while x.shape[-2] > 4 and x.shape[-1] > 4 and x.shape[-2] % 2 == 0 and x.shape[-1] % 2 == 0:
+                x = F.avg_pool2d(x, 2, 2)
+            return F.adaptive_avg_pool2d(x, 1)
+        (kh, kw), (sh, sw), (ph, pw) = self.k, self.s, self.p
+        if kh * kw <= 255:
+            return F.avg_pool2d(x, (kh, kw), (sh, sw), (ph, pw), count_include_pad=True)
+        x = F.avg_pool2d(F.pad(x, (0, 0, ph, ph)), (kh, 1), (sh, 1))
+        return F.avg_pool2d(F.pad(x, (pw, pw, 0, 0)), (1, kw), (1, sw))
+
+
+def _pair(v):
+    return (int(v), int(v)) if isinstance(v, int) else (int(v[0]), int(v[1]))
+
+
+def _block_select_conv(widths, rows) -> torch.nn.Conv2d:
+    """A fixed 1x1 conv over a channel concat of blocks ``widths``: output block ``r`` is the sum of the input blocks
+    ``rows[r]`` (``(block, sign)`` pairs, all the same width). Exact: weights are 0 and +-1."""
+    offsets = [0]
+    for w in widths:
+        offsets.append(offsets[-1] + int(w))
+    outs = [int(widths[r[0][0]]) for r in rows]
+    conv = torch.nn.Conv2d(offsets[-1], sum(outs), 1, bias=False)
+    with torch.no_grad():
+        conv.weight.zero_()
+        o = 0
+        for row, width in zip(rows, outs):
+            for block, sign in row:
+                conv.weight[o : o + width, offsets[block] : offsets[block] + width, 0, 0] += float(sign) * torch.eye(width)
+            o += width
+    return conv.requires_grad_(False).eval()
+
+
+def _pidnet_pool_sizes(spp, hw):
+    """Spatial sizes of the pyramid pooling module's four pooled branches for an ``hw`` input."""
+    sizes = []
+    for scale in (spp.scale1, spp.scale2, spp.scale3):
+        pool = scale[0]
+        k, s, p = _pair(pool.kernel_size), _pair(pool.stride), _pair(pool.padding)
+        sizes.append(tuple((hw[i] + 2 * p[i] - k[i]) // s[i] + 1 for i in range(2)))
+    sizes.append((1, 1))
+    return sizes
+
+
+class _PIDNetTrunkPart(_PIDNetBodyWrapper):
+    """Part 1 of PIDNet's ``pool_parts`` export: stem, P/I/D branches through layer 5 (PagFM in the exact
+    ``sigmoid(-z) * x + sigmoid(z) * y`` form) and the pyramid pooling module's per-branch layers.
+
+    Outputs the four pooled branches (each average pool in a compiler-friendly exact form, then BN, ReLU and the
+    1x1 conv; ``pp1``..``pp4`` at 1/2, 1/4, 1/8 and 1x1 of the I map), the unpooled branch ``pp0``, the shortcut
+    ``ppsc`` and the P and D maps (``p5``, ``d5``). The host upsamples the pooled branches (bilinear, as the module
+    does) and concatenates them for part 2.
+    """
+
+    output_names = ("pp1", "pp2", "pp3", "pp4", "pp0", "ppsc", "p5", "d5")
+
+    def __init__(self, model: torch.nn.Module, imgsz):
+        super().__init__(model)
+        spp = self.model.spp
+        hw = (int(imgsz[0]) // 64, int(imgsz[1]) // 64)
+        self.pools = torch.nn.ModuleList(
+            [_PIDNetPool(s[0].kernel_size, s[0].stride, s[0].padding) for s in (spp.scale1, spp.scale2, spp.scale3)]
+            + [_PIDNetPool(1, 1, 0, global_hw=hw)]
+        )
+        self.identity = torch.nn.ModuleList(list(self.identity)[1:])  # P and D only
+
+    def forward(self, x):
+        import torch.nn.functional as F
+
+        m = self.model
+        x = (x - m.pixel_mean.to(dtype=x.dtype)) / m.pixel_std.to(dtype=x.dtype)
+        ho, wo = x.shape[-2] // 8, x.shape[-1] // 8
+        x = m.layer1(m.conv1(x))
+        x = m.relu(m.layer2(m.relu(x)))
+        x_ = m.layer3_(x)
+        x_d = m.layer3_d(x)
+        x = m.relu(m.layer3(x))
+        x_ = m.pag3(x_, m.compression3(x))
+        x_d = x_d + F.interpolate(m.diff3(x), size=[ho, wo], mode="bilinear", align_corners=False)
+        x = m.relu(m.layer4(x))
+        x_ = m.layer4_(m.relu(x_))
+        x_d = m.layer4_d(m.relu(x_d))
+        x_ = m.pag4(x_, m.compression4(x))
+        x_d = x_d + F.interpolate(m.diff4(x), size=[ho, wo], mode="bilinear", align_corners=False)
+        x5 = m.layer5(x)
+        spp = m.spp
+        pooled = [
+            scale[3](scale[2](scale[1](pool(x5))))
+            for pool, scale in zip(self.pools, (spp.scale1, spp.scale2, spp.scale3, spp.scale4))
+        ]
+        p5 = self.identity[0](m.layer5_(m.relu(x_)))
+        d5 = self.identity[1](m.layer5_d(m.relu(x_d)))
+        return (*pooled, spp.scale0(x5), spp.shortcut(x5), p5, d5)
+
+
+class _PIDNetPoolMergePart(torch.nn.Module):
+    """Part 2 of PIDNet's ``pool_parts`` export: the pyramid pooling module's sums, processing and compression.
+
+    Input: the host's concat of the upsampled pooled branches ``up1``..``up4``, ``pp0`` and ``ppsc`` (I map size).
+    Every ``upsample + x`` sum and the final ``+ shortcut`` run as fixed 1x1 convs over channel concats (identity
+    blocks; exact), PAPPM's four sums in one conv, DAPPM's chained ones one per stage. Output ``spp``.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("spp",)
+
+    def __init__(self, spp: torch.nn.Module):
+        super().__init__()
+        self.spp = spp
+        self.dappm = hasattr(spp, "process1")
+        b = int(spp.scale0[2].out_channels)
+        o = int(spp.shortcut[2].out_channels)
+        widths = [b, b, b, b, b, o]
+        self.entry = _block_select_conv(widths, [[(i, 1)] for i in range(6)])
+        if self.dappm:
+            self.first = _block_select_conv(widths, [[(0, 1), (4, 1)]])
+            self.take = torch.nn.ModuleList([_block_select_conv(widths, [[(i, 1)]]) for i in (1, 2, 3)])
+            self.chain = _block_select_conv([b, b], [[(0, 1), (1, 1)]])
+        else:
+            self.sums = _block_select_conv(widths, [[(i, 1), (4, 1)] for i in range(4)])
+        self.x0 = _block_select_conv(widths, [[(4, 1)]])
+        self.short = _block_select_conv(widths, [[(5, 1)]])
+        self.out = _block_select_conv([o, o], [[(0, 1), (1, 1)]])
+
+    def forward(self, x):
+        spp = self.spp
+        e = self.entry(x)
+        x0 = self.x0(e)
+        if self.dappm:
+            ys = [x0, spp.process1(self.first(e))]
+            for take, process in zip(self.take, (spp.process2, spp.process3, spp.process4)):
+                ys.append(process(self.chain(torch.cat([take(e), ys[-1]], dim=1))))
+            comp = spp.compression(torch.cat(ys, dim=1))
+        else:
+            comp = spp.compression(torch.cat([x0, spp.scale_process(self.sums(e))], dim=1))
+        return (self.out(torch.cat([comp, self.short(e)], dim=1)),)
+
+
+class _PIDNetFusionHeadPart(torch.nn.Module):
+    """Part 3 of PIDNet's ``pool_parts`` export: the boundary-attention fusion (LightBag or Bag) and the head.
+
+    Input: the host's concat of ``p5``, ``spp`` upsampled to the P map (bilinear) and ``d5``, entered through a
+    dense identity 1x1 conv and split. ``1 - sigmoid(d)`` runs as ``sigmoid(-d)``; LightBag's two
+    convs and three sums fold into one 1x1 conv over ``cat[sigmoid(-d) * i, p, i, sigmoid(d) * p]`` (BN folded),
+    and Bag's sum + BN into a fixed per-channel conv over ``cat[sigmoid(d) * p, sigmoid(-d) * i]``. Output
+    ``semantic_logits`` (stride 8, as the network's own output).
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("semantic_logits",)
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        dfm = model.dfm
+        self.light = hasattr(dfm, "conv_p")
+        c = int(dfm.conv_p[0].in_channels if self.light else dfm.conv[0].num_features)
+        self.c = c
+        # Dense: a grouped or depthwise conv on a part's graph input fails the compiler's input-quantization pass
+        # under the hybrid scheme ("can only convert an array of size 1").
+        self.entry = torch.nn.Conv2d(3 * c, 3 * c, 1, bias=False)
+        self.negate = torch.nn.Conv2d(c, c, 1, groups=c, bias=False)
+        with torch.no_grad():
+            self.entry.weight.copy_(torch.eye(3 * c).view(3 * c, 3 * c, 1, 1))
+            self.negate.weight.fill_(-1.0)
+        if self.light:
+            def folded(seq):
+                conv, bn = seq[0], seq[1]
+                s = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+                return conv.weight[:, :, 0, 0] * s[:, None], bn.bias - bn.running_mean * s
+
+            with torch.no_grad():
+                wp, bp = folded(dfm.conv_p)
+                wi, bi = folded(dfm.conv_i)
+                out = wp.shape[0]
+                self.fuse = torch.nn.Conv2d(4 * c, out, 1, bias=True)
+                self.fuse.weight.copy_(torch.cat([wp, wp, wi, wi], dim=1).view(out, 4 * c, 1, 1))
+                self.fuse.bias.copy_(bp + bi)
+        else:
+            bn = dfm.conv[0]
+            with torch.no_grad():
+                s = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+                self.fuse = torch.nn.Conv2d(2 * c, c, 1, bias=True)
+                self.fuse.weight.copy_(torch.cat([torch.diag(s), torch.diag(s)], dim=1).view(c, 2 * c, 1, 1))
+                self.fuse.bias.copy_(bn.bias - bn.running_mean * s)
+        self.requires_grad_(False)
+
+    def forward(self, x):
+        p, i, d = torch.split(self.entry(x), self.c, dim=1)
+        gate, gate_neg = torch.sigmoid(d), torch.sigmoid(self.negate(d))
+        if self.light:
+            z = self.fuse(torch.cat([gate_neg * i, p, i, gate * p], dim=1))
+        else:
+            conv = self.model.dfm.conv
+            z = conv[2](conv[1](self.fuse(torch.cat([gate * p, gate_neg * i], dim=1))))
+        return (self.model.final_layer(z),)
+
+
 class _RTMDetBodyWrapper(torch.nn.Module):
     """Part 1 of a hybrid RTMDet export (recipe ``hybrid_split``): the CSPNeXt backbone's three levels.
 
@@ -6834,6 +7051,77 @@ class AxeleraExporter(BaseExporter):
         self._hybrid_parts = steps
         return first
 
+    def _export_pidnet_pool_parts_onnx(self, out: Path, imgsz, dummy, onnx_output, opset, simplify) -> str:
+        """PIDNet as three compiled parts (recipe ``pool_parts``): the branches through layer 5 with the pyramid
+        pooling module's per-branch layers, the pooling module's sums and compression, then the branch fusion and
+        the head; between parts the host only upsamples (bilinear, as the network) and concatenates channels."""
+        from ..backends.axelera import HOST_OPS
+        from .onnx import _export_onnx_graph
+
+        if int(imgsz[0]) % 64 or int(imgsz[1]) % 64:
+            raise ValueError(f"PIDNet exports for Axelera at a multiple of 64, got {imgsz[0]}x{imgsz[1]}.")
+        net = copy.deepcopy(self.model.model).eval().requires_grad_(False)
+        trunk = _PIDNetTrunkPart(net, imgsz).eval().requires_grad_(False)
+        merge = _PIDNetPoolMergePart(trunk.model.spp).eval()
+        head = _PIDNetFusionHeadPart(trunk.model).eval()
+        i_hw = (int(imgsz[0]) // 64, int(imgsz[1]) // 64)
+        pool_hw = _pidnet_pool_sizes(trunk.model.spp, i_hw)
+        pool_factors = [i_hw[0] // h for h, _ in pool_hw]
+        for (h, w), f in zip(pool_hw, pool_factors):
+            if h * f != i_hw[0] or w * f != i_hw[1]:
+                raise ValueError(f"PIDNet pool_parts needs integer pooling ratios at {imgsz[0]}x{imgsz[1]}.")
+        logger.info(
+            "Step 1/2: Exporting PIDNet as 3 compiled parts (branches + pooling layers, pooling sums, fusion + head);"
+            " the host only upsamples (bilinear) and concatenates between them"
+        )
+        first = _export_onnx_graph(
+            trunk,
+            dummy,
+            output_path=onnx_output,
+            opset=opset,
+            simplify=simplify,
+            half=False,
+            metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+            input_names=["images"],
+            output_names=list(trunk.output_names),
+            dynamic_axes=None,
+        )
+        self._intermediate_paths = [onnx_output]
+        with torch.no_grad():
+            values = dict(zip(trunk.output_names, (t.numpy() for t in trunk(dummy))))
+        joins = (
+            (["pp1", "pp2", "pp3", "pp4", "pp0", "ppsc"], [*pool_factors, 1, 1], "pool_in", merge),
+            (["p5", "spp", "d5"], [1, 8, 1], "fuse_in", head),
+        )
+        steps = []
+        for inputs, factors, joined, part in joins:
+            values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors, mode="bilinear")
+            steps.append(
+                {"host": "concat", "inputs": list(inputs), "output": joined, "upsample": list(factors), "mode": "bilinear"}
+            )
+            sample = torch.from_numpy(values[joined])
+            path = str(out.with_name(f"{out.name}.export_intermediate.{part.output_names[0]}.onnx"))
+            self._intermediate_paths.append(path)
+            _export_onnx_graph(
+                part,
+                torch.zeros_like(sample),
+                output_path=path,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=[joined],
+                output_names=list(part.output_names),
+                dynamic_axes=None,
+            )
+            with torch.no_grad():
+                values.update(zip(part.output_names, (t.numpy() for t in part(sample))))
+            steps.append({"compile": path, "reference": part, "input": joined, "merge_pad": False})
+        self._metadata_wrapper = _GraphOutputsWrapper(net, ("semantic_logits",)).eval()
+        self._raw_wrapper = trunk
+        self._hybrid_parts = steps
+        return first
+
     def _export_efficientdet_parts_onnx(self, out: Path, imgsz, dummy, onnx_output, opset, simplify) -> str:
         """EfficientDet as two compiled parts: the network up to the class predictor's pointwise conv (family
         scheme), then that 1x1 conv on the five levels packed on one canvas with the recipe's scheme (min-max), so
@@ -7168,6 +7456,8 @@ class AxeleraExporter(BaseExporter):
             return self._export_fcos_parts_onnx(out, imgsz)
         if self.model._get_model_name() == "hrnet" and self._size_recipe().get("fusion_parts"):
             return self._export_hrnet_fusion_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
+        if self.model._get_model_name() == "pidnet" and self._size_recipe().get("pool_parts"):
+            return self._export_pidnet_pool_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
         if self.model._get_model_name() == "efficientdet" and self._size_recipe().get("class_head_part"):
             return self._export_efficientdet_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
         graph_outputs = () if self._hybrid_outputs() else self._graph_outputs()
