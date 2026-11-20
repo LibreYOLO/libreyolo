@@ -1367,7 +1367,7 @@ def test_rtmdet_x_detect_exports_as_full_metis_neck_parts():
     exporter = AxeleraExporter(LibreRTMDet(None, size="x", nb_classes=3, device="cpu"))
     assert exporter._hybrid_outputs() == ()
     assert size_recipe("rtmdet", "detect", "x") == {
-        "neck_parts": True, "quantization_scheme": "hybrid_per_tensor_per_channel",
+        "neck_parts": "stem_td0", "quantization_scheme": "hybrid_per_tensor_per_channel",
     }
     assert "x" not in BLOCKED_SIZES.get(("rtmdet", "detect", "axelera"), {})
 
@@ -2639,6 +2639,19 @@ def test_rtmdet_neck_parts_chain_reproduces_the_raw_heads():
             values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[joined])))))
             produced += [n for n in part.output_names if n in want]
     assert sorted(produced) == sorted(raw.output_names)
+    for name in raw.output_names:
+        torch.testing.assert_close(torch.from_numpy(values[name]), want[name], atol=1e-4, rtol=1e-4)
+    # "stem_td0" (RTMDet-x's recipe): the stem part also runs top-down block 0, the chain skips the td0 part.
+    stem4 = _RTMDetStemPart(net, with_td0=True).eval()
+    assert stem4.output_names == ("c3", "r4", "r5")
+    with torch.no_grad():
+        values = dict(zip(stem4.output_names, (t.numpy() for t in stem4(x))))
+        for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+            if stage == "td0":
+                continue
+            values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+            part = _RTMDetNeckPart(raw, stage).eval()
+            values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[joined])))))
     for name in raw.output_names:
         torch.testing.assert_close(torch.from_numpy(values[name]), want[name], atol=1e-4, rtol=1e-4)
 

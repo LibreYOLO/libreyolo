@@ -67,7 +67,7 @@ a separate size:
 | RTMDet | s | detect (learned INT8 rounding of the pointwise convs) | COCO val2017, 1000 | 0.4121 | 0.3681 | -4.40 | supported | `rtmdet/detect/s/2026-11-17/8` |
 | RTMDet | m | detect | COCO val2017, 1000 | 0.4727 | 0.4461 | -2.66 | supported | `rtmdet/detect/m/2026-11-12/2` |
 | RTMDet | l | detect | COCO val2017, 1000 | 0.4805 | 0.4618 | -1.87 | supported | `rtmdet/detect/l/2026-11-12/2` |
-| RTMDet | x | detect (5 compiled parts, joined on the host by upsample + concat) | COCO val2017, 1000 | 0.5128 | 0.4788 | -3.40 | supported | `rtmdet/detect/x/2026-11-20/4` |
+| RTMDet | x | detect (4 compiled parts, joined on the host by upsample + concat) | COCO val2017, 1000 | 0.5128 | 0.4756 | -3.72 | supported | `rtmdet/detect/x/2026-11-20/13` |
 | FCOS | r50 | detect (800x800 canvas; 6 compiled parts, GroupNorm on the host) | COCO val2017, 1000 | 0.3818 | 0.3405 | -4.13 | supported | `fcos/detect/r50/2026-11-15/3` |
 | RetinaNet | r50 | detect (1024x1024 canvas, default) | COCO val2017, 1000 | 0.3472 | 0.3410 | -0.62 (canvas -0.49 more; -1.11 vs own resize) | supported | `retinanet/detect/r50/2026-11-14/4` |
 | RetinaNet | r50 | detect (800x800 canvas, imgsz=800) | COCO val2017, 1000 | 0.3318 | 0.3296 | -0.22 (canvas -2.03 more; -2.25 vs own resize) | option (imgsz=800) | `retinanet/detect/r50/2026-11-14/3` |
@@ -161,7 +161,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | YOLOv7 | detect | b | see `docs/export_support.md` | b `yolo7/detect/b/2026-11-11/4` |
 | PP-YOLOE | detect | s, m, l, x (s, m and x supported with a measured drop) | see `docs/export_support.md` | s `ppyoloe/detect/s/2026-11-11/3`; m `ppyoloe/detect/m/2026-11-11/2`; l `ppyoloe/detect/l/2026-11-11/2`; x `ppyoloe/detect/x/2026-11-19/2` |
 | PicoDet | detect | s, m, l (supported with a measured drop) | see `docs/export_support.md` | s `picodet/detect/s/2026-11-11/7`; m `picodet/detect/m/2026-11-11/4`; l `picodet/detect/l/2026-11-11/4` |
-| RTMDet | detect | t, s, m, l, x (supported with a measured drop; x as five compiled parts) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-17/8`, held-out `rtmdet/detect/s/2026-11-17/9`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x `rtmdet/detect/x/2026-11-20/4` |
+| RTMDet | detect | t, s, m, l, x (supported with a measured drop; x as four compiled parts) | see `docs/export_support.md` | t `rtmdet/detect/t/2026-11-11/8`; s `rtmdet/detect/s/2026-11-17/8`, held-out `rtmdet/detect/s/2026-11-17/9`; m `rtmdet/detect/m/2026-11-12/2`; l `rtmdet/detect/l/2026-11-12/2`; x `rtmdet/detect/x/2026-11-20/13`, speed `rtmdet/detect/x/2026-11-20/14` |
 | RTMDet-Ins | segment | t, s, m, l (supported with a measured drop, box -2.51, -5.02, -3.96 and -5.34; x blocked: does not compile) | see `docs/export_support.md` | t `rtmdet/segment/t/2026-11-12/2`; s `rtmdet/segment/s/2026-11-19/4`; m `rtmdet/segment/m/2026-11-12/2`; l `rtmdet/segment/l/2026-11-12/2`; x blocked `rtmdet/segment/x/2026-11-12` |
 | FCOS | detect | r50 (supported with a measured drop; six compiled parts, GroupNorm and the decode on the host) | see `docs/export_support.md` | r50 `fcos/detect/r50/2026-11-15/3` |
 | RetinaNet | detect | r50 (supported: 1024x1024 canvas by default, -1.11 end to end; imgsz=800 is about 1.64x less compute at -2.25; r50v2 blocked: GroupNorm heads) | see `docs/export_support.md` | r50 `retinanet/detect/r50/2026-11-14/4`; r50v2 blocked `retinanet/detect/r50v2/2026-11-14` |
@@ -393,7 +393,7 @@ still are, in opposite directions (their rows).
 | RTMDet-s | detect | COCO val2017, 1000 images | 64 coco128 | 0.4121 | 0.3681 | -4.40 (supported; -5.43 on 300, -5.15 on a held-out 1000) |
 | RTMDet-m | detect | COCO val2017, 1000 images | 64 coco128 | 0.4727 | 0.4461 | -2.66 (supported; -2.11 on 300) |
 | RTMDet-l | detect | COCO val2017, 1000 images | 64 coco128 | 0.4805 | 0.4618 | -1.87 (supported; -1.92 on 300) |
-| RTMDet-x (5 compiled parts) | detect | COCO val2017, 1000 images | 64 coco128 | 0.5128 | 0.4788 | -3.40 (supported; -2.92 on 300) |
+| RTMDet-x (4 compiled parts) | detect | COCO val2017, 1000 images | 64 coco128 | 0.5128 | 0.4756 | -3.72 (supported; -3.48 on 300) |
 | RetinaNet-R50 (1024x1024 canvas, default) | detect | COCO val2017, 1000 images | 128 coco128 | 0.3472 | 0.3410 | -0.62 (supported: -1.11 vs own resize) |
 | RetinaNet-R50 (800x800 canvas, imgsz=800) | detect | COCO val2017, 1000 images | 64 coco128 | 0.3318 | 0.3296 | -0.22 (supported: canvas -2.03) |
 | SSD300 (two parts) | detect | COCO val2017, 1000 images | 128 coco128 | 0.2408 | 0.2403 | -0.05 (+0.09 on 300) |
@@ -635,16 +635,20 @@ b8). m and l use the same recipe and are not measured yet.
 RTMDet-x does not compile as one graph: its PAFPN neck finds no L1 tiling
 (LowerTIR still overflows after 4 iterations, whole graph or backbone + neck),
 although each of the neck's CSP blocks compiles alone in about a minute. It
-runs as five compiled parts: the backbone with the neck's first 1x1 reduce,
-then one part per PAFPN block, each carrying its level's output conv and head.
-Between parts the host only joins tensors the way the neck does: nearest 2x
-upsampling and channel concatenation (`cat([upsample(high), low])` top-down,
-`cat([down, lateral])` bottom-up). Each block's two entry 1x1 convs run as one
-merged conv, so every part has a single entry op. RTMDet-x scores 0.4788 vs
-0.5128 FP32 (-3.40) on 1000 images and -2.92 on 300. Speed on this NUC: 2.79
-img/s at batch 1 and 6.79 at batch 8 end to end (host steps 6-14% of the
-time), against 0.80 img/s for the best FP32 CPU run (ONNX Runtime, batch 8;
-OpenVINO 0.65).
+runs as four compiled parts: the backbone with the neck's first reduce and
+first top-down block (both of that block's inputs come from the backbone),
+then one part per remaining PAFPN block, each carrying its level's output conv
+and head. Between parts the host only joins tensors the way the neck does:
+nearest 2x upsampling and channel concatenation (`cat([upsample(high), low])`
+top-down, `cat([down, lateral])` bottom-up). Each block's two entry 1x1 convs
+run as one merged conv, so every part has a single entry op. RTMDet-x scores
+0.4756 vs 0.5128 FP32 (-3.72) on 1000 images and -3.48 on 300. Speed on this
+NUC at 4 host threads: 7.16 img/s at batch 1 and 11.1 at batch 8 end to end,
+against 0.80 img/s for the best FP32 CPU run (ONNX Runtime, batch 8; OpenVINO
+0.65). Four parts matter: the runtime keeps up to four compiled models
+resident (one per AIPU core), and a fifth part makes every part reload on
+each call. A five-part split (one part per PAFPN block) scored slightly better
+(-3.40 on 1000, -2.92 on 300) but ran 2.73 img/s at batch 1 and 6.4 at batch 8.
 
 RTMDet-Ins runs the same trunk on the device and returns, per level, the
 box, class and dynamic-kernel outputs, plus the stride-8 mask feature

@@ -192,10 +192,11 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
     # RTMDet-x (640): compiled whole (or backbone + neck) the PAFPN finds no L1 tiling, while each of its blocks
-    # compiles alone; as compiled parts (backbone + first reduce, then one per PAFPN block with its level's
-    # output conv and head) every layer runs on the Metis, joined on the host by upsample + concat only.
+    # compiles alone; as four compiled parts (backbone + first reduce + first top-down block, then one per
+    # remaining PAFPN block with its level's output conv and head; "stem_td0") every layer runs on the Metis,
+    # joined on the host by upsample + concat only. Four parts stay resident on the AIPU (no reloads per call).
     ("rtmdet", "detect", "x"): {
-        "neck_parts": True,
+        "neck_parts": "stem_td0",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
     ("retinanet", "detect", "r50v2"): {

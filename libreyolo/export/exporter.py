@@ -1572,19 +1572,29 @@ class _RTMDetStemPart(torch.nn.Module):
 
     output_layout = "graph_outputs_v1"
     output_windows: ClassVar[dict] = {}
-    output_names = ("c3", "c4", "r5")
 
-    def __init__(self, model: torch.nn.Module):
+    def __init__(self, model: torch.nn.Module, with_td0: bool = False):
         super().__init__()
-        self.model = model
-        c3, c4 = (int(c) for c in model.neck.in_channels[:2])
+        self.model, self.with_td0 = model, bool(with_td0)
+        c3, c4, c5 = (int(c) for c in model.neck.in_channels)
+        # with_td0: the first top-down block (its two inputs both come from this part) and reduce_layers[1] run
+        # here too, so the chain has one compiled part fewer; the outputs become c3, r4, r5 (r5 also feeds
+        # the in-part upsample, so it leaves through an identity conv as well).
+        self.output_names = ("c3", "r4", "r5") if self.with_td0 else ("c3", "c4", "r5")
         self.identity = torch.nn.ModuleList(
             [_ChannelScale(torch.ones(c3), as_conv=True), _ChannelScale(torch.ones(c4), as_conv=True)]
         )
+        if self.with_td0:
+            self.identity_r5 = _ChannelScale(torch.ones(c4), as_conv=True)
 
     def forward(self, x):
+        neck = self.model.neck
         c3, c4, c5 = self.model.backbone(x)
-        return self.identity[0](c3), self.identity[1](c4), self.model.neck.reduce_layers[0](c5)
+        r5 = neck.reduce_layers[0](c5)
+        if not self.with_td0:
+            return self.identity[0](c3), self.identity[1](c4), r5
+        t4 = neck.top_down_blocks[0](torch.cat([neck.upsample(r5), c4], dim=1))
+        return self.identity[0](c3), neck.reduce_layers[1](t4), self.identity_r5(r5)
 
 
 #: RTMDet ``neck_parts`` run order after the stem part: (host concat inputs, upsample factors, its output, the
@@ -7609,11 +7619,13 @@ class AxeleraExporter(BaseExporter):
                 # block (output convs and heads ride with their level); the host only
                 # upsamples (nearest) and concatenates channels between them.
                 self._metadata_wrapper = self._raw_wrapper
+                with_td0 = self._size_recipe().get("neck_parts") == "stem_td0"
                 self._rtmdet_neck_parts = {
                     stage: _RTMDetNeckPart(self._raw_wrapper, stage).eval()
                     for *_, stage in _RTMDET_NECK_STEPS
+                    if not (with_td0 and stage == "td0")
                 }
-                self._raw_wrapper = _RTMDetStemPart(copy_).eval()
+                self._raw_wrapper = _RTMDetStemPart(copy_, with_td0=with_td0).eval()
         else:
             fused = _fused_yolonas_copy(live, full_fusion=True)
             samples = self._equalization_samples() if self._task() == "pose" else []
@@ -7657,6 +7669,8 @@ class AxeleraExporter(BaseExporter):
                 values = dict(zip(self._raw_wrapper.output_names, (t.numpy() for t in self._raw_wrapper(dummy))))
             steps = []
             for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+                if stage not in self._rtmdet_neck_parts:
+                    continue
                 part = self._rtmdet_neck_parts[stage]
                 values[joined] = HOST_OPS["concat"](*(values[name] for name in inputs), upsample=factors)
                 path = str(out.with_name(f"{out.name}.export_intermediate.{stage}.onnx"))
@@ -7684,7 +7698,7 @@ class AxeleraExporter(BaseExporter):
             logger.info(
                 "Axelera: RTMDet as %d compiled parts (backbone + first reduce, then one per PAFPN block with "
                 "its level's output conv and head); the host only upsamples and concatenates between them",
-                1 + len(_RTMDET_NECK_STEPS),
+                1 + len(self._rtmdet_neck_parts),
             )
         if self._chain_tail is not None:
             with torch.no_grad():

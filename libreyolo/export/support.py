@@ -4270,14 +4270,14 @@ _add(
         "LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 "
         "Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 4.40 "
         "(with learned INT8 rounding of its pointwise convolutions), RTMDet-m "
-        "2.66, RTMDet-l 1.87 and RTMDet-x 3.40 (five compiled parts: its PAFPN "
+        "2.66, RTMDet-l 1.87 and RTMDet-x 3.72 (four compiled parts: its PAFPN "
         "does not fit compiled whole) on a paired 1000-image COCO val2017 subset "
         "(docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
         "supported sizes: t, s, m, l, x (measured drop, SIZE_ACCURACY_NOTES; x as "
-        "five compiled parts, AXELERA_SIZE_RECIPES). axelera-devkit / axelera-rt 1.9.0, "
+        "four compiled parts, AXELERA_SIZE_RECIPES). axelera-devkit / axelera-rt 1.9.0, "
         "Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
@@ -5247,10 +5247,10 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "equalization)"
         ),
         "x": (
-            "measured mAP50-95 drop 3.40 points vs FP32 (0.4788 vs 0.5128 on 1000 "
-            "COCO val2017 images; -2.92 on 300; 64 coco128 calibration images, "
+            "measured mAP50-95 drop 3.72 points vs FP32 (0.4756 vs 0.5128 on 1000 "
+            "COCO val2017 images; -3.48 on 300; 64 coco128 calibration images, "
             "per-channel depthwise ranges and balanced CSPNeXt pointwise "
-            "equalization; five compiled parts joined on the host by nearest "
+            "equalization; four compiled parts joined on the host by nearest "
             "upsampling and channel concatenation)"
         ),
     },
