@@ -291,6 +291,13 @@ The input size is fixed by the export. `device="auto"`, `"axelera"`,
 host-side steps); a CUDA device is ignored with a warning. The directory can be copied to any Linux machine with a Metis device
 and `axelera-rt`; `axelera-devkit` is not needed there.
 
+The host steps dominate end-to-end time on this hardware, so pass a list of
+images with `batch=N` (for example `npu(images, batch=8)`): the N images go
+to the device in one submission, and their preprocessing, decode and
+`Results` building run in parallel on host threads (`OMP_NUM_THREADS`, by
+default up to 4). The outputs are identical to processing the images one at
+a time.
+
 ## 6. Migrating from Ultralytics
 
 LibreYOLO follows the same export and inference contract, so the commands map

@@ -420,6 +420,42 @@ def _host_onnx_session(path: Path, step: ChainStep, axm: Path):
     return session
 
 
+_HOST_POOLS: dict[int, Any] = {}
+
+
+def _host_workers() -> int:
+    """Threads for per-image host steps: ``OMP_NUM_THREADS`` when set, else up to 4."""
+    threads = os.environ.get("OMP_NUM_THREADS", "").strip()
+    if threads.isdigit() and int(threads) > 0:
+        return int(threads)
+    return max(1, min(4, os.cpu_count() or 1))
+
+
+def _host_map(function, items: list) -> list:
+    """``[function(item) for item in items]``, spread over a shared thread pool.
+
+    Each item is processed exactly as in the sequential loop (NumPy releases
+    the GIL in its array kernels), so the results are identical; only the
+    wall time changes. One item, or one worker, stays on the calling thread.
+    """
+    workers = min(_host_workers(), len(items))
+    if workers <= 1:
+        return [function(item) for item in items]
+    pool = _HOST_POOLS.get(workers)
+    if pool is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        pool = _HOST_POOLS[workers] = ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="libreyolo-axelera-host"
+        )
+    # Each item runs in a copy of the caller's context, so context variables
+    # (e.g. agnostic NMS) read the same values as on the calling thread.
+    import contextvars
+
+    context = contextvars.copy_context()
+    return list(pool.map(lambda item: context.copy().run(function, item), items))
+
+
 def _as_list(outputs) -> list:
     return list(outputs) if isinstance(outputs, (list, tuple)) else [outputs]
 
@@ -806,6 +842,20 @@ class AxeleraBackend(BaseBackend):
             arrays = [a if a.ndim == 4 else a.reshape((1, *a.shape)) for a in arrays]
         return [arrays[index] for index in self._layout_order]
 
+    #: Tasks whose per-image result building (logit upsampling, argmax, dense
+    #: maps) is heavy enough to gain from host threads; box tasks stay
+    #: sequential, where dispatch would cost about what it saves.
+    _PARALLEL_RESULT_TASKS = frozenset(
+        {"semantic", "depth", "normal", "edge", "matte", "restore"}
+    )
+
+    def _map_images(self, function, images: list, stage: str = "preprocess") -> list:
+        # Per-image host steps of a batch on the host thread pool, while the
+        # device is otherwise idle; each image is processed as before.
+        if stage == "results" and self.task not in self._PARALLEL_RESULT_TASKS:
+            return [function(image) for image in images]
+        return _host_map(function, images)
+
     def _supports_batched_inference(self) -> bool:
         # The compiled model takes one image; batched calls go through the
         # runtime's batch submission, which keeps several cores busy.
@@ -829,10 +879,10 @@ class AxeleraBackend(BaseBackend):
                 for arrays, image in zip(raw, images)
             ]
         else:
-            decoded = [
-                decode_raw_heads(self._layout, arrays, **self._decode_params)
-                for arrays in raw
-            ]
+            decoded = _host_map(
+                lambda arrays: decode_raw_heads(self._layout, arrays, **self._decode_params),
+                raw,
+            )
         if len(decoded) == 1:
             return decoded[0]
         return [np.concatenate(parts, axis=0) for parts in zip(*decoded)]

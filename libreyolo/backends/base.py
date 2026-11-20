@@ -5320,6 +5320,15 @@ class BaseBackend(ABC):
                 **kwargs,
             )
 
+    def _map_images(self, function, images: List, stage: str = "preprocess") -> List:
+        """``[function(image) for image in images]``, in order.
+
+        ``stage`` is ``"preprocess"`` or ``"results"``. Sequential here; a
+        backend whose host steps run between device calls may spread the
+        per-image work over threads (results are unchanged).
+        """
+        return [function(image) for image in images]
+
     def _predict_batch(
         self,
         chunk: List,
@@ -5345,15 +5354,14 @@ class BaseBackend(ABC):
         """
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
-        preprocessed = []
-        for image in chunk:
+        def prepare(image):
             input_tensor, original_img, original_size, ratio = self._preprocess(
                 image, effective_imgsz, color_format
             )
             image_path = image if isinstance(image, (str, Path)) else None
-            preprocessed.append(
-                (input_tensor, original_img, original_size, ratio, image_path)
-            )
+            return (input_tensor, original_img, original_size, ratio, image_path)
+
+        preprocessed = self._map_images(prepare, list(chunk))
 
         tensors = [item[0] for item in preprocessed]
         all_outputs = None
@@ -5394,16 +5402,11 @@ class BaseBackend(ABC):
                 for offset, image in enumerate(chunk)
             ]
 
-        results = []
-        for offset, (_, original_img, original_size, ratio, image_path) in enumerate(
-            preprocessed
-        ):
+        def finish(item):
+            offset, (_, original_img, original_size, ratio, image_path) = item
             per_image = [
                 np.asarray(output)[offset : offset + 1] for output in all_outputs
             ]
-            save_name = (
-                image_path if image_path is not None else f"image{start_idx + offset}"
-            )
             orig_w, orig_h = original_size
             orig_shape = (orig_h, orig_w)
 
@@ -5507,7 +5510,16 @@ class BaseBackend(ABC):
                     reading_order=self._parsed_reading_order(parsed),
                 )
 
+            return result
+
+        built = self._map_images(finish, list(enumerate(preprocessed)), stage="results")
+        results = []
+        for offset, result in enumerate(built):
+            _, original_img, _, _, image_path = preprocessed[offset]
             if save:
+                save_name = (
+                    image_path if image_path is not None else f"image{start_idx + offset}"
+                )
                 self._save_annotated(result, original_img, save_name, output_path)
             results.append(self._keep_source(result, original_img, image_path))
         return results

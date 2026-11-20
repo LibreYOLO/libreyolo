@@ -1328,3 +1328,87 @@ def _identity_module():
     import torch
 
     return torch.nn.Identity()
+
+
+def test_host_map_keeps_order_and_runs_single_items_inline(monkeypatch):
+    import threading
+
+    from libreyolo.backends import axelera as ax
+
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    assert ax._host_map(lambda x: x * x, list(range(9))) == [x * x for x in range(9)]
+    caller = threading.get_ident()
+    assert ax._host_map(lambda _: threading.get_ident(), [0]) == [caller]
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
+    assert set(ax._host_map(lambda _: threading.get_ident(), [0, 1, 2])) == {caller}
+
+
+def test_batched_decode_on_host_threads_equals_per_image_decode(exports, monkeypatch):
+    """A batch decodes its images on a thread pool; every output is bitwise the per-image result."""
+    from libreyolo import LibreYOLO
+
+    model, artifact = exports("yolo9")
+    backend = LibreYOLO(str(artifact))
+    rng = np.random.default_rng(3)
+    images = [rng.integers(0, 255, size=(96, 96, 3), dtype=np.uint8) for _ in range(4)]
+    blobs = [np.asarray(model._preprocess(image, input_size=96)[0]) for image in images]
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
+    single = [backend._run_inference(blob) for blob in blobs]
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    batched = backend._run_inference(np.concatenate(blobs, axis=0))
+    for index, outputs in enumerate(single):
+        for got, want in zip(batched, outputs):
+            np.testing.assert_array_equal(got[index : index + 1], want)
+
+
+def test_batched_predict_on_host_threads_equals_single_image_predict(exports, monkeypatch):
+    """predict(batch=4) pre-processes and decodes on host threads; Results equal one-at-a-time predict."""
+    from libreyolo import LibreYOLO
+    from libreyolo.backends.base import BaseBackend
+
+    model, artifact = exports("yolo9")
+    backend = LibreYOLO(str(artifact))
+    assert type(backend)._map_images is not BaseBackend._map_images
+    rng = np.random.default_rng(5)
+    images = [rng.integers(0, 255, size=(90 + 7 * i, 96, 3), dtype=np.uint8) for i in range(5)]
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
+    single = [backend(image, conf=0.01) for image in images]
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    batched = backend(images, batch=4, conf=0.01)
+    assert len(batched) == len(single)
+    for got, want in zip(batched, single):
+        for field in ("xyxy", "conf", "cls"):
+            np.testing.assert_array_equal(np.asarray(getattr(got.boxes, field)), np.asarray(getattr(want.boxes, field)))
+
+
+def test_host_map_items_see_the_callers_context_variables(monkeypatch):
+    from contextvars import ContextVar
+
+    from libreyolo.backends import axelera as ax
+
+    flag = ContextVar("flag", default="default")
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    token = flag.set("caller")
+    try:
+        assert ax._host_map(lambda _: flag.get(), list(range(6))) == ["caller"] * 6
+    finally:
+        flag.reset(token)
+
+
+def test_result_building_runs_on_host_threads_only_for_dense_tasks(exports, monkeypatch):
+    import threading
+
+    from libreyolo import LibreYOLO
+
+    _, artifact = exports("yolo9")
+    backend = LibreYOLO(str(artifact))
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    caller = threading.get_ident()
+    ident = lambda _: threading.get_ident()  # noqa: E731
+    assert set(backend._map_images(ident, [0, 1, 2], stage="results")) == {caller}
+    monkeypatch.setattr(backend, "task", "semantic")
+    assert len(backend._map_images(lambda _: threading.current_thread().name, [0, 1, 2], stage="results")) == 3
+    assert all(
+        name.startswith("libreyolo-axelera-host")
+        for name in backend._map_images(lambda _: threading.current_thread().name, [0, 1, 2], stage="results")
+    )
