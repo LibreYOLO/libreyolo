@@ -104,6 +104,7 @@ a separate size:
 | MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported | `midas/depth/s/2026-11-11/4` |
 | DexiNed | b | edge (edge-pixel F1 vs FP32 edges at 0.5; 352x352) | COCO val2017 at 352 px, 300 | 1.0000 | 0.9651 | -0.0349 (cosine 0.997) | supported | `dexined/edge/b/2026-11-16` |
 | Face recognition | librefacerec-l | embed (embedding cosine vs the FP32 head; head only: aligned 112x112 face in, 512-d embedding out, detection, alignment and L2 normalization on the host; the 25088-input embedding layer as row convolutions) | COCO val2017 aligned faces, 890 (336 images) | 1.0000 | 0.9933 | -0.0067 (pairwise similarity diff 0.0064; all same/different decisions at 0.4 kept) | supported | `facerec/embed/l/2026-11-20/3` |
+| Face detection | librefacerec-det | embed pipeline detector (face recall vs the FP32 detector at the same 640 canvas, IoU >= 0.5; precision 0.975, matched-box IoU 0.940; the 12 head convolutions on the Metis, sigmoids, box and landmark decode and NMS on the host; slower than the CPU at batch 1, faster at the default batch 8: 0.81x and 1.61x ORT+numpy at 4 host threads) | COCO val2017, 300 (356 FP32 faces) | 1.0000 | 0.9860 | -1.40 | supported | `facerec/embed/det/2026-11-20/2`, speed `facerec/embed/det/2026-11-20/3` |
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
 | DeepLabV3 | r50 | semantic (mIoU; ASPP as per-tap 1x1 convolutions plus shifts) | COCO val2017 VOC-21, 300 | 0.5243 | 0.4734 | -5.09 | supported | `deeplabv3/semantic/r50/2026-11-17/2` |
 | DeepLabV3 | r101 | semantic (mIoU; ASPP as per-tap 1x1 convolutions plus shifts) | COCO val2017 VOC-21, 300 | 0.5888 | 0.3795 | -20.93 | supported | `deeplabv3/semantic/r101/2026-11-14` |
@@ -144,7 +145,8 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | Real-ESRGAN | restore | x4 (three compiled parts + a host add), x4t (equalized trunk; held-out half -0.20 dB); x2 (three compiled parts, supported with a measured drop) | see `docs/export_support.md` | x4 `realesrgan/restore/x4/2026-11-16`; x4t `realesrgan/restore/x4t/2026-11-16`, held-out `realesrgan/restore/x4t/2026-11-16/2`; x2 `realesrgan/restore/x2/2026-11-16` |
 | MiDaS | depth | s (supported with a measured drop; l blocked: does not quantize, section 11) | see `docs/export_support.md` | s `midas/depth/s/2026-11-11/4` |
 | DexiNed | edge | b (supported with a measured fidelity; whole graph; the user supplies the upstream BIPED-trained checkpoint, non-commercial) | see `docs/export_support.md` | b `dexined/edge/b/2026-11-16` |
-| Face recognition | embed | librefacerec-l head (supported with a measured fidelity; `LibreFaceEmbedder.export(format="axelera")` compiles the recognition head under the aligned-face contract, the detector stays on the host; `LibreYOLO("librefacerec-l_axelera_model")` runs it) | not in `docs/export_support.md` (the face embedder is outside the export matrix) | l `facerec/embed/l/2026-11-20/3` |
+| Face recognition | embed | librefacerec-l head (supported with a measured fidelity; `LibreFaceEmbedder.export(format="axelera")` compiles the recognition head under the aligned-face contract; `LibreYOLO("librefacerec-l_axelera_model")` runs it) | not in `docs/export_support.md` (the face embedder is outside the export matrix) | l `facerec/embed/l/2026-11-20/3` |
+| Face detection | embed | librefacerec-det (supported with a measured fidelity; `LibreFaceEmbedder.export(format="axelera", component="detector")` compiles the family's face detector at a 640 canvas; `LibreFaceEmbedder(head, face_detector="librefacerec-det_axelera_model")` runs it, lists, directories and video files 8 images per call by default; slower than the CPU at batch 1) | not in `docs/export_support.md` (the face embedder is outside the export matrix) | det `facerec/embed/det/2026-11-20/2`, speed `/3` |
 | DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops: -3.77, -5.09, -20.93) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-17/2`; r101 `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | semantic | s (supported with a measured fidelity; whole graph at the 512x1024 training crop with histogram ranges, compile about 11-13 h) | see `docs/export_support.md` | s `unet/semantic/s/2026-11-20` |
 | PP-LiteSeg | semantic | t50, b50, t75, b75 (supported with a measured fidelity; whole graph at 512x1024 (t50, b50) or 768x1536 (t75, b75), the UAFM blends in an exact INT8-friendly form) | see `docs/export_support.md` | t50 `ppliteseg/semantic/t50/2026-11-18`; b50 `ppliteseg/semantic/b50/2026-11-18`; t75 `ppliteseg/semantic/t75/2026-11-18`; b75 `ppliteseg/semantic/b75/2026-11-18` |
@@ -576,6 +578,35 @@ mAP50-95 on 1172 ground-truth person crops from 300 COCO val2017 images
 (-0.92, validated). Speed on this NUC: 16.4 img/s batched (8 crops) vs 6.87
 for the best FP32 CPU run, both at 4 host threads; at batch 1 the 14 part calls
 make it slower than the CPU (3.69 vs 4.98 img/s).
+
+The face-embedding pipeline's detector (`librefacerec-det`, a YuNet-style
+CNN) compiles whole at a fixed 640x640 canvas: the graph stops at its 12 head
+convolutions (class, objectness, box and five-landmark maps at strides 8, 16
+and 32, layout `yunet_raw_heads_v1`), and the host applies the sigmoids,
+decodes boxes and landmarks on the grid and runs NMS, the same arithmetic as
+`cv2.FaceDetectorYN`. Images are letterboxed into the top-left of the canvas
+as BGR 0..255. Export and use:
+
+```python
+from libreyolo.models.facerec import LibreFaceEmbedder
+
+model = LibreFaceEmbedder("librefacerec-l.onnx")
+model.export(format="axelera", component="detector")  # librefacerec-det_axelera_model
+model = LibreFaceEmbedder("librefacerec-l_axelera_model", face_detector="librefacerec-det_axelera_model")
+results = model(["a.jpg", "b.jpg"])  # 8 images per detector call; batch=1 opts out
+```
+
+Against the FP32 detector at the same canvas on 300 COCO val2017 images (356
+faces), the Metis detector finds 98.6% of the faces (IoU >= 0.5), precision
+0.975, matched-box IoU 0.940 (min-max calibration on 128 coco128 images, the
+default). As with the Metis backends, lists, directories and video files run
+8 images per detector call by default and `batch=1` runs image by image;
+results do not depend on it. Speed on this NUC, detector end to end
+(letterbox, device, decode and NMS) at 4 host threads, paired runs against
+ONNX Runtime with the same numpy decode: 35.5 img/s at batch 1 vs 43.6 on
+the CPU (0.81x, slower) and 70.0 img/s at batch 8 (1.61x). The first
+measurement, with the experiment's script, gave 0.82x and 1.62x (42.5 and
+84.1 vs 52.0 img/s).
 
 RTMDet-x does not compile as one graph: its PAFPN neck finds no L1 tiling
 (LowerTIR still overflows after 4 iterations, whole graph or backbone + neck),

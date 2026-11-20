@@ -28,6 +28,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _is_single_box_list(source) -> bool:
+    """A list/tuple of numbers is not a list of images (guards ``predict([...])`` misuse)."""
+    return len(source) > 0 and all(isinstance(v, (int, float)) for v in source)
+
+
 class FaceEmbedRunner:
     """Runs face-embedding inference for a ``LibreFaceEmbedder``."""
 
@@ -53,6 +58,7 @@ class FaceEmbedRunner:
         tiling: bool = False,
         stream: bool = False,
         vid_stride: int = 1,
+        batch: Optional[int] = None,
         **_: object,
     ):
         if augment:
@@ -61,6 +67,7 @@ class FaceEmbedRunner:
             raise ValueError("Tiled inference is not supported for face embedding.")
 
         detector = self._resolve_runtime_detector(face_detector, face_boxes)
+        batch = self._resolve_batch(batch, detector)
 
         if is_video_file(source):
             gen = self._predict_video(
@@ -74,21 +81,23 @@ class FaceEmbedRunner:
                 show=show,
                 vid_stride=vid_stride,
                 output_path=output_path,
+                batch=batch,
             )
             if stream:
                 return gen
             return collect_video_results(gen, source, vid_stride)
 
+        many = None
         if isinstance(source, (str, Path)) and Path(source).is_dir():
-            return [
-                self._predict_single(
-                    p, detector=detector, face_boxes=None, face_conf=face_conf,
-                    gallery=gallery, threshold=threshold,
-                    save=save, output_path=output_path, color_format=color_format,
-                    output_file_format=output_file_format,
-                )
-                for p in ImageLoader.collect_images(source)
-            ]
+            many, many_boxes = list(ImageLoader.collect_images(source)), None
+        elif isinstance(source, (list, tuple)) and not _is_single_box_list(source):
+            many, many_boxes = list(source), face_boxes
+        if many is not None:
+            return self._predict_many(
+                many, batch=batch, detector=detector, face_boxes=many_boxes, face_conf=face_conf,
+                gallery=gallery, threshold=threshold, save=save, output_path=output_path,
+                color_format=color_format, output_file_format=output_file_format,
+            )
 
         return self._predict_single(
             source, detector=detector, face_boxes=face_boxes, face_conf=face_conf,
@@ -96,6 +105,52 @@ class FaceEmbedRunner:
             save=save, output_path=output_path, color_format=color_format,
             output_file_format=output_file_format,
         )
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _resolve_batch(batch: Optional[int], detector) -> int:
+        """Images per detector call for lists, directories and video files: the detector's
+        ``default_predict_batch`` (8 on the Axelera Metis) unless ``batch`` is given."""
+        if batch is None:
+            return int(getattr(detector, "default_predict_batch", 1))
+        if int(batch) < 1:
+            raise ValueError(f"batch must be >= 1, got {batch}")
+        return int(batch)
+
+    def _detect_many(self, images_rgb, detector, face_boxes, face_conf: float):
+        """Faces of several images: one batched detector call when the detector has ``detect_batch``."""
+        if face_boxes is None and detector is not None and len(images_rgb) > 1 and hasattr(detector, "detect_batch"):
+            return [[f for f in faces if f.score >= face_conf] for faces in detector.detect_batch(images_rgb)]
+        return [self._collect_faces(rgb, detector, face_boxes, face_conf) for rgb in images_rgb]
+
+    def _predict_many(self, images, *, batch: int, detector, face_boxes, face_conf: float, gallery, threshold: float,
+                      save: bool, output_path, color_format: str, output_file_format) -> List[Results]:
+        results: List[Results] = []
+        for start in range(0, len(images), batch):
+            chunk = images[start : start + batch]
+            pils = [ImageLoader.load(image, color_format=color_format) for image in chunk]
+            rgbs = [np.asarray(pil) for pil in pils]
+            faces_lists = self._detect_many(rgbs, detector, face_boxes, face_conf)
+            for image, pil, rgb, faces in zip(chunk, pils, rgbs, faces_lists):
+                image_path = image if isinstance(image, (str, Path)) else None
+                results.append(
+                    self._finish(pil, rgb, faces, image_path, gallery=gallery, threshold=threshold, save=save,
+                                 output_path=output_path, output_file_format=output_file_format)
+                )
+        return results
+
+    def _finish(self, pil, rgb_np, faces, image_path, *, gallery, threshold, save, output_path, output_file_format):
+        h, w = rgb_np.shape[:2]
+        result = self._run_embed(rgb_np, faces, (h, w), image_path)
+        if gallery is not None:
+            self._identify(result, gallery, threshold)
+        if save:
+            ext = (output_file_format or "jpg").lower().lstrip(".")
+            save_path = resolve_save_path(output_path, image_path, ext=ext)
+            annotated = self._annotate(pil, result)
+            annotated.save(save_path)
+            log_saved_result(result, save_path)
+        return result
 
     # ------------------------------------------------------------------
     def _predict_single(
@@ -115,27 +170,18 @@ class FaceEmbedRunner:
         image_path = image if isinstance(image, (str, Path)) else None
         pil = ImageLoader.load(image, color_format=color_format)
         rgb_np = np.asarray(pil)
-        h, w = rgb_np.shape[:2]
-
         faces = self._collect_faces(rgb_np, detector, face_boxes, face_conf)
-        result = self._run_embed(rgb_np, faces, (h, w), image_path)
-        if gallery is not None:
-            self._identify(result, gallery, threshold)
-
-        if save:
-            ext = (output_file_format or "jpg").lower().lstrip(".")
-            save_path = resolve_save_path(output_path, image_path, ext=ext)
-            annotated = self._annotate(pil, result)
-            annotated.save(save_path)
-            log_saved_result(result, save_path)
-        return result
+        return self._finish(pil, rgb_np, faces, image_path, gallery=gallery, threshold=threshold, save=save,
+                            output_path=output_path, output_file_format=output_file_format)
 
     # ------------------------------------------------------------------
     def _resolve_runtime_detector(self, explicit, face_boxes):
         if face_boxes is not None:
             return None
         if explicit is not None:
-            return resolve_face_detector(explicit)
+            from .model import _resolve_facerec_detector
+
+            return _resolve_facerec_detector(explicit)
         if self.model.face_detector is not None:
             return self.model.face_detector
         try:
@@ -216,8 +262,9 @@ class FaceEmbedRunner:
         show: bool,
         vid_stride: int,
         output_path: Optional[str],
+        batch: int = 1,
     ):
-        """Embed (and optionally identify) faces frame by frame.
+        """Embed (and optionally identify) faces frame by frame (``batch`` frames per detector call).
 
         Caller-supplied ``face_boxes`` apply to every frame (a fixed region on
         a static camera); dropping them here would leave the frame callback
@@ -233,9 +280,22 @@ class FaceEmbedRunner:
                 self._identify(result, gallery, threshold)
             return result
 
+        def predict_frames(pil_imgs):
+            rgbs = [np.asarray(p) for p in pil_imgs]
+            out = []
+            for rgb, faces in zip(rgbs, self._detect_many(rgbs, detector, face_boxes, face_conf)):
+                h, w = rgb.shape[:2]
+                result = self._run_embed(rgb, faces, (h, w), str(source))
+                if gallery is not None:
+                    self._identify(result, gallery, threshold)
+                out.append(result)
+            return out
+
         yield from run_video_inference(
             source,
             predict_frame,
+            predict_frames_fn=predict_frames if batch > 1 else None,
+            batch=batch,
             vid_stride=vid_stride,
             save=save,
             show=show,

@@ -50,7 +50,9 @@ class LibreFaceEmbedder:
     # Without this, predict([img_a, img_b]) reached ImageLoader and raised
     # "Unsupported image type: list", which reads as a broken model rather
     # than an unsupported call shape.
-    SUPPORTS_BATCHED_PREDICT = False
+    # Lists, directories and video files run through the pipeline in batches
+    # (``predict(..., batch=N)``; an Axelera face detector batches 8 by default).
+    SUPPORTS_BATCHED_PREDICT = True
 
     def __init__(
         self,
@@ -110,7 +112,7 @@ class LibreFaceEmbedder:
         self.cfg = resolve_preproc(preproc)
         self.names = names or {0: "face"}
         self.face_detector = (
-            resolve_face_detector(face_detector) if face_detector is not None else None
+            _resolve_facerec_detector(face_detector) if face_detector is not None else None
         )
         self._default_detector_instance = None
 
@@ -228,6 +230,7 @@ class LibreFaceEmbedder:
         fraction: float = 1.0,
         quantization_scheme: str | None = None,
         verify: bool = False,
+        component: str = "head",
         **kwargs,
     ) -> str:
         """Compile the recognition head for an Axelera Metis (``format="axelera"``).
@@ -240,6 +243,22 @@ class LibreFaceEmbedder:
         the result with ``LibreYOLO("<stem>_axelera_model")`` (a
         ``librefacerec-*`` stem) or ``LibreFaceEmbedder(<dir>)``.
         """
+        if str(component) == "detector":
+            if str(format).lower() != "axelera":
+                raise NotImplementedError("component='detector' exports only to format='axelera'.")
+            if kwargs:
+                raise TypeError(f"Unsupported face-detector export arguments: {', '.join(sorted(kwargs))}")
+            from .axelera_detector import export_face_detector_axelera
+
+            return export_face_detector_axelera(
+                output_path or "librefacerec-det_axelera_model",
+                data=data,
+                fraction=float(fraction),
+                quantization_scheme=quantization_scheme or "per_tensor_min_max",
+                verify=verify,
+            )
+        if str(component) != "head":
+            raise ValueError(f"component must be 'head' or 'detector', got {component!r}.")
         if str(format).lower() != "axelera":
             raise NotImplementedError(
                 "LibreFaceEmbedder already wraps an ONNX graph; re-export is not "
@@ -345,6 +364,11 @@ class _AxeleraHeadSession:
         meta = yaml.safe_load(Path(metadata_path).read_text()) or {}
         if meta.get("model_family") != "facerec":
             raise ValueError(f"{directory} is not a face-embedding (facerec) Axelera export.")
+        if meta.get("output_layout") == "yunet_raw_heads_v1":
+            raise ValueError(
+                f"{directory} is the family's face detector compiled for the Metis, not a recognition head: "
+                f"pass it as LibreFaceEmbedder(<head>, face_detector={str(directory)!r})."
+            )
         require_axelera_rt()
         self.metadata = meta
         size = int(meta.get("imgsz", [112, 112])[0])
@@ -478,3 +502,15 @@ def _export_axelera_head(embedder, destination: Path, *, data, fraction, quantiz
             verify_samples=samples,
             verify_source="dataset faces",
         )
+
+
+def _resolve_facerec_detector(spec):
+    """``resolve_face_detector`` plus the family's Axelera detector export (a ``*_axelera_model`` directory)."""
+    if isinstance(spec, (str, Path)):
+        from ...backends.axelera import is_axelera_artifact
+
+        if Path(spec).exists() and is_axelera_artifact(spec):
+            from .axelera_detector import AxeleraFaceDetector
+
+            return AxeleraFaceDetector(spec)
+    return resolve_face_detector(spec)
