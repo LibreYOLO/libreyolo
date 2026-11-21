@@ -143,6 +143,20 @@ def _explicit_json_dataset(root):
     )
 
 
+def _txt_train_json_val_dataset(root):
+    # Training reads YOLO .txt for train; only the resolved val annotation
+    # path says Doctor cannot check this dataset.
+    _yolo_dataset(root)
+    _image(root / "images" / "val" / "b.jpg")
+    _coco_json(root / "annotations" / "val.json", ["b.jpg"])
+    return _write_yaml(
+        root,
+        train="images/train",
+        val="images/val",
+        annotations={"val": "annotations/val.json"},
+    )
+
+
 def _fallback_json_dataset(root):
     # No images where the YAML points, so training falls back to the
     # conventional annotations/instances_train2017.json layout.
@@ -152,15 +166,23 @@ def _fallback_json_dataset(root):
 
 
 @pytest.mark.parametrize(
-    ("build", "expect_tip"),
+    ("build", "expect_dataset", "expect_tip"),
     [
-        (_yolo_dataset, True),
-        (_explicit_json_dataset, False),
-        (_fallback_json_dataset, False),
+        (_yolo_dataset, "YOLODataset", True),
+        (_explicit_json_dataset, "COCODataset", False),
+        (_txt_train_json_val_dataset, "YOLODataset", False),
+        (_fallback_json_dataset, "COCODataset", False),
     ],
-    ids=["yolo_txt", "explicit_annotations", "instances_train2017_fallback"],
+    ids=[
+        "yolo_txt",
+        "explicit_annotations",
+        "txt_train_json_val",
+        "instances_train2017_fallback",
+    ],
 )
-def test_trainer_doctor_tip_only_for_yolo_txt(tmp_path, monkeypatch, build, expect_tip):
+def test_trainer_doctor_tip_only_for_yolo_txt(
+    tmp_path, monkeypatch, build, expect_dataset, expect_tip
+):
     pytest.importorskip("pycocotools")
     from libreyolo.models.rtdetr.trainer import RTDETRTrainer
     from libreyolo.training import trainer as trainer_mod
@@ -187,5 +209,7 @@ def test_trainer_doctor_tip_only_for_yolo_txt(tmp_path, monkeypatch, build, expe
     )
     trainer._setup_data()
 
+    # The mosaic wrapper keeps the selected dataset on .dataset.
+    assert type(trainer.train_loader.dataset.dataset).__name__ == expect_dataset
     assert any(m.startswith("Training dataset:") for m in messages)
     assert any(DOCTOR_TIP in m for m in messages) is expect_tip
