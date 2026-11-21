@@ -77,6 +77,18 @@ class TestDoctorRejectsCocoJson:
         with pytest.raises(DoctorError, match=r"annotations set for: val\)"):
             diagnose(str(ds.yaml_path), fast=True, progress=False)
 
+    def test_json_test_split_rejected(self, make_dataset):
+        # train and val are YOLO .txt; only the test split points at JSON.
+        ds = make_dataset()
+        ds.sample("train", "a.jpg", seed=1)
+        ds.sample("val", "b.jpg", seed=2)
+        (ds.root / "images" / "test").mkdir(parents=True)
+        ds.image("test", "c.jpg", seed=3)
+        _coco_json(ds.root / "annotations" / "test.json", ["c.jpg"])
+        ds.set_yaml(test="images/test", annotations={"test": "annotations/test.json"})
+        with pytest.raises(DoctorError, match=r"annotations set for: test\)"):
+            diagnose(str(ds.yaml_path), fast=True, progress=False)
+
     def test_json_split_with_stale_txt_labels_rejected(self, make_dataset):
         # Leftover .txt files (here pose-shaped) must neither be checked as the
         # split's labels nor let the label-shape guard decide the verdict.
