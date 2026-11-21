@@ -701,6 +701,18 @@ default) bring it to -1.0 there and -1.78 on 1000 images, spread over small
 (0.055 vs 0.056), medium (0.299 vs 0.320) and large objects (0.533 vs
 0.558).
 
+EfficientDet-d0 has a measured, more accurate but slower alternative, not the
+default: its class predictor's last pointwise conv as a second compiled part on
+min-max ranges (recipe key `class_head_part`; under the family's per-channel
+histogram ranges one part cannot represent class logits above about 0 on three
+of the five levels). On 1000 COCO val2017 images it scores 0.3286 vs 0.3363
+FP32 (-0.77, within the validated bar) against 0.3185 (-1.78) for the default
+single part, measured in the same window. End to end it runs at about 10 / 15
+/ 18 img/s at batch 1 / 8 / 32 against 14 / 43 / 54 for the default (the class
+logits go back to the host for a decode ONNX of about 30 ms per image), so the
+default stays the single part. The two-part build is an internal recipe, not a
+public export option (ledger `efficientdet/detect/d0/2026-11-21`).
+
 EfficientDet-d1, -d2 and -d3 do not compile at their native 640, 768 and
 896: lowering finds no L1 tiling even with one-row tiles (3.42, 3.15 and
 2.52 MB needed against 2.82, 2.54 and 2.15 MB). EfficientDet-d1 and -d2

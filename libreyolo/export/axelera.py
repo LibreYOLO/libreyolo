@@ -79,7 +79,8 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: pointwise conv as a second compiled part with this quantization scheme, e.g.
 #: ``"per_tensor_min_max"``; under the family's histogram ranges the single-part
 #: class logits cannot represent logits above about 0 on p3/p4/p7. Measured on
-#: d0, cocoval300: -0.62 vs -1.00 single-part, not adopted) and
+#: d0, 1000 COCO val2017 images: -0.77 vs -1.78 single-part, but about 3x slower end
+#: to end (host decode between the parts), so not the default) and
 #: ``learned_rounding`` (QuickSRNet: learn each weight's INT8 rounding direction
 #: after the Hardtanh equalization, deterministic, see
 #: ``models/quicksrnet/quantize.learn_int8_rounding``) and
