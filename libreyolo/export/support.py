@@ -4679,7 +4679,7 @@ _add(
     since="1.7",
     constraint=(
         "validated sizes: w32 (256x192 person crops; slower than the FP32 CPU at "
-        "batch 1 with 4 host threads, 3.69 vs 4.98 img/s, 2.4x faster batched); w48 "
+        "batch 1 with 4 host threads, 4.02 vs 4.98 img/s, 2.6x faster batched); w48 "
         "(384x288) is supported with a measured drop (SIZE_ACCURACY_NOTES). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, fixed crop input"
     ),

@@ -29,7 +29,7 @@ a separate size:
 | YOLO-NAS-pose | s | pose | COCO val2017 persons, 300 | 0.7565 | 0.7344 | -2.21 | supported | `yolonas/pose/s/2026-11-10/16` |
 | YOLO-NAS-pose | m | pose | COCO val2017 persons, 300 | 0.7885 | 0.7821 | -0.64 | validated | `yolonas/pose/m/2026-11-11/2` |
 | YOLO-NAS-pose | l | pose | COCO val2017 persons, 300 | 0.7922 | 0.7884 | -0.38 | validated | `yolonas/pose/l/2026-11-10/2` |
-| HRNet | w32 | pose (256x192 person crops; 14 compiled parts, joined on the host by upsample + concat; slower than the CPU at batch 1 with 4 host threads: 3.69 vs 4.98 img/s) | COCO val2017 persons, 300 (1172 GT-box crops) | 0.7658 | 0.7566 | -0.92 | validated | `hrnet/pose/w32/2026-11-20/2` |
+| HRNet | w32 | pose (256x192 person crops; 14 compiled parts, joined on the host by upsample + concat; slower than the CPU at batch 1 with 4 host threads: 4.02 vs 4.98 img/s) | COCO val2017 persons, 300 (1172 GT-box crops) | 0.7658 | 0.7566 | -0.92 | validated | `hrnet/pose/w32/2026-11-20/2` |
 | HRNet | w48 | pose (384x288 person crops; 14 compiled parts, as w32) | COCO val2017 persons, 300 (1172 GT-box crops) | 0.7855 | 0.7727 | -1.28 | supported | `hrnet/pose/w48/2026-11-21` |
 | YOLO-NAS-R | s | obb | DOTA-v2.0 val, 300 tiles | 0.3844 | 0.3747 | -0.97 | validated | `yolonas/obb/s/2026-11-10/2` |
 | YOLO-NAS-R | m | obb | DOTA-v2.0 val, 300 tiles | 0.4141 | 0.4105 | -0.36 | validated | `yolonas/obb/m/2026-11-10` |
@@ -107,14 +107,14 @@ a separate size:
 | MiDaS | s | depth (agreement with FP32) | COCO val2017 at 256 px, 300 | reference | AbsRel 0.069, delta1 0.94 | AbsRel 0.069 (bar 0.02) | supported | `midas/depth/s/2026-11-11/4` |
 | DexiNed | b | edge (edge-pixel F1 vs FP32 edges at 0.5; 352x352) | COCO val2017 at 352 px, 300 | 1.0000 | 0.9651 | -0.0349 (cosine 0.997) | supported | `dexined/edge/b/2026-11-16` |
 | Face recognition | librefacerec-l | embed (embedding cosine vs the FP32 head; head only: aligned 112x112 face in, 512-d embedding out, detection, alignment and L2 normalization on the host; the 25088-input embedding layer as row convolutions) | COCO val2017 aligned faces, 890 (336 images) | 1.0000 | 0.9933 | -0.0067 (pairwise similarity diff 0.0064; all same/different decisions at 0.4 kept) | supported | `facerec/embed/l/2026-11-20/4` |
-| Face detection | librefacerec-det | embed pipeline detector (face recall vs the FP32 detector at the same 640 canvas, IoU >= 0.5; precision 0.975, matched-box IoU 0.940; the 12 head convolutions on the Metis, sigmoids, box and landmark decode and NMS on the host; slower than the CPU at batch 1, faster at the default batch 8: 0.81x and 1.61x ORT+numpy at 4 host threads) | COCO val2017, 300 (356 FP32 faces) | 1.0000 | 0.9860 | -1.40 | supported | `facerec/embed/det/2026-11-20/2`, speed `facerec/embed/det/2026-11-20/3` |
+| Face detection | librefacerec-det | embed pipeline detector (face recall vs the FP32 detector at the same 640 canvas, IoU >= 0.5; precision 0.975, matched-box IoU 0.940; the 12 head convolutions on the Metis, sigmoids, box and landmark decode and NMS on the host; slower than the CPU at batch 1, faster at the default batch 8: 0.85x and 1.59x ORT+numpy at 4 host threads) | COCO val2017, 300 (356 FP32 faces) | 1.0000 | 0.9860 | -1.40 | supported | `facerec/embed/det/2026-11-20/2`, speed `facerec/embed/det/2026-11-21` |
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
 | DeepLabV3 | r50 | semantic (mIoU; ASPP as per-tap 1x1 convolutions plus shifts) | COCO val2017 VOC-21, 300 | 0.5243 | 0.4734 | -5.09 | supported | `deeplabv3/semantic/r50/2026-11-17/2` |
 | DeepLabV3 | r101 | semantic (mIoU; ASPP as per-tap 1x1 convolutions plus shifts) | COCO val2017 VOC-21, 300 | 0.5888 | 0.3795 | -20.93 | supported | `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | s | semantic (fidelity mIoU vs FP32 labels; 512x1024; histogram ranges) | COCO val2017, 1000 | 1.0000 | 0.8562 | -0.1438 | supported | `unet/semantic/s/2026-11-20` |
-| PIDNet | s | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts joined by bilinear upsample + concat; whole graph collapses in INT8; faster than the CPU at batch 1 and 8: 5.17 / 7.36 vs 2.89 / 2.93 img/s at 4 host threads) | COCO val2017, 300 | 1.0000 | 0.8640 | -0.1360 | supported | `pidnet/semantic/s/2026-11-20/6`, speed `/5` |
-| PIDNet | m | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts; calibrated on 32 coco128 images (its default fraction 0.25: the SDK calibrates m at about a minute per image); faster than the CPU at batch 1 and 8: 1.75 / 3.48 vs 0.50 / 0.56 img/s at 4 host threads) | COCO val2017, 96 | 1.0000 | 0.8251 | -0.1749 | supported | `pidnet/semantic/m/2026-11-21/3`, speed `/2` |
-| PIDNet | l | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts, DAPPM + Bag; faster than the CPU at batch 1 and 8: 1.92 / 4.07 vs 0.48 / 0.49 img/s at 4 host threads) | COCO val2017, 100 | 1.0000 | 0.8204 | -0.1796 | supported | `pidnet/semantic/l/2026-11-20/3`, speed `/2` |
+| PIDNet | s | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts joined by bilinear upsample + concat; whole graph collapses in INT8; faster than the CPU at batch 1 and 8: 4.69 / 9.79 vs 2.89 / 2.93 img/s at 4 host threads) | COCO val2017, 300 | 1.0000 | 0.8640 | -0.1360 | supported | `pidnet/semantic/s/2026-11-20/6`, speed `pidnet/semantic/s/2026-11-21` |
+| PIDNet | m | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts; calibrated on 32 coco128 images (its default fraction 0.25: the SDK calibrates m at about a minute per image); faster than the CPU at batch 1 and 8: 3.03 / 5.94 vs 0.50 / 0.56 img/s at 4 host threads) | COCO val2017, 96 | 1.0000 | 0.8251 | -0.1749 | supported | `pidnet/semantic/m/2026-11-21/3`, speed `/4` |
+| PIDNet | l | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts, DAPPM + Bag; faster than the CPU at batch 1 and 8: 2.39 / 6.35 vs 0.48 / 0.49 img/s at 4 host threads) | COCO val2017, 100 | 1.0000 | 0.8204 | -0.1796 | supported | `pidnet/semantic/l/2026-11-20/3`, speed `pidnet/semantic/l/2026-11-21` |
 | PP-LiteSeg | t50 | semantic (fidelity mIoU vs FP32 labels; 512x1024; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8502 | -0.1498 | supported | `ppliteseg/semantic/t50/2026-11-18` |
 | PP-LiteSeg | b50 | semantic (fidelity mIoU vs FP32 labels; 512x1024; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8571 | -0.1429 | supported | `ppliteseg/semantic/b50/2026-11-18` |
 | PP-LiteSeg | t75 | semantic (fidelity mIoU vs FP32 labels; 768x1536; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8068 | -0.1932 | supported | `ppliteseg/semantic/t75/2026-11-18` |
@@ -136,7 +136,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | --- | --- | --- | --- | --- |
 | YOLO-NAS | detect | s, m, l | see `docs/export_support.md` | s `yolonas/detect/s/2026-11-08/3`; m `yolonas/detect/m/2026-11-08`; l `yolonas/detect/l/2026-11-10` |
 | YOLO-NAS | pose | n, s, m, l (n and s supported with a measured drop) | see `docs/export_support.md` | n `yolonas/pose/n/2026-11-11`; s `yolonas/pose/s/2026-11-10/16`; m `yolonas/pose/m/2026-11-11/2`; l `yolonas/pose/l/2026-11-10/2` |
-| HRNet | pose | w32, w48 (14 compiled parts; w48 supported with a measured drop) | see `docs/export_support.md` | w32 `hrnet/pose/w32/2026-11-20/2`, speed `hrnet/pose/w32/2026-11-20/6`; w48 `hrnet/pose/w48/2026-11-21`, speed `hrnet/pose/w48/2026-11-21/3` |
+| HRNet | pose | w32, w48 (14 compiled parts; w48 supported with a measured drop) | see `docs/export_support.md` | w32 `hrnet/pose/w32/2026-11-20/2`, speed `hrnet/pose/w32/2026-11-21`; w48 `hrnet/pose/w48/2026-11-21`, speed `hrnet/pose/w48/2026-11-21/5` |
 | YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) | s `yolonas/obb/s/2026-11-10/2`; m `yolonas/obb/m/2026-11-10`; l `yolonas/obb/l/2026-11-10` |
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` | t `yolo9/detect/t/2026-11-10/7`; s `yolo9/detect/s/2026-11-10/2`; m `yolo9/detect/m/2026-11-10/2`; c `yolo9/detect/c/2026-11-10/2` |
 | YOLO9-P2 | detect | s (t: no published checkpoint) | see `docs/export_support.md` | s `yolo9_p2/detect/s/2026-11-15` |
@@ -587,11 +587,14 @@ conv that sums the copies, then the ReLU. The 32-channel branch is handed over
 twice (a narrower part input fails a compiler type check). With the fusion
 modules split this way the drift is gone: 0.7566 vs 0.7658 FP32 keypoint
 mAP50-95 on 1172 ground-truth person crops from 300 COCO val2017 images
-(-0.92, validated). Speed on this NUC: 16.4 img/s batched (8 crops) vs 6.87
-for the best FP32 CPU run, both at 4 host threads; at batch 1 the 14 part calls
-make it slower than the CPU (3.69 vs 4.98 img/s). HRNet-w48 (384x288 crops) runs the same 14 parts: 0.7727
-vs 0.7855 FP32 (-1.28, supported); 1.61 img/s at batch 1 and 4.98 batched vs
-1.49 and 1.88 for the best FP32 CPU run at 4 host threads.
+(-0.92, validated). Speed on this NUC (main 8a082b70e, quiet box): 17.9 img/s
+at batch 8 and 32.6 at batch 32 vs 6.87 for the best FP32 CPU run (2.6x at
+batch 8), both at 4 host threads; at batch 1 the 14 part calls make it slower
+than the CPU (4.02 vs 4.98 img/s, 0.81x). HRNet-w48 (384x288 crops) runs the same 14 parts: 0.7727
+vs 0.7855 FP32 (-1.28, supported); 2.56 img/s at batch 1, 9.87 at batch 8 and
+15.7 at batch 32 vs 1.49 and 1.88 for the best FP32 CPU run at 4 host threads
+(1.7x at batch 1, 5.2x at batch 8; the earlier 1.61 / 4.98 were taken at a
+1-min load of about 10).
 
 The face-embedding pipeline's detector (`librefacerec-det`, a YuNet-style
 CNN) compiles whole at a fixed 640x640 canvas: the graph stops at its 12 head
@@ -617,10 +620,8 @@ default). As with the Metis backends, lists, directories and video files run
 8 images per detector call by default and `batch=1` runs image by image;
 results do not depend on it. Speed on this NUC, detector end to end
 (letterbox, device, decode and NMS) at 4 host threads, paired runs against
-ONNX Runtime with the same numpy decode: 35.5 img/s at batch 1 vs 43.6 on
-the CPU (0.81x, slower) and 70.0 img/s at batch 8 (1.61x). The first
-measurement, with the experiment's script, gave 0.82x and 1.62x (42.5 and
-84.1 vs 52.0 img/s).
+ONNX Runtime with the same numpy decode (main 8a082b70e): 41.0 img/s at batch
+1 vs 48.5 on the CPU (0.85x, slower) and 77.3 img/s at batch 8 (1.59x).
 
 PIDNet compiled whole collapses in INT8 (logit cosine about 0, also with the
 quantized model on the CPU): the loss starts in its pyramid pooling module's
@@ -640,13 +641,13 @@ fusion's convs and sums as one folded 1x1 conv (LightBag) or a per-channel
 sum conv (Bag), then the head. PIDNet-s on 300 COCO val2017 images at
 1024x1024: fidelity mIoU 0.864 against FP32 labels, 95.0% of pixels agree
 (per part, device vs FP32 cosine 0.994 or better; logits 0.998). Speed on
-this NUC at 4 host threads: 5.17 img/s at batch 1 and 7.36 at batch 8,
+this NUC at 4 host threads (main 8a082b70e): 4.69 img/s at batch 1 and 9.79 at batch 8,
 against 2.89 and 2.93 for the best FP32 CPU runs (OpenVINO b1, ONNX Runtime
 b8). PIDNet-l (DAPPM + Bag, whose chained pooling sums and Bag sum + BN
 run as fixed convs the same way): fidelity mIoU 0.820, 95.1% of pixels
-agree on 100 images; 1.92 img/s at batch 1 and 4.07 at batch 8 against
+agree on 100 images; 2.39 img/s at batch 1 and 6.35 at batch 8 against
 0.48 and 0.49 on the CPU (ONNX Runtime). PIDNet-m: fidelity mIoU 0.825,
-95.3% of pixels agree on 96 images; 1.75 img/s at batch 1 and 3.48 at
+95.3% of pixels agree on 96 images; 3.03 img/s at batch 1 and 5.94 at
 batch 8 against 0.50 and 0.56 on the CPU (OpenVINO). The SDK calibrates m
 at about a minute per image, so it was measured with `fraction=0.25` (32
 coco128 images), the default for m when `fraction` is left unset;
@@ -663,7 +664,7 @@ nearest 2x upsampling and channel concatenation (`cat([upsample(high), low])`
 top-down, `cat([down, lateral])` bottom-up). Each block's two entry 1x1 convs
 run as one merged conv, so every part has a single entry op. RTMDet-x scores
 0.4756 vs 0.5128 FP32 (-3.72) on 1000 images and -3.48 on 300. Speed on this
-NUC at 4 host threads: 7.16 img/s at batch 1 and 11.1 at batch 8 end to end,
+NUC at 4 host threads (main 8a082b70e; ledger `rtmdet/detect/x/2026-11-21`): 7.34 img/s at batch 1 and 11.9 at batch 8 end to end,
 against 0.80 img/s for the best FP32 CPU run (ONNX Runtime, batch 8; OpenVINO
 0.65). Four parts matter: the runtime keeps up to four compiled models
 resident (one per AIPU core), and a fifth part makes every part reload on
@@ -677,8 +678,8 @@ stride-32 outputs bilinearly to stride 8 and concatenates them with the
 stride-8 output (host: resize+concat between parts, no weights; the same kind
 of host data movement as FCOS's per-level GroupNorm). It scores mask 0.4077 vs
 0.4227 FP32 (-1.50) and box 0.4394 vs 0.4842 (-4.48) on 1000 images. Speed on
-this NUC (measured under load, 1-min load about 10): 1.69 img/s at batch 1,
-3.53 at batch 8 and 4.49 at batch 32 end to end, against 0.44 img/s for its
+this NUC (main 8a082b70e; ledger `rtmdet/segment/x/2026-11-21/4`): 2.22 img/s at batch 1, 4.82 at batch 8 and 6.14 at
+batch 32 end to end, against 0.44 img/s for its
 FP32 network forward alone on the CPU (ONNX Runtime, 4 threads; RTMDet-Ins has
 no LibreYOLO ONNX export, so this reference has no mask decode). With six
 parts every call reloads models on the device (the Metis keeps at most four
