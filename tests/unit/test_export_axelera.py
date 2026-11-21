@@ -2779,7 +2779,7 @@ def test_hrnet_fusion_parts_chain_reproduces_the_native_model():
     from libreyolo.backends.axelera import HOST_OPS
     from libreyolo.export.axelera import size_recipe
     from libreyolo.export.exporter import AxeleraExporter, _HRNetTrunkPart, _hrnet_fusion_steps
-    from libreyolo.export.support import UNMEASURED_SIZES, get_support
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES, get_support
 
     model = LibreHRNet(size="w32", device="cpu")
     exporter = AxeleraExporter(model)
@@ -2787,7 +2787,8 @@ def test_hrnet_fusion_parts_chain_reproduces_the_native_model():
     assert size_recipe("hrnet", "pose", "w32")["fusion_parts"] is True
     entry = get_support("hrnet", "pose", "axelera")
     assert entry.tier == "validated" and "validated sizes: w32" in entry.constraint
-    assert "w48" in UNMEASURED_SIZES[("hrnet", "pose", "axelera")]
+    assert "w48" not in UNMEASURED_SIZES.get(("hrnet", "pose", "axelera"), {})
+    assert sorted(SIZE_ACCURACY_NOTES[("hrnet", "pose", "axelera")]) == ["w48"]
     net = model.model.eval()
     trunk = _HRNetTrunkPart(net).eval()
     steps = _hrnet_fusion_steps(net)

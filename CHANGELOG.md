@@ -116,6 +116,8 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **Axelera Metis: HRNet-w48 pose runs on the Metis as 14 compiled parts (supported, keypoint mAP50-95 -1.28 vs FP32; was not measured).** Same `fusion_parts` recipe as w32, at its 384x288 crop: 0.7727 vs 0.7855 FP32 on 1172 COCO val2017 person crops. 1.61 img/s at batch 1 and 4.98 batched vs 1.49 and 1.88 for the best FP32 CPU run (4 host threads).
+
 - **Axelera Metis: RTMDet-x runs as four compiled parts instead of five, 2.6x faster at batch 1.** The backbone part now also runs the neck's first top-down block (recipe `neck_parts: stem_td0`). The runtime keeps up to four compiled models resident; with five, every part reloaded on each call. End to end at 4 host threads: 7.16 img/s at batch 1 (was 2.73) and 11.1 at batch 8 (was 6.4), vs 0.80 for the best FP32 CPU run. mAP50-95 on 1000 COCO val2017 images 0.4756 vs 0.5128 FP32 (-3.72, was -3.40; -3.48 on 300, was -2.92); still supported.
 
 - **Axelera Metis: HRNet-w32 pose runs on the Metis as 14 compiled parts and is validated (keypoint mAP50-95 -0.92 vs FP32; was parked as a hybrid).** Compiled as one graph its output drifts on the device through stage 4's fusion modules. New per-size recipe `fusion_parts`: the trunk to stage 3, one part per branch of each stage-4 module, and the heatmap layer; the host only upsamples (nearest) and concatenates between parts, and each fusion's sum runs in the next part as a fixed 1x1 conv. 0.7566 vs 0.7658 FP32 on 1172 COCO val2017 person crops. 16.4 img/s batched vs 6.87 for the best FP32 CPU run (4 host threads); slower than the CPU at batch 1 (3.69 vs 4.98 img/s). HRNet-w48 has not been measured this way yet.

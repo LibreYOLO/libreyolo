@@ -4680,8 +4680,8 @@ _add(
     constraint=(
         "validated sizes: w32 (256x192 person crops; slower than the FP32 CPU at "
         "batch 1 with 4 host threads, 3.69 vs 4.98 img/s, 2.4x faster batched); w48 "
-        "has not been measured as compiled parts (UNMEASURED_SIZES). axelera-devkit / "
-        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, fixed crop input"
+        "(384x288) is supported with a measured drop (SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, fixed crop input"
     ),
 )
 _add(
@@ -5238,6 +5238,12 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "ranges; histogram ranges gave -6.0)"
         ),
     },
+    ("hrnet", "pose", "axelera"): {
+        "w48": (
+            "measured keypoint mAP50-95 drop 1.28 points vs FP32 (0.7727 vs 0.7855 "
+            "on 1172 COCO val2017 person crops at 384x288; 14 compiled parts, as w32)"
+        ),
+    },
     ("rtmdet", "detect", "axelera"): {
         "t": (
             "measured mAP50-95 drop 2.29 points vs FP32 (0.3677 vs 0.3906 on 1000 "
@@ -5449,12 +5455,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
-    ("hrnet", "pose", "axelera"): {
-        "w48": (
-            "has not been measured on a Metis yet as compiled parts (the "
-            "fusion_parts recipe of w32)"
-        ),
-    },
     ("yolo9_p2", "detect", "axelera"): {
         "t": (
             "has not been measured on a Metis yet: no trained YOLO9-P2-t "

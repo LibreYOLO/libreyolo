@@ -29,6 +29,7 @@ a separate size:
 | YOLO-NAS-pose | m | pose | COCO val2017 persons, 300 | 0.7885 | 0.7821 | -0.64 | validated | `yolonas/pose/m/2026-11-11/2` |
 | YOLO-NAS-pose | l | pose | COCO val2017 persons, 300 | 0.7922 | 0.7884 | -0.38 | validated | `yolonas/pose/l/2026-11-10/2` |
 | HRNet | w32 | pose (256x192 person crops; 14 compiled parts, joined on the host by upsample + concat; slower than the CPU at batch 1 with 4 host threads: 3.69 vs 4.98 img/s) | COCO val2017 persons, 300 (1172 GT-box crops) | 0.7658 | 0.7566 | -0.92 | validated | `hrnet/pose/w32/2026-11-20/2` |
+| HRNet | w48 | pose (384x288 person crops; 14 compiled parts, as w32) | COCO val2017 persons, 300 (1172 GT-box crops) | 0.7855 | 0.7727 | -1.28 | supported | `hrnet/pose/w48/2026-11-21` |
 | YOLO-NAS-R | s | obb | DOTA-v2.0 val, 300 tiles | 0.3844 | 0.3747 | -0.97 | validated | `yolonas/obb/s/2026-11-10/2` |
 | YOLO-NAS-R | m | obb | DOTA-v2.0 val, 300 tiles | 0.4141 | 0.4105 | -0.36 | validated | `yolonas/obb/m/2026-11-10` |
 | YOLO-NAS-R | l | obb | DOTA-v2.0 val, 300 tiles | 0.4327 | 0.4348 | +0.21 | validated | `yolonas/obb/l/2026-11-10` |
@@ -134,7 +135,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | --- | --- | --- | --- | --- |
 | YOLO-NAS | detect | s, m, l | see `docs/export_support.md` | s `yolonas/detect/s/2026-11-08/3`; m `yolonas/detect/m/2026-11-08`; l `yolonas/detect/l/2026-11-10` |
 | YOLO-NAS | pose | n, s, m, l (n and s supported with a measured drop) | see `docs/export_support.md` | n `yolonas/pose/n/2026-11-11`; s `yolonas/pose/s/2026-11-10/16`; m `yolonas/pose/m/2026-11-11/2`; l `yolonas/pose/l/2026-11-10/2` |
-| HRNet | pose | w32 (14 compiled parts; w48 not measured yet) | see `docs/export_support.md` | w32 `hrnet/pose/w32/2026-11-20/2`, speed `hrnet/pose/w32/2026-11-20/6` |
+| HRNet | pose | w32, w48 (14 compiled parts; w48 supported with a measured drop) | see `docs/export_support.md` | w32 `hrnet/pose/w32/2026-11-20/2`, speed `hrnet/pose/w32/2026-11-20/6`; w48 `hrnet/pose/w48/2026-11-21`, speed `hrnet/pose/w48/2026-11-21/3` |
 | YOLO-NAS-R | obb | s, m, l | see `docs/export_support.md` (calibration data required) | s `yolonas/obb/s/2026-11-10/2`; m `yolonas/obb/m/2026-11-10`; l `yolonas/obb/l/2026-11-10` |
 | YOLO9 | detect | t, s, m, c | see `docs/export_support.md` | t `yolo9/detect/t/2026-11-10/7`; s `yolo9/detect/s/2026-11-10/2`; m `yolo9/detect/m/2026-11-10/2`; c `yolo9/detect/c/2026-11-10/2` |
 | YOLO9-P2 | detect | s (t: no published checkpoint) | see `docs/export_support.md` | s `yolo9_p2/detect/s/2026-11-15` |
@@ -171,7 +172,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 and d4 blocked: do not compile) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 blocked `efficientdet/detect/d3/2026-11-14`; d4 blocked `efficientdet/detect/d4/2026-11-15/4` |
 | Other families | all | all | not measured yet (section 11) | - |
-| HRNet-w48 (not measured as parts yet), DEKR, ZipDepth, CenterNet, Faster R-CNN, Mask R-CNN, DETR, Deformable DETR, DINO-DETR, RT-DETR, RT-DETRv2, RiO-DETRv2, D-FINE, DEIM, DEIMv2, RT-DETRv4, PP-DocLayoutV3, TinyFormer; RetinaNet-r50v2, EfficientDet-d3/d4 | as measured | none | not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked); section 11 | - |
+| DEKR, ZipDepth, CenterNet, Faster R-CNN, Mask R-CNN, DETR, Deformable DETR, DINO-DETR, RT-DETR, RT-DETRv2, RiO-DETRv2, D-FINE, DEIM, DEIMv2, RT-DETRv4, PP-DocLayoutV3, TinyFormer; RetinaNet-r50v2, EfficientDet-d3/d4 | as measured | none | not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked); section 11 | - |
 | RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
 
 The tiers in `docs/export_support.md` are generated from
@@ -358,6 +359,7 @@ still are, in opposite directions (their rows).
 | YOLO-NAS-pose-m | pose | COCO val2017 persons, 300 images | 128 coco128 | 0.7885 | 0.7821 | -0.64 |
 | YOLO-NAS-pose-l | pose | COCO val2017 persons, 300 images | 128 coco128 | 0.7922 | 0.7884 | -0.38 |
 | HRNet-w32 (14 compiled parts) | pose | COCO val2017 persons, 300 images (1172 GT-box crops) | COCO person crops | 0.7658 | 0.7566 | -0.92 |
+| HRNet-w48 (14 compiled parts) | pose | COCO val2017 persons, 300 images (1172 GT-box crops, 384x288) | COCO person crops | 0.7855 | 0.7727 | -1.28 (supported) |
 | YOLO-NAS-R-s | obb | DOTA-v2.0 val, 300 tiles | 64 DOTA tiles | 0.3844 | 0.3747 | -0.97 |
 | YOLO-NAS-R-m | obb | DOTA-v2.0 val, 300 tiles | 64 DOTA tiles | 0.4141 | 0.4105 | -0.36 |
 | YOLO-NAS-R-l | obb | DOTA-v2.0 val, 300 tiles | 64 DOTA tiles | 0.4327 | 0.4348 | +0.21 |
@@ -582,7 +584,9 @@ modules split this way the drift is gone: 0.7566 vs 0.7658 FP32 keypoint
 mAP50-95 on 1172 ground-truth person crops from 300 COCO val2017 images
 (-0.92, validated). Speed on this NUC: 16.4 img/s batched (8 crops) vs 6.87
 for the best FP32 CPU run, both at 4 host threads; at batch 1 the 14 part calls
-make it slower than the CPU (3.69 vs 4.98 img/s).
+make it slower than the CPU (3.69 vs 4.98 img/s). HRNet-w48 (384x288 crops) runs the same 14 parts: 0.7727
+vs 0.7855 FP32 (-1.28, supported); 1.61 img/s at batch 1 and 4.98 batched vs
+1.49 and 1.88 for the best FP32 CPU run at 4 host threads.
 
 The face-embedding pipeline's detector (`librefacerec-det`, a YuNet-style
 CNN) compiles whole at a fixed 640x640 canvas: the graph stops at its 12 head
@@ -902,7 +906,7 @@ Real-ESRGAN-x4 (the RRDB network) does not fit as one graph: its constants overf
 Real-ESRGAN-x2 uses the same RRDB body and the same three parts. Its network first folds each 2x2 pixel block into channels (pixel unshuffle); the export writes that as an exact one-hot stride-2 convolution so it runs on the AIPU inside part 1. At a 128x128 canvas (a 64x64 trunk, as x4) the device keeps PSNR at 24.73 dB vs 25.07 dB FP32 on the 296 cocosr crops (-0.34 dB, SSIM 0.717; ledger `realesrgan/restore/x2/2026-11-16`). That is just over the 0.3 dB bar, so x2 is supported, not validated. Its whole graph hit the same DDR-pool limit as x4 (319 MiB of constants, 248 MiB pool; ledger `realesrgan/restore/x2/2026-11-15`).
 
 Hybrid exports, which run part of the network itself on the host (the
-RT-DETR and DETR families, Faster and Mask R-CNN, HRNet-w48, DEKR, ZipDepth,
+RT-DETR and DETR families, Faster and Mask R-CNN, DEKR, ZipDepth,
 CenterNet, TinyFormer, PP-DocLayoutV3 and some sizes of other
 families), are not supported on Metis: they are parked by decision
 2026-11-19 on branch `axelera-hybrid-parked` (section 11). The multi-part
@@ -952,7 +956,7 @@ compiles their own.
 
 ## 11. Known limits and out of scope
 
-Parked (not supported on Metis: part of the network runs on the host; hybrid parked by decision 2026-11-19, branch `axelera-hybrid-parked`, which keeps the code, tests and measurements): HRNet w48 (not measured as compiled parts yet) and DEKR w32 (pose), ZipDepth bnpu/b (depth), CenterNet resdcn18/dla34, Faster R-CNN n/s/m/l, Mask R-CNN r50 (detect, segment), DETR r50/r50dc5/r101/r101dc5, Deformable DETR (5 sizes), DINO-DETR r50/r50s5, RT-DETR (7 sizes), RT-DETRv2 detect (5) and obb (5), RiO-DETRv2 obb (5), D-FINE detect and segment (5 each), DEIM (5), DEIMv2 atto/femto/pico/n, RT-DETRv4 (4), PP-DocLayoutV3 l, TinyFormer s, RTMDet x, RetinaNet r50v2 and EfficientDet d3/d4 (whole graph does not compile or does not run usefully, see the blocked reasons).
+Parked (not supported on Metis: part of the network runs on the host; hybrid parked by decision 2026-11-19, branch `axelera-hybrid-parked`, which keeps the code, tests and measurements): DEKR w32 (pose), ZipDepth bnpu/b (depth), CenterNet resdcn18/dla34, Faster R-CNN n/s/m/l, Mask R-CNN r50 (detect, segment), DETR r50/r50dc5/r101/r101dc5, Deformable DETR (5 sizes), DINO-DETR r50/r50s5, RT-DETR (7 sizes), RT-DETRv2 detect (5) and obb (5), RiO-DETRv2 obb (5), D-FINE detect and segment (5 each), DEIM (5), DEIMv2 atto/femto/pico/n, RT-DETRv4 (4), PP-DocLayoutV3 l, TinyFormer s, RTMDet x, RetinaNet r50v2 and EfficientDet d3/d4 (whole graph does not compile or does not run usefully, see the blocked reasons).
 
 Blocked for structural reasons (accuracy never blocks an export):
 
