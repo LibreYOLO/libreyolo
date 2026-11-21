@@ -2034,7 +2034,7 @@ class BaseExporter(ABC):
         batch: int = 1,
         device: Optional[str] = None,
         data: Optional[str] = None,
-        fraction: float = 1.0,
+        fraction: Optional[float] = None,
         allow_download_scripts: bool = False,
         verbose: bool = False,
         quantize: Optional[Union[int, str]] = None,
@@ -2054,7 +2054,9 @@ class BaseExporter(ABC):
             batch: Batch size for the model (default: 1).
             device: Device to trace on (default: model's current device).
             data: Path to data.yaml for INT8 calibration dataset.
-            fraction: Fraction of calibration dataset to use (default: 1.0).
+            fraction: Fraction of calibration dataset to use (default: the
+                format's measured default, 1.0 unless an Axelera size recipe
+                sets ``calibration_fraction``).
             allow_download_scripts: Allow embedded Python in dataset YAML downloads.
             verbose: Enable verbose logging (default: False).
             quantize: Precision as the ecosystem spells it: 16 (FP16, as
@@ -2070,6 +2072,8 @@ class BaseExporter(ABC):
         # (reconstructing fp32 masters, enabling export mode) also wait for
         # every request rejection.
         pre_trace_hook = kwargs.pop("_pre_trace_hook", None)
+        if fraction is None:
+            fraction = self._default_calibration_fraction()
         unknown = sorted(set(kwargs) - self._accepted_export_kwargs())
         if unknown:
             warnings.warn(
@@ -3053,6 +3057,10 @@ class BaseExporter(ABC):
                         module._export = False
             for m, orig_fwd in rfdetr_layernorm_patches:
                 m.forward = orig_fwd
+
+    def _default_calibration_fraction(self) -> float:
+        """Calibration fraction used when ``export()`` is not given one: the whole dataset."""
+        return 1.0
 
     def _load_calibration(
         self,
@@ -6789,6 +6797,15 @@ class AxeleraExporter(BaseExporter):
         task = getattr(self.model, "task", "detect")
         return task if isinstance(task, str) else "detect"
 
+
+    def _default_calibration_fraction(self) -> float:
+        """The measured size's calibration fraction (recipe ``calibration_fraction``), else the whole dataset.
+
+        Applied only when the caller leaves ``fraction`` unset, so a default export calibrates on the images the
+        size's supported/validated measurement used; an explicit ``fraction`` always wins.
+        """
+        value = self._size_recipe().get("calibration_fraction")
+        return 1.0 if value is None else float(value)
 
     def _size_recipe(self) -> dict:
         """The per-size recipe (``AXELERA_SIZE_RECIPES``) for this model, if any."""

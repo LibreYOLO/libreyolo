@@ -4844,7 +4844,7 @@ _add(
         "2.93 img/s batched, 5.17 vs 2.89 at batch 1; m 3.48 vs 0.56 and 1.75 vs "
         "0.50; l 4.07 vs 0.49 and 1.92 vs 0.48. PIDNet-m calibrates slowly in the "
         "SDK (about a minute per image): it was measured with fraction=0.25 (32 "
-        "coco128 images)."
+        "coco128 images), its default when fraction is left unset."
     ),
     since="1.7",
     constraint=(

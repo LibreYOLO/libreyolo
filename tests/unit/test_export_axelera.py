@@ -480,7 +480,7 @@ def test_export_writes_the_artifact_directory(exporter_sdk, tmp_path, task, capl
     model = _model(task)
     destination = tmp_path / "out" / "custom_axelera_model"
     with caplog.at_level(logging.INFO):
-        path = model.export(format="axelera", data=str(data), imgsz=64, output_path=str(destination))
+        path = model.export(format="axelera", data=str(data), imgsz=64, fraction=1.0, output_path=str(destination))
 
     assert Path(path) == destination
     assert sorted(p.name for p in destination.iterdir()) == [
@@ -677,7 +677,7 @@ def test_yolo4_export_uses_the_anchor_raw_head_layout(exporter_sdk, tmp_path):
     meta = yaml.safe_load((destination / "metadata.yaml").read_text())
     assert meta["model_family"] == "yolo4" and meta["output_layout"] == layout
     # Calibration used Darknet's own letterbox (it takes the (h, w) pair the loader passes).
-    assert len(exporter_sdk.seen["samples"]) == 4
+    assert len(exporter_sdk.seen["samples"]) == 2  # fraction unset: YOLOv4-t's measured 0.5 of the 4 images
     assert meta["output_names"] == exporter_sdk.seen["device_order"]
     assert meta["strides"] == [32, 16] and "reg_max" not in meta
     specs = model.model.net.detection_specs()
@@ -760,7 +760,7 @@ def test_yolo7_export_uses_the_anchor_raw_head_layout(exporter_sdk, tmp_path):
     assert meta["strides"] == [8, 16, 32] and "scale_x_y" not in meta
     net = model.model
     assert meta["anchors"] == [[list(pair) for pair in zip(a[0::2], a[1::2])] for a in net.anchors]
-    assert len(exporter_sdk.seen["samples"]) == 4
+    assert len(exporter_sdk.seen["samples"]) == 2  # fraction unset: YOLOv7-b's measured 0.5 of the 4 images
 
 
 def test_ppyoloe_export_uses_the_ppyoloe_raw_head_layout(exporter_sdk, tmp_path):
@@ -851,7 +851,10 @@ def test_failed_compile_keeps_previous_export(exporter_sdk, tmp_path):
 
 def test_batch_sizes_only_the_calibration_loader(exporter_sdk, tmp_path):
     data = _dataset(tmp_path, n=5)
-    _model().export(format="axelera", data=str(data), imgsz=64, batch=4, output_path=str(tmp_path / "b_axelera_model"), simplify=False)
+    _model().export(
+        format="axelera", data=str(data), imgsz=64, batch=4, fraction=1.0,
+        output_path=str(tmp_path / "b_axelera_model"), simplify=False,
+    )
     samples = exporter_sdk.seen["samples"]
     assert len(samples) == 5  # the padded duplicate in the last batch is dropped
     assert all(s.shape == (1, 3, 64, 64) for s in samples)
@@ -965,7 +968,7 @@ def test_verify_writes_a_parity_report(exporter_sdk, tmp_path, monkeypatch, capl
         backend_module, "require_axelera_rt", lambda: (_ for _ in ()).throw(ImportError("no axelera-rt"))
     )
     with caplog.at_level(logging.INFO):
-        _model().export(format="axelera", data=str(data), imgsz=64, verify=True, output_path=str(destination))
+        _model().export(format="axelera", data=str(data), imgsz=64, fraction=1.0, verify=True, output_path=str(destination))
     report = json.loads((destination / "v.parity.json").read_text())
     # data.yaml's val split is its train split, so verify falls back to the bundled samples.
     assert report["source"].startswith("bundled sample images")
@@ -1174,8 +1177,9 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     from libreyolo import LibreMobileNetV4, LibreYOLO4
     from libreyolo.export.axelera import AXELERA_SIZE_RECIPES, size_recipe
 
-    assert size_recipe("yolo4", "detect", "t") == {}
-    recipes = set(AXELERA_SIZE_RECIPES) - {
+    # calibration_fraction alone does not change the graph (test_default_export_calibrates_on_the_images_...).
+    assert size_recipe("yolo4", "detect", "t") == {"calibration_fraction": 0.5}
+    recipes = {k for k, v in AXELERA_SIZE_RECIPES.items() if set(v) - {"calibration_fraction"}} - {
         ("efficientdet", "detect", "d1"),
         ("efficientdet", "detect", "d2"),
         ("retinanet", "detect", "r50"),
@@ -1356,7 +1360,7 @@ def test_rtmdet_ins_x_exports_as_full_metis_neck_parts_with_a_mask_part():
     from libreyolo.export.support import BLOCKED_SIZES, SIZE_ACCURACY_NOTES
 
     assert size_recipe("rtmdet", "segment", "x") == {
-        "neck_parts": True, "quantization_scheme": "hybrid_per_tensor_per_channel",
+        "neck_parts": True, "quantization_scheme": "hybrid_per_tensor_per_channel", "calibration_fraction": 0.5,
     }
     assert "x" not in BLOCKED_SIZES.get(("rtmdet", "segment", "axelera"), {})
     note = SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]["x"]
@@ -1373,7 +1377,7 @@ def test_rtmdet_x_detect_exports_as_full_metis_neck_parts():
     exporter = AxeleraExporter(LibreRTMDet(None, size="x", nb_classes=3, device="cpu"))
     assert exporter._hybrid_outputs() == ()
     assert size_recipe("rtmdet", "detect", "x") == {
-        "neck_parts": "stem_td0", "quantization_scheme": "hybrid_per_tensor_per_channel",
+        "neck_parts": "stem_td0", "quantization_scheme": "hybrid_per_tensor_per_channel", "calibration_fraction": 0.5,
     }
     assert "x" not in BLOCKED_SIZES.get(("rtmdet", "detect", "axelera"), {})
 
@@ -2868,3 +2872,149 @@ def test_rtmdet_multi_part_modules_return_one_tensor_per_output_name():
                 out = part(torch.from_numpy(values[name]))
             assert isinstance(out, tuple) and len(out) == len(part.output_names), type(part).__name__
             assert device_output_order(lambda t, p=part: p(t), part, values[name]) == list(part.output_names)
+
+
+# Every shipped Axelera size with the calibration its supported/validated (tier) measurement used. Sizes measured
+# on a dedicated calibration set (ImageNetV2-250, DOTA-64, ...) calibrate on the whole set the user passes; coco128
+# sizes measured on part of it carry the recipe key calibration_fraction. The face embedder's head and detector
+# export through LibreFaceEmbedder.export (fraction 1.0, measured on 128 images) and are not listed.
+#: (family, task, size) -> (calibration images of its tier ledger line, images in that calibration set, ledger id).
+_TIER_CALIBRATION = {
+    # Ledger calib_n empty: the count is the measured artifact's metadata.yaml (fraction 1.0).
+    ("hrnet", "pose", "w32"): (597, 597, "hrnet/pose/w32/2026-11-20/2"),
+    ("hrnet", "pose", "w48"): (597, 597, "hrnet/pose/w48/2026-11-21"),
+    ("realesrgan", "restore", "x4t"): (125, 125, "realesrgan/restore/x4t/2026-11-16"),
+    ("yolonas", "detect", "s"): (64, 128, "yolonas/detect/s/2026-11-08/3"),
+    ("yolonas", "detect", "m"): (128, 128, "yolonas/detect/m/2026-11-08"),
+    ("yolonas", "detect", "l"): (64, 128, "yolonas/detect/l/2026-11-10"),
+    ("yolonas", "pose", "n"): (128, 128, "yolonas/pose/n/2026-11-11"),
+    ("yolonas", "pose", "s"): (128, 128, "yolonas/pose/s/2026-11-10/16"),
+    ("yolonas", "pose", "m"): (128, 128, "yolonas/pose/m/2026-11-11/2"),
+    ("yolonas", "pose", "l"): (128, 128, "yolonas/pose/l/2026-11-10/2"),
+    ("yolonas", "obb", "s"): (64, 64, "yolonas/obb/s/2026-11-10/2"),
+    ("yolonas", "obb", "m"): (64, 64, "yolonas/obb/m/2026-11-10"),
+    ("yolonas", "obb", "l"): (64, 64, "yolonas/obb/l/2026-11-10"),
+    ("yolo9", "detect", "t"): (64, 128, "yolo9/detect/t/2026-11-10/7"),
+    ("yolo9", "detect", "s"): (64, 128, "yolo9/detect/s/2026-11-10/2"),
+    ("yolo9", "detect", "m"): (64, 128, "yolo9/detect/m/2026-11-10/2"),
+    ("yolo9", "detect", "c"): (64, 128, "yolo9/detect/c/2026-11-10/2"),
+    ("yolo9_p2", "detect", "s"): (100, 100, "yolo9_p2/detect/s/2026-11-15"),
+    ("yolo9_e2e", "detect", "t"): (128, 128, "yolo9_e2e/detect/t/2026-11-13"),
+    ("yolo9_e2e", "detect", "s"): (128, 128, "yolo9_e2e/detect/s/2026-11-13"),
+    ("yolo9_e2e", "detect", "m"): (128, 128, "yolo9_e2e/detect/m/2026-11-13"),
+    ("yolo9_e2e", "detect", "c"): (128, 128, "yolo9_e2e/detect/c/2026-11-13"),
+    ("yolox", "detect", "n"): (64, 128, "yolox/detect/n/2026-11-11/7"),
+    ("yolox", "detect", "t"): (64, 128, "yolox/detect/t/2026-11-11/2"),
+    ("yolox", "detect", "s"): (64, 128, "yolox/detect/s/2026-11-11/2"),
+    ("yolox", "detect", "m"): (64, 128, "yolox/detect/m/2026-11-11/2"),
+    ("yolox", "detect", "l"): (64, 128, "yolox/detect/l/2026-11-11/2"),
+    ("yolox", "detect", "x"): (64, 128, "yolox/detect/x/2026-11-11/2"),
+    ("yolo1", "detect", "b"): (128, 128, "yolo1/detect/b/2026-11-15/2"),
+    ("yolo2", "detect", "t"): (128, 128, "yolo2/detect/t/2026-11-13/2"),
+    ("yolo2", "detect", "b"): (128, 128, "yolo2/detect/b/2026-11-13/2"),
+    ("yolo3", "detect", "t"): (64, 128, "yolo3/detect/t/2026-11-11/6"),
+    ("yolo3", "detect", "b"): (64, 128, "yolo3/detect/b/2026-11-11/6"),
+    ("yolo3", "detect", "spp"): (64, 128, "yolo3/detect/spp/2026-11-11/3"),
+    ("yolo4", "detect", "t"): (64, 128, "yolo4/detect/t/2026-11-11/5"),
+    ("yolo4", "detect", "b"): (64, 128, "yolo4/detect/b/2026-11-11/6"),
+    ("yolo7", "detect", "b"): (64, 128, "yolo7/detect/b/2026-11-11/4"),
+    ("ppyoloe", "detect", "s"): (64, 128, "ppyoloe/detect/s/2026-11-11/3"),
+    ("ppyoloe", "detect", "m"): (64, 128, "ppyoloe/detect/m/2026-11-11/2"),
+    ("ppyoloe", "detect", "l"): (64, 128, "ppyoloe/detect/l/2026-11-11/2"),
+    ("ppyoloe", "detect", "x"): (64, 128, "ppyoloe/detect/x/2026-11-19/2"),
+    ("picodet", "detect", "s"): (64, 128, "picodet/detect/s/2026-11-11/7"),
+    ("picodet", "detect", "m"): (64, 128, "picodet/detect/m/2026-11-11/4"),
+    ("picodet", "detect", "l"): (64, 128, "picodet/detect/l/2026-11-11/4"),
+    ("rtmdet", "detect", "t"): (64, 128, "rtmdet/detect/t/2026-11-11/8"),
+    ("rtmdet", "detect", "s"): (64, 128, "rtmdet/detect/s/2026-11-17/8"),
+    ("rtmdet", "detect", "m"): (64, 128, "rtmdet/detect/m/2026-11-12/2"),
+    ("rtmdet", "detect", "l"): (64, 128, "rtmdet/detect/l/2026-11-12/2"),
+    ("rtmdet", "detect", "x"): (64, 128, "rtmdet/detect/x/2026-11-20/13"),
+    ("fcos", "detect", "r50"): (128, 128, "fcos/detect/r50/2026-11-15/3"),
+    ("retinanet", "detect", "r50"): (128, 128, "retinanet/detect/r50/2026-11-14/4"),
+    ("ssd", "detect", "300"): (128, 128, "ssd/detect/300/2026-11-13/2"),
+    ("efficientdet", "detect", "d0"): (128, 128, "efficientdet/detect/d0/2026-11-12/3"),
+    ("efficientdet", "detect", "d1"): (128, 128, "efficientdet/detect/d1/2026-11-13/3"),
+    ("efficientdet", "detect", "d2"): (128, 128, "efficientdet/detect/d2/2026-11-14"),
+    ("rtmdet", "segment", "t"): (64, 128, "rtmdet/segment/t/2026-11-12/2"),
+    ("rtmdet", "segment", "s"): (64, 128, "rtmdet/segment/s/2026-11-19/4"),
+    ("rtmdet", "segment", "m"): (64, 128, "rtmdet/segment/m/2026-11-12/2"),
+    ("rtmdet", "segment", "l"): (64, 128, "rtmdet/segment/l/2026-11-12/2"),
+    ("rtmdet", "segment", "x"): (64, 128, "rtmdet/segment/x/2026-11-20/2"),
+    ("resnet", "classify", "18"): (250, 250, "resnet/classify/18/2026-11-10/2"),
+    ("resnet", "classify", "34"): (250, 250, "resnet/classify/34/2026-11-10"),
+    ("resnet", "classify", "50"): (250, 250, "resnet/classify/50/2026-11-10"),
+    ("resnet", "classify", "101"): (250, 250, "resnet/classify/101/2026-11-10"),
+    ("mobilenetv4", "classify", "s"): (250, 250, "mobilenetv4/classify/s/2026-11-20/6"),
+    ("mobilenetv4", "classify", "m"): (250, 250, "mobilenetv4/classify/m/2026-11-11/2"),
+    ("mobilenetv4", "classify", "l"): (250, 250, "mobilenetv4/classify/l/2026-11-10"),
+    ("efficientnetv2", "classify", "b0"): (250, 250, "efficientnetv2/classify/b0/2026-11-11/5"),
+    ("efficientnetv2", "classify", "b1"): (250, 250, "efficientnetv2/classify/b1/2026-11-17"),
+    ("efficientnetv2", "classify", "b2"): (250, 250, "efficientnetv2/classify/b2/2026-11-17"),
+    ("efficientnetv2", "classify", "b3"): (250, 250, "efficientnetv2/classify/b3/2026-11-17"),
+    ("vgg", "classify", "16"): (250, 250, "vgg/classify/16/2026-11-12"),
+    ("vgg", "classify", "19"): (250, 250, "vgg/classify/19/2026-11-12"),
+    ("vgg", "classify", "16bn"): (250, 250, "vgg/classify/16bn/2026-11-12/2"),
+    ("vgg", "classify", "19bn"): (250, 250, "vgg/classify/19bn/2026-11-12"),
+    ("alexnet", "classify", "b"): (250, 250, "alexnet/classify/b/2026-11-13"),
+    ("fcn", "semantic", "r50"): (128, 128, "fcn/semantic/r50/2026-11-11/2"),
+    ("fcn", "semantic", "r101"): (128, 128, "fcn/semantic/r101/2026-11-11"),
+    ("quicksrnet", "restore", "m2"): (125, 125, "quicksrnet/restore/m2/2026-11-16/5"),
+    ("realesrgan", "restore", "x4"): (125, 125, "realesrgan/restore/x4/2026-11-16"),
+    ("realesrgan", "restore", "x2"): (125, 125, "realesrgan/restore/x2/2026-11-16"),
+    ("midas", "depth", "s"): (128, 128, "midas/depth/s/2026-11-11/4"),
+    ("dexined", "edge", "b"): (64, 128, "dexined/edge/b/2026-11-16"),
+    ("deeplabv3", "semantic", "mv3"): (128, 128, "deeplabv3/semantic/mv3/2026-11-11/6"),
+    ("deeplabv3", "semantic", "r50"): (128, 128, "deeplabv3/semantic/r50/2026-11-17/2"),
+    ("deeplabv3", "semantic", "r101"): (128, 128, "deeplabv3/semantic/r101/2026-11-14"),
+    ("unet", "semantic", "s"): (64, 128, "unet/semantic/s/2026-11-20"),
+    ("pidnet", "semantic", "s"): (128, 128, "pidnet/semantic/s/2026-11-20/4"),
+    ("pidnet", "semantic", "m"): (32, 128, "pidnet/semantic/m/2026-11-21"),
+    ("pidnet", "semantic", "l"): (128, 128, "pidnet/semantic/l/2026-11-20"),
+    ("ppliteseg", "semantic", "t50"): (64, 128, "ppliteseg/semantic/t50/2026-11-18"),
+    ("ppliteseg", "semantic", "b50"): (64, 128, "ppliteseg/semantic/b50/2026-11-18"),
+    ("ppliteseg", "semantic", "t75"): (64, 128, "ppliteseg/semantic/t75/2026-11-18"),
+    ("ppliteseg", "semantic", "b75"): (64, 128, "ppliteseg/semantic/b75/2026-11-18"),
+    ("picosam3", "segment", "pico"): (128, 128, "picosam3/segment/pico/2026-11-19"),
+}
+
+
+def test_default_export_calibrates_on_the_images_each_tier_measurement_used():
+    """With ``fraction`` left unset, each shipped size calibrates on as many images as its tier ledger line
+    (``CalibrationDataLoader``: ``int(total * fraction)``)."""
+    from libreyolo.export.axelera import size_recipe
+
+    wrong = {}
+    for (family, task, size), (measured, total, ledger_id) in _TIER_CALIBRATION.items():
+        fraction = float(size_recipe(family, task, size).get("calibration_fraction", 1.0))
+        effective = max(1, int(total * fraction))
+        if effective != measured:
+            wrong[(family, task, size)] = (effective, measured, ledger_id)
+    assert not wrong, wrong
+    assert len(_TIER_CALIBRATION) >= 90
+
+
+def test_calibration_fraction_applies_only_when_fraction_is_left_unset():
+    import types
+
+    from libreyolo.export.exporter import AxeleraExporter, OnnxExporter
+
+    def exporter(cls, family, task, size):
+        e = cls.__new__(cls)
+        e.model = types.SimpleNamespace(_get_model_name=lambda: family, task=task, size=size)
+        return e
+
+    assert exporter(AxeleraExporter, "rtmdet", "detect", "s")._default_calibration_fraction() == 0.5
+    assert exporter(AxeleraExporter, "pidnet", "semantic", "m")._default_calibration_fraction() == 0.25
+    assert exporter(AxeleraExporter, "yolonas", "detect", "m")._default_calibration_fraction() == 1.0
+    assert exporter(OnnxExporter, "rtmdet", "detect", "s")._default_calibration_fraction() == 1.0
+
+
+def test_cli_export_leaves_fraction_unset_by_default():
+    """``libreyolo export`` must not pass fraction=1.0 itself, or it would override the size's measured fraction."""
+    import inspect
+
+    from libreyolo.cli.commands.export import export_cmd
+
+    option = inspect.signature(export_cmd).parameters["fraction"].default
+    assert getattr(option, "default", option) is None

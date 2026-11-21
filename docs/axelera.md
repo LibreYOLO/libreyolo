@@ -112,7 +112,7 @@ a separate size:
 | DeepLabV3 | r101 | semantic (mIoU; ASPP as per-tap 1x1 convolutions plus shifts) | COCO val2017 VOC-21, 300 | 0.5888 | 0.3795 | -20.93 | supported | `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | s | semantic (fidelity mIoU vs FP32 labels; 512x1024; histogram ranges) | COCO val2017, 1000 | 1.0000 | 0.8562 | -0.1438 | supported | `unet/semantic/s/2026-11-20` |
 | PIDNet | s | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts joined by bilinear upsample + concat; whole graph collapses in INT8; faster than the CPU at batch 1 and 8: 5.17 / 7.36 vs 2.89 / 2.93 img/s at 4 host threads) | COCO val2017, 300 | 1.0000 | 0.8640 | -0.1360 | supported | `pidnet/semantic/s/2026-11-20/4`, speed `/5` |
-| PIDNet | m | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts; calibrated on 32 coco128 images (fraction=0.25: the SDK calibrates m at about a minute per image); faster than the CPU at batch 1 and 8: 1.75 / 3.48 vs 0.50 / 0.56 img/s at 4 host threads) | COCO val2017, 96 | 1.0000 | 0.8251 | -0.1749 | supported | `pidnet/semantic/m/2026-11-21`, speed `/2` |
+| PIDNet | m | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts; calibrated on 32 coco128 images (its default fraction 0.25: the SDK calibrates m at about a minute per image); faster than the CPU at batch 1 and 8: 1.75 / 3.48 vs 0.50 / 0.56 img/s at 4 host threads) | COCO val2017, 96 | 1.0000 | 0.8251 | -0.1749 | supported | `pidnet/semantic/m/2026-11-21`, speed `/2` |
 | PIDNet | l | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts, DAPPM + Bag; faster than the CPU at batch 1 and 8: 1.92 / 4.07 vs 0.48 / 0.49 img/s at 4 host threads) | COCO val2017, 100 | 1.0000 | 0.8204 | -0.1796 | supported | `pidnet/semantic/l/2026-11-20`, speed `/2` |
 | PP-LiteSeg | t50 | semantic (fidelity mIoU vs FP32 labels; 512x1024; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8502 | -0.1498 | supported | `ppliteseg/semantic/t50/2026-11-18` |
 | PP-LiteSeg | b50 | semantic (fidelity mIoU vs FP32 labels; 512x1024; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8571 | -0.1429 | supported | `ppliteseg/semantic/b50/2026-11-18` |
@@ -243,7 +243,7 @@ libreyolo export model=LibreYOLO9t.pt format=axelera   # weights/LibreYOLO9t_axe
 | --- | --- |
 | `imgsz` | Input size, fixed in the compiled model; must be a multiple of 32 (other values raise). Default: the checkpoint's size. |
 | `data` | Calibration images (dataset YAML). Default `coco128.yaml` for detect and pose. |
-| `fraction` | Share of the calibration split to use (its first images). 100 to 400 images are recommended; fewer than 100 logs a warning. The COCO results in section 7 ("64 coco128") use `data="coco128.yaml", fraction=0.5`. |
+| `fraction` | Share of the calibration split to use (its first images). Left unset, it is the share the size was measured with: 0.5 for the sizes measured on 64 coco128 images (section 7, "64 coco128"), 0.25 for PIDNet-m, 1.0 otherwise, so a default export reproduces the measured configuration; an explicit value always wins. 100 to 400 images are recommended; fewer than 100 logs a warning. |
 | `batch` | Calibration loader batch size only. The compiled model takes one image at a time. |
 | `device` | Torch device used to trace the model, not the Metis device. |
 | `quantize` / `int8` | INT8 is the only precision and is always on. `quantize=16`, `quantize=32` and `half=True` raise. |
@@ -343,8 +343,12 @@ and of DOTA-v2.0 val tiled to 1024 (300 tiles), so the absolute numbers are
 not comparable to published full-set results; the deltas are the point.
 The ledger id behind each row is in the Evidence column of the summary
 table at the top of this page. In the Calibration column, "64 coco128" is the
-first 64 images of coco128 (`data="coco128.yaml", fraction=0.5`); the default
-`fraction=1.0` uses all 128. Most sizes move little with the count (YOLOX-n:
+first 64 images of coco128 (`data="coco128.yaml", fraction=0.5`), which is
+what `export(format="axelera", data="coco128.yaml")` uses for those sizes when
+`fraction` is left unset: the default calibration follows each size's
+measured recipe (`calibration_fraction`). Pass `fraction=1.0` for the old
+behaviour, all 128 images. Most sizes move little
+with the count (YOLOX-n:
 -1.81 with 64 images, -1.66 with 128). RTMDet-s was sensitive to it until
 its learned rounding (see the RTMDet paragraph below); Faster R-CNN-n and -s
 still are, in opposite directions (their rows).
@@ -644,7 +648,8 @@ agree on 100 images; 1.92 img/s at batch 1 and 4.07 at batch 8 against
 95.3% of pixels agree on 96 images; 1.75 img/s at batch 1 and 3.48 at
 batch 8 against 0.50 and 0.56 on the CPU (OpenVINO). The SDK calibrates m
 at about a minute per image, so it was measured with `fraction=0.25` (32
-coco128 images); the default 128 images add about 1.5 hours to the export.
+coco128 images), the default for m when `fraction` is left unset;
+`fraction=1.0` (128 images) adds about 1.5 hours to the export.
 
 RTMDet-x does not compile as one graph: its PAFPN neck finds no L1 tiling
 (LowerTIR still overflows after 4 iterations, whole graph or backbone + neck),

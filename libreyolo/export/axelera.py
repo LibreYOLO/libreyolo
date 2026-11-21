@@ -92,7 +92,9 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: ``network_learned_rounding`` (learned INT8 rounding of every Conv2d/Linear of a
 #: single-part export, layer by layer against the FP32 network's own layer outputs,
 #: on this many calibration images; ``export/learned_rounding.learn_int8_rounding``). Results
-#: with these recipes are in docs/axelera.md.
+#: with these recipes are in docs/axelera.md. ``calibration_fraction`` (the measured share of
+#: the calibration dataset, used when ``export()`` gets no ``fraction``) is set per size from
+#: ``_MEASURED_CALIBRATION_FRACTION`` below.
 AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # RT-DETRv2's neck part defaults to histogram ranges (exporter
     # _HYBRID_NECK_QUANTIZATION_SCHEMES); r18 and r34 were measured with the
@@ -260,6 +262,31 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("ppyoloe", "detect", "x"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
 }
 
+
+#: ``calibration_fraction`` per size: the share of the calibration dataset that size's supported/validated
+#: measurement calibrated on (its tier ledger line), applied when ``export()`` is called without ``fraction``,
+#: so a default export reproduces the measured configuration. Every size listed here was measured on coco128.yaml
+#: (128 images): 0.5 = 64 images. PIDNet-m: 0.25 = 32 images (the SDK calibrates m at about a minute per image).
+#: Sizes not listed were measured on the whole dataset (fraction 1.0). An explicit ``fraction`` always wins.
+_MEASURED_CALIBRATION_FRACTION: dict[tuple[str, str, str], float] = {
+    **{("yolonas", "detect", size): 0.5 for size in ("s", "l")},
+    **{("yolo9", "detect", size): 0.5 for size in ("t", "s", "m", "c")},
+    **{("yolox", "detect", size): 0.5 for size in ("n", "t", "s", "m", "l", "x")},
+    **{("yolo3", "detect", size): 0.5 for size in ("t", "b", "spp")},
+    **{("yolo4", "detect", size): 0.5 for size in ("t", "b")},
+    ("yolo7", "detect", "b"): 0.5,
+    **{("ppyoloe", "detect", size): 0.5 for size in ("s", "m", "l", "x")},
+    **{("picodet", "detect", size): 0.5 for size in ("s", "m", "l")},
+    **{("rtmdet", "detect", size): 0.5 for size in ("t", "s", "m", "l", "x")},
+    **{("rtmdet", "segment", size): 0.5 for size in ("t", "s", "m", "l", "x")},
+    ("dexined", "edge", "b"): 0.5,
+    ("unet", "semantic", "s"): 0.5,
+    **{("ppliteseg", "semantic", size): 0.5 for size in ("t50", "b50", "t75", "b75")},
+    ("pidnet", "semantic", "m"): 0.25,
+}
+for _key, _fraction in _MEASURED_CALIBRATION_FRACTION.items():
+    AXELERA_SIZE_RECIPES.setdefault(_key, {})["calibration_fraction"] = _fraction
+del _key, _fraction
 
 def size_recipe(family: str, task: str, size: str) -> dict:
     """The per-size recipe for ``family``/``task``/``size`` (empty when the defaults apply)."""

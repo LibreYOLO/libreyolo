@@ -57,7 +57,10 @@ def export_cmd(
         None, help="ONNX opset version (auto if omitted)"
     ),
     data: Optional[str] = typer.Option(None, help="Calibration data for INT8"),
-    fraction: float = typer.Option(1.0, help="Fraction of calibration data"),
+    fraction: Optional[float] = typer.Option(
+        None,
+        help="Fraction of calibration data (default: 1.0, or the measured fraction of an Axelera size recipe)",
+    ),
     device: str = typer.Option("auto", help="Device for tracing"),
     allow_download_scripts: bool = typer.Option(
         False,
@@ -200,7 +203,8 @@ def export_cmd(
     if data is not None:
         export_kwargs["data"] = data
     if data is not None or int8:
-        export_kwargs["fraction"] = fraction
+        if fraction is not None:
+            export_kwargs["fraction"] = fraction
         export_kwargs["allow_download_scripts"] = allow_download_scripts
 
     # Run export
