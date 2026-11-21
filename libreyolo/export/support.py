@@ -4836,14 +4836,16 @@ _add(
         "only. Compiled whole it collapses in INT8 (logit cosine about 0). Supported, "
         "not validated: PIDNet is trained on Cityscapes, so the paired measurement is "
         "fidelity to FP32 on COCO val2017 images at 1024x1024 (s: mIoU 0.864, 95.0% "
-        "of pixels agree on 300; l: mIoU 0.820, 95.1% on 100; docs/axelera.md). "
-        "Faster than the FP32 CPU (4 host threads): s 7.36 vs 2.93 img/s batched, "
-        "5.17 vs 2.89 at batch 1; l 4.07 vs 0.49 batched, 1.92 vs 0.48 at batch 1."
+        "of pixels agree on 300; m: 0.825, 95.3% on 96; l: 0.820, 95.1% on 100; "
+        "docs/axelera.md). Faster than the FP32 CPU (4 host threads): s 7.36 vs "
+        "2.93 img/s batched, 5.17 vs 2.89 at batch 1; m 3.48 vs 0.56 and 1.75 vs "
+        "0.50; l 4.07 vs 0.49 and 1.92 vs 0.48. PIDNet-m calibrates slowly in the "
+        "SDK (about a minute per image): it was measured with fraction=0.25 (32 "
+        "coco128 images)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: s, l (measured fidelity, SIZE_ACCURACY_NOTES); m not "
-        "measured yet. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "supported sizes: s, m, l (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
         "batch 1 per part call, fixed 1024x1024 input (a multiple of 64)"
     ),
 )
@@ -5186,6 +5188,12 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "300 COCO val2017 images at 1024x1024, three compiled parts; PIDNet is "
             "Cityscapes-trained and no Cityscapes masks were used)"
         ),
+        "m": (
+            "measured fidelity mIoU 0.825 vs FP32 labels (95.3% of pixels agree on "
+            "96 COCO val2017 images at 1024x1024, three compiled parts, calibrated "
+            "on 32 coco128 images; PIDNet is Cityscapes-trained and no Cityscapes "
+            "masks were used)"
+        ),
         "l": (
             "measured fidelity mIoU 0.820 vs FP32 labels (95.1% of pixels agree on "
             "100 COCO val2017 images at 1024x1024, three compiled parts; PIDNet is "
@@ -5442,9 +5450,6 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
-    ("pidnet", "semantic", "axelera"): {
-        "m": "has not been measured on a Metis yet as compiled parts (the pool_parts recipe of s)",
-    },
     ("hrnet", "pose", "axelera"): {
         "w48": (
             "has not been measured on a Metis yet as compiled parts (the "
