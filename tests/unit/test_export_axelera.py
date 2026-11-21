@@ -3032,3 +3032,15 @@ def test_face_embedder_exports_calibrate_on_the_whole_set_as_measured():
 
     assert inspect.signature(LibreFaceEmbedder.export).parameters["fraction"].default == 1.0
     assert inspect.signature(export_face_detector_axelera).parameters["fraction"].default == 1.0
+
+
+def test_recipe_fraction_keeps_two_calibration_images_on_a_tiny_dataset(exporter_sdk, tmp_path):
+    """A size recipe's calibration_fraction never takes a tiny dataset below the 2-image minimum (YOLO-NAS-s:
+    0.5 of 2 images would be 1); an explicit fraction is not adjusted and still raises."""
+    data = _dataset(tmp_path, n=2)
+    _model().export(format="axelera", data=str(data), imgsz=64, output_path=str(tmp_path / "t_axelera_model"))
+    assert len(exporter_sdk.seen["samples"]) == 2
+    with pytest.raises(ValueError, match="at least 2 images"):
+        _model().export(
+            format="axelera", data=str(data), imgsz=64, fraction=0.5, output_path=str(tmp_path / "u_axelera_model")
+        )

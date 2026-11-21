@@ -106,7 +106,8 @@ def test_export_precision_conflict_lets_int8_win(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert captured["half"] is False
     assert captured["int8"] is True
-    assert captured["fraction"] == 1.0
+    # fraction left unset: the exporter applies the format's default (an Axelera size's measured share)
+    assert "fraction" not in captured
     data = json.loads(result.stdout)
     assert data["half"] is False
     assert data["int8"] is True

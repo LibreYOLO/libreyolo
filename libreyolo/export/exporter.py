@@ -2072,6 +2072,7 @@ class BaseExporter(ABC):
         # (reconstructing fp32 masters, enabling export mode) also wait for
         # every request rejection.
         pre_trace_hook = kwargs.pop("_pre_trace_hook", None)
+        self._fraction_from_recipe = False
         if fraction is None:
             fraction = self._default_calibration_fraction()
         unknown = sorted(set(kwargs) - self._accepted_export_kwargs())
@@ -6805,7 +6806,10 @@ class AxeleraExporter(BaseExporter):
         size's supported/validated measurement used; an explicit ``fraction`` always wins.
         """
         value = self._size_recipe().get("calibration_fraction")
-        return 1.0 if value is None else float(value)
+        if value is None:
+            return 1.0
+        self._fraction_from_recipe = True
+        return float(value)
 
     def _size_recipe(self) -> dict:
         """The per-size recipe (``AXELERA_SIZE_RECIPES``) for this model, if any."""
@@ -7487,6 +7491,24 @@ class AxeleraExporter(BaseExporter):
         )
         self._calibration_loader = loader
         count = int(loader.num_samples)
+        if count < 2 and getattr(self, "_fraction_from_recipe", False):
+            # The size's measured share of a tiny dataset rounds below the 2-image minimum: keep 2 images
+            # (a user-given fraction is never adjusted).
+            loader = CalibrationDataLoader(
+                data,
+                imgsz=imgsz,
+                batch=getattr(self, "_calibration_batch", 1),
+                fraction=1.0,
+                samples=2,
+                preprocess_fn=self._calibration_preprocess(),
+                allow_download_scripts=allow_download_scripts,
+            )
+            logger.info(
+                "Axelera calibration: the size recipe's fraction %s of %s gives %d image(s); using %d",
+                fraction, data, count, int(loader.num_samples),
+            )
+            self._calibration_loader = loader
+            count = int(loader.num_samples)
         low, high = self._RECOMMENDED_CALIBRATION
         if count < 2:
             raise ValueError(

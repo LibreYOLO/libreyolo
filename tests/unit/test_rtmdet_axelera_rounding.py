@@ -63,7 +63,8 @@ def test_only_rtmdet_s_has_the_recipe():
     from libreyolo.export.axelera import size_recipe
 
     for task in ("detect", "segment"):
-        assert size_recipe("rtmdet", task, "s") == {"pointwise_learned_rounding": True}
+        # calibration_fraction is the measured calibration share (test_export_axelera covers it).
+        assert size_recipe("rtmdet", task, "s") == {"pointwise_learned_rounding": True, "calibration_fraction": 0.5}
         for size in ("t", "m", "l", "x"):
             assert "pointwise_learned_rounding" not in size_recipe("rtmdet", task, size)
 
