@@ -411,7 +411,7 @@ A check mark applies only under any constraint listed here.
 - `ppyoloe` / `detect` / `torchscript`: Fixed 640 canvas, FP32, batch 1 and 2
 - `ppyoloe` / `detect` / `tensorrt`: TensorRT 10.16, FP32 engine (half=False), fixed 640 canvas, fixed batch 1
 - `ppyoloe` / `detect` / `openvino`: OpenVINO CPU FP32, fixed 640 canvas, batch 1 and 2
-- `ppyoloe` / `detect` / `axelera`: validated sizes: l; s, m and x are supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `ppyoloe` / `detect` / `axelera`: validated sizes: l, m (m with histogram activation ranges); s and x are supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `quicksrnet` / `restore` / `onnx`: FP32, dynamic spatial input
 - `quicksrnet` / `restore` / `torchscript`: FP32, fixed-resolution export canvas
 - `quicksrnet` / `restore` / `axelera`: validated sizes: m2 (learned INT8 rounding, AXELERA_SIZE_RECIPES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (smaller images are padded)

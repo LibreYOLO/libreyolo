@@ -258,8 +258,10 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # RTMDet-Ins-x: as RTMDet-x (neck_parts), plus the mask-feature module as a last compiled part on n3..n5
     # joined on the host by a weight-free bilinear resize + concat.
     ("rtmdet", "segment", "x"): {"neck_parts": True, "quantization_scheme": "hybrid_per_tensor_per_channel"},
-    # PP-YOLOE-x: histogram activation ranges (the other sizes keep min-max: hybrid hurts their DFL heads).
+    # PP-YOLOE-x and -m: histogram activation ranges (x -1.08, was -1.71; m -0.84, was -1.22, on 1000 images).
+    # s keeps min-max (its screen gain did not hold on the device); l is validated with min-max.
     ("ppyoloe", "detect", "x"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
+    ("ppyoloe", "detect", "m"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
 }
 
 

@@ -1098,8 +1098,8 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("yolo4", "detect", "axelera")]) == ["b"]
     assert precision_support("yolo4", "detect", "axelera") == (True, True)
     ppyoloe = get_support("ppyoloe", "detect", "axelera")
-    assert ppyoloe.tier == "validated" and "validated sizes: l" in ppyoloe.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("ppyoloe", "detect", "axelera")]) == ["m", "s", "x"]
+    assert ppyoloe.tier == "validated" and "validated sizes: l, m" in ppyoloe.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("ppyoloe", "detect", "axelera")]) == ["s", "x"]
     retinanet = get_support("retinanet", "detect", "axelera")
     assert retinanet.tier == "available" and "supported sizes: r50 " in retinanet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("retinanet", "detect", "axelera")]) == ["r50"]
@@ -1216,7 +1216,7 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
         ("mobilenetv4", "classify", "l"), ("yolonas", "pose", "s"),
         ("vgg", "classify", "16bn"), ("quicksrnet", "restore", "m2"),
-        ("realesrgan", "restore", "x4t"), ("ppyoloe", "detect", "x"),
+        ("realesrgan", "restore", "x4t"), ("ppyoloe", "detect", "x"), ("ppyoloe", "detect", "m"),
     }
     assert size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
     # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default
@@ -1238,7 +1238,9 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     # PP-YOLOE-x: histogram ranges; the other PP-YOLOE sizes keep the min-max default.
     from libreyolo import LibrePPYOLOE
 
-    for size, scheme in (("x", "hybrid_per_tensor_per_channel"), ("l", "per_tensor_min_max")):
+    for size, scheme in (
+        ("x", "hybrid_per_tensor_per_channel"), ("m", "hybrid_per_tensor_per_channel"), ("l", "per_tensor_min_max"),
+    ):
         torch.manual_seed(0)
         ppy = LibrePPYOLOE(None, size="s", nb_classes=3, device="cpu")
         monkeypatch.setattr(ppy, "size", size)
@@ -2920,7 +2922,7 @@ _TIER_CALIBRATION = {
     ("yolo4", "detect", "b"): (64, 128, "yolo4/detect/b/2026-11-11/6"),
     ("yolo7", "detect", "b"): (64, 128, "yolo7/detect/b/2026-11-11/4"),
     ("ppyoloe", "detect", "s"): (64, 128, "ppyoloe/detect/s/2026-11-11/3"),
-    ("ppyoloe", "detect", "m"): (64, 128, "ppyoloe/detect/m/2026-11-11/2"),
+    ("ppyoloe", "detect", "m"): (64, 128, "ppyoloe/detect/m/2026-11-21/6"),
     ("ppyoloe", "detect", "l"): (64, 128, "ppyoloe/detect/l/2026-11-11/2"),
     ("ppyoloe", "detect", "x"): (64, 128, "ppyoloe/detect/x/2026-11-19/2"),
     ("picodet", "detect", "s"): (64, 128, "picodet/detect/s/2026-11-11/7"),

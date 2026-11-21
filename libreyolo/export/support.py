@@ -4437,7 +4437,7 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "validated sizes: l; s, m and x are supported with a measured drop "
+        "validated sizes: l, m (m with histogram activation ranges); s and x are supported with a measured drop "
         "(SIZE_ACCURACY_NOTES, docs/axelera.md). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
         "batch 1, fixed input size"
@@ -5352,10 +5352,6 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
     ("ppyoloe", "detect", "axelera"): {
         "s": (
             "measured mAP50-95 drop 1.23 points vs FP32 (0.396 vs 0.409 on 1000 "
-            "COCO val2017 images)"
-        ),
-        "m": (
-            "measured mAP50-95 drop 1.22 points vs FP32 (0.442 vs 0.454 on 1000 "
             "COCO val2017 images)"
         ),
         "x": (
