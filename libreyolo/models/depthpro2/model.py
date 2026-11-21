@@ -43,6 +43,7 @@ from ...utils.image_loader import ImageInput, ImageLoader
 from ..base.model import BaseModel
 from .convert import (
     INPUT_SIZES,
+    MIRROR_SHA256,
     UPSTREAM_URLS,
     detect_size,
     has_fov_weights,
@@ -61,11 +62,12 @@ from .nn import (
 from .utils import extract_exif_f_px, normalize_rgb, pixel_intrinsics, preprocess_numpy
 
 _DOWNLOAD_NOTICE = (
-    "Depth Pro 2 is licensed under the Apple Machine Learning Research Model "
-    "License (apple-amlr), Copyright © 2026 Apple Inc. All Rights Reserved. "
-    "Official pretrained weights are downloaded directly from Apple's Hugging Face "
-    "repositories and are restricted to non-commercial research use only. "
-    "See libreyolo/models/depthpro2/LICENSE_MODEL for full terms."
+    "Apple Machine Learning Research Model is licensed under the Apple Machine "
+    "Learning Research Model License Agreement (apple-amlr), Copyright (C) 2026 "
+    "Apple Inc. All Rights Reserved. Depth Pro 2 pretrained weights are "
+    "restricted to non-commercial Research Purposes only (no commercial "
+    "exploitation or product use). See libreyolo/models/depthpro2/LICENSE_MODEL "
+    "for full terms."
 )
 
 _PRECISION_ALIASES: dict[str, torch.dtype] = {
@@ -118,7 +120,7 @@ class LibreDepthPro2(BaseModel):
     model: DepthPro2Net
 
     # ====================================================================
-    # Checkpoint detection & pinned upstream downloads
+    # Checkpoint detection & pinned downloads
     # ====================================================================
 
     @classmethod
@@ -135,11 +137,13 @@ class LibreDepthPro2(BaseModel):
 
     @classmethod
     def get_download_url(cls, filename: str) -> str | None:
-        """Resolve canonical ``LibreDepthPro2{s,b,l,h}-depth.pt`` to Apple's pinned HF asset."""
+        """Resolve canonical ``LibreDepthPro2{s,b,l,h}-depth.pt`` to LibreYOLO's HF mirror."""
         size = cls.detect_size_from_filename(filename)
         task = cls.detect_task_from_filename(filename)
         if size is None or task != "depth":
             return None
+        if size in MIRROR_SHA256:
+            return super().get_download_url(filename)
         return UPSTREAM_URLS.get(size)
 
     @classmethod

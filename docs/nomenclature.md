@@ -874,7 +874,7 @@ LibreMoGe3l-normal.pt            # ViT-L/14, surface normals (same tensors as -d
 LibreMoGe3g-depth.pt             # ViT-g/14, metric depth, point map, intrinsics
 LibreMoGe3g-normal.pt            # ViT-g/14, surface normals (same tensors as -depth)
 
-# depthpro2 - Apple Depth Pro 2 metric image & video depth + focal length (apple-amlr non-commercial research weights, downloaded from Apple HF)
+# depthpro2 - Apple Depth Pro 2 metric image & video depth + focal length (apple-amlr non-commercial research weights, mirrored on LibreYOLO HF)
 LibreDepthPro2s-depth.pt         # ViT-S/16 DINOv3 + DPT + FoV estimator
 LibreDepthPro2b-depth.pt         # ViT-B/16 DINOv3 + DPT + FoV estimator
 LibreDepthPro2l-depth.pt         # ViT-L/16 DINOv3 + DPT + FoV estimator

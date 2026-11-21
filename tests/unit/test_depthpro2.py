@@ -19,6 +19,7 @@ from libreyolo.models.depthpro2.convert import (
     EMBED_DIM_TO_SIZE,
     FOV_UPSTREAM_SHA256,
     FOV_UPSTREAM_URL,
+    MIRROR_SHA256,
     UPSTREAM_SHA256,
     UPSTREAM_URLS,
     has_fov_weights,
@@ -185,17 +186,23 @@ def test_depthpro2_rejects_sibling_depth_families():
 @pytest.mark.parametrize("size", ["s", "b", "l", "h"])
 def test_filenames_urls_checksums_and_notice(size: str):
     canonical = f"LibreDepthPro2{size}-depth.pt"
+    expected_url = (
+        f"https://huggingface.co/LibreYOLO/LibreDepthPro2{size}-depth/"
+        f"resolve/main/{canonical}"
+    )
     assert LibreDepthPro2.detect_size_from_filename(canonical) == size
     assert LibreDepthPro2.detect_task_from_filename(canonical) == "depth"
-    assert LibreDepthPro2.get_download_url(canonical) == UPSTREAM_URLS[size]
+    assert LibreDepthPro2.get_download_url(canonical) == expected_url
+    assert len(MIRROR_SHA256[size]) == 64
     assert len(UPSTREAM_SHA256[size]) == 64
     # Task suffix is mandatory.
     assert LibreDepthPro2.get_download_url(f"LibreDepthPro2{size}.pt") is None
 
-    notice = LibreDepthPro2.get_download_notice(canonical, UPSTREAM_URLS[size])
+    notice = LibreDepthPro2.get_download_notice(canonical, expected_url)
     assert notice is not None
     assert "apple-amlr" in notice
     assert "non-commercial" in notice.lower()
+    assert "Apple Machine Learning Research Model License Agreement" in notice
     assert "Apple Inc." in notice
 
 
@@ -205,6 +212,15 @@ def test_fov_upstream_pin_and_verification_rejects_bad_downloads(tmp_path):
 
     bad_file = tmp_path / "LibreDepthPro2s-depth.pt"
     bad_file.write_bytes(b"corrupted bytes")
+    mirror_url = LibreDepthPro2.get_download_url("LibreDepthPro2s-depth.pt")
+    assert mirror_url is not None
+    with pytest.raises(RuntimeError, match="Checksum mismatch"):
+        verify_and_wrap_download(str(bad_file), mirror_url)
+    with pytest.raises(RuntimeError, match="unpinned"):
+        verify_and_wrap_download(
+            str(bad_file),
+            "https://huggingface.co/LibreYOLO/LibreDepthPro2z-depth/resolve/main/LibreDepthPro2z-depth.pt",
+        )
     with pytest.raises(RuntimeError, match="Checksum mismatch"):
         verify_and_wrap_download(str(bad_file), UPSTREAM_URLS["s"])
     with pytest.raises(RuntimeError, match="unpinned"):

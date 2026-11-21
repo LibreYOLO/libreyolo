@@ -19,6 +19,16 @@ from ...utils.serialization import (
 INPUT_SIZES: dict[str, int] = {"s": 512, "b": 512, "l": 512, "h": 512}
 EMBED_DIM_TO_SIZE: dict[int, str] = {384: "s", 768: "b", 1024: "l", 1280: "h"}
 
+# Converted checkpoints mirrored on the LibreYOLO Hugging Face org
+# (LibreYOLO/LibreDepthPro2{s,b,l,h}-depth), bundling DepthPro2-focal under
+# fov.* with LibreYOLO v1.0 metadata under apple-amlr (non-commercial research).
+MIRROR_SHA256: dict[str, str] = {
+    "s": "79118a3c8d0a4aeccf50ef7e57e9544d028db97a788801b4337953131302f426",
+    "b": "d230b836a71ca90741c2191c6463b53c84afdc77e8a75addf2f935de2fc6155d",
+    "l": "7a39f1204de2d0e8461f3a44dbcd2afa4081864bd0f1e5f84b20b3c956157c27",
+    "h": "c5723f7d471d713a73c30e50c9d54c49d1bf86640af75fa4dfe6ee1bb02a0dea",
+}
+
 # Official Apple Hugging Face checkpoints pinned to exact git commits and LFS SHA-256 digests.
 UPSTREAM_URLS: dict[str, str] = {
     "s": (
@@ -176,8 +186,32 @@ def _ensure_fov_state_dict(cache_dir: Path) -> dict[str, torch.Tensor]:
 
 
 def verify_and_wrap_download(local_path: str, source_url: str) -> None:
-    """Verify SHA-256 of an official Depth Pro 2 download, bundle FoV weights, and wrap in place."""
+    """Verify SHA-256 of a LibreYOLO mirror or upstream Apple Depth Pro 2 download."""
     canonical = canonical_hf_url(source_url)
+
+    if canonical.startswith("https://huggingface.co/LibreYOLO/"):
+        size = next(
+            (
+                s
+                for s in MIRROR_SHA256
+                if f"/LibreDepthPro2{s}-depth/" in canonical
+            ),
+            None,
+        )
+        if size is None:
+            raise RuntimeError(
+                f"Refusing unpinned Depth Pro 2 mirror download {source_url!r}; "
+                "no SHA-256 is known."
+            )
+        expected = MIRROR_SHA256[size]
+        actual = file_sha256(local_path)
+        if actual != expected:
+            raise RuntimeError(
+                f"Checksum mismatch for LibreDepthPro2{size}-depth.pt: "
+                f"expected {expected}, got {actual}."
+            )
+        return
+
     size = next(
         (s for s, url in UPSTREAM_URLS.items() if url == canonical),
         None,
@@ -225,6 +259,7 @@ __all__ = [
     "FOV_UPSTREAM_SHA256",
     "FOV_UPSTREAM_URL",
     "INPUT_SIZES",
+    "MIRROR_SHA256",
     "UPSTREAM_SHA256",
     "UPSTREAM_URLS",
     "detect_size",
