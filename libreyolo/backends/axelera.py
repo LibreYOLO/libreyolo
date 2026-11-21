@@ -842,14 +842,22 @@ class AxeleraBackend(BaseBackend):
             start = time.perf_counter()
             if step.kind == "host":
                 operation = HOST_OPS[step.source]
-                for env in envs:
-                    result = operation(*(env[name] for name in step.inputs), **step.params)
+                # Each image's host step runs exactly as in a sequential loop, spread over the host pool.
+                results = _host_map(
+                    lambda env, op=operation, st=step: op(*(env[name] for name in st.inputs), **st.params), envs
+                )
+                for env, result in zip(envs, results):
                     self._store(env, step, index, result if len(step.outputs) > 1 else (result,))
             elif step.kind == "onnx":
                 session = self._chain_sessions[index]
-                for env in envs:
-                    feeds = {name: _host_array(env[name]) for name in step.inputs}
-                    self._store(env, step, index, session.run(step.outputs, feeds))
+                results = _host_map(
+                    lambda env, se=session, st=step: se.run(
+                        st.outputs, {name: _host_array(env[name]) for name in st.inputs}
+                    ),
+                    envs,
+                )
+                for env, result in zip(envs, results):
+                    self._store(env, step, index, result)
             elif step.per_item:
                 self._run_per_item(step, model, envs, index)
             else:
