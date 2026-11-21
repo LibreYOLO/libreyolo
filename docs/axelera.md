@@ -79,7 +79,7 @@ a separate size:
 | RTMDet-Ins | s | segment (mask mAP50-95; learned INT8 rounding of the pointwise convs) | COCO val2017, 1000 | 0.3719 | 0.3392 | -3.27 (box -5.02) | supported | `rtmdet/segment/s/2026-11-19/4` |
 | RTMDet-Ins | m | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4011 | 0.3932 | -0.79 (box -3.96) | supported | `rtmdet/segment/m/2026-11-12/2` |
 | RTMDet-Ins | l | segment (mask mAP50-95) | COCO val2017, 1000 | 0.4163 | 0.4113 | -0.50 (box -5.34) | supported | `rtmdet/segment/l/2026-11-12/2` |
-| RTMDet-Ins | x | segment (mask mAP50-95; six compiled parts, host: resize+concat between parts, no weights) | COCO val2017, 1000 | 0.4227 | 0.4077 | -1.50 (box -4.48) | supported | `rtmdet/segment/x/2026-11-20/2` |
+| RTMDet-Ins | x | segment (mask mAP50-95; six compiled parts, host: resize+concat between parts, no weights; measured with fraction=0.5, 64 coco128 images) | COCO val2017, 1000 | 0.4227 | 0.4077 | -1.50 (box -4.48) | supported | `rtmdet/segment/x/2026-11-20/2` |
 | ResNet | 18 | classify (top-1) | ImageNetV2, 1000 | 0.595 | 0.589 | -0.6 | validated | `resnet/classify/18/2026-11-10/2` |
 | ResNet | 34 | classify (top-1) | ImageNetV2, 1000 | 0.657 | 0.647 | -1.0 | validated | `resnet/classify/34/2026-11-10` |
 | ResNet | 50 | classify (top-1) | ImageNetV2, 1000 | 0.688 | 0.681 | -0.7 | validated | `resnet/classify/50/2026-11-10` |
