@@ -5203,6 +5203,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "Cityscapes-trained and no Cityscapes masks were used)"
         ),
     },
+    ("picosam3", "segment", "axelera"): {
+        "pico": (
+            "measured fidelity mask IoU 0.968 vs FP32 (pixel agreement 0.992 on 2360 "
+            "ground-truth-box ROIs of 297 COCO val2017 images; no ground-truth masks "
+            "in the pairing; picosam3/segment/pico/2026-11-19)"
+        ),
+    },
     ("unet", "semantic", "axelera"): {
         "s": (
             "measured fidelity mIoU 0.856 vs FP32 labels (95.3% of pixels agree "
