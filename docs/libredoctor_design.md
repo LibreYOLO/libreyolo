@@ -82,6 +82,7 @@ and truncates file lists; `--json` emits everything.
 | `config.path_not_found` | ERROR | split dirs / list files don't exist, a configured directory contains no images (every entry of a list split is validated individually), or the split resolves to zero images (e.g. an empty .txt list) |
 | `config.duplicate_names` | WARNING | two class ids share a name |
 | (format guard) | EXIT 3 | `kpt_shape` present, or most label lines are consistently not 5-field detect rows (pose/segment/obb shapes) — exits with "supports detection datasets only" instead of flooding false syntax errors; inconsistent garbage still reports as `labels.syntax` |
+| (format guard) | EXIT 3 | `annotations:` resolves a COCO JSON file for train, val or test: exits with "COCO JSON annotations are not supported yet" (v1 checks YOLO `.txt` labels only) |
 | `files.orphan_label` | WARNING | label file with no matching image in any split |
 | `files.missing_label` | INFO | image with no label file (counted as background) |
 | `files.missing_image` | ERROR | image listed in a `.txt` split but missing on disk |
