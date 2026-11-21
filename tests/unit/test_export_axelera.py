@@ -2876,8 +2876,9 @@ def test_rtmdet_multi_part_modules_return_one_tensor_per_output_name():
 
 # Every shipped Axelera size with the calibration its supported/validated (tier) measurement used. Sizes measured
 # on a dedicated calibration set (ImageNetV2-250, DOTA-64, ...) calibrate on the whole set the user passes; coco128
-# sizes measured on part of it carry the recipe key calibration_fraction. The face embedder's head and detector
-# export through LibreFaceEmbedder.export (fraction 1.0, measured on 128 images) and are not listed.
+# sizes measured on part of it carry the recipe key calibration_fraction. 95 of the 97 shipped sizes: the face
+# embedder's recognition head and face detector do not export through the size recipes (LibreFaceEmbedder.export)
+# and are pinned by test_face_embedder_exports_calibrate_on_the_whole_set_as_measured.
 #: (family, task, size) -> (calibration images of its tier ledger line, images in that calibration set, ledger id).
 _TIER_CALIBRATION = {
     # Ledger calib_n empty: the count is the measured artifact's metadata.yaml (fraction 1.0).
@@ -3018,3 +3019,16 @@ def test_cli_export_leaves_fraction_unset_by_default():
 
     option = inspect.signature(export_cmd).parameters["fraction"].default
     assert getattr(option, "default", option) is None
+
+
+def test_face_embedder_exports_calibrate_on_the_whole_set_as_measured():
+    """The two shipped sizes outside the size recipes (97 = 95 + 2): the face recognition head
+    (facerec/embed/l/2026-11-20/3, 128 calibration faces) and the face detector (facerec/embed/det/2026-11-20/2,
+    128 coco128 images) were both measured at fraction 1.0, which their own export paths default to."""
+    import inspect
+
+    from libreyolo.models.facerec.axelera_detector import export_face_detector_axelera
+    from libreyolo.models.facerec.model import LibreFaceEmbedder
+
+    assert inspect.signature(LibreFaceEmbedder.export).parameters["fraction"].default == 1.0
+    assert inspect.signature(export_face_detector_axelera).parameters["fraction"].default == 1.0
