@@ -4074,12 +4074,16 @@ Weight source: Official Apple Hugging Face repositories at pinned commits:
                apple/DepthPro2-L (849dc5461267e0bc006ec63ab46920ea1ed98702)
                apple/DepthPro2-H (68426c789f75a7c760273e857222625b4fe69576)
                apple/DepthPro2-focal (622659d44a2002cf9ae4333f2569afa938290d9a)
-Weight license: Apple Machine Learning Research Model License (apple-amlr),
-                non-commercial research purposes only. Not mirrored by
-                LibreYOLO; auto-download fetches directly from Apple with
-                SHA-256 verification.
-                Depth Pro 2 is licensed under the Apple Machine Learning
-                Research Model License (apple-amlr), Copyright © 2026 Apple
-                Inc. All Rights Reserved.
+Mirrored at:   LibreYOLO/LibreDepthPro2{s,b,l,h}-depth on Hugging Face
+               (checksum-pinned in libreyolo/models/depthpro2/convert.py,
+               accompanied by verbatim LICENSE_MODEL, NOTICE, and
+               non-commercial banners; loader prints the non-commercial
+               notice before every automatic download).
+Weight license: Apple Machine Learning Research Model License Agreement
+                (apple-amlr), Copyright (C) 2026 Apple Inc. All Rights
+                Reserved. Use and redistribution are restricted exclusively
+                to non-commercial Research Purposes (see
+                libreyolo/models/depthpro2/LICENSE_MODEL).
 Conversion: weights/convert_depthpro2_weights.py merges optional focal weights
-            under fov.* and wraps unchanged tensors in LibreYOLO v1.0 metadata.
+            under fov.* and wraps unchanged tensors in LibreYOLO v1.0 metadata;
+            weights/upload_depthpro2_hf.py publishes the HF mirrors.

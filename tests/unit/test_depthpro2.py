@@ -425,6 +425,70 @@ def test_buffered_and_unbuffered_video_sequence(dp2_small):
     dp2_small.overlap = 4
 
 
+def test_unbuffered_mode_yields_without_lookahead(dp2_small):
+    frames = _images(4, size=(64, 48))
+    norm_frames = [
+        normalize_rgb(torch.from_numpy(preprocess_numpy(np.asarray(im))[0]))
+        for im in frames
+    ]
+
+    # 1. DepthPro2Net.infer_video(mode="unbuffered") must yield frame i after reading
+    # only frame i, never looking ahead `window` frames for focal estimation.
+    pulled = 0
+
+    def tracked_frames():
+        nonlocal pulled
+        for f in norm_frames:
+            pulled += 1
+            yield f
+
+    unbuf_preds = []
+    for idx, pred in enumerate(
+        dp2_small.model.infer_video(tracked_frames(), window=4, overlap=0, mode="unbuffered")
+    ):
+        assert pulled == idx + 1, f"expected no lookahead on frame {idx}, pulled={pulled}"
+        unbuf_preds.append(pred)
+    assert len(unbuf_preds) == len(norm_frames)
+
+    # Output must match driving DepthStream directly frame-by-frame.
+    stream = dp2_small.model.stream(window=4, overlap=0, mode="unbuffered")
+    direct_preds = []
+    for f in norm_frames:
+        direct_preds.extend(stream.step(f))
+    direct_preds.extend(stream.flush())
+    assert len(direct_preds) == len(unbuf_preds)
+    for got, ref in zip(unbuf_preds, direct_preds, strict=True):
+        assert torch.equal(got["inverse_depth"], ref["inverse_depth"])
+        assert got["depth"] is not None and ref["depth"] is not None
+        assert torch.equal(got["depth"], ref["depth"])
+        assert got["focallength_px"] is not None and ref["focallength_px"] is not None
+        assert torch.equal(got["focallength_px"], ref["focallength_px"])
+
+    # 2. LibreDepthPro2._forward_sequence in unbuffered mode must also yield frame 0
+    # before pulling frame 1.
+    prev_mode, prev_window = dp2_small.mode, dp2_small.window
+    try:
+        dp2_small.mode = "unbuffered"
+        dp2_small.window = 4
+        seq_pulled = 0
+
+        def tracked_seq():
+            nonlocal seq_pulled
+            for im in frames:
+                seq_pulled += 1
+                chw, _ = preprocess_numpy(np.asarray(im))
+                yield torch.from_numpy(chw).unsqueeze(0), im.size
+
+        for idx, pred in enumerate(dp2_small._forward_sequence(tracked_seq())):
+            assert seq_pulled == idx + 1, (
+                f"_forward_sequence looked ahead on frame {idx}: seq_pulled={seq_pulled}"
+            )
+            assert pred["depth"] is not None
+    finally:
+        dp2_small.mode = prev_mode
+        dp2_small.window = prev_window
+
+
 def test_without_fov_returns_inverse_depth_and_f_px_override_restores_metric():
     pytest.importorskip("timm")
     model = LibreDepthPro2(None, size="s", device="cpu", fov=False)

@@ -79,7 +79,8 @@ Video Depth Anything (Apache License 2.0)
     plain Python/torch. The DINOv2 encoder and DPT head are reused from the
     depth_anything family.
 
-Depth Pro 2 (Apple Sample Code License; apple-amlr non-commercial weights)
+Depth Pro 2 (Apple Sample Code License; apple-amlr non-commercial weights,
+mirrored under that license)
     Path:    libreyolo/models/depthpro2/
     License: libreyolo/models/depthpro2/LICENSE (code)
              libreyolo/models/depthpro2/LICENSE_MODEL (weights)
@@ -97,12 +98,17 @@ Depth Pro 2 (Apple Sample Code License; apple-amlr non-commercial weights)
     remains under the MIT License.
 
     Official pretrained weights (apple/DepthPro2-{S,B,L,H} and
-    apple/DepthPro2-focal) are NOT bundled or mirrored by LibreYOLO. Depth
-    Pro 2 is licensed under the Apple Machine Learning Research Model
-    License (apple-amlr), Copyright © 2026 Apple Inc. All Rights Reserved.,
-    which restricts the weights to non-commercial research use only.
-    Auto-download fetches them directly from Apple's Hugging Face
-    repositories at pinned commits with SHA-256 verification.
+    apple/DepthPro2-focal) are licensed under the Apple Machine Learning
+    Research Model License Agreement (apple-amlr), Copyright (C) 2026 Apple
+    Inc. All Rights Reserved., which restricts use and redistribution
+    exclusively to non-commercial Research Purposes. Converted checkpoints
+    (bundling apple/DepthPro2-focal under fov.* with LibreYOLO v1.0
+    metadata; learned tensors unchanged) are mirrored on LibreYOLO's
+    Hugging Face organization (LibreYOLO/LibreDepthPro2{s,b,l,h}-depth)
+    with verbatim LICENSE_MODEL, attribution NOTICE, and non-commercial
+    banners, checksum-pinned in libreyolo/models/depthpro2/convert.py; the
+    loader prints the non-commercial notice before every automatic
+    download.
 
 SenseNova-Vision / Bagel (Apache License 2.0 code; CC BY-NC 4.0 weights,
 mirrored under that license)

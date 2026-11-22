@@ -204,8 +204,10 @@ class DepthPro2Net(nn.Module):
         mode: VideoMode = "buffered",
     ) -> Iterator[Prediction]:
         """Infer depth for a video, one prediction per frame, in order."""
-        if f_px is None and self.fov is not None:
-            # Unlike a live feed, a file can look ahead: every frame gets the first window's focal.
+        if mode == "buffered" and f_px is None and self.fov is not None:
+            # Buffered clips already wait for a window, so looking ahead gives every frame
+            # the first window's focal without extra latency. Unbuffered mode skips lookahead
+            # and lets DepthStream._focal_length estimate focal online from frame 0.
             frames = iter(frames)
             head = list(itertools.islice(frames, window))
             if not head:
