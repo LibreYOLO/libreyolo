@@ -4,6 +4,7 @@ from collections import Counter
 
 import pytest
 
+from libreyolo.data.yolo_coco_api import parse_yolo_label_line
 from libreyolo.doctor.config import NotADetectionDatasetError
 from libreyolo.doctor.runner import diagnose
 from libreyolo.doctor.snapshot import (
@@ -52,6 +53,57 @@ class TestParseLabelFile:
         assert cls == 1
         assert (cx, cy) == pytest.approx((0.3, 0.3))
         assert (w, h) == pytest.approx((0.4, 0.4))
+
+    # In bounds and non-degenerate, so only the line format decides whether
+    # training keeps a row; class and geometry checks stay out of it.
+    @pytest.mark.parametrize(
+        "row,kept",
+        [
+            pytest.param("0 0.5 0.5 0.2 0.2", True, id="box"),
+            pytest.param("0 0.2 0.2 0.8 0.2 0.5 0.8", True, id="3-vertex-polygon"),
+            pytest.param("0 0.5 0.5 0.2", False, id="4-fields"),
+            pytest.param("0 0.5 oops 0.2 0.2", False, id="non-numeric"),
+            pytest.param("1.5 0.5 0.5 0.2 0.2", False, id="float-class"),
+            pytest.param("0 nan 0.5 0.2 0.2", False, id="nan"),
+            pytest.param("0 0.5 0.5 0.2 0.2 0.87", False, id="box-plus-confidence"),
+            pytest.param(
+                "0 0.10 0.10 0.90 0.10 0.90 0.90 0.10", False, id="7-coordinates"
+            ),
+        ],
+    )
+    def test_parity_with_training_parser(self, tmp_path, row, kept):
+        img = 64
+        f = tmp_path / "a.txt"
+        f.write_text(row + "\n")
+        boxes, issues, _, _ = parse_label_file(f, Counter())
+        trained = parse_yolo_label_line(row, img, img, num_classes=1)
+
+        assert (trained is not None) == kept
+        if not kept:
+            assert len(issues) == 1 and boxes.shape[0] == 0
+            return
+        assert not issues and boxes.shape == (1, 5)
+        cls, cx, cy, w, h = boxes[0]
+        assert cls == trained[0]
+        doctor_xyxy = (
+            (cx - w / 2) * img,
+            (cy - h / 2) * img,
+            (cx + w / 2) * img,
+            (cy + h / 2) * img,
+        )
+        assert doctor_xyxy == pytest.approx(trained[1:5], abs=1e-3)
+
+    def test_malformed_polygon_is_an_issue_but_still_tallied(self, tmp_path):
+        # No box and no polygon count, but the field tally keeps the row so
+        # the format guard still classifies pose rows by their shape.
+        f = tmp_path / "a.txt"
+        f.write_text("0 0.5 0.5 0.2 0.2 0.87\n")
+        counts = Counter()
+        boxes, issues, _, polygons = parse_label_file(f, counts)
+        assert boxes.shape[0] == 0
+        assert polygons == 0
+        assert len(issues) == 1 and "6 fields" in issues[0].reason
+        assert counts == Counter({6: 1})
 
     def test_non_numeric_and_non_finite(self, tmp_path):
         f = tmp_path / "a.txt"
@@ -134,6 +186,19 @@ class TestFormatGuard:
         snap = build_snapshot(str(ds.yaml_path))
         suspected = detect_non_detection(snap)
         assert suspected is not None and "segment" in suspected
+
+    def test_pose_rows_without_kpt_shape(self, make_dataset):
+        # 56 fields = 55 coordinates, an invalid polygon: the rows are syntax
+        # issues for the parser but must still trip the format guard.
+        pose_row = "0 0.5 0.5 0.2 0.2 " + " ".join(["0.5 0.5 2"] * 17)
+        ds = make_dataset()
+        ds.sample("train", "a.jpg", boxes=f"{pose_row}\n" * 3)
+        ds.sample("val", "b.jpg", boxes=f"{pose_row}\n" * 3)
+        snap = build_snapshot(str(ds.yaml_path))
+        assert snap.line_field_counts == {56: 6}
+        assert "pose" in detect_non_detection(snap)
+        with pytest.raises(NotADetectionDatasetError):
+            diagnose(str(ds.yaml_path), fast=True, progress=False)
 
     def test_diagnose_raises_for_pose(self, make_dataset):
         ds = make_dataset()
