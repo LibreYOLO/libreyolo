@@ -726,6 +726,63 @@ def test_point_validator_runs_on_yolo_dataset(tmp_path):
     assert "speed/total_ms" in metrics
 
 
+def _write_out_of_range_point_dataset(root: Path) -> Path:
+    """nc=1 dataset whose label also has a class-1 row (#1074)."""
+    data_yaml = _write_point_dataset(root)
+    (root / "labels" / "val" / "sample.txt").write_text(
+        "0 0.5 0.5 0.1 0.1\n1 0.3 0.3 0.1 0.1\n", encoding="utf-8"
+    )
+    return data_yaml
+
+
+@pytest.mark.parametrize("source", ["data", "data_dir"])
+def test_point_validator_drops_out_of_range_classes(tmp_path, source):
+    """Both dataset branches bound class ids instead of loading them for the clip."""
+    data_yaml = _write_out_of_range_point_dataset(tmp_path)
+    paths = (
+        {"data": str(data_yaml)}
+        if source == "data"
+        else {"data": None, "data_dir": str(tmp_path)}
+    )
+    config = ValidationConfig(
+        **paths,
+        batch_size=1,
+        imgsz=64,
+        num_workers=0,
+        verbose=False,
+        save_dir=str(tmp_path / "val_run"),
+    )
+
+    validator = PointValidator(_DummyPointModel(), config)
+    with pytest.warns(UserWarning, match="out of range"):
+        loader = validator._setup_dataloader()
+
+    assert loader.dataset.num_classes == 1
+    labels = loader.dataset.load_anno(0)
+    assert labels.shape[0] == 1
+    assert int(labels[0, 4]) == 0
+
+
+def test_point_validator_out_of_range_class_is_not_ground_truth(tmp_path):
+    """The class-1 row is not scored as an extra class-0 point (was clipped)."""
+    data_yaml = _write_out_of_range_point_dataset(tmp_path)
+    config = ValidationConfig(
+        data=str(data_yaml),
+        batch_size=1,
+        imgsz=64,
+        num_workers=0,
+        verbose=False,
+        save_dir=str(tmp_path / "val_run"),
+    )
+
+    validator = PointValidator(_DummyPointModel(), config)
+    with pytest.warns(UserWarning, match="out of range"):
+        metrics = validator.run()
+
+    assert metrics["metrics/precision"] == pytest.approx(1.0)
+    assert metrics["metrics/recall"] == pytest.approx(1.0)
+
+
 def test_point_validation_rejects_augmented_validation():
     with pytest.raises(ValueError, match="Augmented validation"):
         BaseModel.val(_DummyPointModel(), data="unused.yaml", imgsz=64, augment=True)
