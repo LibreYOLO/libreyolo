@@ -206,6 +206,7 @@ in preflight.
 | yolox | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ | ✓ | available | ✓ |
 | zipdepth | depth | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  | ✓ |  |  | ✓ |
 | trellis2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| depthpro2 | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
 
 ## Parity thresholds
 
@@ -2723,3 +2724,16 @@ These converter paths are callable with the recorded validation context.
 - `trellis2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `depthpro2` / `depth` / `onnx`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `torchscript`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `executorch`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `tensorrt`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `openvino`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `paddle`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `mnn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `rknn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `axelera`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `ncnn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `tflite`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `coreml`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `coreai`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.

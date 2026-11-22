@@ -3878,6 +3878,12 @@ _FAMILY_BLOCKS = {
         "reads a 32-frame window and windows are stitched on the host, which "
         "the single-image depth export contract does not describe."
     ),
+    "depthpro2": (
+        "Depth Pro 2 rejects export for every format: the network uses dynamic "
+        "multi-frame cross-attention with host-side window streaming and an "
+        "auxiliary variable-resolution FoV estimator, which the single-image "
+        "depth export contract does not describe."
+    ),
     "marigold_v2": "Marigold V2 quantized diffusion export has not been integrated or validated.",
     "speridlabs_irisz": (
         "Speridlabs Iris-Z export is blocked for both tasks: image generation and "

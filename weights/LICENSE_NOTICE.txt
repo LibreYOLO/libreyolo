@@ -1609,3 +1609,27 @@ The checkpoints are fine-tuned on Cityscapes. Conversion (weights/convert_gtr_se
 LibreYOLO metadata without changing learned tensors.
 Converted checkpoints: LibreYOLO/LibreGTR{s,m,l,x}-sem. Download revisions are
 listed in LibreGTR.HF_TASK_REVISIONS.
+
+Depth Pro 2 (LibreDepthPro2{s,b,l,h}-depth)            apple-amlr (non-commercial)
+Upstream code: https://github.com/apple-aiml-research/ml-depth-pro-2
+               commit aa389cbb0b74341664ed663a0966c859905cd6c0
+               (Apple Sample Code License; see libreyolo/models/depthpro2/LICENSE)
+Upstream weights: Official Apple Hugging Face repositories at pinned commits:
+               apple/DepthPro2-S (903a1c1ade918831d138adcc4aedbcc8f4da0078)
+               apple/DepthPro2-B (85e67fdfb7f5b36a6f6c4495e6789d331b1d8a04)
+               apple/DepthPro2-L (849dc5461267e0bc006ec63ab46920ea1ed98702)
+               apple/DepthPro2-H (68426c789f75a7c760273e857222625b4fe69576)
+               apple/DepthPro2-focal (622659d44a2002cf9ae4333f2569afa938290d9a)
+Apple Machine Learning Research Model is licensed under the Apple Machine
+Learning Research Model License Agreement (apple-amlr), Copyright (C) 2026
+Apple Inc. All Rights Reserved.
+Under apple-amlr (see libreyolo/models/depthpro2/LICENSE_MODEL), redistribution
+is permitted exclusively for non-commercial Research Purposes with verbatim
+license text, attribution, and modification disclosure. Converted checkpoints
+(bundling apple/DepthPro2-focal under fov.* and LibreYOLO v1.0 metadata;
+learned tensors unchanged) are mirrored on LibreYOLO's Hugging Face org:
+LibreYOLO/LibreDepthPro2{s,b,l,h}-depth (checksum-pinned in
+libreyolo/models/depthpro2/convert.py, with non-commercial notices on every
+card and before every auto-download). Downstream users are solely responsible
+for complying with apple-amlr. Conversion/upload:
+weights/convert_depthpro2_weights.py, weights/upload_depthpro2_hf.py.

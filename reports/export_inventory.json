@@ -3603,5 +3603,29 @@
     "available": true,
     "group": "s",
     "cli_command": "generate"
+  },
+  "depthpro2": {
+    "class": "libreyolo.models.depthpro2.model.LibreDepthPro2",
+    "tasks": [
+      "depth"
+    ],
+    "default_task": "depth",
+    "sizes": {
+      "s": 512,
+      "b": 512,
+      "l": 512,
+      "h": 512
+    },
+    "default_imgsz": {
+      "s": 512,
+      "b": 512,
+      "l": 512,
+      "h": 512
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
   }
 }

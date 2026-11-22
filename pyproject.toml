@@ -145,6 +145,12 @@ midas = [
     # the native port without relying on MiDaS's historical Torch Hub fetch.
     "timm>=1.0.28,<1.1",
 ]
+depthpro2 = [
+    # Depth Pro 2 builds its DINOv3 EVA ViT backbones and FoV head blocks via
+    # timm (pretrained=False). Bounded to the validated 1.0 series so checkpoint
+    # keys and FP32 outputs remain bit-identical to upstream.
+    "timm>=1.0.28,<1.1",
+]
 lora = [
     # LoRA / PEFT fine-tuning (lora=True) for transformer backbones (RF-DETR).
     "libreyolo[rfdetr]",
@@ -411,6 +417,7 @@ all = [
     "libreyolo[rfdetr]",
     "libreyolo[eomt]",
     "libreyolo[midas]",
+    "libreyolo[depthpro2]",
     "libreyolo[lora]",
     "libreyolo[plots]",
     "libreyolo[tensorrt]",
@@ -474,6 +481,8 @@ libreyolo = [
     "models/yolo7/*.yaml",
     "models/**/NOTICE",
     "models/**/LICENSE",
+    "models/**/LICENSE_MODEL",
+    "models/**/ACKNOWLEDGEMENTS",
     "models/**/*.md",
 ]
 
@@ -714,6 +723,7 @@ markers = [
     "raft: tests covering the RAFT optical flow family",
     "memfof: tests covering the MEMFOF three-frame optical flow family",
     "video_depth_anything: tests covering the Video Depth Anything depth sequence family",
+    "depthpro2: tests covering the Depth Pro 2 metric image & video depth family",
     "searaft: tests covering the SEA-RAFT optical flow family",
     "flowseek: tests covering the FlowSeek optical flow family",
     "waft: tests covering the WAFT optical flow family",
