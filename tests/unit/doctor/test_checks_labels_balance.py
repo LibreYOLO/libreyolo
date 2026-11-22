@@ -60,16 +60,23 @@ class TestLabelChecks:
     )
     def test_malformed_polygon_is_syntax_error(self, make_dataset, row):
         # Training drops >5-field rows without a valid polygon, so doctor
-        # must report them, not count them as polygons or boxes.
+        # must report them, not count them as polygons or boxes. The 5-field
+        # box and the 3-vertex polygon next to it are positive controls.
         ds = make_dataset()
         clean(ds)
-        ds.label("train", "a.txt", f"0 0.5 0.5 0.2 0.2\n{row}\n")
+        ds.label(
+            "train",
+            "a.txt",
+            f"0 0.5 0.5 0.2 0.2\n1 0.2 0.2 0.8 0.2 0.5 0.8\n{row}\n",
+        )
         report = run_fast(ds)
         (f,) = findings_for(report, "labels.syntax")
         assert f.count == 1 and f.severity.value == "error"
-        assert "labels.polygon_line" not in finding_ids(report)
+        (poly,) = findings_for(report, "labels.polygon_line")
+        assert poly.count == 1
         assert "labels.degenerate_box" not in finding_ids(report)
-        assert report.stats["splits"]["train"]["instances"] == 3
+        assert report.stats["splits"]["train"]["instances"] == 4
+        assert {e.check_id for e in report.errors} == {"labels.syntax"}
         assert report.exit_code() == 1
 
     def test_only_confidence_rows_leave_no_instances(self, make_dataset):
@@ -79,6 +86,7 @@ class TestLabelChecks:
         ds.sample("train", "b.jpg", boxes=rows)
         ds.sample("val", "c.jpg", boxes=rows)
         report = run_fast(ds)
+        assert {e.check_id for e in report.errors} == {"labels.syntax"}
         assert report.exit_code() == 1
         assert {s: v["instances"] for s, v in report.stats["splits"].items()} == {
             "train": 0,
