@@ -301,6 +301,8 @@ class TestLibreFOMOTrainerSmoke:
             grid_size=12,
         )
         assert trainer.config.num_classes == 3
+        assert train_ds.num_classes == 3
+        assert val_ds.num_classes == 3
 
     def test_val_dispatch_uses_point_validator(self) -> None:
         """BaseModel.val() must route task='point' to PointValidator."""

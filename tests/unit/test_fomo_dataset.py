@@ -159,3 +159,112 @@ class TestFOMODatasets:
 
         dataset.close_mosaic()
         assert base_ds.closed is True
+
+
+def _write_sample(root: Path, label_text: str) -> tuple[Path, Path]:
+    img_path = root / "a.jpg"
+    lbl_path = root / "a.txt"
+    Image.new("RGB", (96, 96)).save(img_path)
+    lbl_path.write_text(label_text, encoding="utf-8")
+    return img_path, lbl_path
+
+
+class TestFOMOLabelParsing:
+    """FOMOYOLODataset parses labels with the shared YOLO label parser (#1074)."""
+
+    @pytest.mark.parametrize(
+        "row",
+        [
+            "0 0.5 0.5 0.1 0.1",
+            "0 0.4 0.4 0.6 0.4 0.5 0.6",  # 3-vertex polygon
+        ],
+    )
+    def test_valid_rows_are_kept(self, tmp_path: Path, row: str) -> None:
+        from libreyolo.models.fomo.dataset import FOMOYOLODataset
+
+        img_path, lbl_path = _write_sample(tmp_path, row + "\n")
+        ds = FOMOYOLODataset([img_path], [lbl_path], input_size=96, grid_size=12, num_classes=1)
+        _, grid, _, _ = ds[0]
+        assert int((grid > 0).sum()) == 1
+
+    @pytest.mark.parametrize(
+        "row",
+        [
+            "0 0.5 0.5 0.1 0.1 0.87",  # box + confidence
+            "0 0.10 0.10 0.90 0.10 0.90 0.90 0.10",  # 7 coordinates
+            "1 0.5 0.5 0.1 0.1",  # class >= nc
+            "-1 0.5 0.5 0.1 0.1",
+            "0 nan 0.5 0.1 0.1",
+            "0 0.5 oops 0.1 0.1",
+        ],
+    )
+    def test_invalid_rows_are_dropped_with_warning(self, tmp_path: Path, row: str) -> None:
+        from libreyolo.models.fomo.dataset import FOMOYOLODataset
+        from libreyolo.models.fomo.loss import FOMOLoss
+
+        img_path, lbl_path = _write_sample(tmp_path, row + "\n")
+        ds = FOMOYOLODataset([img_path], [lbl_path], input_size=96, grid_size=12, num_classes=1)
+        with pytest.warns(UserWarning):
+            _, grid, _, _ = ds[0]
+        assert int((grid > 0).sum()) == 0
+        FOMOLoss(num_classes=1)(torch.zeros(1, 2, 12, 12), grid[None])
+
+    def test_box_fully_outside_image_is_dropped(self, tmp_path: Path) -> None:
+        from libreyolo.models.fomo.dataset import FOMOYOLODataset
+
+        img_path, lbl_path = _write_sample(tmp_path, "0 1.5 1.5 0.1 0.1\n")
+        ds = FOMOYOLODataset([img_path], [lbl_path], input_size=96, grid_size=12, num_classes=1)
+        _, grid, _, _ = ds[0]
+        assert int((grid > 0).sum()) == 0
+
+    def test_unaugmented_and_augmented_paths_agree(self, tmp_path: Path) -> None:
+        from libreyolo.data.augment.yolox import MosaicMixupDataset
+        from libreyolo.data.dataset import YOLODataset
+        from libreyolo.models.fomo.dataset import (
+            FOMOAugmentedDataset,
+            FOMOTrainTransform,
+            FOMOYOLODataset,
+        )
+
+        rows = [
+            "0 0.25 0.25 0.1 0.1",
+            "1 0.75 0.25 0.1 0.1",
+            "0 0.4 0.7 0.6 0.7 0.5 0.9",  # polygon
+            "1 0.98 0.98 0.3 0.3",  # partially outside, clipped
+            "2 0.5 0.5 0.1 0.1",  # class >= nc
+            "0 0.5 0.5 0.1 0.1 0.87",  # box + confidence
+            "0 1.5 1.5 0.1 0.1",  # fully outside
+        ]
+        img_path, lbl_path = _write_sample(tmp_path, "\n".join(rows) + "\n")
+
+        plain = FOMOYOLODataset([img_path], [lbl_path], input_size=96, grid_size=12, num_classes=2)
+        with pytest.warns(UserWarning):
+            base = YOLODataset(
+                img_files=[img_path],
+                label_files=[lbl_path],
+                img_size=(96, 96),
+                preproc=None,
+                num_classes=2,
+            )
+        augmented = FOMOAugmentedDataset(
+            augmented_dataset=MosaicMixupDataset(
+                dataset=base,
+                img_size=(96, 96),
+                mosaic=False,
+                preproc=FOMOTrainTransform(max_labels=50, flip_prob=0.0, hsv_prob=0.0),
+                degrees=0.0,
+                translate=0.0,
+                shear=0.0,
+                enable_mixup=False,
+                mosaic_prob=0.0,
+                mixup_prob=0.0,
+            ),
+            input_size=96,
+            grid_size=12,
+        )
+
+        with pytest.warns(UserWarning):
+            _, plain_grid, _, _ = plain[0]
+        _, aug_grid, _, _ = augmented[0]
+        assert int((plain_grid > 0).sum()) == 4
+        assert torch.equal(plain_grid, aug_grid)

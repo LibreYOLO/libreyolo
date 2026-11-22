@@ -13,7 +13,7 @@ from PIL import Image
 
 from .utils import MEAN, STD
 from ...training.augment import augment_hsv, mirror, xyxy2cxcywh
-from ...data.utils import polygon_to_cxcywh
+from ...data.yolo_coco_api import parse_yolo_label_line
 
 
 def _transform_image(pil_image: Image.Image, input_size: int) -> torch.Tensor:
@@ -52,11 +52,13 @@ class FOMOYOLODataset(Dataset):
         label_files: list,
         input_size: int,
         grid_size: int,
+        num_classes: int | None = None,
     ) -> None:
         self.img_files = img_files
         self.label_files = label_files
         self.input_size = input_size
         self.grid_size = grid_size
+        self.num_classes = num_classes
         from ...utils.input_channels import active_dataset_channels
 
         self.input_channels = active_dataset_channels()
@@ -74,19 +76,14 @@ class FOMOYOLODataset(Dataset):
 
         boxes, classes = [], []
         for line in lines:
-            parts = line.strip().split()
-            if len(parts) < 5:
+            # Same parser as the augmented path and validation: format and
+            # class checks, clipping to the image, zero-area drop.
+            parsed = parse_yolo_label_line(
+                line, self.input_size, self.input_size, self.num_classes, label_path
+            )
+            if parsed is None:
                 continue
-            cls = int(parts[0])
-            if len(parts) > 5:
-                coords = [float(p) for p in parts[1:]]
-                cx, cy, w, h = polygon_to_cxcywh(coords)
-            else:
-                cx, cy, w, h = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
-            x1 = (cx - w / 2) * self.input_size
-            y1 = (cy - h / 2) * self.input_size
-            x2 = (cx + w / 2) * self.input_size
-            y2 = (cy + h / 2) * self.input_size
+            cls, x1, y1, x2, y2, _ = parsed
             boxes.append([x1, y1, x2, y2])
             classes.append(cls)
         if not boxes:
@@ -370,6 +367,7 @@ def build_fomo_datasets(
             label_files=train_label_files,
             img_size=(input_size, input_size),
             preproc=None,
+            num_classes=dataset_nc,
         )
 
         preproc = FOMOTrainTransform(
@@ -399,8 +397,12 @@ def build_fomo_datasets(
             grid_size=grid_size,
         )
     else:
-        train_ds = FOMOYOLODataset(train_img_files, train_label_files, input_size, grid_size)
+        train_ds = FOMOYOLODataset(
+            train_img_files, train_label_files, input_size, grid_size, num_classes=dataset_nc
+        )
 
-    val_ds = FOMOYOLODataset(val_img_files or [], val_label_files or [], input_size, grid_size)
+    val_ds = FOMOYOLODataset(
+        val_img_files or [], val_label_files or [], input_size, grid_size, num_classes=dataset_nc
+    )
     return train_ds, val_ds, model, loss_fn
 
