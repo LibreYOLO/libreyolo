@@ -93,8 +93,8 @@ and truncates file lists; `--json` emits everything.
 
 | id | severity | what |
 |---|---|---|
-| `labels.syntax` | ERROR | fewer than 5 fields, non-numeric, NaN/inf |
-| `labels.polygon_line` | INFO | >5-field rows: accepted exactly as training accepts them (polygon extent becomes the box), but usually a segmentation export |
+| `labels.syntax` | ERROR | fewer than 5 fields, non-numeric, NaN/inf, or more than 5 fields without a valid polygon (odd coordinate count or fewer than 3 x,y pairs) |
+| `labels.polygon_line` | INFO | valid polygon rows (>5 fields, even coordinate count, at least 3 x,y pairs): accepted exactly as training accepts them (polygon extent becomes the box), but usually a segmentation export |
 | `labels.class_out_of_range` | ERROR | class id not in `[0, nc)` |
 | `labels.coords_out_of_range` | ERROR | any coord outside `[0, 1]` — classic "pixel coords exported" symptom; box partially out (center+size spills past edge) is WARNING |
 | `labels.degenerate_box` | ERROR | width or height <= 0 |
@@ -105,12 +105,15 @@ and truncates file lists; `--json` emits everything.
 | `labels.crowded_image` | INFO | images with anomalously many objects (> p99 × 3) |
 | `labels.identical_files` | WARNING | many label files byte-identical to each other (copy-paste exports) |
 
-Line parsing matches `YOLODataset._load_label()` semantics — any line with
->= 5 numeric fields is accepted (5 = box; more = polygon reduced to its
-bounding box), so a dataset that trains never gets false syntax errors from
-doctor. Doctor is stricter only in *reporting*: polygon rows surface as
-`labels.polygon_line` INFO and non-finite values are flagged even though
-training would silently consume them. When other tasks land (v2), their
+Line parsing matches `parse_yolo_label_line()`, which training
+(`YOLODataset._load_label()`) and validation both use: a line with 5
+numeric, finite fields is a box; a longer one is a polygon reduced to its
+bounding box, if it has an even coordinate count and at least 3 x,y pairs.
+Every line training drops for its format (fewer than 5 fields, non-numeric,
+NaN/inf, malformed polygon) is a `labels.syntax` error and is not counted as
+an instance, so a dataset that trains never gets false syntax errors from
+doctor. Doctor is stricter only in *reporting*: valid polygon rows surface
+as `labels.polygon_line` INFO. When other tasks land (v2), their
 checks reuse the existing parsers (`parse_yolo_pose_label_line`,
 `parse_yolo_obb_label_line`, segment ring parsing) and the task is inferred
 where unambiguous (`kpt_shape` → pose) with a `task=` override for the
