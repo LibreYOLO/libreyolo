@@ -219,11 +219,13 @@ class PointValidator(BaseValidator):
             split=self.config.split,
             img_size=img_size,
             preproc=self.val_preproc,
+            num_classes=int(self.nc),
         ) if img_files is None else YOLODataset(
             img_files=img_files,
             label_files=label_files,
             img_size=img_size,
             preproc=self.val_preproc,
+            num_classes=int(self.nc),
         )
 
         use_cuda = self.device.type == "cuda"

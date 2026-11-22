@@ -395,3 +395,29 @@ class TestLibreFOMOValidationEndToEnd:
         assert "metrics/f1" in metrics
         assert "speed/images_seen" in metrics
         assert metrics["speed/images_seen"] == 1
+
+    def test_fomo_validator_drops_out_of_range_classes(self, tmp_path: Path) -> None:
+        """FOMOValidator inherits the class bound of PointValidator (#1074)."""
+        from libreyolo.validation import FOMOValidator, ValidationConfig
+
+        data_yaml = _write_tiny_point_dataset(tmp_path, imgsz=96)
+        (tmp_path / "labels" / "val" / "sample.txt").write_text(
+            "0 0.5 0.5 0.05 0.05\n1 0.3 0.3 0.05 0.05\n", encoding="utf-8"
+        )
+        config = ValidationConfig(
+            data=str(data_yaml),
+            batch_size=1,
+            imgsz=96,
+            num_workers=0,
+            verbose=False,
+            device="cpu",
+            save_dir=str(tmp_path / "val_out"),
+        )
+        validator = FOMOValidator(_make_random_fomo(size="s", nc=1), config)
+        with pytest.warns(UserWarning, match="out of range"):
+            loader = validator._setup_dataloader()
+
+        assert loader.dataset.num_classes == 1
+        labels = loader.dataset.load_anno(0)
+        assert labels.shape[0] == 1
+        assert int(labels[0, 4]) == 0
