@@ -204,15 +204,23 @@ class TestFOMOLabelParsing:
 
         img_path, lbl_path = _write_sample(tmp_path, row + "\n")
         ds = FOMOYOLODataset([img_path], [lbl_path], input_size=96, grid_size=12, num_classes=1)
-        with pytest.warns(UserWarning):
+        with pytest.warns(UserWarning, match="Invalid label format|out of range"):
             _, grid, _, _ = ds[0]
         assert int((grid > 0).sum()) == 0
         FOMOLoss(num_classes=1)(torch.zeros(1, 2, 12, 12), grid[None])
 
-    def test_box_fully_outside_image_is_dropped(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "row",
+        [
+            "0 1.5 1.5 0.1 0.1",  # fully outside the image
+            "0 0.5 0.5 0 0",  # zero size
+            "0 0.5 0.5 -0.1 0.1",  # negative width
+        ],
+    )
+    def test_boxes_without_visible_area_are_dropped(self, tmp_path: Path, row: str) -> None:
         from libreyolo.models.fomo.dataset import FOMOYOLODataset
 
-        img_path, lbl_path = _write_sample(tmp_path, "0 1.5 1.5 0.1 0.1\n")
+        img_path, lbl_path = _write_sample(tmp_path, row + "\n")
         ds = FOMOYOLODataset([img_path], [lbl_path], input_size=96, grid_size=12, num_classes=1)
         _, grid, _, _ = ds[0]
         assert int((grid > 0).sum()) == 0
