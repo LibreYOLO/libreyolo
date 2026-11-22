@@ -54,8 +54,9 @@ class TestParseLabelFile:
         assert (cx, cy) == pytest.approx((0.3, 0.3))
         assert (w, h) == pytest.approx((0.4, 0.4))
 
-    # In bounds and non-degenerate, so only the line format decides whether
-    # training keeps a row; class and geometry checks stay out of it.
+    # Rows that parse are in bounds and non-degenerate, so only the line
+    # format decides whether training keeps them; class and geometry checks
+    # stay out of it.
     @pytest.mark.parametrize(
         "row,kept",
         [

@@ -90,7 +90,7 @@ class ImageRecord:
     boxes: np.ndarray  # (n, 5) float32: cls, cx, cy, w, h (normalized)
     label_issues: list[LabelIssue] = field(default_factory=list)
     label_digest: Optional[str] = None  # sha1 of label bytes, None when empty
-    polygon_lines: int = 0  # >5-field rows consumed as polygons (like training)
+    polygon_lines: int = 0  # valid polygon rows consumed like training
     image_exists: bool = True  # txt-list splits can reference deleted files
     scan: Optional[ImageScan] = None  # filled by scan_images()
 
