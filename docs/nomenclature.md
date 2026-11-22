@@ -132,6 +132,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `depth_anything` | `LibreDepthAnythingV2` | CamelCase preserved + version (Depth Anything V2), depth-only |
 | `depth_anything3` | `LibreDepthAnything3` | CamelCase preserved + version (Depth Anything 3), depth-only |
 | `video_depth_anything` | `LibreVideoDepthAnything` | CamelCase preserved (Video Depth Anything); depth-only sequence family, one depth map per frame |
+| `depthpro2` | `LibreDepthPro2` | CamelCase preserved (`DepthPro2`); metric image & video depth with focal-length estimation (`s`/`b`/`l`/`h`), Apple Sample Code License code and `apple-amlr` non-commercial research weights |
 | `waft` | `LibreWAFT` | All-caps acronym (Warping-Alone Field Transforms), flow-only |
 | `dpflow`    | `LibreDPFlow` | All-caps acronym `DP` (dual pyramid) + `Flow`; flow-only, inference-only. Canonical `LibreDPFlowm-flow.pt` is the FlyingThings3D stage; benchmark fine-tunes use the `WEIGHT_VARIANTS` suffixes `-sintel`, `-kitti`, `-spring` |
 | `zipdepth`  | `LibreZipDepth` | CamelCase preserved (`ZipDepth` brand casing); depth-only lightweight CNN (speed/edge tier) |
@@ -872,6 +873,12 @@ LibreMoGe3l-depth.pt             # ViT-L/14, metric depth, point map, intrinsics
 LibreMoGe3l-normal.pt            # ViT-L/14, surface normals (same tensors as -depth)
 LibreMoGe3g-depth.pt             # ViT-g/14, metric depth, point map, intrinsics
 LibreMoGe3g-normal.pt            # ViT-g/14, surface normals (same tensors as -depth)
+
+# depthpro2 - Apple Depth Pro 2 metric image & video depth + focal length (apple-amlr non-commercial research weights, mirrored on LibreYOLO HF)
+LibreDepthPro2s-depth.pt         # ViT-S/16 DINOv3 + DPT + FoV estimator
+LibreDepthPro2b-depth.pt         # ViT-B/16 DINOv3 + DPT + FoV estimator
+LibreDepthPro2l-depth.pt         # ViT-L/16 DINOv3 + DPT + FoV estimator
+LibreDepthPro2h-depth.pt         # ViT-H+/16 DINOv3 + DPT + FoV estimator
 
 # edge specialists - architecture code is MIT; no released weights are mirrored
 LibreTEEDt-edge.pt               # tiny TEED, local compatible checkpoint

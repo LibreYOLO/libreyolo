@@ -1074,6 +1074,15 @@ class BaseTrainer(ABC):
         else:
             raise ValueError("Either 'data' or 'data_dir' must be specified")
 
+        # LibreDoctor reads YOLO .txt labels only. Decide here, before the
+        # mosaic wrapper hides which dataset class was picked.
+        uses_coco_json = isinstance(train_dataset, COCODataset) or (
+            bool(self.config.data)
+            and any(
+                get_coco_annotation_file(data_cfg, s) for s in ("train", "val", "test")
+            )
+        )
+
         self.config.num_classes = int(self.num_classes)
 
         mosaic_enabled = not load_obb
@@ -1159,7 +1168,7 @@ class BaseTrainer(ABC):
             _hint_task = getattr(
                 getattr(self, "wrapper_model", None), "task", "detect"
             )
-            if _hint_task == "detect" and self.config.data:
+            if _hint_task == "detect" and self.config.data and not uses_coco_json:
                 logger.info(
                     f"Tip: sanity-check your dataset for common issues first with "
                     f"`libreyolo doctor {self.config.data}`"

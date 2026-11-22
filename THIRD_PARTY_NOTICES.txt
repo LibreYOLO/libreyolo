@@ -4048,3 +4048,42 @@ Weight license: upstream publishes no separate weight licence; LibreYOLO
                 disclosed interpretation, not publisher-confirmed.
 Conversion: weights/convert_unimatch_weights.py wraps the unchanged
             upstream tensors in the LibreYOLO checkpoint schema.
+
+--------------------------------------------------------------------
+Depth Pro 2 (Apple Inc.)
+--------------------------------------------------------------------
+Source: https://github.com/apple-aiml-research/ml-depth-pro-2
+Pinned commit: aa389cbb0b74341664ed663a0966c859905cd6c0
+Code license: Apple Sample Code License (see libreyolo/models/depthpro2/LICENSE
+              and libreyolo/models/depthpro2/ACKNOWLEDGEMENTS)
+Copyright (C) 2026 Apple Inc. All Rights Reserved.
+Citation: Bochkovskii, A., Delaunoy, A., Germain, H., Santos, M., Zhou, Y.,
+          Richter, S. R., and Koltun, V. "Depth Pro 2: Metric Depth Estimation
+          for Images and Videos." arXiv:2611.26603, 2026.
+Used for: Depth Pro 2 multi-view metric image & video depth family
+          (LibreDepthPro2). The encoder, DPT decoder, field-of-view estimator,
+          streaming session, network definition, and EXIF focal-length helper
+          live under libreyolo/models/depthpro2/ with verbatim LICENSE,
+          LICENSE_MODEL, ACKNOWLEDGEMENTS, and NOTICE files. Backbone
+          architectures (DINOv3 EVA presets) are instantiated with
+          pretrained=False via optional dependency timm (Apache-2.0).
+
+Weight source: Official Apple Hugging Face repositories at pinned commits:
+               apple/DepthPro2-S (903a1c1ade918831d138adcc4aedbcc8f4da0078)
+               apple/DepthPro2-B (85e67fdfb7f5b36a6f6c4495e6789d331b1d8a04)
+               apple/DepthPro2-L (849dc5461267e0bc006ec63ab46920ea1ed98702)
+               apple/DepthPro2-H (68426c789f75a7c760273e857222625b4fe69576)
+               apple/DepthPro2-focal (622659d44a2002cf9ae4333f2569afa938290d9a)
+Mirrored at:   LibreYOLO/LibreDepthPro2{s,b,l,h}-depth on Hugging Face
+               (checksum-pinned in libreyolo/models/depthpro2/convert.py,
+               accompanied by verbatim LICENSE_MODEL, NOTICE, and
+               non-commercial banners; loader prints the non-commercial
+               notice before every automatic download).
+Weight license: Apple Machine Learning Research Model License Agreement
+                (apple-amlr), Copyright (C) 2026 Apple Inc. All Rights
+                Reserved. Use and redistribution are restricted exclusively
+                to non-commercial Research Purposes (see
+                libreyolo/models/depthpro2/LICENSE_MODEL).
+Conversion: weights/convert_depthpro2_weights.py merges optional focal weights
+            under fov.* and wraps unchanged tensors in LibreYOLO v1.0 metadata;
+            weights/upload_depthpro2_hf.py publishes the HF mirrors.

@@ -489,6 +489,45 @@ def test_trainer_identity_scheduler_and_forward():
     assert model.model.seghead_extra.conv2.weight.grad is not None
 
 
+def _easy_and_hard_batch() -> tuple[torch.Tensor, torch.Tensor]:
+    # Three confident-correct pixels, one confidently wrong, one ignored.
+    logits = torch.zeros(1, 2, 1, 5)
+    logits[0, 0, 0] = torch.tensor([10.0, 10.0, 10.0, -10.0, 0.0])
+    target = torch.zeros(1, 1, 5, dtype=torch.long)
+    target[0, 0, 4] = 255
+    return logits, target
+
+
+def test_validation_loss_uses_the_training_ohem_on_the_main_head():
+    model = LibreDDRNet(size="s", nb_classes=2, device="cpu")
+    trainer = _trainer(model, ohem_thresh=0.9, ohem_min_kept=1)
+    adapter = trainer.build_validation_loss_adapter(model.model)
+    logits, target = _easy_and_hard_batch()
+
+    val = float(adapter(logits, target)["loss"])
+    train = float(trainer.criterion(logits, target)["loss_ce"])
+    plain = float(torch.nn.functional.cross_entropy(logits, target, ignore_index=255))
+    assert val == pytest.approx(train, rel=1e-6)
+    # OHEM keeps only the hard pixel, so it sits well above the all-pixel mean.
+    assert val > 3 * plain
+
+    target[:] = 255
+    assert float(adapter(logits, target)["loss"]) == 0.0
+
+
+def test_validation_loss_is_plain_cross_entropy_without_ohem():
+    model = LibreDDRNet(size="s", nb_classes=2, device="cpu")
+    trainer = _trainer(model, ohem=False)
+    adapter = trainer.build_validation_loss_adapter(model.model)
+    logits, target = _easy_and_hard_batch()
+
+    plain = torch.nn.functional.cross_entropy(logits, target, ignore_index=255)
+    assert float(adapter(logits, target)["loss"]) == pytest.approx(float(plain))
+    assert float(trainer.criterion(logits, target)["loss_ce"]) == pytest.approx(
+        float(plain)
+    )
+
+
 def test_trainer_rejects_a_non_poly_schedule():
     trainer = _trainer(LibreDDRNet(size="s", device="cpu"), scheduler="cos")
     with pytest.raises(ValueError, match="polynomial"):

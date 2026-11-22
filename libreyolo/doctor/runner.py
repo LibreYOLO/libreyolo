@@ -3,10 +3,16 @@
 import logging
 from typing import Iterable, Optional
 
+from ..data.utils import get_coco_annotation_file
 from .checks import needs_image_scan, select_checks
-from .config import DoctorConfig, NotADetectionDatasetError, UnknownCheckError
+from .config import (
+    DoctorConfig,
+    DoctorError,
+    NotADetectionDatasetError,
+    UnknownCheckError,
+)
 from .report import Finding, Report, Severity, sorted_findings
-from .snapshot import build_snapshot, detect_non_detection, scan_images
+from .snapshot import SPLITS, build_snapshot, detect_non_detection, scan_images
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +42,8 @@ def diagnose(
         autodownload: Allow the dataset YAML's URL download (never scripts).
 
     Raises:
-        DoctorError: The dataset could not be scanned at all.
+        DoctorError: The dataset could not be scanned at all, or a split
+            uses COCO JSON annotations (not supported yet).
         NotADetectionDatasetError: The dataset is pose/segment/obb shaped.
     """
     cfg = config or DoctorConfig()
@@ -57,6 +64,16 @@ def diagnose(
         )
 
     snapshot = build_snapshot(data, autodownload=autodownload)
+
+    # Checked before the label-shape guard: stale .txt files next to a COCO
+    # JSON split must not decide the verdict.
+    coco_splits = [s for s in SPLITS if get_coco_annotation_file(snapshot.config, s)]
+    if coco_splits:
+        raise DoctorError(
+            "COCO JSON annotations are not supported yet "
+            f"(annotations set for: {', '.join(coco_splits)}). "
+            "LibreDoctor currently checks YOLO .txt detection labels only."
+        )
 
     suspected = detect_non_detection(snapshot)
     if suspected is not None:

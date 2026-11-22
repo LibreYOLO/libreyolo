@@ -7,11 +7,16 @@ handed targets: upsample the decode-head logits to the target resolution, then
 the semantic validator already extracted is the same arithmetic without a
 second forward, and it keeps validation's forward signature (no ``targets=``)
 unchanged.
+
+A family whose training loss is not plain cross-entropy (DDRNet's OHEM) passes
+its own ``pixel_loss`` through ``validation_pixel_loss`` so the validation
+curve measures what training optimizes.
 """
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -26,11 +31,19 @@ class SemanticValidationLoss:
     max_labels = None
 
     def __init__(
-        self, *, device: torch.device, family: str, ignore_index: int
+        self,
+        *,
+        device: torch.device,
+        family: str,
+        ignore_index: int,
+        pixel_loss: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     ) -> None:
         self.device = device
         self.family = family
         self.ignore_index = int(ignore_index)
+        # Scores ``(logits, mask)`` already aligned; must handle an
+        # all-ignore mask. None means plain cross-entropy.
+        self.pixel_loss = pixel_loss
 
     def __call__(
         self,
@@ -50,7 +63,9 @@ class SemanticValidationLoss:
                 logits, size=mask.shape[-2:], mode="bilinear", align_corners=False
             )
 
-        if bool((mask != self.ignore_index).any()):
+        if self.pixel_loss is not None:
+            loss = self.pixel_loss(logits, mask)
+        elif bool((mask != self.ignore_index).any()):
             loss = F.cross_entropy(logits, mask, ignore_index=self.ignore_index)
         else:
             # Same guard the families use in training: cross_entropy is NaN
@@ -123,4 +138,15 @@ class SemanticValidationLossMixin:
             device=self.device,
             family=self.get_model_family(),
             ignore_index=ignore_index,
+            pixel_loss=self.validation_pixel_loss(),
         )
+
+    def validation_pixel_loss(
+        self,
+    ) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None:
+        """Per-batch loss on aligned logits; None keeps plain cross-entropy.
+
+        Override when the family trains with something else, so train and
+        validation curves are on the same scale.
+        """
+        return None
