@@ -304,6 +304,72 @@ class TestLibreFOMOTrainerSmoke:
         assert train_ds.num_classes == 3
         assert val_ds.num_classes == 3
 
+    def test_augmented_dataset_bounds_classes(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """With augmentation on, out-of-range class ids are dropped, not passed to the loss (#1074)."""
+        from PIL import Image
+
+        from libreyolo.models.fomo.dataset import (
+            FOMOAugmentedDataset,
+            build_fomo_datasets,
+        )
+        from libreyolo.models.fomo.loss import FOMOLoss
+        from libreyolo.models.fomo.trainer import FOMOTrainer
+
+        files = {}
+        for split, label in (("train", "0 0.5 0.5 0.1 0.1\n1 0.3 0.3 0.1 0.1\n"), ("val", "0 0.5 0.5 0.1 0.1\n")):
+            img = tmp_path / "images" / split / "img.jpg"
+            lbl = tmp_path / "labels" / split / "img.txt"
+            img.parent.mkdir(parents=True)
+            lbl.parent.mkdir(parents=True)
+            Image.new("RGB", (96, 96)).save(img)
+            lbl.write_text(label, encoding="utf-8")
+            files[split] = ([img], [lbl])
+
+        def mock_load_data_config(*args, **kwargs):
+            return {
+                "root": str(tmp_path),
+                "train_img_files": files["train"][0],
+                "train_label_files": files["train"][1],
+                "val_img_files": files["val"][0],
+                "val_label_files": files["val"][1],
+                "nc": 1,
+                "names": {0: "object"},
+            }
+
+        import libreyolo.data as data_mod
+        monkeypatch.setattr(data_mod, "load_data_config", mock_load_data_config)
+
+        model = _make_random_fomo(size="s", nc=1)
+        trainer = FOMOTrainer(
+            model=model.model,
+            wrapper_model=model,
+            data="dummy.yaml",
+            epochs=1,
+            batch=1,
+            imgsz=96,
+            device="cpu",
+            project=str(tmp_path / "runs"),
+            workers=0,
+            flip_prob=0.5,
+        )
+        with pytest.warns(UserWarning, match="out of range"):
+            train_ds, _, _, _ = build_fomo_datasets(
+                config=trainer.config,
+                model=trainer.model,
+                wrapper_model=trainer.wrapper_model,
+                device=trainer.device,
+                input_size=96,
+                grid_size=12,
+            )
+
+        assert isinstance(train_ds, FOMOAugmentedDataset)
+        base = train_ds.dataset.dataset
+        assert base.num_classes == 1
+        assert len(base.load_anno(0)) == 1
+        _, grid, _, _ = train_ds[0]
+        assert int((grid > 0).sum()) == 1
+        FOMOLoss(num_classes=1)(torch.zeros(1, 2, 12, 12), grid[None])
+
     def test_val_dispatch_uses_point_validator(self) -> None:
         """BaseModel.val() must route task='point' to PointValidator."""
         from libreyolo.models.base.model import BaseModel
