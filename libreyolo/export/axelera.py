@@ -107,10 +107,12 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # UNet-s: its 512x1024 training crop; histogram activation ranges (fidelity mIoU 0.856 vs 0.777 with min-max).
     ("unet", "semantic", "s"): {"canvas": (512, 1024), "quantization_scheme": "hybrid_per_tensor_per_channel"},
     # Real-ESRGAN-x2: the same RRDB body (its whole graph overflows the DDR pool too) after an exact
-    # one-hot pixel-unshuffle convolution; 128x128 canvas (a 64x64 trunk, as x4 at 64).
+    # one-hot pixel-unshuffle convolution; 128x128 canvas (a 64x64 trunk, as x4 at 64). Histogram
+    # activation ranges: -0.28 dB PSNR vs FP32 (min-max -0.34); the tail part then enters through a
+    # dense identity conv (a depthwise one fails the SDK's input-quantization pass under this scheme).
     ("realesrgan", "restore", "x2"): {
         "rrdb_split": 12,
-        "quantization_scheme": "per_tensor_min_max",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
         "canvas": 128,
     },
     # RetinaNet-R50 resizes each image to a shorter side of 800 (longer up to
@@ -125,7 +127,7 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "fusion_parts": True,
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
-    # HRNet-w48 (384x288): the w32 parts (not measured yet: UNMEASURED_SIZES).
+    # HRNet-w48 (384x288): the w32 parts (supported, measured drop: SIZE_ACCURACY_NOTES).
     ("hrnet", "pose", "w48"): {
         "fusion_parts": True,
         "quantization_scheme": "hybrid_per_tensor_per_channel",

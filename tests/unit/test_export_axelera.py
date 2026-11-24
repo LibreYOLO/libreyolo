@@ -1129,8 +1129,8 @@ def test_support_matrix_rows_for_axelera():
         assert all(note.startswith("measured ") and " vs FP32 " in note for note in notes.values())
     esrgan = get_support("realesrgan", "restore", "axelera")
     assert esrgan.tier == "validated" and "validated sizes: x4 " in esrgan.constraint
-    assert "and x4t (equalized trunk" in esrgan.constraint and "supported sizes: x2 " in esrgan.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("realesrgan", "restore", "axelera")]) == ["x2"]
+    assert "x4t (equalized trunk" in esrgan.constraint and "and x2 (three compiled parts" in esrgan.constraint
+    assert ("realesrgan", "restore", "axelera") not in SIZE_ACCURACY_NOTES
     assert ("realesrgan", "restore", "axelera") not in UNMEASURED_SIZES
     assert ("realesrgan", "restore") in INT8_EXPORTS["axelera"]
     alexnet = get_support("alexnet", "classify", "axelera")
@@ -2358,6 +2358,27 @@ def test_unet_onnx_semantic_export_is_wired_at_its_rectangles():
 
     assert "unet" in _RECTANGULAR_BACKEND_FAMILIES
     assert get_support("unet", "semantic", "onnx").tier == "validated"
+def test_realesrgan_x2_recipe_uses_histogram_ranges_and_a_dense_tail_entry():
+    """x2 calibrates with hybrid_per_tensor_per_channel; under it the tail part's graph input enters through a
+    dense 1x1 identity conv (a depthwise identity gets per-channel ranges and fails the SDK), same function."""
+    torch = pytest.importorskip("torch")
+    from libreyolo.export.axelera import AXELERA_SIZE_RECIPES
+    from libreyolo.export.exporter import _RRDBPart
+    from libreyolo.models.realesrgan.nn import RRDBNet
+
+    recipe = AXELERA_SIZE_RECIPES[("realesrgan", "restore", "x2")]
+    assert recipe["quantization_scheme"] == "hybrid_per_tensor_per_channel" and recipe["rrdb_split"] == 12
+    torch.manual_seed(0)
+    net = RRDBNet(scale=2, num_feat=8, num_block=4, num_grow_ch=4).eval()
+    dense, depthwise = (_RRDBPart(net, "tail", 2, dense_entry=d).eval() for d in (True, False))
+    mid = torch.rand(1, 8, 8, 8)
+    with torch.no_grad():
+        assert torch.equal(dense(mid)[0], depthwise(mid)[0])
+    traced = torch.jit.trace(dense, (mid,))
+    entry = [n for n in traced.inlined_graph.nodes() if n.kind() == "aten::_convolution"][0]
+    assert entry.inputsAt(8).toIValue() == 1  # groups: dense
+
+
 def test_rrdb_x2_parts_unshuffle_exactly_and_compose_to_the_network():
     torch = pytest.importorskip("torch")
     np = pytest.importorskip("numpy")
@@ -2824,7 +2845,7 @@ _TIER_CALIBRATION = {
     ("fcn", "semantic", "r101"): (128, 128, "fcn/semantic/r101/2026-11-11"),
     ("quicksrnet", "restore", "m2"): (125, 125, "quicksrnet/restore/m2/2026-11-16/5"),
     ("realesrgan", "restore", "x4"): (125, 125, "realesrgan/restore/x4/2026-11-16"),
-    ("realesrgan", "restore", "x2"): (125, 125, "realesrgan/restore/x2/2026-11-16"),
+    ("realesrgan", "restore", "x2"): (125, 125, "realesrgan/restore/x2/2026-11-25"),
     ("midas", "depth", "s"): (128, 128, "midas/depth/s/2026-11-11/4"),
     ("dexined", "edge", "b"): (64, 128, "dexined/edge/b/2026-11-16"),
     ("deeplabv3", "semantic", "mv3"): (128, 128, "deeplabv3/semantic/mv3/2026-11-11/6"),
