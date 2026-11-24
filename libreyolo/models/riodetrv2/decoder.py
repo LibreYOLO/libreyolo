@@ -85,11 +85,7 @@ def decode_linear_angle_delta(logits: torch.Tensor, max_delta: float) -> torch.T
     values = torch.linspace(
         -max_delta, max_delta, logits.shape[-1], dtype=logits.dtype, device=logits.device
     )
-    # The ONNX exporter writes ``linspace`` as a float64 constant and casts the
-    # softmax to float64; casting back keeps the decoded angle (and the
-    # rotated sampling grid built from it) in the logits' dtype, which ONNX
-    # Runtime's GridSample needs. A no-op in eager mode.
-    return (F.softmax(logits, dim=-1) * values).sum(dim=-1, keepdim=True).to(logits.dtype)
+    return (F.softmax(logits, dim=-1) * values).sum(dim=-1, keepdim=True)
 
 
 def _rotate_points(points: torch.Tensor, angle: torch.Tensor) -> torch.Tensor:

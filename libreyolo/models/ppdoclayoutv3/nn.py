@@ -913,17 +913,6 @@ class PPDocLayoutV3Model(nn.Module):
         features = self.backbone(x)
         x4_feat = features[0]
         proj_feats = [proj(f) for proj, f in zip(self.encoder_input_proj, features[1:])]
-        return self.forward_features(x4_feat, proj_feats, return_masks)
-
-    def forward_features(
-        self, x4_feat: Tensor, proj_feats: List[Tensor], return_masks: bool = False
-    ) -> Dict[str, Tensor]:
-        """Everything after the backbone and the encoder input projections.
-
-        ``x4_feat`` is the stride-4 backbone stage; ``proj_feats`` the projected
-        stride-8/16/32 stages. A hybrid Axelera export runs the backbone and the
-        projections on the accelerator and this on the host.
-        """
         pan_maps, mask_feat = self.encoder(proj_feats, x4_feat)
 
         sources = [proj(f) for proj, f in zip(self.decoder_input_proj, pan_maps)]
@@ -931,7 +920,7 @@ class PPDocLayoutV3Model(nn.Module):
         num_positions = sum(h * w for h, w in spatial_shapes)
         if num_positions < self.num_queries:
             raise ValueError(
-                f"The input gives {num_positions} encoder positions, "
+                f"Input {tuple(x.shape[2:])} gives {num_positions} encoder positions, "
                 f"fewer than the {self.num_queries} queries; use imgsz >= 128 "
                 "(the model is trained at 800)."
             )

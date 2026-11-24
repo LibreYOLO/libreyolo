@@ -169,7 +169,7 @@ class LibreHRNet(BaseModel):
             raise NotImplementedError(
                 f"LibreHRNet export to {format!r} is not implemented. The pose-head "
                 "export contract supports ONNX, TorchScript, OpenVINO and "
-                "TensorRT, and runs hybrid on Axelera Metis."
+                "TensorRT, and runs on Axelera Metis."
             )
         return super().export(format=format, **kwargs)
 

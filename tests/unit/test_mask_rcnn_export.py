@@ -150,12 +150,10 @@ def test_export_support_is_explicit_for_both_tasks_and_every_format():
     for task in ("detect", "segment"):
         entries = {fmt: get_support("mask_rcnn", task, fmt) for fmt in EXPORT_FORMATS}
         assert entries["onnx"].tier == "validated"
-        # Axelera runs the backbone and FPN on the Metis and the rest on the host.
-        assert entries["axelera"].tier == "blocked"  # hybrid parked (decision 2026-11-19)
         assert all(
             entry.tier == "blocked"
             for fmt, entry in entries.items()
-            if fmt not in ("onnx", "axelera")
+            if fmt != "onnx"
         )
 
 

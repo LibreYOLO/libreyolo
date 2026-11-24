@@ -386,12 +386,12 @@ class LibreDEKR(BaseModel):
         )
 
     def export(self, format: str = "onnx", **kwargs) -> str:
-        supported = {"onnx", "torchscript", "openvino", "tensorrt", "axelera"}
+        supported = {"onnx", "torchscript", "openvino", "tensorrt"}
         if format.lower() not in supported:
             raise NotImplementedError(
                 f"LibreDEKR export to {format!r} is not implemented. The raw "
                 "two-output pose graph is validated for ONNX, TorchScript, "
-                "OpenVINO and TensorRT, and runs hybrid on Axelera Metis."
+                "OpenVINO and TensorRT only."
             )
         return super().export(format=format, **kwargs)
 

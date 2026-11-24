@@ -9,10 +9,9 @@
 > Every size runs its whole network on the Metis; the host only prepares the
 > input and decodes the outputs (boxes, NMS, masks), plus the light numpy steps
 > between compiled parts of SSD, FCOS, Real-ESRGAN, HRNet, RTMDet-x, RTMDet-Ins-x
-> and PIDNet (upsampling, concatenation, sums; section 7). Exports that
-> run part of the network itself on the host ("hybrid") are not supported on
-> Metis: they are parked by decision 2026-11-19 on branch
-> `axelera-hybrid-parked` (section 11).
+> and PIDNet (upsampling, concatenation, sums; section 7). Exports that would
+> run part of the network itself on the host are not supported on Metis
+> (section 11).
 > Results are from one Metis M.2 Max with axelera-devkit / axelera-rt 1.9.0.
 
 Measured on device, paired INT8 vs FP32 on the same images, each size with the
@@ -173,7 +172,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | SSD | detect | 300 (two compiled parts, conv4_3 L2Norm on the host) | see `docs/export_support.md` | 300 `ssd/detect/300/2026-11-13/2` |
 | EfficientDet | detect | d0, d1, d2 (supported with measured drops; d1 and d2 at a fixed 512x512 canvas; d3 parked for speed: it runs entirely on the Metis as 54 compiled parts but is slower than the CPU; d4 blocked: does not compile) | see `docs/export_support.md` | d0 `efficientdet/detect/d0/2026-11-12/3`; d1 `efficientdet/detect/d1/2026-11-13/3`; d2 `efficientdet/detect/d2/2026-11-14`; d3 blocked `efficientdet/detect/d3/2026-11-14`; d4 blocked `efficientdet/detect/d4/2026-11-15/4` |
 | Other families | all | all | not measured yet (section 11) | - |
-| DEKR, ZipDepth, CenterNet, Faster R-CNN, Mask R-CNN, DETR, Deformable DETR, DINO-DETR, RT-DETR, RT-DETRv2, RiO-DETRv2, D-FINE, DEIM, DEIMv2, RT-DETRv4, PP-DocLayoutV3, TinyFormer; RetinaNet-r50v2, EfficientDet-d4 | as measured | none | not supported on Metis: part of the network runs on the host (hybrid parked by decision 2026-11-19; branch axelera-hybrid-parked); section 11 | - |
+| DEKR, ZipDepth, CenterNet, Faster R-CNN, Mask R-CNN, DETR, Deformable DETR, DINO-DETR, RT-DETR, RT-DETRv2, RiO-DETRv2, D-FINE, DEIM, DEIMv2, RT-DETRv4, PP-DocLayoutV3, TinyFormer; RetinaNet-r50v2, EfficientDet-d4 | as measured | none | not supported on Metis: part of the network would run on the host; section 11 | - |
 | RF-DETR and other transformer-backbone families | all | all | out of scope (section 11) | - |
 
 The tiers in `docs/export_support.md` are generated from
@@ -452,7 +451,7 @@ device output drifts from the CPU-quantized model layer by layer through conv
 block 5 (output cosine 0.984 at the fourth pool, 0.785 after the last
 convolution), with no single diverging operator (ledger
 `vgg/classify/19bn/2026-11-12`). Running block 5 and the classifier on the
-host recovers it (-0.2), but that is a hybrid and is parked (section 11).
+host recovers it (-0.2), but that runs part of the network on the host, which is not supported (section 11).
 
 MobileNetV4 needs more than the ResNet recipe: with plain min-max ranges
 size s lost 6.2 top-1 points. LibreYOLO equalizes its residual streams per
@@ -510,7 +509,7 @@ device bisect puts the divergence in the rewritten ASPP (device vs
 CPU-quantized cosine 0.995 for the backbone alone, 0.53 with the ASPP). Both
 are supported with these drops; for R101 check accuracy on your data, or use
 R50 or MobileNetV3. Running the ASPP and head on the host recovers them (-0.40
-and -0.09), but that is a hybrid and is parked (section 11). Ledgers
+and -0.09), but that runs part of the network on the host, which is not supported (section 11). Ledgers
 `deeplabv3/semantic/r50/2026-11-17/2`, `deeplabv3/semantic/r101/2026-11-14`.
 
 Values are mAP50-95 (box, rotated box for obb, keypoint OKS for pose). On
@@ -708,18 +707,6 @@ default) bring it to -1.0 there and -1.78 on 1000 images, spread over small
 (0.055 vs 0.056), medium (0.299 vs 0.320) and large objects (0.533 vs
 0.558).
 
-EfficientDet-d0 has a measured, more accurate but slower alternative, not the
-default: its class predictor's last pointwise conv as a second compiled part on
-min-max ranges (recipe key `class_head_part`; under the family's per-channel
-histogram ranges one part cannot represent class logits above about 0 on three
-of the five levels). On 1000 COCO val2017 images it scores 0.3286 vs 0.3363
-FP32 (-0.77, within the validated bar) against 0.3185 (-1.78) for the default
-single part, measured in the same window. End to end it runs at about 10 / 15
-/ 18 img/s at batch 1 / 8 / 32 against 14 / 43 / 54 for the default (the class
-logits go back to the host for a decode ONNX of about 30 ms per image), so the
-default stays the single part. The two-part build is an internal recipe, not a
-public export option (ledger `efficientdet/detect/d0/2026-11-21/3`).
-
 EfficientDet-d1, -d2 and -d3 do not compile at their native 640, 768 and
 896: lowering finds no L1 tiling even with one-row tiles (3.42, 3.15 and
 2.52 MB needed against 2.82, 2.54 and 2.15 MB). EfficientDet-d1 and -d2
@@ -743,12 +730,12 @@ host only upsamples and concatenates, then decodes the anchors): 0.3718 vs
 0.3853 FP32 mAP50-95 on 300 COCO val2017 images (-1.35). End to end that
 chain is slower than FP32 on this CPU at the same 512 input: 1.09 vs 4.64
 img/s at batch 1 and 3.50 vs 4.48 at batch 8, so it is parked for speed
-(branch `axelera-effdet-parts`; ledgers `efficientdet/detect/d3/2026-11-20`
+(ledgers `efficientdet/detect/d3/2026-11-20`
 to `/9`).
 
 EfficientDet-d3 and -d4 are therefore blocked. Running their EfficientNet
 backbone (d4: stages 0-4) on the Metis and the rest on the host works (-0.39
-and -0.29 against FP32 at 512), but that is a hybrid and is parked (section 11).
+and -0.29 against FP32 at 512), but that runs part of the network on the host, which is not supported (section 11).
 
 SSD300 runs in two compiled parts with one host step between them (layout
 `ssd_raw_heads_v1`, metadata `parts`). Its conv4_3 L2Norm divides each
@@ -924,11 +911,10 @@ Real-ESRGAN-x4 (the RRDB network) does not fit as one graph: its constants overf
 
 Real-ESRGAN-x2 uses the same RRDB body and the same three parts. Its network first folds each 2x2 pixel block into channels (pixel unshuffle); the export writes that as an exact one-hot stride-2 convolution so it runs on the AIPU inside part 1. At a 128x128 canvas (a 64x64 trunk, as x4) the device keeps PSNR at 24.73 dB vs 25.07 dB FP32 on the 296 cocosr crops (-0.34 dB, SSIM 0.717; ledger `realesrgan/restore/x2/2026-11-16`). That is just over the 0.3 dB bar, so x2 is supported, not validated. Its whole graph hit the same DDR-pool limit as x4 (319 MiB of constants, 248 MiB pool; ledger `realesrgan/restore/x2/2026-11-15`).
 
-Hybrid exports, which run part of the network itself on the host (the
+Exports that would run part of the network itself on the host (the
 RT-DETR and DETR families, Faster and Mask R-CNN, DEKR, ZipDepth,
 CenterNet, TinyFormer, PP-DocLayoutV3 and some sizes of other
-families), are not supported on Metis: they are parked by decision
-2026-11-19 on branch `axelera-hybrid-parked` (section 11). The multi-part
+families) are not supported on Metis (section 11). The multi-part
 mechanism above stays for exports whose host steps are light numpy
 operations between compiled parts (SSD, FCOS, Real-ESRGAN).
 
@@ -948,7 +934,6 @@ operations between compiled parts (SSD, FCOS, Real-ESRGAN).
 | `anchors`, `scale_x_y` | anchor boxes in input pixels per level (YOLOv2's grid-cell anchors are converted), and Darknet's centre scaling (anchor-based heads) |
 | `parts` | multi-part exports only (SSD300): the compiled parts and host steps in order. A compiled part is `{axm, input, outputs}` (`input` is `images` for the first part, which is also `axm`), plus `per_item: true` and `item_shapes` for a part that runs a stack of items one at a time; a host operation is `{host, input or inputs, output or outputs, ...parameters}` with `host` one of the backend's `HOST_OPS` (`l2norm`: `scale` per channel; a parameter `"@npz:<key>"` is an array from `host_arrays`); a host ONNX graph is `{onnx, inputs, outputs}`, run on the CPU by ONNX Runtime. The backend runs them in order and assembles `output_names` from their outputs; artifacts without `parts` are one `.axm`. |
 | `host_arrays` | multi-part exports whose host operations take arrays: the `.npz` holding them |
-| `hybrid` | hybrid exports only (parked, section 11): `split` (`neck`, `backbone` or `encoder`), what runs on the AIPU and on the host, the canvas level scales, and the neck part's quantization scheme (always per tensor: its input feeds a depthwise convolution, which the compiler cannot take per-channel input ranges for at a part boundary) |
 | `class_index_map` | logit columns kept after the softmax (SSD300 and RetinaNet: COCO-91 to the 80 classes) |
 | `axelera` | SDK version, quantization scheme, cores, resources, compiler overrides, calibration source and image count (of the first part, for multi-part exports) |
 | `weights_license` | reminder of the weight license |
@@ -975,15 +960,15 @@ compiles their own.
 
 ## 11. Known limits and out of scope
 
-Parked (not supported on Metis: part of the network runs on the host; hybrid parked by decision 2026-11-19, branch `axelera-hybrid-parked`, which keeps the code, tests and measurements): DEKR w32 (pose), ZipDepth bnpu/b (depth), CenterNet resdcn18/dla34, Faster R-CNN n/s/m/l, Mask R-CNN r50 (detect, segment), DETR r50/r50dc5/r101/r101dc5, Deformable DETR (5 sizes), DINO-DETR r50/r50s5, RT-DETR (7 sizes), RT-DETRv2 detect (5) and obb (5), RiO-DETRv2 obb (5), D-FINE detect and segment (5 each), DEIM (5), DEIMv2 atto/femto/pico/n, RT-DETRv4 (4), PP-DocLayoutV3 l, TinyFormer s, RetinaNet r50v2 and EfficientDet d4 (whole graph does not compile or does not run usefully, see the blocked reasons). Parked for speed (the whole network runs on the Metis, but end to end it is slower than FP32 on the CPU): EfficientDet d3, as 54 compiled parts (-1.35 mAP50-95; 1.09 vs 4.64 img/s at batch 1, 3.50 vs 4.48 at batch 8; branch `axelera-effdet-parts`, ledger `efficientdet/detect/d3/2026-11-20/9`).
+Not supported on Metis (part of the network would run on the host): DEKR w32 (pose), ZipDepth bnpu/b (depth), CenterNet resdcn18/dla34, Faster R-CNN n/s/m/l, Mask R-CNN r50 (detect, segment), DETR r50/r50dc5/r101/r101dc5, Deformable DETR (5 sizes), DINO-DETR r50/r50s5, RT-DETR (7 sizes), RT-DETRv2 detect (5) and obb (5), RiO-DETRv2 obb (5), D-FINE detect and segment (5 each), DEIM (5), DEIMv2 atto/femto/pico/n, RT-DETRv4 (4), PP-DocLayoutV3 l, TinyFormer s, RetinaNet r50v2 and EfficientDet d4 (whole graph does not compile or does not run usefully, see the blocked reasons). Parked for speed (the whole network runs on the Metis, but end to end it is slower than FP32 on the CPU): EfficientDet d3, as 54 compiled parts (-1.35 mAP50-95; 1.09 vs 4.64 img/s at batch 1, 3.50 vs 4.48 at batch 8; branch `axelera-effdet-parts`, ledger `efficientdet/detect/d3/2026-11-20/9`).
 
 Blocked for structural reasons (accuracy never blocks an export):
 
 - L2CS (gaze): its only checkpoint is trained on Gaze360, whose licence forbids redistributing models trained on it; LibreYOLO fetches it from the authors and does not mirror it, so no Axelera export is measured or shipped.
 - MiDaS-l (DPT ViT-L, 384 px): quantization stops at the quantizer's ONNX import ("unexpected input value type") on the ViT encoder (48 LayerNormalization, 24 Softmax, 28 Erf, attention MatMuls; the same graph's 5 Resize nodes also occur in MiDaS-s, which compiles). It peaks at 18 GB of host RAM before failing. Use MiDaS-s.
-- ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them. The channel mean and variance have exact AIPU forms, but the per-pixel reciprocal square root feeding ConvNeXt's GELU has none; a host split at every LayerNorm would need about 23 parts for ConvNeXt-t, so a hybrid export (convolutions on the Metis, LayerNorms on the host) is the route if ConvNeXt is ever needed (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).
-- EC and TinyFormer decoders: gather-based deformable attention; no quantizer converter for its GreaterOrEqual bounds masks (ledgers `ec/detect/s/2026-11-11`, `tinyformer/detect/s/2026-11-11`), so only a hybrid (decoder on the host) could run them, and hybrids are parked (above).
-- GTR (all tasks): its ViT runs on the host, and its multi-scale neck (at most ~48% of GTR-s detect's MACs) follows every convolution with a channel LayerNorm (GTR-s: 30 convolutions, 30 LayerNorm2d), so a hybrid export would need about 30 single-convolution parts (ledger `gtr/detect/s/2026-11-18`).
+- ConvNeXt and ConvNeXt V2: per-pixel LayerNorm (and V2's Global Response Normalization) divide by statistics of each pixel or map; quantization stops on the first of them. The channel mean and variance have exact AIPU forms, but the per-pixel reciprocal square root feeding ConvNeXt's GELU has none; a host split at every LayerNorm would need about 23 parts for ConvNeXt-t, so it would need its LayerNorms on the host, which is not supported (ledgers `convnext/classify/t/2026-11-11`, `convnextv2/classify/atto/2026-11-11`).
+- EC and TinyFormer decoders: gather-based deformable attention; no quantizer converter for its GreaterOrEqual bounds masks (ledgers `ec/detect/s/2026-11-11`, `tinyformer/detect/s/2026-11-11`), so they could run only with the decoder on the host, which is not supported (above).
+- GTR (all tasks): its ViT runs on the host, and its multi-scale neck (at most ~48% of GTR-s detect's MACs) follows every convolution with a channel LayerNorm (GTR-s: 30 convolutions, 30 LayerNorm2d), so a split export would need about 30 single-convolution parts (ledger `gtr/detect/s/2026-11-18`).
 - TEED: the Smish activation takes a logarithm, which quantization stops on; no trained weights are published (ledger `teed/edge/t/2026-11-11/2`).
 
 Not measured on a Metis yet (nothing is known to fail; the export raises until a size is measured):
@@ -994,7 +979,7 @@ Not measured on a Metis yet (nothing is known to fail; the export raises until a
 - Other families.
 
 Out of scope (not attempted): models whose backbone is itself a transformer. FeyNobg (BiRefNet, Swin-L) is one of them.
-Even a hybrid export (parked, see above) would leave almost nothing on the
+Even with the rest on the host, almost nothing would run on the
 Metis with an attention backbone. This covers ViT, DeiT, Swin, DINOv2, CLIP, SigLIP2, PE,
 SegFormer, EoMT, Depth Anything (1, 3 and video), the SAM family (SAM,
 MobileSAM), the detectors built on such backbones (RF-DETR and LW-DETR on
@@ -1015,10 +1000,10 @@ generative models and 3D models. Checked against LibreYOLO's own model code
   LayerNorm after every convolution (section 11, known limits).
 - DEIMv2 s, m, l and x: DINOv3 ViT backbones with a spatial-tuning adapter
   (vit_tiny, vit_tinyplus, dinov3_vits16, dinov3_vits16plus). The atto,
-  femto, pico and n sizes use HGNetv2; they are hybrids, parked (above).
+  femto, pico and n sizes use HGNetv2; they would need part of the network on the host (not supported, above).
 - DINO-DETR swinl: a Swin-L backbone (shifted-window attention, embed 192,
   depths 2/2/18/2, window 12). The r50 and r50s5 sizes use ResNet-50; they
-  are hybrids, parked (above).
+  would need part of the network on the host (not supported, above).
 
 Other known limits:
 
@@ -1029,8 +1014,8 @@ Other known limits:
 - YOLO-NAS-pose n and s: supported, keypoint mAP50-95 1.3 and 2.2 points below FP32 (section 7); m and l are validated.
 - RF-DETR and other transformer-backbone families: attention, data-dependent
   TopK and grid sampling are outside what the compiler places on the AIPU.
-  RT-DETR, whose backbone is a CNN, could run as a hybrid (backbone and
-  fusion neck on the Metis, attention on the host); hybrids are parked (above).
+  RT-DETR, whose backbone is a CNN, could run only with its attention on the
+  host, which is not supported (above).
 - MobileNetV4 (classify) l: supported, top-1 1.7 points below FP32 at best
   (section 7). Per-tensor INT8 of the inverted-residual streams is the cause
   (the stage-2 stream of s spans about +-400 while its median channel stays

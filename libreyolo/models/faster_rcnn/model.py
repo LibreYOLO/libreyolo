@@ -164,14 +164,9 @@ class LibreFasterRCNN(BaseModel):
         self,
         format: str = "onnx",
         *,
-        opset: Optional[int] = None,
+        opset: int = 18,
         **kwargs,
     ) -> str:
-        if opset is None and format.lower() != "axelera":
-            # Axelera's compiler takes opset 14-17; its exporter picks its own default.
-            opset = 18
-        if opset is not None:
-            kwargs["opset"] = opset
         if format.lower() == "onnx":
             if int(kwargs.get("batch", 1)) != 1:
                 raise NotImplementedError(
@@ -185,7 +180,7 @@ class LibreFasterRCNN(BaseModel):
                     stacklevel=2,
                 )
             kwargs["dynamic"] = True
-        return super().export(format=format, **kwargs)
+        return super().export(format=format, opset=opset, **kwargs)
 
     def _strict_loading(self) -> bool:
         return True

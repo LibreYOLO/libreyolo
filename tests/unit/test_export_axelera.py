@@ -13,11 +13,6 @@ import pytest
 from libreyolo.backends import axelera as axrt
 from libreyolo.export import axelera as ax
 
-_PARKED = pytest.mark.skip(
-    reason="hybrid export parked by decision 2026-11-19 (part of the network runs on the host); branch axelera-hybrid-parked"
-)
-
-
 @pytest.fixture(autouse=True)
 def _libreyolo_logs_reach_caplog(monkeypatch):
     """libreyolo's logging setup turns propagation off on the "libreyolo" logger
@@ -1105,7 +1100,7 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("retinanet", "detect", "axelera")]) == ["r50"]
     assert "GroupNorm" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
     assert "six compiled parts" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
-    assert "axelera-hybrid-parked" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
+    assert "host CPU is not supported" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
     assert ("retinanet", "detect", "axelera") not in UNMEASURED_SIZES
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
@@ -1187,29 +1182,16 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("vgg", "classify", "19bn"), ("rtmdet", "detect", "s"),
         # RTMDet-Ins-s learned rounding (test_rtmdet_axelera_rounding).
         ("rtmdet", "segment", "s"),
-        # RetinaNet-R50v2 recipe hybrid (test_retinanet_r50v2_hybrid_body_split_reproduces_the_native_model).
-        ("retinanet", "detect", "r50v2"),
-        # CenterNet recipe hybrids (test_centernet_hybrid_body_split_reproduces_the_native_model).
-        ("centernet", "detect", "resdcn18"), ("centernet", "detect", "dla34"),
         # HRNet-w32/w48 fusion_parts (test_hrnet_fusion_parts_chain_reproduces_the_native_model).
         ("hrnet", "pose", "w32"), ("hrnet", "pose", "w48"),
-        # DEKR-w32 recipe hybrid (test_dekr_w32_hybrid_stage3_split_reproduces_the_native_model).
-        ("dekr", "pose", "w32"),
-        # ZipDepth-bnpu/b recipe hybrids (test_zipdepth_bnpu_hybrid_gcb_split_reproduces_the_native_model).
-        ("zipdepth", "depth", "bnpu"), ("zipdepth", "depth", "b"),
         # PIDNet pool_parts (test_pidnet_pool_parts_chain_reproduces_the_native_model).
         ("pidnet", "semantic", "s"), ("pidnet", "semantic", "m"), ("pidnet", "semantic", "l"),
-        # EfficientDet-d3/d4 recipe hybrids (test_efficientdet_hybrid_backbone_split_reproduces_the_export_output).
-        ("efficientdet", "detect", "d3"), ("efficientdet", "detect", "d4"),
         # RTMDet-x / RTMDet-Ins-x neck_parts (test_rtmdet_neck_parts_chain_reproduces_the_raw_heads,
         # test_rtmdet_ins_neck_parts_chain_reproduces_the_raw_heads).
         ("rtmdet", "detect", "x"), ("rtmdet", "segment", "x"),
         # Covered by their own tests (fixed canvas / three-part export).
         ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
         ("fcos", "detect", "r50"),
-        # Hybrid neck pinned to the scheme its numbers were measured with
-        # (test_export_axelera_hybrid covers neck_quantization_scheme).
-        ("rtdetrv2", "detect", "r18"), ("rtdetrv2", "detect", "r34"),
         ("unet", "semantic", "s"),
     }
     assert recipes == {
@@ -1220,11 +1202,11 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     }
     assert size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
     # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default
-    # (VGG-19-BN: pool4 split, test_vgg_axelera_split).
+    # (VGG-19-BN runs its whole graph, test_vgg_axelera).
     assert size_recipe("vgg", "classify", "16bn") == {
         "quantization_scheme": "hybrid_per_tensor_per_channel"
     }
-    assert size_recipe("vgg", "classify", "19bn") == {}  # whole graph (hybrid parked 2026-11-19)
+    assert size_recipe("vgg", "classify", "19bn") == {}  # whole graph
     data = str(_dataset(tmp_path))
     # YOLOv4-b: histogram ranges and a [-6, 6] window on the box output.
     torch.manual_seed(0)
@@ -1370,14 +1352,10 @@ def test_rtmdet_ins_x_exports_as_full_metis_neck_parts_with_a_mask_part():
 
 
 def test_rtmdet_x_detect_exports_as_full_metis_neck_parts():
-    """RTMDet-x detect is a full-Metis multi-part export (recipe ``neck_parts``), not a hybrid."""
-    from libreyolo import LibreRTMDet
+    """RTMDet-x detect is a full-Metis multi-part export (recipe ``neck_parts``)."""
     from libreyolo.export.axelera import size_recipe
-    from libreyolo.export.exporter import AxeleraExporter
     from libreyolo.export.support import BLOCKED_SIZES
 
-    exporter = AxeleraExporter(LibreRTMDet(None, size="x", nb_classes=3, device="cpu"))
-    assert exporter._hybrid_outputs() == ()
     assert size_recipe("rtmdet", "detect", "x") == {
         "neck_parts": "stem_td0", "quantization_scheme": "hybrid_per_tensor_per_channel", "calibration_fraction": 0.5,
     }
@@ -1701,7 +1679,7 @@ def test_deeplabv3_resnet_sizes_run_their_aspp_as_shifted_1x1():
     from libreyolo.export.support import BLOCKED_SIZES, SIZE_ACCURACY_NOTES
     from libreyolo.models.deeplabv3.nn import ASPPConv, LibreDeepLabv3Net
 
-    # R50/R101 run whole on the Metis (the backbone-split hybrid is parked, decision 2026-11-19).
+    # R50/R101 run whole on the Metis.
     for size in ("r50", "r101"):
         assert ax.size_recipe("deeplabv3", "semantic", size) == {"aspp_shift": True}
         assert size in SIZE_ACCURACY_NOTES[("deeplabv3", "semantic", "axelera")]
@@ -1947,14 +1925,6 @@ def test_structurally_blocked_axelera_families_name_the_reason(family, task, key
     assert entry.tier == "blocked" and keyword in entry.reason
 
 
-@_PARKED
-def test_tinyformer_detect_is_a_stem_split_hybrid():
-    from libreyolo.export.support import get_support
-
-    entry = get_support("tinyformer", "detect", "axelera")
-    assert entry.tier == "hybrid" and "stem" in entry.reason and "host" in entry.reason
-
-
 def test_gtr_is_out_of_scope_for_every_task_with_the_layernorm_reason():
     from libreyolo.export.support import get_support
 
@@ -1999,19 +1969,6 @@ def test_pidnet_is_supported_as_pool_parts_with_its_measured_fidelity():
     assert ("pidnet", "semantic", "axelera") not in UNMEASURED_SIZES
 
 
-@_PARKED
-def test_pidnet_is_a_layer5_split_hybrid():
-    from libreyolo.export.axelera import size_recipe
-    from libreyolo.export.support import UNMEASURED_SIZES, get_support
-
-    entry = get_support("pidnet", "semantic", "axelera")
-    assert entry.tier == "hybrid" and "INT8 collapses" in entry.reason and "PAPPM" in entry.reason
-    assert size_recipe("pidnet", "semantic", "s")["hybrid_split"] == "backbone"
-    for size in ("s", "m", "l"):
-        assert size_recipe("pidnet", "semantic", size)["hybrid_split"] == "backbone"
-    assert ("pidnet", "semantic", "axelera") not in UNMEASURED_SIZES
-
-
 def test_unet_is_supported_with_its_measured_fidelity():
     from libreyolo.export.support import SIZE_ACCURACY_NOTES, get_support
 
@@ -2051,9 +2008,9 @@ def test_efficientdet_d1_axelera_recipe_is_the_512_canvas():
     assert ("efficientdet", "detect", "axelera") not in UNMEASURED_SIZES
     from libreyolo.export.support import BLOCKED_SIZES, get_support
 
-    for size in ("d3", "d4"):  # whole graph does not compile; the hybrid is parked (decision 2026-11-19)
+    for size in ("d3", "d4"):  # the whole graph does not compile
         reason = BLOCKED_SIZES[("efficientdet", "detect", "axelera")][size]
-        assert "does not compile" in reason and "axelera-hybrid-parked" in reason
+        assert "does not compile" in reason and "host CPU is not supported" in reason
     assert "d3 and d4 do not compile" in get_support("efficientdet", "detect", "axelera").constraint
 
 
@@ -2383,94 +2340,6 @@ def test_fcos_level_boxes_leave_one_pixel_gutters():
     assert canvas == [13, 8]
 
 
-def test_efficientdet_class_head_parts_chain_matches_the_export_wrapper():
-    """EfficientDet two-part export in FP32: trunk -> host pack of the class-tower levels -> the predictor's
-    pointwise conv on the canvas -> host decode reproduces EfficientDetExportWrapper's tensor."""
-    torch = pytest.importorskip("torch")
-    np = pytest.importorskip("numpy")
-    import copy
-
-    from libreyolo import LibreEfficientDet
-    from libreyolo.backends.axelera import HOST_OPS
-    from libreyolo.export.exporter import (
-        _EfficientDetCanvasDecode,
-        _EfficientDetTrunk,
-        _fcos_level_boxes,
-    )
-    from libreyolo.models.efficientdet.nn import EfficientDetExportWrapper
-
-    torch.manual_seed(0)
-    net = LibreEfficientDet(None, size="d0", device="cpu").model.eval()
-    ref = EfficientDetExportWrapper(copy.deepcopy(net), input_size=512).eval()
-    trunk = _EfficientDetTrunk(copy.deepcopy(net)).eval()
-    x = torch.rand(1, 3, 512, 512, generator=torch.Generator().manual_seed(1))
-    with torch.no_grad():
-        want = ref(x).numpy()
-        outs = trunk(x)
-        levels = len(outs) // 2
-        assert trunk.output_names[:levels] == tuple(f"box_p{3 + i}" for i in range(5))
-        boxes, canvas = _fcos_level_boxes([tuple(t.shape[-2:]) for t in outs[levels:]])
-        packed = HOST_OPS["pack_levels"](*[t.numpy() for t in outs[levels:]], boxes=np.asarray(boxes), canvas=canvas)
-        logits = trunk.net.class_net.predict.conv_pw(torch.from_numpy(packed))
-        tail = _EfficientDetCanvasDecode(EfficientDetExportWrapper(trunk.net, input_size=512), boxes).eval()
-        got = tail(logits, *outs[:levels]).numpy()
-        want_cls, want_box = net(x)
-    # The raw per-level tensors the decode reads are the network's own (exact up to float rounding)...
-    for level, (y0, x0, h, w) in enumerate(boxes):
-        np.testing.assert_allclose(
-            logits[:, :, y0 : y0 + h, x0 : x0 + w].numpy(), want_cls[level].numpy(), rtol=1e-4, atol=1e-4
-        )
-        np.testing.assert_allclose(outs[level].numpy(), want_box[level].numpy(), rtol=1e-4, atol=1e-4)
-    # ... and the decoded tensor matches; random weights tie many scores, so TopK may pick other anchors among
-    # equal scores: compare scores and classes, not box rows.
-    assert got.shape == want.shape
-    np.testing.assert_allclose(got[..., 4], want[..., 4], rtol=1e-5, atol=1e-6)
-    assert np.array_equal(got[..., 5], want[..., 5])
-
-
-def test_efficientdet_class_head_part_is_opt_in_per_size():
-    from libreyolo.export.axelera import size_recipe
-
-    for size in ("d1", "d2"):
-        assert "class_head_part" not in size_recipe("efficientdet", "detect", size)
-
-
-@_PARKED
-def test_centernet_is_a_body_split_hybrid():
-    from libreyolo.export.axelera import size_recipe
-    from libreyolo.export.support import get_support
-
-    entry = get_support("centernet", "detect", "axelera")
-    assert entry.tier == "hybrid" and "deformable" in entry.reason
-    from libreyolo.export.support import UNMEASURED_SIZES
-
-    for size in ("resdcn18", "dla34"):
-        assert size_recipe("centernet", "detect", size)["hybrid_split"] == "backbone"
-    assert ("centernet", "detect", "axelera") not in UNMEASURED_SIZES
-
-
-@_PARKED
-def test_zipdepth_is_a_gcb_split_hybrid():
-    from libreyolo.export.axelera import size_recipe
-    from libreyolo.export.support import UNMEASURED_SIZES, get_support
-
-    entry = get_support("zipdepth", "depth", "axelera")
-    assert entry.tier == "hybrid" and "softmax" in entry.reason and "fourth" in entry.reason
-    assert size_recipe("zipdepth", "depth", "bnpu")["hybrid_split"] == "backbone"
-    assert size_recipe("zipdepth", "depth", "b")["hybrid_split"] == "backbone"
-    assert ("zipdepth", "depth", "axelera") not in UNMEASURED_SIZES
-
-
-@_PARKED
-def test_hrnet_is_a_stage3_split_hybrid():
-    from libreyolo.export.axelera import size_recipe
-    from libreyolo.export.support import UNMEASURED_SIZES, get_support
-
-    entry = get_support("hrnet", "pose", "axelera")
-    assert entry.tier == "hybrid" and "drifts" in entry.reason and "stage 4" in entry.reason
-    assert size_recipe("hrnet", "pose", "w32")["hybrid_split"] == "backbone"
-    assert size_recipe("hrnet", "pose", "w48")["hybrid_split"] == "backbone"
-    assert ("hrnet", "pose", "axelera") not in UNMEASURED_SIZES
 def test_unet_axelera_export_uses_its_training_crop_and_dense_logits():
     from libreyolo.export.axelera import AXELERA_SIZE_RECIPES
     from libreyolo.export.exporter import _AXELERA_GRAPH_OUTPUTS
@@ -2506,16 +2375,6 @@ def test_rrdb_x2_parts_unshuffle_exactly_and_compose_to_the_network():
         whole = net(x)
     assert chained.shape == whole.shape == (1, 3, 32, 32)
     np.testing.assert_allclose(chained.numpy(), whole.numpy(), rtol=1e-5, atol=1e-5)
-
-
-@_PARKED
-def test_dekr_is_a_stage3_split_hybrid():
-    from libreyolo.export.axelera import size_recipe
-    from libreyolo.export.support import get_support
-
-    entry = get_support("dekr", "pose", "axelera")
-    assert entry.tier == "hybrid" and "paging" in entry.reason and "stage 4" in entry.reason
-    assert size_recipe("dekr", "pose", "w32")["hybrid_split"] == "backbone"
 
 
 def test_fomo_is_not_available_yet_without_trained_weights():
@@ -2725,7 +2584,6 @@ def test_pidnet_pool_parts_chain_reproduces_the_native_model(size):
     from libreyolo.backends.axelera import HOST_OPS
     from libreyolo.export.axelera import size_recipe
     from libreyolo.export.exporter import (
-        AxeleraExporter,
         _PIDNetFusionHeadPart,
         _PIDNetPoolMergePart,
         _PIDNetTrunkPart,
@@ -2734,7 +2592,6 @@ def test_pidnet_pool_parts_chain_reproduces_the_native_model(size):
 
     torch.manual_seed(0)
     model = LibrePIDNet(None, size=size, device="cpu")
-    assert AxeleraExporter(model)._hybrid_outputs() == ()
     for s in ("s", "m", "l"):
         assert size_recipe("pidnet", "semantic", s)["pool_parts"] is True
     net = model.model.eval().requires_grad_(False)
@@ -2789,7 +2646,7 @@ def test_hrnet_fusion_parts_chain_reproduces_the_native_model():
 
     model = LibreHRNet(size="w32", device="cpu")
     exporter = AxeleraExporter(model)
-    assert exporter._hybrid_outputs() == () and exporter._rectangular_imgsz_supported()
+    assert exporter._rectangular_imgsz_supported()
     assert size_recipe("hrnet", "pose", "w32")["fusion_parts"] is True
     entry = get_support("hrnet", "pose", "axelera")
     assert entry.tier == "validated" and "validated sizes: w32" in entry.constraint

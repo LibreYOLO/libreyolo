@@ -8,11 +8,7 @@ from typing import Literal
 
 from ..tasks import TASKS
 
-#: ``validated``: parity-checked; ``available``: callable with the recorded
-#: context; ``hybrid``: exports and runs, but only part of the network runs on
-#: the target accelerator and the rest (named in the reason) on the host CPU;
-#: ``blocked``: refused in preflight.
-Tier = Literal["validated", "available", "hybrid", "blocked"]
+Tier = Literal["validated", "available", "blocked"]
 EXPORT_FORMATS = (
     "onnx",
     "torchscript",
@@ -4657,8 +4653,8 @@ _add(
     ("pose",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4690,8 +4686,8 @@ _add(
     ("depth",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4700,8 +4696,8 @@ _add(
     ("detect",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4753,8 +4749,8 @@ _add(
     ("detect",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4905,8 +4901,8 @@ _add(
     ("detect",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4915,8 +4911,8 @@ _add(
     ("detect",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4925,8 +4921,8 @@ _add(
     ("detect",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4935,8 +4931,8 @@ _add(
     ("detect", "segment"),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4945,8 +4941,8 @@ _add(
     ("obb",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4955,8 +4951,8 @@ _add(
     ("detect",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4965,8 +4961,8 @@ _add(
     ("detect",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4975,8 +4971,8 @@ _add(
     ("segment",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4985,8 +4981,8 @@ _add(
     ("detect",),
     ("axelera",),
     reason=(
-        "not supported on Metis: part of the network runs on the host (hybrid parked "
-        "by decision 2026-11-19; branch axelera-hybrid-parked)."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -5401,7 +5397,7 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "survive INT8 (CPU-quantized cosine vs FP32 0.56-0.78 per-tensor, "
             "0.93-0.97 hybrid; cross-layer equalization does not help); use "
             "RetinaNet-r50"
-            "; a hybrid (part of the network on the host) is parked by decision 2026-11-19 on branch axelera-hybrid-parked"
+            "; running part of the network on the host CPU is not supported"
         ),
     },
     ("efficientdet", "detect", "axelera"): {
@@ -5418,7 +5414,7 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "on the CPU at the same 512 input (1.09 vs 4.64 img/s at batch 1, "
             "3.50 vs 4.48 at batch 8), so it is parked for speed (branch "
             "axelera-effdet-parts); use d2"
-            "; a hybrid (part of the network on the host) is parked by decision 2026-11-19 on branch axelera-hybrid-parked"
+            "; running part of the network on the host CPU is not supported"
         ),
         "d4": (
             "does not compile for Metis with the 1.9 SDK: lowering finds no L1 "
@@ -5427,7 +5423,7 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "cuts at 512 put the overflow in the EfficientNet-B4 backbone: its "
             "first five stages compile, the 272-channel stage (blocks.5) alone "
             "needs 3.12 MB of L1 against 2.47 MB; use d2"
-            "; a hybrid (part of the network on the host) is parked by decision 2026-11-19 on branch axelera-hybrid-parked"
+            "; running part of the network on the host CPU is not supported"
         ),
     },
     ("dinodetr", "detect", "axelera"): {

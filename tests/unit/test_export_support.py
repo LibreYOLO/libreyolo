@@ -18,10 +18,6 @@ from libreyolo.export.support import EXPORT_FORMATS, SUPPORT, get_support
 from libreyolo.models.inventory import collect_model_inventory
 from libreyolo.tasks import TASKS, task_to_suffix
 
-_PARKED = pytest.mark.skip(
-    reason="hybrid export parked by decision 2026-11-19 (part of the network runs on the host); branch axelera-hybrid-parked"
-)
-
 pytestmark = pytest.mark.unit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -45,53 +41,11 @@ def test_matrix_keys_use_canonical_registry_values():
 
 
 def test_matrix_uses_capability_statuses_only():
-    from typing import get_args
-
-    from libreyolo.export.support import Tier
-
-    tiers = {entry.tier for entry in SUPPORT.values()}
-    assert tiers <= set(get_args(Tier))
-    assert {"validated", "available", "blocked"} <= tiers
-
-
-@_PARKED
-def test_hybrid_tier_exports_and_is_documented(monkeypatch, caplog):
-    """A hybrid row is not blocked: preflight logs the split, INT8 stays allowed."""
-    import logging
-
-    from libreyolo.export import support
-
-    # libreyolo's default logging setup turns propagation off; let caplog see the record
-    # whatever ran before this test.
-    monkeypatch.setattr(logging.getLogger("libreyolo"), "propagate", True)
-    from libreyolo.export.support import SupportEntry, precision_support
-    from tools import gen_compat_table
-
-    key = ("rtdetr", "detect", "onnx")
-    monkeypatch.setitem(
-        support.SUPPORT,
-        key,
-        SupportEntry(
-            "hybrid",
-            "Backbone on the accelerator, transformer decoder on the host CPU.",
-            constraint="fixed input size",
-        ),
-    )
-    exporter = OnnxExporter(_wrapper("rtdetr"))
-    with caplog.at_level("INFO", logger="libreyolo.export.exporter"):
-        exporter._preflight(half=False, int8=False, data=None)
-    assert "is hybrid: Backbone on the accelerator" in caplog.text
-    assert precision_support("rtdetr", "detect", "onnx")[0] is True
-    assert "onnx" not in support.validated_alternatives("rtdetr", "detect")
-
-    rows, _, _, hybrid, _ = gen_compat_table._rows()
-    assert any(row.startswith("| rtdetr | detect | hybrid |") for row in rows)
-    assert (
-        "- `rtdetr` / `detect` / `onnx`: Backbone on the accelerator, transformer "
-        "decoder on the host CPU. Constraint: fixed input size"
-    ) in hybrid
-    assert any(line.startswith("- `rtdetr` / `detect` / `axelera`: Hybrid") for line in hybrid)
-    assert "## Hybrid combinations" in gen_compat_table.render_docs()
+    assert {entry.tier for entry in SUPPORT.values()} == {
+        "validated",
+        "available",
+        "blocked",
+    }
 
 
 def test_matrix_rejects_duplicate_explicit_keys():
@@ -836,7 +790,7 @@ def test_compat_table_paths_do_not_depend_on_working_directory(tmp_path, monkeyp
 
     monkeypatch.chdir(tmp_path)
     assert gen_compat_table.INVENTORY_PATH.exists()
-    rows, _, _, _, _ = gen_compat_table._rows()
+    rows, _, _, _ = gen_compat_table._rows()
     assert rows
     # The full matrix lives in docs/export_support.md; the README is curated.
     rendered = gen_compat_table.render_docs()

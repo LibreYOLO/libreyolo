@@ -148,8 +148,7 @@ def test_axelera_export_leaves_the_users_model_untouched(case, tmp_path, monkeyp
 
     monkeypatch.setattr(ex.AxeleraExporter, "_preflight", fake_preflight)
     monkeypatch.setattr(ax, "export_axelera", fake_export_axelera)
-    # Multi-part exports (SSD300) compile through the chain entry point, hybrid splits
-    # (DeepLabV3-R50/R101's backbone part) through the parts entry point.
+    # Multi-part exports compile through the chain (SSD300) or parts entry point.
     for entry in ("export_axelera_chain", "export_axelera_parts"):
         if hasattr(ax, entry):
             monkeypatch.setattr(ax, entry, fake_export_axelera)

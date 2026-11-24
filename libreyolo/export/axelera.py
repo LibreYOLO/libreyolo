@@ -75,12 +75,7 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: defaults), ``output_windows`` (raw-head part -> (low, high), anchor heads),
 #: ``stream_transform`` (MobileNetV4 residual-stream equalization and bound,
 #: default on), ``pose_bounded_towers`` (YOLO-NAS-pose towers whose input is
-#: bounded) and ``class_head_part`` (EfficientDet, opt-in: the class predictor's
-#: pointwise conv as a second compiled part with this quantization scheme, e.g.
-#: ``"per_tensor_min_max"``; under the family's histogram ranges the single-part
-#: class logits cannot represent logits above about 0 on p3/p4/p7. Measured on
-#: d0, 1000 COCO val2017 images: -0.77 vs -1.78 single-part, but about 3x slower end
-#: to end (host decode between the parts), so not the default) and
+#: bounded) and
 #: ``learned_rounding`` (QuickSRNet: learn each weight's INT8 rounding direction
 #: after the Hardtanh equalization, deterministic, see
 #: ``models/quicksrnet/quantize.learn_int8_rounding``) and
@@ -96,26 +91,12 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: the calibration dataset, used when ``export()`` gets no ``fraction``) is set per size from
 #: ``_MEASURED_CALIBRATION_FRACTION`` below.
 AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
-    # RT-DETRv2's neck part defaults to histogram ranges (exporter
-    # _HYBRID_NECK_QUANTIZATION_SCHEMES); r18 and r34 were measured with the
-    # per-tensor min-max neck (-1.25 / -2.03 on cocoval300) and keep it until
-    # they are re-measured.
-    ("rtdetrv2", "detect", "r18"): {"neck_quantization_scheme": "per_tensor_min_max"},
-    ("rtdetrv2", "detect", "r34"): {"neck_quantization_scheme": "per_tensor_min_max"},
     # EfficientDet-d1 at its native 640 finds no L1 tiling (3.42 MB needed at
     # one-row tiles, 2.82 MB available); at d0's 512 canvas it compiles. The
     # exporter rebuilds the BiFPN for the canvas (same weights).
     ("efficientdet", "detect", "d1"): {"canvas": 512},
     # EfficientDet-d2 at its native 768: 3.15 MB needed, 2.54 MB available.
     ("efficientdet", "detect", "d2"): {"canvas": 512},
-    # EfficientDet-d3/d4 at 512, hybrid: d3's BiFPN/heads and d4's 272-channel stage find no L1 tiling; the
-    # backbone (d3) or its stages 0-4 (d4) on the Metis, the rest on the host.
-    ("efficientdet", "detect", "d3"): {
-        "canvas": 512, "hybrid_split": "backbone", "quantization_scheme": "hybrid_per_tensor_per_channel",
-    },
-    ("efficientdet", "detect", "d4"): {
-        "canvas": 512, "hybrid_split": "backbone", "quantization_scheme": "hybrid_per_tensor_per_channel",
-    },
     # Real-ESRGAN-x4 (RRDB): the whole graph's constants overflow the DDR pool;
     # three compiled parts split at RRDB block 12 plus a host add fit.
     ("realesrgan", "restore", "x4"): {"rrdb_split": 12, "quantization_scheme": "per_tensor_min_max"},
@@ -138,21 +119,6 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # A 1024x1024 canvas costs 1.64x the compute and recovers most of it
     # (-1.11); imgsz=800 stays available for speed.
     ("retinanet", "detect", "r50"): {"canvas": 1024},
-    # RetinaNet-R50v2: GroupNorm heads; the ResNet-50 body on Metis, FPN + heads on the host.
-    # Per-channel weights: with per-tensor min-max the body's quantized outputs drift to cosine 0.27-0.39
-    # vs FP32 (0.81-0.97 with the hybrid scheme; -1.99 mAP50-95 end to end on CPU).
-    # CenterNet-ResDCN18: deformable up-path on the host; the ResNet-18 body with per-channel weight ranges
-    # (CPU-quantized end to end -0.83 mAP50-95; per-tensor ranges left the old multi-part route at 0.10).
-    ("centernet", "detect", "resdcn18"): {
-        "hybrid_split": "backbone",
-        "quantization_scheme": "hybrid_per_tensor_per_channel",
-    },
-    # CenterNet-DLA34: DLA base (levels 2-5) on the Metis, DLAUp/IDAUp (deformable) on the host; per-channel
-    # weight ranges (CPU-quantized end to end -0.61 mAP50-95 on cocoval100).
-    ("centernet", "detect", "dla34"): {
-        "hybrid_split": "backbone",
-        "quantization_scheme": "hybrid_per_tensor_per_channel",
-    },
     # HRNet-w32: stage 4 drifts on the device compiled with the rest; as compiled parts (trunk to stage 3, one per
     # stage-4 branch and module, heatmap layer) joined by host upsample + concat, every layer runs on the Metis.
     ("hrnet", "pose", "w32"): {
@@ -162,21 +128,6 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # HRNet-w48 (384x288): the w32 parts (not measured yet: UNMEASURED_SIZES).
     ("hrnet", "pose", "w48"): {
         "fusion_parts": True,
-        "quantization_scheme": "hybrid_per_tensor_per_channel",
-    },
-    # DEKR-w32 (640x640): the same trunk split; the whole graph has no working build (output paging / device lost).
-    ("dekr", "pose", "w32"): {
-        "hybrid_split": "backbone",
-        "quantization_scheme": "hybrid_per_tensor_per_channel",
-    },
-    # ZipDepth-bnpu (384): encoder to stage 3 on the Metis; the GCNet context block (softmax) and the rest on the host.
-    ("zipdepth", "depth", "bnpu"): {
-        "hybrid_split": "backbone",
-        "quantization_scheme": "hybrid_per_tensor_per_channel",
-    },
-    # ZipDepth-b (384): the same encoder as bnpu (only its decoder, on the host, upsamples by unfold); the same cut.
-    ("zipdepth", "depth", "b"): {
-        "hybrid_split": "backbone",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
     # PIDNet (1024): the whole graph collapses in INT8 (cosine ~0). As three compiled parts (branches through
@@ -202,11 +153,6 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "neck_parts": "stem_td0",
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
-    ("retinanet", "detect", "r50v2"): {
-        "canvas": 800,
-        "hybrid_split": "backbone",
-        "quantization_scheme": "hybrid_per_tensor_per_channel",
-    },
     # DeepLabV3 r50/r101 at output stride 8: the ASPP convolutions (dilation up
     # to 36 on a 65x65 map) find no L1 tiling; per-tap 1x1 convolutions plus
     # zero-filled shifts are the same function and compile (the backbone alone
@@ -214,7 +160,7 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("deeplabv3", "semantic", "r50"): {"aspp_shift": True},
     # Whole graph on the Metis: -5.09 (R50) and -20.9 (R101) mIoU on 300 images;
     # R101's rewritten ASPP diverges on the device (cosine 0.53 vs the
-    # CPU-quantized model). The backbone-split hybrid is parked (2026-11-19).
+    # CPU-quantized model).
     ("deeplabv3", "semantic", "r101"): {"aspp_shift": True},
     # Histogram ranges recover most of the Mish backbone's loss (-6.8 -> -1.4);
     # the box-output window takes the rest of the way to -1.52 on 1000 images.
