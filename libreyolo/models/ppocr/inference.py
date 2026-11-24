@@ -240,13 +240,17 @@ class OCRInferenceRunner:
         pipeline = model.pipeline_config
         limit = int(imgsz) if imgsz else int(pipeline.get("det_limit_side_len", 960))
 
-        # Stage 1: detection.
-        resized, _, _ = det_resize(img_bgr, limit_side_len=limit)
-        det_input = det_normalize(resized).to(model.device)
-        with torch.no_grad():
-            # Replays a captured graph when one is in scope, otherwise eager.
-            prob = model.forward_det(det_input)
-        prob_map = prob[0, 0].detach().float().cpu().numpy()
+        # Stage 1: detection (on the Metis when a text detector is attached;
+        # its canvas fixes the resize limit there).
+        if getattr(model, "text_detector", None) is not None:
+            prob_map = model.text_detector.prob_map(img_bgr)
+        else:
+            resized, _, _ = det_resize(img_bgr, limit_side_len=limit)
+            det_input = det_normalize(resized).to(model.device)
+            with torch.no_grad():
+                # Replays a captured graph when one is in scope, otherwise eager.
+                prob = model.forward_det(det_input)
+            prob_map = prob[0, 0].detach().float().cpu().numpy()
         quads, det_scores = db_postprocess(
             prob_map,
             src_w,

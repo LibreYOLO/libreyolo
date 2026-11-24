@@ -107,6 +107,7 @@ a separate size:
 | DexiNed | b | edge (edge-pixel F1 vs FP32 edges at 0.5; 352x352) | COCO val2017 at 352 px, 300 | 1.0000 | 0.9651 | -0.0349 (cosine 0.997) | supported | `dexined/edge/b/2026-11-16` |
 | Face recognition | librefacerec-l | embed (embedding cosine vs the FP32 head; head only: aligned 112x112 face in, 512-d embedding out, detection, alignment and L2 normalization on the host; the 25088-input embedding layer as row convolutions) | COCO val2017 aligned faces, 890 (336 images) | 1.0000 | 0.9933 | -0.0067 (pairwise similarity diff 0.0064; all same/different decisions at 0.4 kept) | supported | `facerec/embed/l/2026-11-20/4` |
 | Face detection | librefacerec-det | embed pipeline detector (face recall vs the FP32 detector at the same 640 canvas, IoU >= 0.5; precision 0.975, matched-box IoU 0.940; the 12 head convolutions on the Metis, sigmoids, box and landmark decode and NMS on the host; slower than the CPU at batch 1, faster at the default batch 8: 0.85x and 1.59x ORT+numpy at 4 host threads) | COCO val2017, 300 (356 FP32 faces) | 1.0000 | 0.9860 | -1.40 | supported | `facerec/embed/det/2026-11-20/2`, speed `facerec/embed/det/2026-11-21` |
+| PP-OCR text detection | t | ocr pipeline detector (det hmean, IoU 0.5; 960x960 canvas; whole DB network on the Metis, sigmoid and DB box extraction on the host; recognition stays on the host; FP32 at the same canvas; -7.50 against the pipeline's own resize, the canvas costs 2.27) | ICDAR2015 test, 500 (2077 words) | 0.3689 | 0.3166 | -5.23 | supported | `ppocr/ocr/t-det/2026-11-25`, canvas `/3`, speed `/2` |
 | DeepLabV3 | mv3 | semantic (mIoU) | COCO val2017 VOC-21, 300 | 0.5230 | 0.4853 | -3.77 | supported | `deeplabv3/semantic/mv3/2026-11-11/6` |
 | DeepLabV3 | r50 | semantic (mIoU; ASPP as per-tap 1x1 convolutions plus shifts) | COCO val2017 VOC-21, 300 | 0.5243 | 0.4734 | -5.09 | supported | `deeplabv3/semantic/r50/2026-11-17/2` |
 | DeepLabV3 | r101 | semantic (mIoU; ASPP as per-tap 1x1 convolutions plus shifts) | COCO val2017 VOC-21, 300 | 0.5888 | 0.3795 | -20.93 | supported | `deeplabv3/semantic/r101/2026-11-14` |
@@ -152,6 +153,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | DexiNed | edge | b (supported with a measured fidelity; whole graph; the user supplies the upstream BIPED-trained checkpoint, non-commercial) | see `docs/export_support.md` | b `dexined/edge/b/2026-11-16` |
 | Face recognition | embed | librefacerec-l head (supported with a measured fidelity; `LibreFaceEmbedder.export(format="axelera")` compiles the recognition head under the aligned-face contract; `LibreYOLO("librefacerec-l_axelera_model")` runs it) | not in `docs/export_support.md` (the face embedder is outside the export matrix) | l `facerec/embed/l/2026-11-20/4` |
 | Face detection | embed | librefacerec-det (supported with a measured fidelity; `LibreFaceEmbedder.export(format="axelera", component="detector")` compiles the family's face detector at a 640 canvas; `LibreFaceEmbedder(head, face_detector="librefacerec-det_axelera_model")` runs it, lists, directories and video files 8 images per call by default; slower than the CPU at batch 1) | not in `docs/export_support.md` (the face embedder is outside the export matrix) | det `facerec/embed/det/2026-11-20/2`, speed `/3` |
+| PP-OCR text detection | ocr | t detector (supported with a measured drop; `LibrePPOCR.export(format="axelera")` compiles the detection network at a 960x960 canvas; `LibrePPOCR(weights, text_detector="LibrePPOCRt-det_axelera_model")` runs detection on the Metis, recognition on the host; l not wired; recognition not portable: SVTR LayerNorm and attention) | not in `docs/export_support.md` (PP-OCR is outside the export matrix) | t `ppocr/ocr/t-det/2026-11-25` |
 | DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops: -3.77, -5.09, -20.93) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-17/2`; r101 `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | semantic | s (supported with a measured fidelity; whole graph at the 512x1024 training crop with histogram ranges, compile about 11-13 h) | see `docs/export_support.md` | s `unet/semantic/s/2026-11-20` |
 | PIDNet | semantic | s, m, l (supported with a measured fidelity; three compiled parts: branches + pooling layers, pooling sums, fusion + head; the host only upsamples (bilinear) and concatenates; m measured with fraction=0.25) | see `docs/export_support.md` | s `pidnet/semantic/s/2026-11-20/6`; m `pidnet/semantic/m/2026-11-21/3`; l `pidnet/semantic/l/2026-11-20/3` |
@@ -621,6 +623,43 @@ results do not depend on it. Speed on this NUC, detector end to end
 (letterbox, device, decode and NMS) at 4 host threads, paired runs against
 ONNX Runtime with the same numpy decode (main 8a082b70e): 41.0 img/s at batch
 1 vs 48.5 on the CPU (0.85x, slower) and 77.3 img/s at batch 8 (1.59x).
+
+The PP-OCR pipeline's text detector (`LibrePPOCR` size `t`: PP-LCNetV3
+backbone, RSE-FPN neck and DB head) compiles whole at a fixed 960x960 canvas.
+The graph stops at the DB shrink map's logits (layout `ppocr_db_logits_v1`,
+windowed to [-8, 8] as a ReLU6 output); the host undoes the window, applies
+the sigmoid and extracts the boxes with the pipeline's own DB postprocess.
+Before export the network gets exact rewrites: each multi-branch rep layer of
+the backbone is folded into one convolution (the unfused stride-2 1x1
+depthwise branch does not compile), its scalar affines become per-channel
+constants and the neck's squeeze-excitation gates become HardSigmoid. Text
+recognition is not compiled (its SVTR neck uses LayerNorm and attention, which
+have no Metis form): with a Metis text detector attached, the pipeline runs
+detection on the Metis and recognition with PyTorch on the host. The server
+tier (`l`) is not wired yet. Export and use:
+
+```python
+from libreyolo.models.ppocr import LibrePPOCR
+
+LibrePPOCR("LibrePPOCRt-ocr.pt", size="t").export(format="axelera")  # LibrePPOCRt-det_axelera_model
+model = LibrePPOCR("LibrePPOCRt-ocr.pt", size="t", text_detector="LibrePPOCRt-det_axelera_model")
+result = model("sign.jpg")  # result.ocr: quads and transcripts
+```
+
+On ICDAR2015 (Challenge 4 test, 500 images, 2077 words; detection only, IoU
+0.5, don't-care regions ignored) the Metis detector scores hmean 0.3166
+against 0.3689 for FP32 at the same 960x960 canvas (-5.23) and 0.3916 for the
+FP32 pipeline at its own resize (-7.50 end to end; the canvas costs 2.27,
+because the squeeze-excitation blocks' global pooling averages in the zero
+padding). The absolute hmean is low for both because PP-OCRv5 boxes text
+lines while ICDAR2015 labels single words. Quantization uses per-channel
+ranges for depthwise inputs (`hybrid_per_tensor_per_channel`, the default for
+this detector; min-max ranges lost 24.5 points) and 128 coco128 images.
+Speed on this NUC, detector end to end (resize, device, sigmoid and DB box
+extraction) at 4 host threads: 8.75 img/s at batch 1 and 15.85 at batch 8,
+against 8.58 for the best FP32 CPU run (OpenVINO on the same folded network at
+the pipeline's own resize; 5.12 at the 960x960 canvas), so 1.02x at batch 1
+and 1.85x batched. The OCR pipeline itself runs image by image.
 
 PIDNet compiled whole collapses in INT8 (logit cosine about 0, also with the
 quantized model on the CPU): the loss starts in its pyramid pooling module's
