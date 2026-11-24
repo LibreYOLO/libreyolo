@@ -4329,6 +4329,13 @@ def _identity_entry(t: torch.Tensor) -> torch.Tensor:
     )
 
 
+def _dense_identity_entry(t: torch.Tensor) -> torch.Tensor:
+    """A dense 1x1 identity convolution: ``_identity_entry`` for a part input under the hybrid scheme, which
+    gives a depthwise conv's input per-channel ranges (the SDK then cannot strip the input quantization)."""
+    c = t.shape[1]
+    return torch.nn.functional.conv2d(t, torch.eye(c, dtype=t.dtype, device=t.device).reshape(c, c, 1, 1))
+
+
 class _RRDBPart(torch.nn.Module):
     """One compiled part of Real-ESRGAN's RRDB network (x4) on Metis (``graph_outputs_v1``).
 
@@ -4343,11 +4350,14 @@ class _RRDBPart(torch.nn.Module):
     output_windows: ClassVar[dict] = {}
     _NAMES = {"head": ("skip", "mid"), "tail": ("body",), "upsample": ("restored",)}
 
-    def __init__(self, net: torch.nn.Module, role: str, split: int):
+    def __init__(self, net: torch.nn.Module, role: str, split: int, dense_entry: bool = False):
         super().__init__()
         # ``holder``: the attribute name becomes the ONNX initializer prefix (holder.conv_first.weight, ...),
         # the names of the graphs that were compiled and measured.
         self.holder, self.role, self.split = net, role, int(split)
+        # Under the hybrid scheme a depthwise identity entry on the tail's graph input gets per-channel ranges
+        # and fails the SDK's input-quantization pass; a dense identity 1x1 conv is the same function.
+        self.dense_entry = bool(dense_entry)
         self.output_names = self._NAMES[role]
         self.upscale = int(getattr(net, "scale", 4))
         # x2 (and x1) checkpoints pixel-unshuffle the input first (factor 2 / 4): an exact one-hot
@@ -4370,7 +4380,8 @@ class _RRDBPart(torch.nn.Module):
             skip = net.conv_first(x)
             return _identity_entry(skip), net.body[: self.split](skip)
         if self.role == "tail":
-            return (net.conv_body(net.body[self.split :](_identity_entry(x))),)
+            entry = _dense_identity_entry(x) if self.dense_entry else _identity_entry(x)
+            return (net.conv_body(net.body[self.split :](entry)),)
         feat = net.lrelu(net.conv_up1(F.interpolate(x, scale_factor=2, mode="nearest")))
         feat = net.lrelu(net.conv_up2(F.interpolate(feat, scale_factor=2, mode="nearest")))
         return (net.conv_last(net.lrelu(net.conv_hr(feat))),)
@@ -5473,7 +5484,12 @@ class AxeleraExporter(BaseExporter):
         """
         split = int(self._size_recipe()["rrdb_split"])
         net = copy.deepcopy(self._rrdb_network()).eval()
-        head, tail, upsample = (_RRDBPart(net, role, split).eval() for role in ("head", "tail", "upsample"))
+        from .axelera import DEPTHWISE_QUANTIZATION_SCHEME
+
+        dense = self._size_recipe().get("quantization_scheme") == DEPTHWISE_QUANTIZATION_SCHEME
+        head, tail, upsample = (
+            _RRDBPart(net, role, split, dense_entry=dense).eval() for role in ("head", "tail", "upsample")
+        )
         x = torch.zeros(1, 3, *imgsz)
         paths = [str(out.with_name(f"{out.name}.export_intermediate{tag}.onnx")) for tag in ("", ".part2", ".part3")]
         self._intermediate_paths = list(paths)
