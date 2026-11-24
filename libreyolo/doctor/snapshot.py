@@ -90,7 +90,7 @@ class ImageRecord:
     boxes: np.ndarray  # (n, 5) float32: cls, cx, cy, w, h (normalized)
     label_issues: list[LabelIssue] = field(default_factory=list)
     label_digest: Optional[str] = None  # sha1 of label bytes, None when empty
-    polygon_lines: int = 0  # >5-field rows consumed as polygons (like training)
+    polygon_lines: int = 0  # valid polygon rows consumed like training
     image_exists: bool = True  # txt-list splits can reference deleted files
     scan: Optional[ImageScan] = None  # filled by scan_images()
 
@@ -181,10 +181,16 @@ def parse_label_file(
 ) -> tuple[np.ndarray, list[LabelIssue], Optional[str], int]:
     """Parse one detection label file, mirroring what training accepts.
 
-    ``YOLODataset._load_label`` takes any line with >= 5 fields: exactly 5 is
-    a box, more is a polygon whose extent becomes the box. Doctor does the
-    same so a dataset that trains never gets false syntax errors; polygon
-    rows are counted separately (``labels.polygon_line`` reports them).
+    Training and validation read lines with ``parse_yolo_label_line``: 5
+    numeric, finite fields are a box; more are a polygon whose extent becomes
+    the box, but only with an even coordinate count and at least 3 x,y pairs.
+    Every line training drops for its format is returned as a ``LabelIssue``
+    (``labels.syntax``) instead of a box, so a dataset that trains never gets
+    false syntax errors and no such line is counted as an instance. Class
+    and geometry problems are left to their own checks. Valid polygon rows
+    are counted separately (``labels.polygon_line`` reports them).
+    ``field_counts`` tallies every numeric, finite line, malformed polygons
+    included, so the format guard still sees pose rows (e.g. 56 fields).
     """
     boxes: list[list[float]] = []
     issues: list[LabelIssue] = []
@@ -216,6 +222,15 @@ def parse_label_file(
         # task shape, not by how garbage happens to split into fields.
         field_counts[len(parts)] += 1
         if len(parts) > 5:
+            if len(vals) < 6 or len(vals) % 2:
+                issues.append(
+                    LabelIssue(
+                        line_no,
+                        f"{len(parts)} fields: neither a box (5 fields) nor a "
+                        "polygon (even coordinate count, at least 3 x,y pairs)",
+                    )
+                )
+                continue
             polygon_lines += 1
             cx, cy, w, h = polygon_to_cxcywh(vals)
             boxes.append([float(cls_id), cx, cy, w, h])

@@ -28,7 +28,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Recognition",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-readme = "README.md"
+dynamic = ["readme"]  # the PyPI page, built from README.md by setup.py (#1057)
 requires-python = ">=3.10"
 license = "MIT"
 license-files = [
@@ -48,7 +48,9 @@ dependencies = [
     "torchvision>=0.19.0",
     "PyYAML>=6.0",
     "requests>=2.25.0",
-    "opencv-python>=4.11.0.86",
+    # 5.1.0.95 ships its macOS arm64 wheel for macOS 15+ only, so macOS 14
+    # installs build it from source; stay below it until that changes.
+    "opencv-python>=4.11.0.86,<5.1",
     "mss>=9.0.1",
     "tqdm>=4.65.0",
     "pycocotools>=2.0.0",
@@ -141,6 +143,12 @@ midas = [
     # MiDaS's official ViT-L/16 and EfficientNet-Lite3 encoders. The bounded
     # 1.0 series preserves the checkpoint keys and bitwise parity validated by
     # the native port without relying on MiDaS's historical Torch Hub fetch.
+    "timm>=1.0.28,<1.1",
+]
+depthpro2 = [
+    # Depth Pro 2 builds its DINOv3 EVA ViT backbones and FoV head blocks via
+    # timm (pretrained=False). Bounded to the validated 1.0 series so checkpoint
+    # keys and FP32 outputs remain bit-identical to upstream.
     "timm>=1.0.28,<1.1",
 ]
 lora = [
@@ -409,6 +417,7 @@ all = [
     "libreyolo[rfdetr]",
     "libreyolo[eomt]",
     "libreyolo[midas]",
+    "libreyolo[depthpro2]",
     "libreyolo[lora]",
     "libreyolo[plots]",
     "libreyolo[tensorrt]",
@@ -472,6 +481,8 @@ libreyolo = [
     "models/yolo7/*.yaml",
     "models/**/NOTICE",
     "models/**/LICENSE",
+    "models/**/LICENSE_MODEL",
+    "models/**/ACKNOWLEDGEMENTS",
     "models/**/*.md",
 ]
 
@@ -672,6 +683,7 @@ markers = [
     "fcn: tests covering the FCN semantic-segmentation family",
     "ppliteseg: tests covering the PP-LiteSeg semantic-segmentation family",
     "unet: tests covering the U-Net semantic-segmentation family",
+    "ddrnet: tests covering the DDRNet semantic-segmentation family",
     "fcos: tests covering the FCOS model family",
     "deformable_detr: tests covering the Deformable DETR model family",
     "dinodetr: tests covering the DINO-DETR model family",
@@ -711,6 +723,7 @@ markers = [
     "raft: tests covering the RAFT optical flow family",
     "memfof: tests covering the MEMFOF three-frame optical flow family",
     "video_depth_anything: tests covering the Video Depth Anything depth sequence family",
+    "depthpro2: tests covering the Depth Pro 2 metric image & video depth family",
     "searaft: tests covering the SEA-RAFT optical flow family",
     "flowseek: tests covering the FlowSeek optical flow family",
     "waft: tests covering the WAFT optical flow family",

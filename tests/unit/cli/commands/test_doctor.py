@@ -120,3 +120,31 @@ def test_doctor_pose_dataset_rejected(tmp_path):
     assert result.exit_code == 3
     payload = _parse_json_output(result.output)
     assert payload["error"] == "data_invalid"
+
+
+def test_doctor_coco_json_dataset_rejected(tmp_path):
+    root = tmp_path / "ds"
+    yaml_path = _make_dataset(root)
+    (root / "annotations").mkdir()
+    (root / "annotations" / "val.json").write_text(
+        json.dumps({"images": [], "annotations": [], "categories": []})
+    )
+    config = yaml.safe_load(yaml_path.read_text())
+    config["annotations"] = {"val": "annotations/val.json"}
+    yaml_path.write_text(yaml.safe_dump(config))
+    result = runner.invoke(_build_app(), ["doctor", str(yaml_path), "--fast", "--json"])
+    assert result.exit_code == 3
+    payload = _parse_json_output(result.output)
+    assert payload["error"] == "data_invalid"
+    assert "COCO JSON" in payload["message"]
+
+
+def test_doctor_pose_rows_rejected_without_kpt_shape(tmp_path):
+    # 56-field keypoint rows are invalid polygons, yet the format guard must
+    # still classify the dataset as pose instead of reporting syntax errors.
+    pose_row = "0 0.5 0.5 0.2 0.2 " + " ".join(["0.5 0.5 2"] * 17)
+    yaml_path = _make_dataset(tmp_path / "ds", label_line=f"{pose_row}\n" * 3)
+    result = runner.invoke(_build_app(), ["doctor", str(yaml_path), "--fast", "--json"])
+    assert result.exit_code == 3
+    payload = _parse_json_output(result.output)
+    assert payload["error"] == "data_invalid"

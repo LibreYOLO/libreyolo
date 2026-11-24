@@ -589,6 +589,21 @@ project the weights were derived from. Per-family summary:
              the Apache-2.0 license mmsegmentation declares for it. The
              Cityscapes dataset has separate terms and is not redistributed.
 
+    DDRNet (LibreDDRNet{s,m}-sem)                      MIT (implied)
+             upstream: ydhongHIT/DDRNet (MIT, commit de0db317, Copyright
+             2020 xingkong). Weights: the official DDRNet-23-slim and
+             DDRNet-23 Cityscapes checkpoints linked from the upstream README
+             (SHA-256 pinned in libreyolo/models/ddrnet/convert.py), hosted
+             under the repository's MIT license on an implied basis: upstream
+             states no separate weight terms, so this is LibreYOLO's
+             disclosed interpretation, not a publisher-confirmed license.
+             They were trained on Cityscapes, whose license restricts the
+             dataset and its derivatives to NON-COMMERCIAL use; the dataset
+             is not redistributed. The ImageNet-1K backbones used to
+             initialize training (LibreDDRNet{s,m,l}-imagenet) are byte-for-
+             byte mirrors of the upstream files on the same implied basis.
+             Upstream released no Cityscapes DDRNet-39 checkpoint.
+
     LingBot-Vision (LibreLingBotVision{s,b,l}-sem)     Apache-2.0
              upstream: robbyant/lingbot-vision (code and released backbone
              weights Apache-2.0, Copyright 2026 LingBot-Vision Contributors; backbone
@@ -1192,7 +1207,35 @@ mistralai/Mistral-Small-3.1-24B-Instruct-2503 @
 libreyolo/models/gen/speridlabs_irisz/NOTICE.
 
 
-LGM (LibreLGM 0.4b)                                     MIT
+Open Vision Banana (LibreOpenVisionBanana 4b, 9b)       FLUX Non-Commercial
+Perception as images: segmentation, depth, normals, editing, text-to-image
+--------------------------------------------------------------------------
+
+Upstream: FunAILab, https://huggingface.co/FunAILab/Open-Vision-Banana
+(code: https://github.com/OpenVisionBanana/OpenVisionBanana, Apache-2.0)
+License: FLUX Non-Commercial License,
+https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/blob/main/LICENSE.md
+(the weights are fine-tunes of FLUX.2 [klein] Base 4B and 9B).
+
+Redistributed by LibreYOLO as complete diffusers pipelines:
+
+LibreYOLO/LibreOpenVisionBanana4b @ f279d483b6b7bab1ed9e9e503436e8d25e630496
+LibreYOLO/LibreOpenVisionBanana9b @ 7a01bb2c1e9dd72678032beb126d2670cb724dd6
+
+The transformer is FunAILab's non-zero-shot paper checkpoint from
+FunAILab/Open-Vision-Banana @ be5da66250cc385ff9c75ebbe4114e13ec305848
+(4b: final_models/4B/nonzeroshot/checkpoint-avg90000-92500-97500-100000_uniform,
+9b: final_models/9B/nonzeroshot/checkpoint-avg82500-85000-87500-92500-97500_uniform),
+cast from float32 to bfloat16 and otherwise unchanged. Scheduler, Qwen3 text
+encoder, tokenizer and VAE are byte-identical copies of
+black-forest-labs/FLUX.2-klein-base-4B @ a3b4f4849157f664bdbc776fd7453c2783562f4d
+(Apache-2.0) and black-forest-labs/FLUX.2-klein-base-9B @
+32773329fbe7e81a90ef971740e8ba4b0364ecf3 (FLUX Non-Commercial License).
+Non-commercial use only. Section 2(e) of the license asks for content
+filtering or review of generated images before they are shared.
+
+
+LGM (LibreLGM 0.4b)                                    MIT
 Image-to-3D Gaussian splats
 ---------------------------
 
@@ -1566,3 +1609,27 @@ The checkpoints are fine-tuned on Cityscapes. Conversion (weights/convert_gtr_se
 LibreYOLO metadata without changing learned tensors.
 Converted checkpoints: LibreYOLO/LibreGTR{s,m,l,x}-sem. Download revisions are
 listed in LibreGTR.HF_TASK_REVISIONS.
+
+Depth Pro 2 (LibreDepthPro2{s,b,l,h}-depth)            apple-amlr (non-commercial)
+Upstream code: https://github.com/apple-aiml-research/ml-depth-pro-2
+               commit aa389cbb0b74341664ed663a0966c859905cd6c0
+               (Apple Sample Code License; see libreyolo/models/depthpro2/LICENSE)
+Upstream weights: Official Apple Hugging Face repositories at pinned commits:
+               apple/DepthPro2-S (903a1c1ade918831d138adcc4aedbcc8f4da0078)
+               apple/DepthPro2-B (85e67fdfb7f5b36a6f6c4495e6789d331b1d8a04)
+               apple/DepthPro2-L (849dc5461267e0bc006ec63ab46920ea1ed98702)
+               apple/DepthPro2-H (68426c789f75a7c760273e857222625b4fe69576)
+               apple/DepthPro2-focal (622659d44a2002cf9ae4333f2569afa938290d9a)
+Apple Machine Learning Research Model is licensed under the Apple Machine
+Learning Research Model License Agreement (apple-amlr), Copyright (C) 2026
+Apple Inc. All Rights Reserved.
+Under apple-amlr (see libreyolo/models/depthpro2/LICENSE_MODEL), redistribution
+is permitted exclusively for non-commercial Research Purposes with verbatim
+license text, attribution, and modification disclosure. Converted checkpoints
+(bundling apple/DepthPro2-focal under fov.* and LibreYOLO v1.0 metadata;
+learned tensors unchanged) are mirrored on LibreYOLO's Hugging Face org:
+LibreYOLO/LibreDepthPro2{s,b,l,h}-depth (checksum-pinned in
+libreyolo/models/depthpro2/convert.py, with non-commercial notices on every
+card and before every auto-download). Downstream users are solely responsible
+for complying with apple-amlr. Conversion/upload:
+weights/convert_depthpro2_weights.py, weights/upload_depthpro2_hf.py.

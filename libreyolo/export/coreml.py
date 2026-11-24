@@ -7,7 +7,7 @@ regardless of the family's internal preprocessing convention.
 
 Family conventions, mapped by the wrapper:
   * yolox            : BGR float in [0, 255]  (no normalization)
-  * yolo9 / rtdetr   : RGB float in [0, 1]   (identity)
+  * yolo9 / yolo9_p2 / yolo9_e2e / rtdetr : RGB float in [0, 1] (identity)
   * rfdetr           : RGB float, ImageNet (mean/std) normalized
 """
 
@@ -29,11 +29,17 @@ _IMAGENET_STD = (0.229, 0.224, 0.225)
 # Others fall outside the family-aware preprocess switch and have not been
 # validated end-to-end; block them up front rather than silently producing
 # a model with wrong normalization or untraceable graph.
-_SUPPORTED_FAMILIES = {"yolox", "yolo9", "rtdetr", "rfdetr"}
+# The YOLO9 siblings share YOLO9's head, export tensor ((B, 4 + C, N), xyxy +
+# class scores) and letterbox preprocessing; only the number of scales (P2)
+# or the head branch kept at inference (E2E one-to-one) differ.
+_YOLO9_FAMILIES = frozenset({"yolo9", "yolo9_p2", "yolo9_e2e"})
+_SUPPORTED_FAMILIES = {"yolox", "rtdetr", "rfdetr"} | _YOLO9_FAMILIES
 
-# Families that fundamentally cannot use Apple's NonMaximumSuppression
-# layer (DETR set-prediction: top-k over queries × classes, no IoU step).
+# Families that cannot use Apple's NonMaximumSuppression layer: they are
+# NMS-free by design (DETR set-prediction or a one-to-one head; top-k over
+# anchors/queries x classes, no IoU step).
 _NMS_FREE_FAMILIES = {
+    "yolo9_e2e": "YOLO9-E2E",
     "rfdetr": "RF-DETR",
     "rtdetr": "RT-DETR",
     "dfine": "D-FINE",
@@ -302,13 +308,13 @@ def export_coreml(
         precision: 'fp32' or 'fp16'.
         compute_units: 'all' | 'cpu_and_gpu' | 'cpu_and_ne' | 'cpu_only'.
         nms: If True, embed Apple's NonMaximumSuppression as a CoreML pipeline.
-            Not supported for DETR-style families (RT-DETR, RF-DETR, D-FINE,
-            DEIM, EC).
+            Not supported for NMS-free families (YOLO9-E2E, RT-DETR, RF-DETR,
+            D-FINE, DEIM, EC).
         iou: IoU threshold for embedded NMS (default 0.45). Ignored when nms=False.
         conf: Confidence threshold for embedded NMS (default 0.25). Ignored when nms=False.
         metadata: Dict of metadata to embed under user_defined_metadata.
-        model_family: Family string (yolox | yolo9 | rtdetr | rfdetr) — selects
-            the preprocess wrapper.
+        model_family: Family string (yolox | yolo9 | yolo9_p2 | yolo9_e2e |
+            rtdetr | rfdetr) — selects the preprocess wrapper.
 
     Returns:
         ``output_path`` on success.
@@ -325,9 +331,9 @@ def export_coreml(
         )
     if nms and family in _NMS_FREE_FAMILIES:
         raise NotImplementedError(
-            f"nms=True is not supported for {_NMS_FREE_FAMILIES[family]} "
-            "(DETR set-prediction). Export with nms=False and run NMS in your "
-            "application."
+            f"nms=True is not supported for {_NMS_FREE_FAMILIES[family]}: the "
+            "model is NMS-free (top-k decode, no IoU step). Export with "
+            "nms=False; LibreYOLO's CoreML backend decodes it without NMS."
         )
 
     yolo9_restore = None
@@ -337,7 +343,7 @@ def export_coreml(
             height=int(dummy.shape[2]),
             width=int(dummy.shape[3]),
         )
-    elif family == "yolo9":
+    elif family in _YOLO9_FAMILIES:
         yolo9_restore = _prepare_yolo9_static_eval(nn_model, dummy)
 
     wrapped = _wrap_for_family(nn_model.eval(), model_family).eval()

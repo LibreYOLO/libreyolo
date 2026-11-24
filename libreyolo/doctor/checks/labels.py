@@ -53,8 +53,9 @@ def check_syntax(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Finding]:
 
 @register("labels.polygon_line")
 def check_polygon_line(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Finding]:
-    """>5-field rows train fine (polygon extent becomes the box) but usually
-    mean a segmentation export ended up in a detection dataset."""
+    """Valid polygon rows (>5 fields) train fine (polygon extent becomes the
+    box) but usually mean a segmentation export ended up in a detection
+    dataset."""
     for split in _per_split(snap):
         offenders = [r.label_path for r in split.records if r.polygon_lines]
         n_rows = sum(r.polygon_lines for r in split.records)

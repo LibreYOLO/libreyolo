@@ -124,6 +124,7 @@ from .depth_anything3.model import (  # noqa: E402,F401  (import registers famil
     LibreDepthAnything3,
 )
 from .video_depth_anything.model import LibreVideoDepthAnything  # noqa: E402,F401  (depth sequence family; can_load keyed on head.motion_modules)
+from .depthpro2.model import LibreDepthPro2  # noqa: E402,F401  (metric image/video depth; can_load keyed on encoder.reassemble + decoder.fusions.0.deconv + head.1)
 from .searaft.model import LibreSEARAFT  # noqa: E402,F401  (flow-only; can_load keyed on 6-channel cnet + init_conv + 6-channel flow_head)
 from .unimatch.model import LibreUniMatch  # noqa: E402,F401  (flow-only; can_load keyed on GMFlow feature_flow_attn + transformer)
 from .dpflow.model import LibreDPFlow  # noqa: E402,F401  (flow-only; can_load keyed on the bidirectional fnet GRUs + lowres_stem)
@@ -142,6 +143,7 @@ from .swinir.model import LibreSwinIR  # noqa: E402,F401  (restore/super-resolut
 from .fcn.model import LibreFCN  # noqa: E402,F401  (semantic-only; FCN head + embedded ResNet fingerprint)
 from .eomt.model import LibreEoMT  # noqa: E402,F401  (semantic-only; EoMT query/mask keys are unique)
 from .deeplabv3.model import LibreDeepLabv3  # noqa: E402,F401  (semantic-only; ASPP branch/project keys are unique)
+from .ddrnet.model import LibreDDRNet  # noqa: E402,F401  (semantic-only; can_load needs down3/down4 + DAPPM + layer5_ and vetoes PIDNet's pag/diff/dfm modules)
 from .pidnet.model import LibrePIDNet  # noqa: E402,F401  (semantic-only; can_load uses PIDNet fusion keys)
 from .ppliteseg.model import LibrePPLiteSeg  # noqa: E402,F401  (semantic-only; can_load needs SPPM branches + UAFM 4->2->1 attention + PP-LiteSeg proj convs together)
 from .unet.model import LibreUNet  # noqa: E402,F401  (semantic-only; can_load needs encoder.4.1.convs + decoder interp_upsample + FCN heads together)
@@ -983,6 +985,7 @@ __all__ = [
     "LibreDexiNed",
     "LibreDepthAnything3",
     "LibreVideoDepthAnything",
+    "LibreDepthPro2",
     "LibreUniMatch",
     "LibreDPFlow",
     "LibreNAFNet",
@@ -1004,6 +1007,7 @@ __all__ = [
     "LibrePIDNet",
     "LibreRAFT",
     "LibreUNet",
+    "LibreDDRNet",
     "LibreSegformer",
     "LibreLingBotVision",
     "LibreViT",

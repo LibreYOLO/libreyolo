@@ -2052,3 +2052,24 @@ def test_rtmdet_ins_backend_skips_a_second_nms(task, kept):
         max_det=300,
     )
     assert len(result.boxes) == kept
+
+
+@pytest.mark.parametrize("family", ["yolo9", "yolo9_p2"])
+def test_yolo9_family_backends_use_class_aware_nms(family):
+    """Exported YOLO9 and YOLO9-P2 keep same-box multi-label detections, like
+    native batched NMS; class-agnostic NMS would drop the lower class (#1059)."""
+    backend = _DummyBackend(family)
+    boxes = np.array([[10.0, 10.0, 30.0, 30.0], [10.0, 10.0, 30.0, 30.0]], np.float32)
+
+    result = backend._build_result(
+        boxes,
+        np.array([0.9, 0.8], np.float32),
+        np.array([0, 1], np.int64),
+        orig_shape=(64, 64),
+        image_path=None,
+        iou=0.45,
+        classes=None,
+        max_det=300,
+    )
+
+    np.testing.assert_array_equal(result.boxes.cls.numpy().astype(np.int64), [0, 1])

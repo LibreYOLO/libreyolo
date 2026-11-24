@@ -178,6 +178,7 @@ class InstantHMRFineTuner:
         w_prior: float = 1.0,
         patience: int = 0,
         validate: bool = True,
+        eval_interval: int = 1,
         val_loss: bool = False,
     ):
         from ...data.utils import load_data_config
@@ -202,6 +203,7 @@ class InstantHMRFineTuner:
         )
         self.patience = int(patience)
         self.validate = bool(validate)
+        self.eval_interval = max(int(eval_interval), 1)
         self.val_loss = bool(val_loss)
         self.validate_validation_loss_config()
         self.seed = int(seed)
@@ -318,6 +320,7 @@ class InstantHMRFineTuner:
         out["metrics/loss"] = sums.get("loss", 0.0) / max(n, 1)
         return out
 
+    @torch.no_grad()
     def _validate(self, net, loader) -> dict[str, float]:
         net.eval()
         totals = {"2d": 0.0, "reproj": 0.0}
@@ -414,13 +417,18 @@ class InstantHMRFineTuner:
                     sums[k] = sums.get(k, 0.0) + float(v.detach())
                 n += 1
             record = {f"train/{k}": v / max(n, 1) for k, v in sums.items()}
-            if val_loader is not None:
+            # Validate every eval_interval epochs and always on the last one.
+            due = (epoch + 1) % self.eval_interval == 0 or epoch + 1 == self.epochs
+            if val_loader is not None and due:
                 record.update(
                     {f"val/{k}": v for k, v in self._validate(net, val_loader).items()}
                 )
                 if self.val_loss:
                     record.update(self._validation_loss(net, teacher, val_loader))
             score = record.get("val/reproj", record["train/reproj"])
+            # With validation on, only validated epochs compete for best.pt.
+            if val_loader is not None and not due:
+                score = math.inf
             record["epoch"] = epoch + 1
             history.append(record)
             logger.info(
@@ -434,7 +442,7 @@ class InstantHMRFineTuner:
             if score < best:
                 best, best_epoch = score, epoch + 1
                 self._save(net, best_path, epoch + 1, record)
-            elif self.patience and epoch + 1 - best_epoch >= self.patience:
+            elif self.patience and (val_loader is None or due) and epoch + 1 - best_epoch >= self.patience:
                 logger.info(
                     "InstantHMR: no improvement for %d epochs, stopping.", self.patience
                 )

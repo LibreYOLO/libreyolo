@@ -62,6 +62,7 @@ in preflight.
 | florence2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | flowseek | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | flux2_klein | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| open_vision_banana | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | fomo | point | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  | ✓ |
 | gemma4 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | glmocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -119,6 +120,7 @@ in preflight.
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | available | ✓ |  |  | ✓ |
 | picosam3 | segment | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
 | pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
+| ddrnet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | available |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -196,14 +198,15 @@ in preflight.
 | yolo4 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo7 | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo9 | detect | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ |
-| yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ |
-| yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ | available |  |  | ✓ |
+| yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ |
+| yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ | available |  | available | ✓ |
 | yolonas | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ |
 | yolonas | pose | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  | ✓ | ✓ |  |  |  |
 | yolonas | obb | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | yolox | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ | ✓ | available | ✓ |
 | zipdepth | depth | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  | ✓ |  |  | ✓ |
 | trellis2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| depthpro2 | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
 
 ## Parity thresholds
 
@@ -736,8 +739,10 @@ These converter paths are callable with the recorded validation context.
 - `yolo9` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
 - `yolo9_e2e` / `detect` / `tensorrt`: Repeated TensorRT 10.16 FP32 engine builds with the permissively licensed trained checkpoint alternate between public top-k class drift and parity.
 - `yolo9_e2e` / `detect` / `rknn`: Exact small variants passed RKNN Toolkit2 2.3.2 compilation, RK3588 PC-simulator raw-output gates, and matched post-NMS detections on a real image. Support is limited to YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s; on-device latency and parity have not been measured. Constraint: RKNN Toolkit2 2.3.2, RK3588 PC simulator, vendor floating build, batch 1, fixed square input
+- `yolo9_e2e` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
 - `yolo9_p2` / `detect` / `tensorrt`: TensorRT 10.16 FP32 exports and reloads, but the pinned permissive YOLO9 transfer fixture changes the public top-k class membership.
 - `yolo9_p2` / `detect` / `ncnn`: The SHA-pinned MIT YOLO9 transfer fixture exports, reloads, and preserves raw NCNN parity, but changes near-noise public top-k classes and produces no detections above 0.05 on the bundled real image.
+- `yolo9_p2` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
 - `yolonas` / `detect` / `tensorrt`: A deterministic synthetic trained fixture exports, reloads, and passes public predict parity, but image signal is only 4 to 5 times the TensorRT conversion error.
 - `yolonas` / `detect` / `rknn`: Exact small variants passed RKNN Toolkit2 2.3.2 compilation, RK3588 PC-simulator raw-output gates, and matched post-NMS detections on a real image. Support is limited to YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s; on-device latency and parity have not been measured. Constraint: RKNN Toolkit2 2.3.2, RK3588 PC simulator, vendor floating build, batch 1, fixed square input
 - `yolonas` / `pose` / `tensorrt`: A deterministic synthetic trained fixture exports, reloads, and passes public predict parity, but image signal is only 2 to 6 times the TensorRT conversion error.
@@ -1251,6 +1256,19 @@ These converter paths are callable with the recorded validation context.
 - `flux2_klein` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `tensorrt`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `openvino`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `paddle`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `mnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `rknn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `axelera`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `ncnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `fomo` / `point` / `paddle`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `mnn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `rknn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
@@ -1883,6 +1901,19 @@ These converter paths are callable with the recorded validation context.
 - `pidnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
+- `ddrnet` / `semantic` / `onnx`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `tensorrt`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `openvino`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `axelera`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ppdoclayoutv3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -2657,10 +2688,8 @@ These converter paths are callable with the recorded validation context.
 - `yolo7` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo7` / `detect` / `tflite`: The converted LiteRT graph changes decoded box coordinates beyond the detector parity tolerance.
 - `yolo7` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
-- `yolo9_e2e` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo9_p2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo9_p2` / `detect` / `tflite`: onnx2tf 2.6.9 exports a runnable artifact, but public top-k class membership changes after LiteRT 2.1.2 conversion.
-- `yolo9_p2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolonas` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolonas` / `pose` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolonas` / `pose` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -2695,3 +2724,16 @@ These converter paths are callable with the recorded validation context.
 - `trellis2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `depthpro2` / `depth` / `onnx`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `torchscript`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `executorch`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `tensorrt`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `openvino`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `paddle`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `mnn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `rknn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `axelera`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `ncnn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `tflite`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `coreml`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `coreai`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.

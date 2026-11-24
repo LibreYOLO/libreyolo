@@ -129,8 +129,10 @@ class LibrePIDNet(BaseModel):
         keys = _canonical_state_dict_keys(weights_dict)
         has_stem = "conv1.0.weight" in keys
         has_head = "final_layer.conv2.weight" in keys
+        # DAPPM (``spp.``) is shared with DDRNet, PIDNet's ancestor, so only
+        # the PID-specific fusion modules count as evidence here.
         has_pid_modules = any(
-            key.startswith(("pag3.", "pag4.", "diff3.", "diff4.", "spp.", "dfm."))
+            key.startswith(("pag3.", "pag4.", "diff3.", "diff4.", "dfm."))
             for key in keys
         )
         return has_stem and has_head and has_pid_modules

@@ -79,6 +79,37 @@ Video Depth Anything (Apache License 2.0)
     plain Python/torch. The DINOv2 encoder and DPT head are reused from the
     depth_anything family.
 
+Depth Pro 2 (Apple Sample Code License; apple-amlr non-commercial weights,
+mirrored under that license)
+    Path:    libreyolo/models/depthpro2/
+    License: libreyolo/models/depthpro2/LICENSE (code)
+             libreyolo/models/depthpro2/LICENSE_MODEL (weights)
+             libreyolo/models/depthpro2/ACKNOWLEDGEMENTS
+             libreyolo/models/depthpro2/NOTICE
+    Source:  https://github.com/apple-aiml-research/ml-depth-pro-2
+    Commit:  aa389cbb0b74341664ed663a0966c859905cd6c0
+
+    The Depth Pro 2 network, encoder, decoder, field-of-view estimator, and
+    streaming modules (encoder.py, decoder.py, fov.py, streaming.py, nn.py,
+    and the EXIF helper in utils.py) are derived from Apple's ml-depth-pro-2
+    repository and remain governed by the Apple Sample Code License
+    (Copyright (C) 2026 Apple Inc. All Rights Reserved.). These terms apply
+    only to the Depth Pro 2 subtree listed above; the rest of LibreYOLO
+    remains under the MIT License.
+
+    Official pretrained weights (apple/DepthPro2-{S,B,L,H} and
+    apple/DepthPro2-focal) are licensed under the Apple Machine Learning
+    Research Model License Agreement (apple-amlr), Copyright (C) 2026 Apple
+    Inc. All Rights Reserved., which restricts use and redistribution
+    exclusively to non-commercial Research Purposes. Converted checkpoints
+    (bundling apple/DepthPro2-focal under fov.* with LibreYOLO v1.0
+    metadata; learned tensors unchanged) are mirrored on LibreYOLO's
+    Hugging Face organization (LibreYOLO/LibreDepthPro2{s,b,l,h}-depth)
+    with verbatim LICENSE_MODEL, attribution NOTICE, and non-commercial
+    banners, checksum-pinned in libreyolo/models/depthpro2/convert.py; the
+    loader prints the non-commercial notice before every automatic
+    download.
+
 SenseNova-Vision / Bagel (Apache License 2.0 code; CC BY-NC 4.0 weights,
 mirrored under that license)
     Path:    libreyolo/models/sensenova/
@@ -914,8 +945,9 @@ Speridlabs Iris-Z (Apache License 2.0)
              Copyright 2026 SperidLabs.
 
     The Iris-Z transformer forward pass (FLUX.2 with a modality embedding
-    and per-grid noise levels), the text-to-image and image-to-depth
-    samplers, the schedule, the depth decoding and the prompt embedders are
+    and per-grid noise levels), the text-to-image, image-to-depth,
+    depth-to-image and joint image-plus-depth samplers, the schedule, the
+    depth encoding and decoding and the prompt embedders are
     ported from the Apache-2.0 Iris-Z SDK, whose model code is from FLUX.2 by
     Black Forest Labs (Apache-2.0, https://github.com/black-forest-labs/flux2).
     The FLUX.2 VAE runs through diffusers. Weights are not redistributed:

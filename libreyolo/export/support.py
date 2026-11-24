@@ -1499,7 +1499,7 @@ _add(
 )
 _add(
     "available",
-    ("yolox", "yolo9", "rtdetr", "rfdetr"),
+    ("yolox", "yolo9", "yolo9_p2", "yolo9_e2e", "rtdetr", "rfdetr"),
     ("detect",),
     ("coreml",),
     reason="Conversion is available, but runtime parity requires a macOS runner.",
@@ -3923,6 +3923,12 @@ _FAMILY_BLOCKS = {
         "Video Depth Anything rejects export for every format: the network "
         "reads a 32-frame window and windows are stitched on the host, which "
         "the single-image depth export contract does not describe."
+    ),
+    "depthpro2": (
+        "Depth Pro 2 rejects export for every format: the network uses dynamic "
+        "multi-frame cross-attention with host-side window streaming and an "
+        "auxiliary variable-resolution FoV estimator, which the single-image "
+        "depth export contract does not describe."
     ),
     "marigold_v2": "Marigold V2 quantized diffusion export has not been integrated or validated.",
     "speridlabs_irisz": (

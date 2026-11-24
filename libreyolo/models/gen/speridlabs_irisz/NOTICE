@@ -17,8 +17,9 @@ resolution choice and seed ensembling are the SDK's own (iris_z/rgbd.py,
 iris_z/depth.py, iris_z/pipeline.py).
 
 The port covers inference: the transformer forward pass Iris-Z samples with
-(nn.py), the text-to-image and image-to-depth samplers, the schedule and the
-depth decoding (pipeline.py), and the prompt embedders (text.py). Parameter
+(nn.py), the text-to-image, image-to-depth, depth-to-image and joint
+image-plus-depth samplers, the schedule, the depth encoding and decoding and
+the grayscale depth-map reader (pipeline.py), and the prompt embedders (text.py). Parameter
 names mirror upstream so the released safetensors load with strict=True.
 Changes from upstream: the reference-image KV-cache paths of the FLUX.2
 transformer, which Iris-Z does not use, are left out, so attention is one

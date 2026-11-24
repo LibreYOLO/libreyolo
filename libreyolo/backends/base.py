@@ -4371,6 +4371,7 @@ class BaseBackend(ABC):
                 "rtmdet",
                 "ssd",
                 "yolo9",
+                "yolo9_p2",
                 "yolonas",
                 "yolox",
             ):

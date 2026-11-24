@@ -534,3 +534,233 @@ def test_missing_coremltools_message_names_python_314(monkeypatch):
     monkeypatch.setattr(coreml_export.sys, "platform", "darwin")
     with pytest.raises(ImportError, match="Use Python 3.13 or earlier"):
         coreml_export._require_coremltools()
+
+
+class TestYolo9SiblingFamilies:
+    """YOLO9-P2 and YOLO9-E2E reuse YOLO9's CoreML contract (#1059)."""
+
+    @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
+    @pytest.mark.parametrize("precision", ["fp32", "fp16"])
+    def test_export_accepts_family(self, tmp_path, monkeypatch, family, precision):
+        fake, mlmodel = _patch_ct(monkeypatch)
+        from libreyolo.export.coreml import export_coreml
+
+        export_coreml(
+            _DummyModel().eval(),
+            torch.randn(1, 3, 64, 64),
+            output_path=str(tmp_path / "m.mlpackage"),
+            precision=precision,
+            metadata={"model_family": family, "precision": precision},
+            model_family=family,
+        )
+
+        expected = "FLOAT16" if precision == "fp16" else "FLOAT32"
+        assert fake.convert.call_args.kwargs["compute_precision"] == expected
+        assert mlmodel.user_defined_metadata["model_family"] == family
+        assert mlmodel.user_defined_metadata["precision"] == precision
+
+    def test_e2e_rejects_embedded_nms(self, tmp_path, monkeypatch):
+        _patch_ct(monkeypatch)
+        from libreyolo.export.coreml import export_coreml
+
+        with pytest.raises(NotImplementedError, match="YOLO9-E2E"):
+            export_coreml(
+                _DummyModel().eval(),
+                torch.randn(1, 3, 64, 64),
+                output_path=str(tmp_path / "m.mlpackage"),
+                nms=True,
+                model_family="yolo9_e2e",
+            )
+
+    def test_p2_low_level_rejects_embedded_nms(self):
+        """Apple's NMS layer is class-agnostic and the reader keeps one class
+        per box, so P2 (multi-label, class-aware natively) stays blocked."""
+        from libreyolo.export.coreml import _NMSOutputAdapter
+
+        with pytest.raises(NotImplementedError, match="yolo9_p2"):
+            _NMSOutputAdapter(_DummyModel(), "yolo9_p2")(torch.zeros(1, 3, 8, 8))
+
+    @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
+    def test_exporter_preflight_nms_routing(self, monkeypatch, family):
+        from libreyolo.export.exporter import BaseExporter, CoreMLExporter
+
+        calls = []
+        monkeypatch.setattr(
+            BaseExporter, "_preflight", lambda self, **kw: calls.append(kw)
+        )
+        exporter = CoreMLExporter.__new__(CoreMLExporter)
+        exporter.model = SimpleNamespace(_get_model_name=lambda: family, task="detect")
+
+        match = "NMS-free" if family == "yolo9_e2e" else "YOLOX and YOLO9 detection"
+        with pytest.raises(NotImplementedError, match=match):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+        assert not calls
+        # Without nms the family passes straight through to the shared checks.
+        exporter._preflight(half=False, int8=False, data=None, nms=False)
+        assert len(calls) == 1
+
+    @pytest.mark.parametrize("family", ["yolo9_p2", "yolo9_e2e"])
+    def test_backend_letterboxes_like_yolo9(self, family):
+        from libreyolo.backends.coreml import CoreMLBackend
+        from libreyolo.preprocess.yolo9 import preprocess_numpy
+
+        backend = CoreMLBackend.__new__(CoreMLBackend)
+        backend.model_family = family
+        backend.letterbox_pad = "topleft"
+        image = np.random.default_rng(0).integers(0, 256, (72, 128, 3), np.uint8)
+
+        tensor, _img, _size, ratio = backend._preprocess(image, 64, "rgb")
+
+        expected, expected_ratio = preprocess_numpy(image, 64, letterbox_pad="topleft")
+        assert ratio == expected_ratio
+        np.testing.assert_allclose(tensor[0].numpy() / 255.0, expected, atol=1e-6)
+
+    def test_backend_family_set_matches_exporter(self):
+        from libreyolo.backends.coreml import _YOLO9_FAMILIES as backend_families
+        from libreyolo.export.coreml import _YOLO9_FAMILIES as export_families
+
+        assert backend_families == export_families
+
+
+_COREML_VAL_PARITY_CASES = [
+    ("yolo9", (48, 64, 3)),
+    ("yolo9_p2", (48, 64, 3)),
+    ("yolo9_e2e", (48, 64, 3)),
+    # YOLOX native predict() uses PIL bilinear while YOLOXValPreprocessor uses
+    # cv2 linear; (48, 64) exercises letterbox padding + BGR->RGB at scale 1.
+    ("yolox", (48, 64, 3)),
+    ("rtdetr", (64, 64, 3)),
+    ("rfdetr", (64, 64, 3)),
+]
+
+
+def _make_stub_coreml_backend(family: str, seen: list, *, input_channels: int = 3):
+    from libreyolo.backends.coreml import CoreMLBackend
+
+    backend = CoreMLBackend.__new__(CoreMLBackend)
+    backend.model_family = family
+    backend.task = "detect"
+    backend.imgsz = 64
+    backend.letterbox_pad = "topleft"
+    backend.output_names = ["out"]
+    backend._fixed_input_hw = None
+    backend.input_channels = input_channels
+    backend.model = MagicMock()
+    backend.model.predict.side_effect = lambda feed: (
+        seen.append((feed["image"].mode, np.asarray(feed["image"]).copy()))
+        or {"out": np.zeros((1, 1), dtype=np.float32)}
+    )
+    return backend
+
+
+def test_val_pixel_parity_covers_all_supported_coreml_families():
+    from libreyolo.export.coreml import _SUPPORTED_FAMILIES
+
+    tested = {family for family, _shape in _COREML_VAL_PARITY_CASES}
+    assert tested == _SUPPORTED_FAMILIES
+
+
+@pytest.mark.parametrize(("family", "shape"), _COREML_VAL_PARITY_CASES)
+def test_val_and_predict_feed_coreml_identical_pixels(family, shape):
+    """val() hands _forward each family's val preprocessor tensor while
+    predict() hands _run_inference RGB bytes; both must reach CoreML as the
+    same RGB uint8 image (#1066, #1067)."""
+    seen = []
+    backend = _make_stub_coreml_backend(family, seen)
+    rgb = np.random.default_rng(0).integers(0, 256, shape, np.uint8)
+    rgb[0, 0] = (200, 100, 50)
+    # Include the full byte range 0..255 so rounding errors show up.
+    rgb[1:5, :, 0] = np.arange(256, dtype=np.uint8).reshape(4, 64)
+    rgb[5:9, :, 1] = np.arange(256, dtype=np.uint8).reshape(4, 64)
+    rgb[9:13, :, 2] = np.arange(256, dtype=np.uint8).reshape(4, 64)
+
+    blob, *_ = backend._preprocess(rgb, 64, "rgb")
+    backend._run_inference(blob.numpy())
+
+    val_preproc = backend._get_val_preprocessor(img_size=64)
+    val_img, _ = val_preproc(
+        np.ascontiguousarray(rgb[..., ::-1]), np.zeros((0, 5)), (64, 64)
+    )
+    backend._forward(torch.from_numpy(np.asarray(val_img, np.float32)).unsqueeze(0))
+
+    (predict_mode, predict_px), (val_mode, val_px) = seen
+    assert predict_mode == val_mode == "RGB"
+    assert val_px[0, 0].tolist() == [200, 100, 50]
+    np.testing.assert_array_equal(val_px, predict_px)
+
+
+@pytest.mark.parametrize(
+    "family", ["yolo9", "yolo9_p2", "yolo9_e2e", "rtdetr", "rfdetr"]
+)
+def test_val_and_predict_feed_coreml_identical_pixels_when_resized(family):
+    """Families whose native predict() and val() share OpenCV linear resize
+    must feed CoreML byte-identical pixels even on a non-square downscale."""
+    seen = []
+    backend = _make_stub_coreml_backend(family, seen)
+    rgb = np.random.default_rng(1).integers(0, 256, (91, 137, 3), np.uint8)
+
+    blob, *_ = backend._preprocess(rgb, 64, "rgb")
+    backend._run_inference(blob.numpy())
+
+    val_preproc = backend._get_val_preprocessor(img_size=64)
+    val_img, _ = val_preproc(
+        np.ascontiguousarray(rgb[..., ::-1]), np.zeros((0, 5)), (64, 64)
+    )
+    backend._forward(torch.from_numpy(np.asarray(val_img, np.float32)).unsqueeze(0))
+
+    (predict_mode, predict_px), (val_mode, val_px) = seen
+    assert predict_mode == val_mode == "RGB"
+    np.testing.assert_array_equal(val_px, predict_px)
+
+
+@pytest.mark.parametrize("family", ["rtdetr", "yolox", "rfdetr"])
+def test_val_forward_batched_feeds_exact_rgb_pixels(family):
+    """Batched val() falls back to per-image CoreML calls and must invert each
+    image's pixels accurately across the batch."""
+    seen = []
+    backend = _make_stub_coreml_backend(family, seen)
+    val_preproc = backend._get_val_preprocessor(img_size=64)
+
+    pixels = [(200, 100, 50), (30, 180, 240)]
+    batch = []
+    for px in pixels:
+        rgb = np.full((64, 64, 3), px, dtype=np.uint8)
+        val_img, _ = val_preproc(
+            np.ascontiguousarray(rgb[..., ::-1]), np.zeros((0, 5)), (64, 64)
+        )
+        batch.append(np.asarray(val_img, np.float32))
+
+    outputs = backend._forward(torch.from_numpy(np.stack(batch, axis=0)))
+
+    assert len(outputs) == 1
+    assert tuple(outputs[0].shape) == (2, 1)
+    assert len(seen) == 2
+    for (mode, arr), expected_px in zip(seen, pixels):
+        assert mode == "RGB"
+        assert arr[10, 10].tolist() == list(expected_px)
+
+
+@pytest.mark.parametrize("family", ["yolo9", "rtdetr", "yolox", "rfdetr"])
+def test_val_and_predict_grayscale_feed_coreml_identical_pixels(family):
+    """Grayscale validation carries three identical channels through the val
+    preprocessor; _forward must un-normalize before _fold_channels averages
+    them down to a single 'L' plane."""
+    seen = []
+    backend = _make_stub_coreml_backend(family, seen, input_channels=1)
+    gray = np.random.default_rng(1).integers(0, 256, (64, 64), np.uint8)
+    gray[0, 0] = 173
+    rgb_gray = np.repeat(gray[..., None], 3, axis=2)
+
+    blob, *_ = backend._preprocess(rgb_gray, 64, "rgb")
+    backend._run_inference(backend._fold_channels(blob.numpy()))
+
+    val_preproc = backend._get_val_preprocessor(img_size=64)
+    val_img, _ = val_preproc(
+        np.ascontiguousarray(rgb_gray[..., ::-1]), np.zeros((0, 5)), (64, 64)
+    )
+    backend._forward(torch.from_numpy(np.asarray(val_img, np.float32)).unsqueeze(0))
+
+    (predict_mode, predict_px), (val_mode, val_px) = seen
+    assert predict_mode == val_mode == "L"
+    assert int(val_px[0, 0]) == 173
+    np.testing.assert_array_equal(val_px, predict_px)

@@ -50,6 +50,51 @@ class TestLabelChecks:
         (f,) = findings_for(report, "labels.syntax")
         assert f.count == 1 and f.severity.value == "error"
 
+    @pytest.mark.parametrize(
+        "row",
+        [
+            pytest.param("0 0.5 0.5 0.2 0.2 0.87", id="box-plus-confidence"),
+            pytest.param("0 0.10 0.10 0.90 0.10 0.90 0.90 0.10", id="7-coordinates"),
+            pytest.param("0 0.10 0.10 0.90 0.10 0.90", id="5-coordinates"),
+        ],
+    )
+    def test_malformed_polygon_is_syntax_error(self, make_dataset, row):
+        # Training drops >5-field rows without a valid polygon, so doctor
+        # must report them, not count them as polygons or boxes. The 5-field
+        # box and the 3-vertex polygon next to it are positive controls.
+        ds = make_dataset()
+        clean(ds)
+        ds.label(
+            "train",
+            "a.txt",
+            f"0 0.5 0.5 0.2 0.2\n1 0.2 0.2 0.8 0.2 0.5 0.8\n{row}\n",
+        )
+        report = run_fast(ds)
+        (f,) = findings_for(report, "labels.syntax")
+        assert f.count == 1 and f.severity.value == "error"
+        (poly,) = findings_for(report, "labels.polygon_line")
+        assert poly.count == 1
+        assert "labels.degenerate_box" not in finding_ids(report)
+        assert report.stats["splits"]["train"]["instances"] == 4
+        assert {e.check_id for e in report.errors} == {"labels.syntax"}
+        assert report.exit_code() == 1
+
+    def test_only_confidence_rows_leave_no_instances(self, make_dataset):
+        ds = make_dataset()
+        rows = "0 0.5 0.5 0.2 0.2 0.87\n1 0.3 0.3 0.1 0.1 0.65\n"
+        ds.sample("train", "a.jpg", boxes=rows)
+        ds.sample("train", "b.jpg", boxes=rows)
+        ds.sample("val", "c.jpg", boxes=rows)
+        report = run_fast(ds)
+        assert {e.check_id for e in report.errors} == {"labels.syntax"}
+        assert report.exit_code() == 1
+        assert {s: v["instances"] for s, v in report.stats["splits"].items()} == {
+            "train": 0,
+            "val": 0,
+        }
+        assert sum(f.count for f in findings_for(report, "labels.syntax")) == 6
+        assert "labels.polygon_line" not in finding_ids(report)
+
     def test_class_out_of_range(self, make_dataset):
         ds = make_dataset()
         clean(ds)

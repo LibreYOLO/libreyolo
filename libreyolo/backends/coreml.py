@@ -14,11 +14,13 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import cv2
 import numpy as np
 import torch
 from PIL import Image
 
 from ..preprocess.letterbox import apply_letterbox_hwc, letterbox_geometry
+from ..preprocess.rfdetr import IMAGENET_MEAN, IMAGENET_STD
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.image_loader import ImageLoader
@@ -32,6 +34,10 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Families exported with YOLO9's letterbox preprocessing and (B, 4 + C, N)
+# output contract; mirrors libreyolo.export.coreml._YOLO9_FAMILIES.
+_YOLO9_FAMILIES = frozenset({"yolo9", "yolo9_p2", "yolo9_e2e"})
 
 
 def _to_compute_unit(compute_units: str):
@@ -313,7 +319,7 @@ class CoreMLBackend(BaseBackend):
             padded = Image.new("RGB", (input_w, input_h), (114, 114, 114))
             padded.paste(resized, (0, 0))
             chw = np.array(padded).transpose(2, 0, 1).astype(np.float32)
-        elif family == "yolo9":
+        elif family in _YOLO9_FAMILIES:
             # Same letterbox as the .pt (pad placement from export metadata).
             padded, ratio, _dx, _dy = apply_letterbox_hwc(
                 np.array(img),
@@ -323,8 +329,23 @@ class CoreMLBackend(BaseBackend):
                 fill=114,
             )
             chw = padded.transpose(2, 0, 1).astype(np.float32)
+        elif family == "rtdetr":
+            # Matches preprocess.rtdetr and RTDETRValPreprocessor (uint8 cv2 linear).
+            ratio = 1.0
+            resized = cv2.resize(
+                np.array(img), (input_w, input_h), interpolation=cv2.INTER_LINEAR
+            )
+            chw = resized.transpose(2, 0, 1).astype(np.float32)
+        elif family == "rfdetr":
+            # Matches preprocess.rfdetr and RFDETRValPreprocessor (float32 cv2 linear).
+            ratio = 1.0
+            resized = cv2.resize(
+                np.asarray(img, dtype=np.float32),
+                (input_w, input_h),
+                interpolation=cv2.INTER_LINEAR,
+            )
+            chw = resized.transpose(2, 0, 1)
         else:
-            # rtdetr, rfdetr: plain resize to the exported input.
             ratio = 1.0
             resized = img.resize((input_w, input_h), Image.Resampling.BILINEAR)
             chw = np.array(resized).transpose(2, 0, 1).astype(np.float32)
@@ -384,7 +405,7 @@ class CoreMLBackend(BaseBackend):
         elif family == "rtdetr":
             boxes[:, [0, 2]] *= orig_w
             boxes[:, [1, 3]] *= orig_h
-        elif family == "yolo9":
+        elif family in _YOLO9_FAMILIES:
             input_h, input_w = _imgsz_hw(effective_imgsz)
             ratio, _, _, dx, dy = letterbox_geometry(
                 orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
@@ -403,6 +424,47 @@ class CoreMLBackend(BaseBackend):
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
         return boxes, max_scores, class_ids, None
 
+    def _forward(self, input_tensor):
+        """Validation entry point: map the val preprocessor's tensor to bytes.
+
+        ``predict`` feeds ``_run_inference`` the RGB byte image from
+        ``_preprocess``; validation instead passes the family's val
+        preprocessor output:
+
+        - ``yolo9`` / ``yolo9_p2`` / ``yolo9_e2e`` / ``rtdetr``: RGB in [0, 1]
+        - ``yolox``: BGR in [0, 255]
+        - ``rfdetr``: ImageNet-normalized RGB
+
+        Invert each family's transform back to canonical RGB in [0, 255] so
+        the package's ``ImageType`` input sees the same pixels as ``predict``.
+        """
+        family = (self.model_family or "").lower()
+        is_3ch_batch = input_tensor.ndim == 4 and input_tensor.shape[1] == 3
+        if family in _YOLO9_FAMILIES or family == "rtdetr":
+            input_tensor = input_tensor * 255.0
+        elif family == "yolox" and is_3ch_batch:
+            input_tensor = input_tensor[:, [2, 1, 0], :, :]
+        elif family == "rfdetr" and is_3ch_batch:
+            if isinstance(input_tensor, torch.Tensor):
+                mean = torch.tensor(
+                    IMAGENET_MEAN,
+                    device=input_tensor.device,
+                    dtype=torch.float32,
+                ).view(1, 3, 1, 1)
+                std = torch.tensor(
+                    IMAGENET_STD,
+                    device=input_tensor.device,
+                    dtype=torch.float32,
+                ).view(1, 3, 1, 1)
+                input_tensor = (input_tensor.float() * std + mean) * 255.0
+            else:
+                mean = np.asarray(IMAGENET_MEAN, dtype=np.float32).reshape(1, 3, 1, 1)
+                std = np.asarray(IMAGENET_STD, dtype=np.float32).reshape(1, 3, 1, 1)
+                input_tensor = (
+                    np.asarray(input_tensor, dtype=np.float32) * std + mean
+                ) * 255.0
+        return super()._forward(input_tensor)
+
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run CoreML inference on a (1, 3, H, W) canonical RGB uint8 blob.
 
@@ -417,7 +479,7 @@ class CoreMLBackend(BaseBackend):
         self._check_fixed_input_size(blob, "CoreML")
 
         hwc = np.transpose(blob[0], (1, 2, 0))
-        uint8 = np.ascontiguousarray(np.clip(hwc, 0, 255).astype(np.uint8))
+        uint8 = np.ascontiguousarray(np.clip(np.rint(hwc), 0, 255).astype(np.uint8))
         # Grayscale packages (``channels: 1``) take an "L" image.
         pil = Image.fromarray(uint8[..., 0] if uint8.shape[2] == 1 else uint8)
 

@@ -106,6 +106,9 @@ RECTANGULAR_TRAINING_FAMILIES = {
     # U-Net S5-D16 is natively rectangular (512x1024 Cityscapes canvas);
     # encoder stride product is 16, not 32.
     "unet": 16,
+    # DDRNet's high-resolution branch runs at stride 8 and every fusion
+    # resizes the context branch to it, so any multiple of 8 lines them up.
+    "ddrnet": 8,
 }
 # Tasks each family may train on rectangularly. Detection is the historical
 # case and stays the default; a family whose rectangular support is not
@@ -113,6 +116,7 @@ RECTANGULAR_TRAINING_FAMILIES = {
 RECTANGULAR_TRAINING_TASKS = {
     "ppliteseg": frozenset({"semantic"}),
     "unet": frozenset({"semantic"}),
+    "ddrnet": frozenset({"semantic"}),
 }
 _DEFAULT_RECTANGULAR_TRAINING_TASKS = frozenset({"detect"})
 
@@ -1070,6 +1074,15 @@ class BaseTrainer(ABC):
         else:
             raise ValueError("Either 'data' or 'data_dir' must be specified")
 
+        # LibreDoctor reads YOLO .txt labels only. Decide here, before the
+        # mosaic wrapper hides which dataset class was picked.
+        uses_coco_json = isinstance(train_dataset, COCODataset) or (
+            bool(self.config.data)
+            and any(
+                get_coco_annotation_file(data_cfg, s) for s in ("train", "val", "test")
+            )
+        )
+
         self.config.num_classes = int(self.num_classes)
 
         mosaic_enabled = not load_obb
@@ -1155,7 +1168,7 @@ class BaseTrainer(ABC):
             _hint_task = getattr(
                 getattr(self, "wrapper_model", None), "task", "detect"
             )
-            if _hint_task == "detect" and self.config.data:
+            if _hint_task == "detect" and self.config.data and not uses_coco_json:
                 logger.info(
                     f"Tip: sanity-check your dataset for common issues first with "
                     f"`libreyolo doctor {self.config.data}`"

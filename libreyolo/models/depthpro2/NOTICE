@@ -1,0 +1,77 @@
+LibreYOLO Depth Pro 2 port — provenance and licensing notice
+============================================================
+
+Upstream project:
+  Repository:  https://github.com/apple-aiml-research/ml-depth-pro-2
+  Commit:      aa389cbb0b74341664ed663a0966c859905cd6c0
+  Paper:       "Depth Pro 2: Metric Depth Estimation for Images and Videos"
+               (arXiv:2611.26603, 2026)
+
+Code license (Apple Sample Code License):
+  The network, encoder, decoder, field-of-view estimator, and streaming
+  modules in this directory (encoder.py, decoder.py, fov.py, streaming.py,
+  nn.py, and the EXIF focal-length helper in utils.py) are derived from
+  Apple's ml-depth-pro-2 repository and remain governed by the Apple Sample
+  Code License. The verbatim license text is included in the accompanying
+  LICENSE file, along with upstream's ACKNOWLEDGEMENTS file.
+  Copyright (C) 2026 Apple Inc. All Rights Reserved.
+
+  Modifications for LibreYOLO:
+  - Flattened upstream's ``network/`` subpackage into ``libreyolo/models/depthpro2/``
+    and removed ``huggingface_hub.PyTorchModelHubMixin`` / ``snapshot_download``
+    from ``DepthPro2Net`` so the graph is pure PyTorch.
+  - Made ``timm`` imports lazy inside ``MultiViewEncoder``, ``eva_qkv_rope``,
+    ``FOVHead``, and ``FOVEstimator`` so importing LibreYOLO does not require
+    the optional ``libreyolo[depthpro2]`` extra until a Depth Pro 2 model is
+    instantiated.
+  - Added LibreYOLO ``BaseModel`` integration (``model.py``), checksum-pinned
+    checkpoint conversion (``convert.py``), and EXIF/intrinsics helpers
+    (``utils.py``).
+
+  All parameter names and module structures match upstream so official
+  checkpoints load with ``strict=True`` and produce bit-identical FP32 outputs.
+
+Model weights license (Apple Machine Learning Research Model License, apple-amlr):
+  Apple Machine Learning Research Model is licensed under the Apple Machine
+  Learning Research Model License Agreement.
+  Copyright (C) 2026 Apple Inc. All Rights Reserved.
+
+  The verbatim model weight license is included in the accompanying
+  LICENSE_MODEL file. Under apple-amlr, use and redistribution of the
+  pretrained Depth Pro 2 model weights are limited exclusively to
+  non-commercial Research Purposes.
+
+  Converted checkpoints (bundling DepthPro2-focal under ``fov.*`` with
+  LibreYOLO v1.0 metadata; learned parameters unchanged) are mirrored on
+  LibreYOLO's Hugging Face organization with verbatim LICENSE_MODEL,
+  attribution NOTICE, and non-commercial banners, checksum-pinned in
+  ``libreyolo/models/depthpro2/convert.py``:
+
+  - LibreYOLO/LibreDepthPro2s-depth (LibreDepthPro2s-depth.pt)
+    Mirror SHA-256:
+    79118a3c8d0a4aeccf50ef7e57e9544d028db97a788801b4337953131302f426
+    From apple/DepthPro2-S (rev 903a1c1ade918831d138adcc4aedbcc8f4da0078,
+    SHA-256 583c4d630779fd231f969c738733624963ad34bd3c29f9c64088257e3436f97c)
+  - LibreYOLO/LibreDepthPro2b-depth (LibreDepthPro2b-depth.pt)
+    Mirror SHA-256:
+    d230b836a71ca90741c2191c6463b53c84afdc77e8a75addf2f935de2fc6155d
+    From apple/DepthPro2-B (rev 85e67fdfb7f5b36a6f6c4495e6789d331b1d8a04,
+    SHA-256 244ff85e0d9bde6e0f985de1c61420abc4c2110265b495c974556225ac2b60ed)
+  - LibreYOLO/LibreDepthPro2l-depth (LibreDepthPro2l-depth.pt)
+    Mirror SHA-256:
+    7a39f1204de2d0e8461f3a44dbcd2afa4081864bd0f1e5f84b20b3c956157c27
+    From apple/DepthPro2-L (rev 849dc5461267e0bc006ec63ab46920ea1ed98702,
+    SHA-256 d799d8a91f2e8dc91715f9b33a405a1ff0727212041d206ebbb04e6c1424ff9f)
+  - LibreYOLO/LibreDepthPro2h-depth (LibreDepthPro2h-depth.pt)
+    Mirror SHA-256:
+    c5723f7d471d713a73c30e50c9d54c49d1bf86640af75fa4dfe6ee1bb02a0dea
+    From apple/DepthPro2-H (rev 68426c789f75a7c760273e857222625b4fe69576,
+    SHA-256 cfc532336019abd2128b04be2c2967175522e46de69222ef72b87c6675ee3b17)
+  - Companion focal estimator bundled in all four mirrors:
+    apple/DepthPro2-focal (rev 622659d44a2002cf9ae4333f2569afa938290d9a,
+    SHA-256 8f567d1c97ff916137288668f6bd306ce2094da2e2b852b0e4539dbb139c8c86)
+
+  Third-party runtime dependency:
+  - timm (Apache-2.0, https://github.com/huggingface/pytorch-image-models)
+    provides the DINOv3 EVA Vision Transformer architecture definitions
+    (instantiated with ``pretrained=False``; no Meta weights are downloaded).

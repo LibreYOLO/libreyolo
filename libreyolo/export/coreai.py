@@ -70,6 +70,21 @@ _ANCHOR_FREEZE_FAMILIES = {
     "rtmdet",
 }
 _DARKNET_FAMILIES = {"yolo1", "yolo2", "yolo3", "yolo4"}
+# Families whose FP16 Core AI artifact was converted, run, and compared with
+# the eager model (float32 I/O, ~0.3 px box error at 320). Other families keep
+# float32-only ops in their graphs (RF-DETR's transformer fails torch.export
+# once cast), so FP16 is refused up front rather than failing mid-conversion.
+_FP16_FAMILIES = frozenset({"yolo9", "yolo9_p2", "yolo9_e2e"})
+
+
+def check_fp16_family(model_family: str | None) -> None:
+    """Raise unless *model_family* has a verified FP16 Core AI path."""
+    family = (model_family or "").lower()
+    if family not in _FP16_FAMILIES:
+        raise NotImplementedError(
+            f"Core AI FP16 export is supported for {sorted(_FP16_FAMILIES)} "
+            f"only; export {family or 'this model'!s} with half=False."
+        )
 _RTDETR_STATIC_FAMILIES = {
     "rtdetr",
     "rtdetrv2",
@@ -283,7 +298,19 @@ def _rebake_rfdetr_pos_embed(nn_model: nn.Module, dummy: torch.Tensor):
         mod.shape = (h, w)
         mod._export = False
         try:
+            # The bake's antialiased bicubic has no CPU float16 kernel, so an
+            # FP16 export bakes from a float32 copy and casts the result back.
+            if prev_pe.dtype != torch.float32:
+                embeddings.position_embeddings = nn.Parameter(
+                    prev_pe.detach().float(), requires_grad=prev_pe.requires_grad
+                )
             mod.export()
+            baked = embeddings.position_embeddings
+            if baked.dtype != prev_pe.dtype:
+                embeddings.position_embeddings = nn.Parameter(
+                    baked.detach().to(prev_pe.dtype),
+                    requires_grad=baked.requires_grad,
+                )
         except Exception as exc:  # noqa: BLE001 - leave the graph to fail loudly
             logger.warning(
                 "Could not re-bake the RF-DETR position embedding for %dx%d "
@@ -627,6 +654,10 @@ def prepare_frozen_classifier_export(
 
     exporter = CoreAIExporter(model)
     half, int8 = exporter._validate(half, int8, data)
+    if half:
+        raise NotImplementedError(
+            "Core AI frozen-class export currently supports FP32 only."
+        )
     exporter._preflight(
         half=half,
         int8=int8,
@@ -635,6 +666,35 @@ def prepare_frozen_classifier_export(
     )
     metadata = exporter._build_metadata("fp32", False, None, imgsz=(height, width))
     return height, str(output_path), metadata
+
+
+def _outputs_to_float32(value: Any) -> Any:
+    if torch.is_tensor(value):
+        return value.float() if value.dtype == torch.float16 else value
+    if isinstance(value, tuple):
+        return tuple(_outputs_to_float32(item) for item in value)
+    if isinstance(value, list):
+        return [_outputs_to_float32(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _outputs_to_float32(item) for key, item in value.items()}
+    return value
+
+
+class _Float16Compute(nn.Module):
+    """Run an FP16 graph behind the FP32 input/output contract.
+
+    FP16 Core AI artifacts keep the same float32 input and outputs as FP32
+    ones (as Core ML's ``compute_precision=FLOAT16`` does), so consumers do not
+    change how they feed or read the model; only the weights and the
+    arithmetic in between are half precision.
+    """
+
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x: torch.Tensor) -> Any:
+        return _outputs_to_float32(self.model(x.to(torch.float16)))
 
 
 def export_coreai(
@@ -661,8 +721,13 @@ def export_coreai(
         raise NotImplementedError(
             "Core AI export uses a fixed input shape; dynamic=True is not supported."
         )
-    if precision != "fp32":
-        raise NotImplementedError("Core AI export currently supports FP32 only.")
+    if precision not in ("fp32", "fp16"):
+        raise NotImplementedError(
+            f"Core AI export supports FP32 and FP16 only, got {precision!r}."
+        )
+    half = precision == "fp16"
+    if half:
+        check_fp16_family(model_family)
     TorchConverter, get_decomp_table = _require_coreai()
 
     # Third-party defect workarounds; see coreai_compat for what and why.
@@ -681,12 +746,41 @@ def export_coreai(
     # Reuse one wrapper function in conversion and parity tests so the
     # reference cannot accidentally retain YOLO-NAS's raw training maps.
     wrapped = _wrap_coreai_contract(nn_model, model_family)
+    with ExitStack() as restore_stack:
+        if half:
+            # The wrapper is usually the caller's own module. Snapshot before
+            # casting so a direct call leaves it FP32 even if conversion fails
+            # (BaseExporter keeps its own snapshot on top of this one).
+            from .exporter import _restore_tensor_slots, _snapshot_tensor_slots
+
+            slots = _snapshot_tensor_slots(wrapped)
+            restore_stack.callback(_restore_tensor_slots, slots)
+            wrapped = wrapped.half()
+        return _convert_and_save(
+            wrapped,
+            dummy,
+            half=half,
+            model_family=model_family,
+            output_path=output_path,
+            metadata=metadata,
+            converter=(TorchConverter, get_decomp_table),
+        )
+
+
+def _convert_and_save(
+    wrapped, dummy, *, half, model_family, output_path, metadata, converter
+):
+    """Capture, lower, optimize and write the Core AI asset."""
+    TorchConverter, get_decomp_table = converter
 
     # Fixed-canvas preparation is scoped so both successful conversion and any
     # capture/lowering failure leave the caller's live model unchanged.
-    with _prepare_coreai_graph(wrapped, dummy, model_family):
+    prepare_dummy = dummy.to(torch.float16) if half else dummy
+    with _prepare_coreai_graph(wrapped, prepare_dummy, model_family):
+        capture = _Float16Compute(wrapped) if half else wrapped
+        capture_dummy = dummy.to(torch.float32) if half else dummy
         logger.info("Step 1/3: Capturing the graph with torch.export")
-        exported = torch.export.export(wrapped, args=(dummy,))
+        exported = torch.export.export(capture, args=(capture_dummy,))
 
         logger.info("Step 2/3: Lowering to Core AI IR")
         table = dict(get_decomp_table())

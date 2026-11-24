@@ -280,6 +280,49 @@ def test_fine_tune_runs_and_reloads(nano_checkpoint, tmp_path):
     assert torch.equal(before["body.base_shape"], after["body.base_shape"])
 
 
+def test_fine_tune_accepts_val_false_with_eval_interval_zero(nano_checkpoint, tmp_path):
+    data = _write_pose_dataset(tmp_path / "data")
+    model = LibreInstantHMR(
+        str(nano_checkpoint), size="n", device="cpu", person_detector=None
+    )
+    results = model.train(
+        data=data,
+        epochs=1,
+        batch=2,
+        workers=0,
+        project=str(tmp_path / "runs"),
+        val=False,
+        eval_interval=0,
+    )
+    assert not any(key.startswith("val/") for key in results["history"][0])
+
+
+def test_fine_tune_honours_eval_interval(nano_checkpoint, tmp_path):
+    data = _write_pose_dataset(tmp_path / "data")
+    model = LibreInstantHMR(
+        str(nano_checkpoint), size="n", device="cpu", person_detector=None
+    )
+    results = model.train(
+        data=data,
+        epochs=3,
+        batch=2,
+        workers=0,
+        project=str(tmp_path / "runs"),
+        eval_interval=2,
+    )
+    validated = [r["epoch"] for r in results["history"] if "val/reproj" in r]
+    assert validated == [2, 3]  # every 2nd epoch, plus the last
+    assert results["best_epoch"] in validated
+    # Patience only counts scored epochs: it cannot stop before the first validation.
+    patient = model.train(
+        data=data, epochs=3, batch=2, workers=0, project=str(tmp_path / "runs"),
+        eval_interval=3, patience=1,
+    )
+    assert [r["epoch"] for r in patient["history"]] == [1, 2, 3]
+    with pytest.raises(ValueError, match="eval_interval"):
+        model.train(data=data, epochs=1, project=str(tmp_path / "runs"), eval_interval=-1)
+
+
 def test_fine_tune_rejects_non_coco17(nano_checkpoint, tmp_path):
     data = _write_pose_dataset(tmp_path / "data")
     path = Path(data)

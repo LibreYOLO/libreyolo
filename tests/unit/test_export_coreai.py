@@ -40,10 +40,10 @@ def test_coreai_format_defaults_static_and_rejects_dynamic(monkeypatch):
         exporter(dynamic=True)
 
 
-def test_coreai_rejects_unsupported_precision():
+def test_coreai_accepts_fp16_and_rejects_int8():
     exporter = CoreAIExporter(_Wrapper())
-    with pytest.raises(NotImplementedError, match="FP16"):
-        exporter._validate(True, False, None)
+    assert exporter._validate(True, False, None) == (True, False)
+    assert CoreAIExporter.apply_model_half is True
     with pytest.raises(NotImplementedError, match="INT8"):
         exporter._validate(False, True, None)
 
@@ -53,8 +53,41 @@ def test_low_level_coreai_rejects_dynamic_and_precision_before_import():
     dummy = torch.zeros(1, 3, 8, 8)
     with pytest.raises(NotImplementedError, match="dynamic=True"):
         coreai.export_coreai(model, dummy, output_path="unused", dynamic=True)
+    with pytest.raises(NotImplementedError, match="FP32 and FP16 only"):
+        coreai.export_coreai(model, dummy, output_path="unused", precision="int8")
+
+
+def test_float16_compute_keeps_float32_io_contract():
+    class _Head(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv = nn.Conv2d(3, 2, 1)
+
+        def forward(self, x):
+            assert x.dtype == torch.float16
+            y = self.conv(x)
+            return {"out": (y, y.mean(dim=(2, 3)))}, torch.ones(1, dtype=torch.long)
+
+    model = _Head().half()
+    wrapped = coreai._Float16Compute(model)
+    x = torch.rand(1, 3, 4, 4)
+
+    out, ids = wrapped(x)
+
+    assert all(t.dtype == torch.float32 for t in out["out"])
+    assert ids.dtype == torch.long
+    expected, _ = model(x.half())
+    torch.testing.assert_close(out["out"][0], expected["out"][0].float())
+
+
+def test_frozen_classifier_export_rejects_fp16():
+    model = SimpleNamespace(
+        input_size=224, task="classify", _get_model_name=lambda: "clip"
+    )
     with pytest.raises(NotImplementedError, match="FP32 only"):
-        coreai.export_coreai(model, dummy, output_path="unused", precision="fp16")
+        coreai.prepare_frozen_classifier_export(
+            model, {"half": True}, default_output="m.aimodel"
+        )
 
 
 def test_blocked_support_is_checked_before_dependency(monkeypatch):
@@ -367,3 +400,114 @@ def test_require_coreai_explains_the_python_floor(monkeypatch):
     monkeypatch.setattr(coreai.sys, "version_info", (3, 10, 14, "final", 0))
     with pytest.raises(ImportError, match=r"Python 3\.11 or newer.*Python 3\.10"):
         coreai._require_coreai()
+
+
+def test_rfdetr_rebake_runs_in_float32_for_half_models():
+    """CPU antialiased bicubic has no float16 kernel: the FP16 re-bake must
+    resize in float32 and hand back a float16 parameter, then restore."""
+    import math
+
+    import torch.nn.functional as F
+
+    class _Embeddings(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.position_embeddings = nn.Parameter(torch.randn(1, 1 + 4 * 4, 8))
+
+    class _Backbone(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.encoder = nn.Module()
+            self.encoder.embeddings = _Embeddings()
+            self.shape = (64, 64)
+            self._export = False
+
+        def export(self):
+            pe = self.encoder.embeddings.position_embeddings
+            grid = int(math.sqrt(pe.shape[1] - 1))
+            patches = pe[:, 1:].reshape(1, grid, grid, -1).permute(0, 3, 1, 2)
+            with torch.no_grad():
+                resized = F.interpolate(
+                    patches, size=(self.shape[0] // 16, self.shape[1] // 16),
+                    mode="bicubic", align_corners=False, antialias=True,
+                )
+            flat = resized.permute(0, 2, 3, 1).reshape(1, -1, pe.shape[-1])
+            self.encoder.embeddings.position_embeddings = nn.Parameter(
+                torch.cat((pe[:, :1], flat), dim=1)
+            )
+            self._export = True
+
+    model = _Backbone().half()
+    original = model.encoder.embeddings.position_embeddings
+
+    restore = coreai._rebake_rfdetr_pos_embed(model, torch.zeros(1, 3, 96, 96))
+    baked = model.encoder.embeddings.position_embeddings
+    assert baked.dtype == torch.float16
+    assert baked.shape == (1, 1 + 6 * 6, 8)
+    assert model.shape == (96, 96)
+
+    restore()
+    assert model.encoder.embeddings.position_embeddings is original
+    assert model.shape == (64, 64)
+
+
+def test_low_level_fp16_rejects_unverified_family_before_import(monkeypatch):
+    def dependency_must_not_run():
+        raise AssertionError("FP16 family check must run before the import")
+
+    monkeypatch.setattr(coreai, "_require_coreai", dependency_must_not_run)
+    with pytest.raises(NotImplementedError, match="half=False"):
+        coreai.export_coreai(
+            nn.Identity(),
+            torch.zeros(1, 3, 8, 8),
+            output_path="unused",
+            precision="fp16",
+            model_family="rfdetr",
+        )
+
+
+@pytest.mark.parametrize(
+    ("family", "allowed"),
+    [("yolo9", True), ("yolo9_p2", True), ("yolo9_e2e", True), ("rfdetr", False)],
+)
+def test_preflight_gates_fp16_by_family(monkeypatch, family, allowed):
+    monkeypatch.setattr(BaseExporter, "_preflight", lambda self, **kwargs: None)
+    monkeypatch.setattr(coreai, "_require_coreai", lambda: (None, None))
+    exporter = CoreAIExporter(_Wrapper(family))
+
+    exporter._preflight(half=False, int8=False, data=None)
+    if allowed:
+        exporter._preflight(half=True, int8=False, data=None)
+    else:
+        with pytest.raises(NotImplementedError, match="half=False"):
+            exporter._preflight(half=True, int8=False, data=None)
+
+
+def test_direct_fp16_export_restores_caller_weights_on_failure(monkeypatch):
+    """export_coreai casts the caller's module (the YOLO9 wrapper is the
+    module itself); a failed conversion must still leave it FP32."""
+    monkeypatch.setattr(coreai, "_require_coreai", lambda: (None, dict))
+    monkeypatch.setattr(coreai_compat, "apply", lambda: None)
+
+    def fail_capture(*args, **kwargs):
+        raise RuntimeError("injected capture failure")
+
+    monkeypatch.setattr(torch.export, "export", fail_capture)
+    model = nn.Conv2d(3, 4, 1)
+    model.weight.grad = torch.full_like(model.weight, 0.1234567)
+    weight = model.weight.detach().clone()
+    grad = model.weight.grad.clone()
+
+    with pytest.raises(RuntimeError, match="injected"):
+        coreai.export_coreai(
+            model,
+            torch.zeros(1, 3, 8, 8),
+            output_path="unused.aimodel",
+            precision="fp16",
+            model_family="yolo9",
+        )
+
+    assert model.weight.dtype == torch.float32
+    assert torch.equal(model.weight.detach(), weight)
+    assert model.weight.grad.dtype == torch.float32
+    assert torch.equal(model.weight.grad, grad)
