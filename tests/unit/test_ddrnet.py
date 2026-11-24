@@ -545,3 +545,33 @@ def test_parity_and_converter_scripts_exist():
     root = Path(__file__).resolve().parents[2]
     assert (root / "weights" / "convert_ddrnet_weights.py").is_file()
     assert (root / "weights" / "parity_ddrnet.py").is_file()
+
+
+def test_onnx_export_runs_the_dense_logits_contract_at_a_rectangular_canvas(tmp_path):
+    """ONNX export: one ``semantic_logits`` output equal to the network's main head, and the exported
+    backend's predict() gives the native model's labels (direct resize, no padding to trim)."""
+    pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    import numpy as np
+    from PIL import Image
+
+    from libreyolo import LibreYOLO
+
+    torch.manual_seed(0)
+    model = LibreDDRNet(size="s", device="cpu")
+    model.model.eval()
+    out = model.export(format="onnx", imgsz=(128, 256), output_path=str(tmp_path / "ddrnet.onnx"))
+    session = ort.InferenceSession(str(out), providers=["CPUExecutionProvider"])
+    assert [o.name for o in session.get_outputs()] == ["semantic_logits"]
+    x = torch.rand(1, 3, 128, 256)
+    with torch.no_grad():
+        ref = model.model(x).numpy()
+    got = session.run(None, {session.get_inputs()[0].name: x.numpy()})[0]
+    assert got.shape == ref.shape == (1, 19, 16, 32)
+    assert np.abs(got - ref).max() < 1e-3
+
+    image = Image.fromarray((np.random.default_rng(0).random((100, 180, 3)) * 255).astype(np.uint8))
+    native = model.predict(image, imgsz=(128, 256))[0].semantic_mask.data
+    exported = LibreYOLO(str(out)).predict(image)[0].semantic_mask.data
+    assert tuple(exported.shape) == (100, 180)
+    assert float((np.asarray(exported) == np.asarray(native)).mean()) > 0.99

@@ -263,6 +263,8 @@ _RECTANGULAR_EXPORT_FAMILIES = {
     # Every PP-LiteSeg size is natively rectangular (512x1024 / 768x1536);
     # a square export would not be the model the checkpoint was trained as.
     "ppliteseg",
+    # DDRNet evaluates whole 1024x2048 Cityscapes frames (direct resize, no padding).
+    "ddrnet",
     "unet",
     "realesrgan",
     "quicksrnet",

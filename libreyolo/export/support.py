@@ -1558,6 +1558,29 @@ _add(
 )
 _add(
     "validated",
+    ("ddrnet",),
+    ("semantic",),
+    ("onnx",),
+    since="1.8",
+    constraint=(
+        "FP32 dense logits at a fixed canvas (stride 8; the backend resizes "
+        "them bilinearly to the source and takes the argmax, as predict())"
+    ),
+)
+_add(
+    "available",
+    ("ddrnet",),
+    ("semantic",),
+    ("openvino",),
+    reason=(
+        "OpenVINO CPU FP32 IR from the ONNX graph; predict() labels matched "
+        "the native model on COCO images (s at 1024x1024, m at 1024x2048), "
+        "not yet in the runtime parity suite."
+    ),
+    constraint="FP32, fixed canvas",
+)
+_add(
+    "validated",
     ("unet",),
     ("semantic",),
     ("onnx",),

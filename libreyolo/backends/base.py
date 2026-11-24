@@ -173,6 +173,8 @@ _RECTANGULAR_BACKEND_FAMILIES = {
     "ppliteseg",
     # U-Net exports at its 1024x2048 frame or its 512x1024 training crop.
     "unet",
+    # DDRNet evaluates whole 1024x2048 frames (direct resize, no padding).
+    "ddrnet",
     "realesrgan",
     "quicksrnet",
 }
