@@ -338,7 +338,10 @@ def test_yolo9_backend_matches_the_exported_graph(exports, tmp_path):
     # expectations times the stride (up to 32 px), so 0.1 px is 0.003 of a bin;
     # measured up to 0.03 px across CI platforms.
     np.testing.assert_allclose(decoded[:, :4], reference[:, :4], atol=1e-1)
-    np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=3e-3)  # 3e-4 measured; scores sit >= 5e-3 from conf
+    # Scores: this synthetic net amplifies FP32 summation order; PyTorch FP32 alone
+    # is 6e-3 from a float64 run, and ONNX Runtime vs PyTorch measured up to 4e-3
+    # (it moves with thread count and CPU). Scores sit >= 2e-2 from conf.
+    np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=1e-2)
 
     # Predictions can only be compared if no score sits near conf, no same-class
     # pair near the NMS IoU and no overlapping pair on a score tie, with margins
@@ -346,7 +349,7 @@ def test_yolo9_backend_matches_the_exported_graph(exports, tmp_path):
     # IoU of these 20+ px boxes by under 0.01).
     conf, iou = 0.5, 0.5
     boxes, scores = np.clip(reference[0, :4].T, 0, 96), reference[0, 4:].T
-    assert np.abs(scores - conf).min() > 5e-3
+    assert np.abs(scores - conf).min() > 2e-2
     above = np.argwhere(scores > conf)
     assert 2 <= len(above) <= 40
     for cls in np.unique(above[:, 1]):
