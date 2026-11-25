@@ -18,6 +18,8 @@ from libreyolo.models.ppocr.det import SEModule
 from libreyolo.models.ppocr.det import PPOCRDetModel
 from libreyolo.models.ppocr.preprocess import det_normalize, det_resize
 
+pytestmark = pytest.mark.unit
+
 
 def _image(h, w, seed=0):
     return np.random.default_rng(seed).integers(0, 256, (h, w, 3), dtype=np.uint8)
