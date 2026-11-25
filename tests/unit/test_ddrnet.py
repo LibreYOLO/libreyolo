@@ -575,3 +575,50 @@ def test_onnx_export_runs_the_dense_logits_contract_at_a_rectangular_canvas(tmp_
     exported = LibreYOLO(str(out)).predict(image)[0].semantic_mask.data
     assert tuple(exported.shape) == (100, 180)
     assert float((np.asarray(exported) == np.asarray(native)).mean()) > 0.99
+
+
+@pytest.mark.parametrize("size", ("s", "m"))
+def test_axelera_pool_parts_chain_reproduces_the_native_model(size):
+    """DDRNet ``pool_parts`` in FP32: the trunk with the DAPPM's per-branch layers, PIDNet's DAPPM sums part and the
+    head over ``spp + h5``, joined on the host by bilinear upsampling + channel concat only, give the native logits."""
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.exporter import _DDRNetHeadPart, _DDRNetTrunkPart, _PIDNetPoolMergePart, _pidnet_pool_sizes
+
+    assert size_recipe("ddrnet", "semantic", size)["pool_parts"] is True
+    assert "canvas" not in size_recipe("ddrnet", "semantic", size)  # the native 1024x2048 frame
+    torch.manual_seed(0)
+    net = LibreDDRNet(size=size, device="cpu").model.eval().requires_grad_(False)
+    trunk = _DDRNetTrunkPart(net, (512, 1024)).eval()  # 2:1, as the native frame
+    merge = _PIDNetPoolMergePart(net.spp).eval()
+    head = _DDRNetHeadPart(net).eval()
+    factors = [8 // h for h, _ in _pidnet_pool_sizes(net.spp, (8, 16))]
+    factors[3] = [8, 16]  # the 1x1 global branch on the 2:1 map: an (fh, fw) pair
+    assert factors[:3] == [2, 4, 8]
+    x = torch.rand(1, 3, 512, 1024, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = net(x)
+        v = dict(zip(trunk.output_names, (t.numpy() for t in trunk(x))))
+        pool_in = HOST_OPS["concat"](
+            *(v[n] for n in ("pp1", "pp2", "pp3", "pp4", "pp0", "ppsc")), upsample=[*factors, 1, 1], mode="bilinear"
+        )
+        spp = merge(torch.from_numpy(pool_in))[0].numpy()
+        got = head(torch.from_numpy(HOST_OPS["concat"](v["h5"], spp, upsample=[1, 8], mode="bilinear")))[0]
+    scale = want.abs().max()
+    torch.testing.assert_close(got / scale, want / scale, atol=1e-5, rtol=0)
+
+
+def test_axelera_whole_graph_dappm_pools_are_exact():
+    from libreyolo.export.exporter import _ddrnet_dappm_pools
+
+    torch.manual_seed(0)
+    net = LibreDDRNet(size="s", device="cpu").model.eval()
+    import copy
+
+    alt = copy.deepcopy(net)
+    assert _ddrnet_dappm_pools(alt) == 4
+    x = torch.rand(1, 3, 128, 256)
+    with torch.no_grad():
+        got, want = alt(x), net(x)
+    scale = want.abs().max()
+    torch.testing.assert_close(got / scale, want / scale, atol=1e-5, rtol=0)

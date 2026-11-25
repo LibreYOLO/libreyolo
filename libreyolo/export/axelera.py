@@ -145,6 +145,17 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
         "pool_parts": True,
         "quantization_scheme": "hybrid_per_tensor_per_channel",
     },
+    # DDRNet (native 1024x2048 frame): compiled whole the compiler did not finish in 3 h (s at 1024x1024, as
+    # PIDNet's whole graph). As PIDNet's three compiled parts (both branches + the DAPPM's per-branch layers; the
+    # DAPPM sums and compression; the head over spp + high-res sum), joined on the host by bilinear upsample +
+    # concat only. A square canvas is no option: FP32 at 1024x1024 agrees with the native frame on ~65% of pixels.
+    **{
+        ("ddrnet", "semantic", size): {
+            "pool_parts": True,
+            "quantization_scheme": "hybrid_per_tensor_per_channel",
+        }
+        for size in ("s", "m")
+    },
     # RTMDet-x (640): compiled whole (or backbone + neck) the PAFPN finds no L1 tiling, while each of its blocks
     # compiles alone; as four compiled parts (backbone + first reduce + first top-down block, then one per
     # remaining PAFPN block with its level's output conv and head; "stem_td0") every layer runs on the Metis,

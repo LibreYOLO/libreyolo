@@ -4853,6 +4853,33 @@ _add(
 )
 _add(
     "available",
+    ("ddrnet",),
+    ("semantic",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; DDRNet runs on the Metis "
+        "AIPU as three compiled parts at its native 1024x2048 frame, as PIDNet "
+        "(both branches with the DAPPM's per-branch layers; the DAPPM sums and "
+        "compression; the head), joined on the host by bilinear upsampling and "
+        "channel concatenation only. Compiled whole, the compiler did not finish "
+        "in 3 hours. Supported, not validated: DDRNet is trained on Cityscapes, "
+        "so the paired measurement is fidelity to FP32 at the same frame on COCO "
+        "val2017 images (s: mIoU 0.791, 94.0% of pixels agree on 300; m: 0.810, "
+        "94.5% on 300; docs/axelera.md); the loss is in the high-resolution "
+        "branch. Faster than the FP32 CPU at 4 host threads (its best run, batch "
+        "1): s 3.04 / 7.46 img/s at batch 1 / 8 vs 1.90; m 1.46 / 4.61 vs 0.57."
+    ),
+    since="1.8",
+    constraint=(
+        "supported sizes: s, m (measured fidelity, SIZE_ACCURACY_NOTES); l has "
+        "no published Cityscapes checkpoint (UNMEASURED_SIZES). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1 per part call, "
+        "fixed 1024x2048 input (the native frame; height and width multiples of "
+        "64, width a multiple of height)"
+    ),
+)
+_add(
+    "available",
     ("pidnet",),
     ("semantic",),
     ("axelera",),
@@ -5210,6 +5237,18 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "and no Cityscapes masks were used)"
         ),
     },
+    ("ddrnet", "semantic", "axelera"): {
+        "s": (
+            "measured fidelity mIoU 0.791 vs FP32 labels (94.0% of pixels agree on "
+            "300 COCO val2017 images at the native 1024x2048, three compiled parts; "
+            "DDRNet is Cityscapes-trained and no Cityscapes masks were used)"
+        ),
+        "m": (
+            "measured fidelity mIoU 0.810 vs FP32 labels (94.5% of pixels agree on "
+            "300 COCO val2017 images at the native 1024x2048, three compiled parts; "
+            "DDRNet is Cityscapes-trained and no Cityscapes masks were used)"
+        ),
+    },
     ("pidnet", "semantic", "axelera"): {
         "s": (
             "measured fidelity mIoU 0.864 vs FP32 labels (95.0% of pixels agree on "
@@ -5483,6 +5522,12 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("ddrnet", "semantic", "axelera"): {
+        "l": (
+            "has not been measured on a Metis yet: no Cityscapes DDRNet-39 "
+            "checkpoint is published (upstream released only its ImageNet backbone)"
+        ),
+    },
     ("yolo9_p2", "detect", "axelera"): {
         "t": (
             "has not been measured on a Metis yet: no trained YOLO9-P2-t "

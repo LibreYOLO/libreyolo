@@ -4183,6 +4183,7 @@ _AXELERA_GRAPH_OUTPUTS = {
     ("deeplabv3", "semantic"): ("semantic_logits",),
     ("ppliteseg", "semantic"): ("semantic_logits",),
     ("pidnet", "semantic"): ("semantic_logits",),
+    ("ddrnet", "semantic"): ("semantic_logits",),
     ("unet", "semantic"): ("semantic_logits",),
     # DexiNed: the fused edge probability map (sigmoid in the graph).
     ("dexined", "edge"): ("edges",),
@@ -4306,6 +4307,8 @@ _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
         "broadcast_mul_expand",
         "resize_1x1_broadcast_add",
     ),
+    # DDRNet: PIDNet's DAPPM; its global pooled branch is upsampled from 1x1 (a broadcast add, F75).
+    "ddrnet": ("resize_1x1_broadcast_add",),
     # YOLOv1's [connected] layer (Gemm over 7x7x256 after its [local] layer).
     "yolo1": ("fc_rowconv",),
     # BiFPN weighted fusion and squeeze-excite averages in AIPU-runnable form.
@@ -4902,6 +4905,23 @@ def _pair(v):
     return (int(v), int(v)) if isinstance(v, int) else (int(v[0]), int(v[1]))
 
 
+def _ddrnet_dappm_pools(model: torch.nn.Module) -> int:
+    """Swap every DAPPM's average pools for ``_PIDNetPool`` (same function); returns the number swapped."""
+    count = 0
+    for module in model.modules():
+        if not all(hasattr(module, f"scale{i}") for i in range(1, 5)):
+            continue
+        for i in range(1, 4):
+            pool = getattr(module, f"scale{i}")[0]
+            if isinstance(pool, torch.nn.AvgPool2d):
+                getattr(module, f"scale{i}")[0] = _PIDNetPool(pool.kernel_size, pool.stride, pool.padding)
+                count += 1
+        if isinstance(module.scale4[0], torch.nn.AdaptiveAvgPool2d):
+            module.scale4[0] = _PIDNetPool(1, 1, 0, global_hw=True)
+            count += 1
+    return count
+
+
 def _block_select_conv(widths, rows) -> torch.nn.Conv2d:
     """A fixed 1x1 conv over a channel concat of blocks ``widths``: output block ``r`` is the sum of the input blocks
     ``rows[r]`` (``(block, sign)`` pairs, all the same width). Exact: weights are 0 and +-1."""
@@ -5024,6 +5044,89 @@ class _PIDNetPoolMergePart(torch.nn.Module):
         else:
             comp = spp.compression(torch.cat([x0, spp.scale_process(self.sums(e))], dim=1))
         return (self.out(torch.cat([comp, self.short(e)], dim=1)),)
+
+
+class _DDRNetTrunkPart(torch.nn.Module):
+    """Part 1 of DDRNet's ``pool_parts`` export: stem, both branches with their bilateral fusions, layer 5 of each
+    branch and the DAPPM's per-branch layers (as PIDNet's part 1).
+
+    Outputs the four pooled branches ``pp1``..``pp4`` (pools in ``_PIDNetPool``'s exact form, then BN, ReLU and
+    the 1x1 conv), the unpooled branch ``pp0``, the shortcut ``ppsc`` and the high-resolution branch ``h5``
+    (through a dense identity conv: the graph cleaner rejects a part output that also feeds another node).
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("pp1", "pp2", "pp3", "pp4", "pp0", "ppsc", "h5")
+
+    def __init__(self, model: torch.nn.Module, imgsz):
+        super().__init__()
+        self.model = model
+        spp = model.spp
+        hw = (int(imgsz[0]) // 64, int(imgsz[1]) // 64)
+        self.pools = torch.nn.ModuleList(
+            [_PIDNetPool(s[0].kernel_size, s[0].stride, s[0].padding) for s in (spp.scale1, spp.scale2, spp.scale3)]
+            + [_PIDNetPool(1, 1, 0, global_hw=hw)]
+        )
+        c = _conv_out(model.layer5_)
+        self.identity = torch.nn.Conv2d(c, c, 1, bias=False)
+        with torch.no_grad():
+            self.identity.weight.copy_(torch.eye(c).view(c, c, 1, 1))
+        self.requires_grad_(False)
+
+    def forward(self, x):
+        m = self.model
+        x = (x - m.pixel_mean.to(dtype=x.dtype)) / m.pixel_std.to(dtype=x.dtype)
+        size = [x.shape[-2] // 8, x.shape[-1] // 8]
+        x = m.layer1(m.conv1(x))
+        stage2 = m.layer2(m.relu(x))
+        if m.split_stage3:
+            x = m.layer3_1(m.relu(stage2))
+            x_ = m.layer3_1_(m.relu(stage2))
+            x, x_ = m._fuse(x, x_, m.down3_1, m.compression3_1, x, size)
+            x = m.layer3_2(m.relu(x))
+            x_ = m.layer3_2_(m.relu(x_))
+            x, x_ = m._fuse(x, x_, m.down3_2, m.compression3_2, x, size)
+        else:
+            x = m.layer3(m.relu(stage2))
+            x_ = m.layer3_(m.relu(stage2))
+            x, x_ = m._fuse(x, x_, m.down3, m.compression3, x, size)
+        x = m.layer4(m.relu(x))
+        x_ = m.layer4_(m.relu(x_))
+        x, x_ = m._fuse(x, x_, m.down4, m.compression4, x, size)
+        h5 = self.identity(m.layer5_(m.relu(x_)))
+        x5 = m.layer5(m.relu(x))
+        spp = m.spp
+        pooled = [
+            scale[3](scale[2](scale[1](pool(x5))))
+            for pool, scale in zip(self.pools, (spp.scale1, spp.scale2, spp.scale3, spp.scale4))
+        ]
+        return (*pooled, spp.scale0(x5), spp.shortcut(x5), h5)
+
+
+class _DDRNetHeadPart(torch.nn.Module):
+    """Part 3 of DDRNet's ``pool_parts`` export: ``final_layer(spp + h5)``.
+
+    Input: the host's concat of ``h5`` and ``spp`` upsampled 8x (bilinear, as the network), entered through a
+    dense identity 1x1 conv; the sum runs as a fixed 1x1 conv over the concat (exact). Output ``semantic_logits``.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("semantic_logits",)
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.head = model.final_layer
+        c = _conv_out(model.layer5_)
+        self.entry = torch.nn.Conv2d(2 * c, 2 * c, 1, bias=False)
+        with torch.no_grad():
+            self.entry.weight.copy_(torch.eye(2 * c).view(2 * c, 2 * c, 1, 1))
+        self.sum = _block_select_conv([c, c], [[(0, 1), (1, 1)]])
+        self.requires_grad_(False)
+
+    def forward(self, x):
+        return (self.head(self.sum(self.entry(x))),)
 
 
 class _PIDNetFusionHeadPart(torch.nn.Module):
@@ -5559,20 +5662,27 @@ class AxeleraExporter(BaseExporter):
         from .onnx import _export_onnx_graph
 
         if int(imgsz[0]) % 64 or int(imgsz[1]) % 64:
-            raise ValueError(f"PIDNet exports for Axelera at a multiple of 64, got {imgsz[0]}x{imgsz[1]}.")
+            raise ValueError(f"{self.model._get_model_name()} pool_parts exports at a multiple of 64, got {imgsz[0]}x{imgsz[1]}.")
         net = copy.deepcopy(self.model.model).eval().requires_grad_(False)
-        trunk = _PIDNetTrunkPart(net, imgsz).eval().requires_grad_(False)
+        ddrnet = self.model._get_model_name() == "ddrnet"
+        trunk = (_DDRNetTrunkPart if ddrnet else _PIDNetTrunkPart)(net, imgsz).eval().requires_grad_(False)
         merge = _PIDNetPoolMergePart(trunk.model.spp).eval()
-        head = _PIDNetFusionHeadPart(trunk.model).eval()
+        head = (_DDRNetHeadPart if ddrnet else _PIDNetFusionHeadPart)(trunk.model).eval()
         i_hw = (int(imgsz[0]) // 64, int(imgsz[1]) // 64)
         pool_hw = _pidnet_pool_sizes(trunk.model.spp, i_hw)
         pool_factors = [i_hw[0] // h for h, _ in pool_hw]
+        if pool_hw[3] == (1, 1) and i_hw[0] != i_hw[1]:
+            # The 1x1 global branch on a non-square map (DDRNet's 1024x2048): a per-axis factor pair; bilinear
+            # upsampling of a 1x1 map is a broadcast, so it stays exact.
+            pool_factors[3] = [i_hw[0], i_hw[1]]
         for (h, w), f in zip(pool_hw, pool_factors):
-            if h * f != i_hw[0] or w * f != i_hw[1]:
-                raise ValueError(f"PIDNet pool_parts needs integer pooling ratios at {imgsz[0]}x{imgsz[1]}.")
+            fh, fw = (f[0], f[1]) if isinstance(f, list) else (f, f)
+            if h * fh != i_hw[0] or w * fw != i_hw[1]:
+                raise ValueError(f"pool_parts needs integer pooling ratios at {imgsz[0]}x{imgsz[1]}.")
         logger.info(
-            "Step 1/2: Exporting PIDNet as 3 compiled parts (branches + pooling layers, pooling sums, fusion + head);"
-            " the host only upsamples (bilinear) and concatenates between them"
+            "Step 1/2: Exporting %s as 3 compiled parts (branches + pooling layers, pooling sums, fusion + head);"
+            " the host only upsamples (bilinear) and concatenates between them",
+            "DDRNet" if ddrnet else "PIDNet",
         )
         first = _export_onnx_graph(
             trunk,
@@ -5591,7 +5701,7 @@ class AxeleraExporter(BaseExporter):
             values = dict(zip(trunk.output_names, (t.numpy() for t in trunk(dummy))))
         joins = (
             (["pp1", "pp2", "pp3", "pp4", "pp0", "ppsc"], [*pool_factors, 1, 1], "pool_in", merge),
-            (["p5", "spp", "d5"], [1, 8, 1], "fuse_in", head),
+            (["h5", "spp"], [1, 8], "fuse_in", head) if ddrnet else (["p5", "spp", "d5"], [1, 8, 1], "fuse_in", head),
         )
         steps = []
         for inputs, factors, joined, part in joins:
@@ -5844,7 +5954,7 @@ class AxeleraExporter(BaseExporter):
             return self._export_fcos_parts_onnx(out, imgsz)
         if self.model._get_model_name() == "hrnet" and self._size_recipe().get("fusion_parts"):
             return self._export_hrnet_fusion_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
-        if self.model._get_model_name() == "pidnet" and self._size_recipe().get("pool_parts"):
+        if self.model._get_model_name() in ("pidnet", "ddrnet") and self._size_recipe().get("pool_parts"):
             return self._export_pidnet_pool_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
         graph_outputs = self._graph_outputs()
         if graph_outputs:
@@ -5865,6 +5975,13 @@ class AxeleraExporter(BaseExporter):
                     "Axelera: %d UAFM blends as x * sigmoid(z) + skip * sigmoid(-z) "
                     "(exact; docs/axelera.md).",
                     _ppliteseg_int8_blend(nn_model),
+                )
+            if self.model._get_model_name() == "ddrnet":
+                nn_model = copy.deepcopy(nn_model).eval()
+                logger.info(
+                    "Axelera: %d DAPPM average pools in the compiler's form (17x17 as two 1-D pools, the "
+                    "global pool in 2x2 steps; exact, docs/axelera.md).",
+                    _ddrnet_dappm_pools(nn_model),
                 )
             if self._size_recipe().get("aspp_shift"):
                 nn_model = copy.deepcopy(nn_model).eval()

@@ -269,12 +269,13 @@ def _host_concat(*xs, upsample, mode: str = "nearest") -> np.ndarray:
     arrays = []
     for x, factor in zip(xs, upsample):
         x = np.asarray(x, dtype=np.float32)
-        f = int(factor)
-        if f > 1 and mode == "bilinear":
-            mh, mw = _bilinear_matrix(x.shape[2], f), _bilinear_matrix(x.shape[3], f)
+        # One factor for both axes, or an (fh, fw) pair (DDRNet's 1x1 global branch on a 2:1 frame).
+        fh, fw = (int(factor[0]), int(factor[1])) if isinstance(factor, (list, tuple)) else (int(factor),) * 2
+        if max(fh, fw) > 1 and mode == "bilinear":
+            mh, mw = _bilinear_matrix(x.shape[2], fh), _bilinear_matrix(x.shape[3], fw)
             x = np.einsum("oh,nchw,pw->ncop", mh, x, mw, optimize=True).astype(np.float32)
-        elif f > 1:
-            x = x.repeat(f, axis=2).repeat(f, axis=3)
+        elif max(fh, fw) > 1:
+            x = x.repeat(fh, axis=2).repeat(fw, axis=3)
         arrays.append(x)
     return np.concatenate(arrays, axis=1)
 

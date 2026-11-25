@@ -120,7 +120,7 @@ in preflight.
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | available | ✓ |  |  | ✓ |
 | picosam3 | segment | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
 | pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
-| ddrnet | semantic | ✓ |  |  |  | available |  |  |  |  |  |  |  |  |
+| ddrnet | semantic | ✓ |  |  |  | available |  |  |  | available |  |  |  |  |
 | ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | available |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -681,6 +681,7 @@ These converter paths are callable with the recorded validation context.
 - `pidnet` / `semantic` / `tensorrt`: TensorRT 10.16 FP32 exports and runs, but repeated builds produced raw-logit cosine as low as 0.9970, below the 0.999 promotion gate.
 - `pidnet` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; PIDNet runs on the Metis AIPU as three compiled parts (the branches through layer 5 with the pyramid pooling's per-branch layers, the pooling sums, then the branch fusion and the head), joined on the host by bilinear upsampling and channel concatenation only. Compiled whole it collapses in INT8 (logit cosine about 0). Supported, not validated: PIDNet is trained on Cityscapes, so the paired measurement is fidelity to FP32 on COCO val2017 images at 1024x1024 (s: mIoU 0.864, 95.0% of pixels agree on 300; m: 0.825, 95.3% on 96; l: 0.820, 95.1% on 100; docs/axelera.md). Faster than the FP32 CPU (4 host threads): s 7.36 vs 2.93 img/s batched, 5.17 vs 2.89 at batch 1; m 3.48 vs 0.56 and 1.75 vs 0.50; l 4.07 vs 0.49 and 1.92 vs 0.48. PIDNet-m calibrates slowly in the SDK (about a minute per image): it was measured with fraction=0.25 (32 coco128 images), its default when fraction is left unset. Constraint: supported sizes: s, m, l (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1 per part call, fixed 1024x1024 input (a multiple of 64)
 - `ddrnet` / `semantic` / `openvino`: OpenVINO CPU FP32 IR from the ONNX graph; predict() labels matched the native model on COCO images (s at 1024x1024, m at 1024x2048), not yet in the runtime parity suite. Constraint: FP32, fixed canvas
+- `ddrnet` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; DDRNet runs on the Metis AIPU as three compiled parts at its native 1024x2048 frame, as PIDNet (both branches with the DAPPM's per-branch layers; the DAPPM sums and compression; the head), joined on the host by bilinear upsampling and channel concatenation only. Compiled whole, the compiler did not finish in 3 hours. Supported, not validated: DDRNet is trained on Cityscapes, so the paired measurement is fidelity to FP32 at the same frame on COCO val2017 images (s: mIoU 0.791, 94.0% of pixels agree on 300; m: 0.810, 94.5% on 300; docs/axelera.md); the loss is in the high-resolution branch. Faster than the FP32 CPU at 4 host threads (its best run, batch 1): s 3.04 / 7.46 img/s at batch 1 / 8 vs 1.90; m 1.46 / 4.61 vs 0.57. Constraint: supported sizes: s, m (measured fidelity, SIZE_ACCURACY_NOTES); l has no published Cityscapes checkpoint (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1 per part call, fixed 1024x2048 input (the native frame; height and width multiples of 64, width a multiple of height)
 - `ppdoclayoutv3` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppdoclayoutv3` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `ppdoclayoutv3` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
@@ -1909,7 +1910,6 @@ These converter paths are callable with the recorded validation context.
 - `ddrnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `axelera`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.

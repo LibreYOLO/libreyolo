@@ -1186,6 +1186,8 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
         ("hrnet", "pose", "w32"), ("hrnet", "pose", "w48"),
         # PIDNet pool_parts (test_pidnet_pool_parts_chain_reproduces_the_native_model).
         ("pidnet", "semantic", "s"), ("pidnet", "semantic", "m"), ("pidnet", "semantic", "l"),
+        # DDRNet pool_parts at its native frame (test_ddrnet.py::test_axelera_pool_parts_chain_reproduces_the_native_model).
+        ("ddrnet", "semantic", "s"), ("ddrnet", "semantic", "m"),
         # RTMDet-x / RTMDet-Ins-x neck_parts (test_rtmdet_neck_parts_chain_reproduces_the_raw_heads,
         # test_rtmdet_ins_neck_parts_chain_reproduces_the_raw_heads).
         ("rtmdet", "detect", "x"), ("rtmdet", "segment", "x"),
@@ -1481,6 +1483,7 @@ def test_only_listed_families_request_graph_passes():
             "broadcast_mul_expand",
             "resize_1x1_broadcast_add",
         ),
+        "ddrnet": ("resize_1x1_broadcast_add",),
     }
     requested = {name for names in _AXELERA_GRAPH_PASSES.values() for name in names}
     assert requested <= set(ax.GRAPH_PASSES)
@@ -2829,6 +2832,8 @@ _TIER_CALIBRATION = {
     ("deeplabv3", "semantic", "r101"): (128, 128, "deeplabv3/semantic/r101/2026-11-14"),
     ("unet", "semantic", "s"): (64, 128, "unet/semantic/s/2026-11-20"),
     ("pidnet", "semantic", "s"): (128, 128, "pidnet/semantic/s/2026-11-20/4"),
+    ("ddrnet", "semantic", "s"): (128, 128, "ddrnet/semantic/s/2026-11-25/6"),
+    ("ddrnet", "semantic", "m"): (128, 128, "ddrnet/semantic/m/2026-11-25/4"),
     ("pidnet", "semantic", "m"): (32, 128, "pidnet/semantic/m/2026-11-21"),
     ("pidnet", "semantic", "l"): (128, 128, "pidnet/semantic/l/2026-11-20"),
     ("ppliteseg", "semantic", "t50"): (64, 128, "ppliteseg/semantic/t50/2026-11-18"),
@@ -2903,3 +2908,30 @@ def test_recipe_fraction_keeps_two_calibration_images_on_a_tiny_dataset(exporter
         _model().export(
             format="axelera", data=str(data), imgsz=64, fraction=0.5, output_path=str(tmp_path / "u_axelera_model")
         )
+
+
+def test_host_concat_takes_a_per_axis_factor_pair():
+    """DDRNet's 1x1 global DAPPM branch on a 2:1 frame: an (fh, fw) pair upsamples it as F.interpolate does
+    (bilinear of a 1x1 map is a broadcast); an int keeps one factor for both axes."""
+    torch = pytest.importorskip("torch")
+    np = pytest.importorskip("numpy")
+    from libreyolo.backends.axelera import HOST_OPS
+
+    rng = np.random.default_rng(0)
+    g, x = rng.random((1, 3, 1, 1), dtype=np.float32), rng.random((1, 2, 2, 4), dtype=np.float32)
+    got = HOST_OPS["concat"](g, x, upsample=[[16, 32], 8], mode="bilinear")
+    want = torch.cat(
+        [torch.nn.functional.interpolate(torch.from_numpy(t), size=(16, 32), mode="bilinear", align_corners=False)
+         for t in (g, x)], dim=1,
+    ).numpy()
+    np.testing.assert_allclose(got, want, rtol=0, atol=1e-6)
+
+
+def test_ddrnet_axelera_support_rows():
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES, get_support
+
+    ddr = get_support("ddrnet", "semantic", "axelera")
+    assert ddr.tier == "available" and "supported sizes: s, m " in ddr.constraint and "1024x2048" in ddr.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("ddrnet", "semantic", "axelera")]) == ["m", "s"]
+    assert sorted(UNMEASURED_SIZES[("ddrnet", "semantic", "axelera")]) == ["l"]
+    assert get_support("ddrnet", "semantic", "onnx").tier == "validated"

@@ -8,8 +8,8 @@
 > compile, do not run or give meaningless output (`docs/export_support.md`).
 > Every size runs its whole network on the Metis; the host only prepares the
 > input and decodes the outputs (boxes, NMS, masks), plus the light numpy steps
-> between compiled parts of SSD, FCOS, Real-ESRGAN, HRNet, RTMDet-x, RTMDet-Ins-x
-> and PIDNet (upsampling, concatenation, sums; section 7). Exports that would
+> between compiled parts of SSD, FCOS, Real-ESRGAN, HRNet, RTMDet-x, RTMDet-Ins-x,
+> PIDNet and DDRNet (upsampling, concatenation, sums; section 7). Exports that would
 > run part of the network itself on the host are not supported on Metis
 > (section 11).
 > Results are from one Metis M.2 Max with axelera-devkit / axelera-rt 1.9.0.
@@ -115,6 +115,8 @@ a separate size:
 | PIDNet | s | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts joined by bilinear upsample + concat; whole graph collapses in INT8; faster than the CPU at batch 1 and 8: 4.69 / 9.79 vs 2.89 / 2.93 img/s at 4 host threads) | COCO val2017, 300 | 1.0000 | 0.8640 | -0.1360 | supported | `pidnet/semantic/s/2026-11-20/6`, speed `pidnet/semantic/s/2026-11-21` |
 | PIDNet | m | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts; calibrated on 32 coco128 images (its default fraction 0.25: the SDK calibrates m at about a minute per image); faster than the CPU at batch 1 and 8: 3.03 / 5.94 vs 0.50 / 0.56 img/s at 4 host threads) | COCO val2017, 96 | 1.0000 | 0.8251 | -0.1749 | supported | `pidnet/semantic/m/2026-11-21/3`, speed `/4` |
 | PIDNet | l | semantic (fidelity mIoU vs FP32 labels; 1024x1024; three compiled parts, DAPPM + Bag; faster than the CPU at batch 1 and 8: 2.39 / 6.35 vs 0.48 / 0.49 img/s at 4 host threads) | COCO val2017, 100 | 1.0000 | 0.8204 | -0.1796 | supported | `pidnet/semantic/l/2026-11-20/3`, speed `pidnet/semantic/l/2026-11-21` |
+| DDRNet | s | semantic (fidelity mIoU vs FP32 labels at the native 1024x2048; three compiled parts joined by bilinear upsample + concat; compiled whole it does not finish in 3 h; faster than the CPU: 3.04 / 7.46 img/s at batch 1 / 8 vs 1.90 for the best FP32 CPU run (batch 1, 4 threads)) | COCO val2017, 300 | 1.0000 | 0.7909 | -0.2091 | supported | `ddrnet/semantic/s/2026-11-25/6`, speed `/5` |
+| DDRNet | m | semantic (fidelity mIoU vs FP32 labels at the native 1024x2048; three compiled parts; faster than the CPU: 1.46 / 4.61 img/s at batch 1 / 8 vs 0.57 for the best FP32 CPU run (batch 1, 4 threads)) | COCO val2017, 300 | 1.0000 | 0.8100 | -0.1900 | supported | `ddrnet/semantic/m/2026-11-25/4`, speed `ddrnet/semantic/m/2026-11-25/3` |
 | PP-LiteSeg | t50 | semantic (fidelity mIoU vs FP32 labels; 512x1024; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8502 | -0.1498 | supported | `ppliteseg/semantic/t50/2026-11-18` |
 | PP-LiteSeg | b50 | semantic (fidelity mIoU vs FP32 labels; 512x1024; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8571 | -0.1429 | supported | `ppliteseg/semantic/b50/2026-11-18` |
 | PP-LiteSeg | t75 | semantic (fidelity mIoU vs FP32 labels; 768x1536; UAFM blends as x*sigmoid(z) + skip*sigmoid(-z)) | COCO val2017, 1000 | 1.0000 | 0.8068 | -0.1932 | supported | `ppliteseg/semantic/t75/2026-11-18` |
@@ -157,6 +159,7 @@ Metis AIPU, and `LibreYOLO("<stem>_axelera_model")` runs it with the same
 | DeepLabV3 | semantic | mv3, r50, r101 (supported with measured drops: -3.77, -5.09, -20.93) | see `docs/export_support.md` | mv3 `deeplabv3/semantic/mv3/2026-11-11/6`; r50 `deeplabv3/semantic/r50/2026-11-17/2`; r101 `deeplabv3/semantic/r101/2026-11-14` |
 | UNet | semantic | s (supported with a measured fidelity; whole graph at the 512x1024 training crop with histogram ranges, compile about 11-13 h) | see `docs/export_support.md` | s `unet/semantic/s/2026-11-20` |
 | PIDNet | semantic | s, m, l (supported with a measured fidelity; three compiled parts: branches + pooling layers, pooling sums, fusion + head; the host only upsamples (bilinear) and concatenates; m measured with fraction=0.25) | see `docs/export_support.md` | s `pidnet/semantic/s/2026-11-20/6`; m `pidnet/semantic/m/2026-11-21/3`; l `pidnet/semantic/l/2026-11-20/3` |
+| DDRNet | semantic | s, m (supported with a measured fidelity; three compiled parts at the native 1024x2048, as PIDNet; l: no published Cityscapes checkpoint, not measured) | see `docs/export_support.md` | s `ddrnet/semantic/s/2026-11-25/6`; m `ddrnet/semantic/m/2026-11-25/4` |
 | PP-LiteSeg | semantic | t50, b50, t75, b75 (supported with a measured fidelity; whole graph at 512x1024 (t50, b50) or 768x1536 (t75, b75), the UAFM blends in an exact INT8-friendly form) | see `docs/export_support.md` | t50 `ppliteseg/semantic/t50/2026-11-18`; b50 `ppliteseg/semantic/b50/2026-11-18`; t75 `ppliteseg/semantic/t75/2026-11-18`; b75 `ppliteseg/semantic/b75/2026-11-18` |
 | PicoSAM3 | segment | pico (supported with a measured fidelity; the raw 96x96 ROI CNN, the same contract as the ONNX export: cutting the ROI from a box and pasting the mask logits back stay in Python) | see `docs/export_support.md` | pico `picosam3/segment/pico/2026-11-19` |
 | YOLOX | detect | n, t, s, m, l, x (n supported with a measured drop) | see `docs/export_support.md` | n `yolox/detect/n/2026-11-11/7`; t `yolox/detect/t/2026-11-11/2`; s `yolox/detect/s/2026-11-11/2`; m `yolox/detect/m/2026-11-11/2`; l `yolox/detect/l/2026-11-11/2`; x `yolox/detect/x/2026-11-11/2` |
@@ -690,6 +693,27 @@ batch 8 against 0.50 and 0.56 on the CPU (OpenVINO). The SDK calibrates m
 at about a minute per image, so it was measured with `fraction=0.25` (32
 coco128 images), the default for m when `fraction` is left unset;
 `fraction=1.0` (128 images) adds about 1.5 hours to the export.
+
+DDRNet (whose DAPPM pooling module is PIDNet's) runs the same three parts
+at its native 1024x2048 Cityscapes frame: part 1 is the stem, both branches
+with their bilateral fusions, layer 5 of each branch and the DAPPM's
+per-branch layers; part 2 is PIDNet's DAPPM sums part; part 3 sums the
+upsampled DAPPM output and the high-resolution branch as a fixed 1x1 conv
+over their concat, then the head. On the 2:1 frame the global pooled branch
+is 1x1 against a 16x32 map, so the host upsamples it by a (16, 32) factor
+pair (bilinear upsampling of a 1x1 map is a broadcast; exact). Compiled
+whole, DDRNet-s did not finish compiling in 3 hours (ledger
+`ddrnet/semantic/s/2026-11-25/2`). A square 1024x1024 canvas is no
+alternative: FP32 at 1024x1024 agrees with FP32 at the native frame on only
+65% of the pixels of COCO images (fidelity mIoU 0.33; `/3`). On 300 COCO
+val2017 images at the native frame, against FP32 labels at the same frame:
+DDRNet-s fidelity mIoU 0.791, 94.0% of pixels agree (`/6`; calibrated on
+the 128 coco128 images); DDRNet-m 0.810, 94.5% (`ddrnet/semantic/m/2026-11-25/4`).
+The loss is in the high-resolution branch (verify cosine 0.67-0.79 against
+FP32; the pooling and head parts 0.999). Speed at 4 host threads: s 3.04
+img/s at batch 1 and 7.46 at batch 8, m 1.46 and 4.61, against 1.90 (s) and
+0.57 (m) for the best FP32 CPU run at the same frame (ONNX Runtime). DDRNet-l
+has no published Cityscapes checkpoint and is not measured.
 
 RTMDet-x does not compile as one graph: its PAFPN neck finds no L1 tiling
 (LowerTIR still overflows after 4 iterations, whole graph or backbone + neck),
