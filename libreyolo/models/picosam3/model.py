@@ -287,9 +287,10 @@ class LibrePicoSAM3(LibreSAMModel):
             axes = {"roi_image": {0: "batch"}, "mask_logits": {0: "batch"}}
         imgsz = self.INPUT_SIZES[self.size]
         network = (network if network is not None else self.model).eval()
+        weight = next(network.parameters())  # trace on the network's own device and dtype
         torch.onnx.export(
             network,
-            torch.zeros((1, 3, imgsz, imgsz), device=self.device),
+            torch.zeros((1, 3, imgsz, imgsz), device=weight.device, dtype=weight.dtype),
             str(destination),
             input_names=["roi_image"],
             output_names=["mask_logits"],
@@ -299,8 +300,15 @@ class LibrePicoSAM3(LibreSAMModel):
         )
         return str(destination)
 
-    def _axelera_rois(self, data, fraction: float, split: str) -> list:
-        """Preprocessed ``[1, 3, 96, 96]`` ROIs from a YOLO-format dataset's boxes."""
+    def _axelera_rois(
+        self, data, fraction: float, split: str, *, limit: int | None = None, last: bool = False
+    ) -> list:
+        """Preprocessed ``[1, 3, 96, 96]`` ROIs from a YOLO-format dataset's boxes.
+
+        With ``limit``, only the first ``limit`` ROIs (or the last ones, with ``last``)
+        are cut, the same ones slicing the full list would give: images past the
+        limit are never opened, so a large split costs no more memory than the limit.
+        """
 
         import numpy as np
         from PIL import Image
@@ -314,14 +322,21 @@ class LibrePicoSAM3(LibreSAMModel):
             raise ValueError(f"Dataset config {data!r} has no {split!r} or 'val' split.")
         images = get_img_files(source, prefix=str(root))
         images = images[: max(1, int(len(images) * fraction))]
-        rois = []
-        for image_path, label_path in zip(images, img2label_paths(images)):
+        pairs = list(zip(images, img2label_paths(images)))
+        if last:
+            pairs.reverse()
+        chunks = []  # one list of ROIs per image, in walk order
+        count = 0
+        for image_path, label_path in pairs:
+            if limit is not None and count >= limit:
+                break
             label_path = Path(label_path)
             if not label_path.exists():
                 continue
             image = Image.open(image_path).convert("RGB")
             width, height = image.size
             rows = [r.split() for r in label_path.read_text().splitlines() if r.strip()]
+            chunk = []
             for row in rows[: self.AXELERA_CALIBRATION_ROIS_PER_IMAGE]:
                 cx, cy, w, h = (float(v) for v in row[1:5])
                 box = [
@@ -333,8 +348,15 @@ class LibrePicoSAM3(LibreSAMModel):
                 if box[2] - box[0] < 4 or box[3] - box[1] < 4:
                     continue
                 roi = padded_square_roi(box, width, height)
-                rois.append(preprocess_roi(image, roi).numpy()[None].astype(np.float32))
-        return rois
+                chunk.append(preprocess_roi(image, roi).numpy()[None].astype(np.float32))
+            chunks.append(chunk)
+            count += len(chunk)
+        if last:
+            chunks.reverse()
+        rois = [roi for chunk in chunks for roi in chunk]
+        if limit is None:
+            return rois
+        return rois[-limit:] if last else rois[:limit]
 
     def _export_axelera(
         self,
@@ -352,14 +374,14 @@ class LibrePicoSAM3(LibreSAMModel):
 
         if not 0.0 < float(fraction) <= 1.0:
             raise ValueError("fraction must be in (0, 1].")
-        calibration = self._axelera_rois(data, fraction, "train")[
-            : self.AXELERA_CALIBRATION_ROIS
-        ]
+        calibration = self._axelera_rois(
+            data, fraction, "train", limit=self.AXELERA_CALIBRATION_ROIS
+        )
         if not calibration:
             raise ValueError(f"No ground-truth boxes to cut calibration ROIs from in {data!r}.")
         samples = None
         if verify:
-            samples = self._axelera_rois(data, 1.0, "val")[-32:]
+            samples = self._axelera_rois(data, 1.0, "val", limit=32, last=True)
         network = _axelera_network(self.model)
 
         class _Reference(nn.Module):
@@ -417,7 +439,9 @@ def _axelera_network(model: nn.Module) -> nn.Module:
 
     import copy
 
-    network = copy.deepcopy(model).eval()
+    # FP32 on the CPU, whatever the caller's device and dtype: the export verifies
+    # against this copy with CPU float32 samples.
+    network = copy.deepcopy(model).float().cpu().eval()
     depthwise = network.encoder_stage1[0]
     dense = nn.Conv2d(
         depthwise.in_channels,

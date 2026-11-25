@@ -239,3 +239,54 @@ def test_onnx_export_rejects_axelera_only_arguments(tmp_path, kwargs):
 def test_axelera_export_is_batch_one(tmp_path):
     with pytest.raises(ValueError, match="batch 1"):
         _bare_picosam3().export("axelera", dynamic=True, output_path=tmp_path / "x_axelera_model")
+
+
+def test_axelera_verify_reference_runs_cpu_float32_samples_from_a_half_model(tmp_path, monkeypatch):
+    """The export verifies with CPU float32 samples (``torch.from_numpy``), whatever the
+    caller's device and dtype: the private export copy is FP32 on the CPU, and the
+    caller's model keeps its own dtype."""
+    pytest.importorskip("onnx")
+    import numpy as np
+
+    import libreyolo.export.axelera as axelera
+
+    model = _bare_picosam3()
+    model.model.half()
+    model._model_dtype = torch.float16
+    recorded = {}
+
+    def recorder(**kwargs):
+        recorded.update(kwargs)
+        with torch.no_grad():  # as device_output_order and collect_quantized_outputs call it
+            (out,) = kwargs["reference_model"](torch.from_numpy(np.ascontiguousarray(kwargs["verify_samples"][0])))
+        recorded["out"] = out
+        return kwargs["output_path"]
+
+    monkeypatch.setattr(axelera, "export_axelera", recorder)
+    model.export("axelera", data=_roi_dataset(tmp_path), verify=True, output_path=tmp_path / "pico_axelera_model")
+    assert recorded["out"].dtype == torch.float32 and recorded["out"].device.type == "cpu"
+    assert recorded["out"].shape == (1, 1, 96, 96)
+    assert next(model.model.parameters()).dtype == torch.float16
+
+
+@pytest.mark.parametrize("last", [False, True])
+def test_axelera_rois_limit_cuts_only_what_it_keeps(tmp_path, monkeypatch, last):
+    """A limit returns exactly the ROIs slicing the full list would give, and opens
+    only the images it needs: a full COCO split must not be held in memory."""
+    import numpy as np
+
+
+    model = _bare_picosam3()
+    data = _roi_dataset(tmp_path)  # three images, two ROIs each
+    full = model._axelera_rois(data, 1.0, "train")
+    assert len(full) == 6
+
+    opened = []
+    real_open = Image.open
+    monkeypatch.setattr(Image, "open", lambda path, *a, **k: opened.append(path) or real_open(path, *a, **k))
+    limited = model._axelera_rois(data, 1.0, "train", limit=3, last=last)
+    expected = full[-3:] if last else full[:3]
+    assert len(limited) == 3
+    for got, want in zip(limited, expected):
+        np.testing.assert_array_equal(got, want)
+    assert len(opened) == 2  # 3 ROIs at two per image: the third image is never opened
