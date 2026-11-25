@@ -1,5 +1,7 @@
 """PP-OCR text detector on the Axelera Metis: canvas preprocessing, host decode and pipeline wiring (no device)."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
@@ -143,3 +145,71 @@ def test_pipeline_takes_the_probability_map_from_the_text_detector(monkeypatch):
 
 def test_layout_name_is_versioned():
     assert PPOCR_DB_LAYOUT == "ppocr_db_logits_v1"
+
+
+def _ocr_root(base, split="train", images="images"):
+    from PIL import Image
+
+    folder = base / images / split
+    folder.mkdir(parents=True)
+    for name in ("b.jpg", "a.png"):
+        Image.new("RGB", (32, 32)).save(folder / name)
+    (folder / "notes.txt").write_text("not an image")
+    return [folder / "a.png", folder / "b.jpg"]
+
+
+@pytest.mark.parametrize(
+    "layout",
+    ["minimal_yaml", "yaml_without_path", "relative_yaml_without_path", "named_dirs_yaml", "directory", "val_only"],
+)
+def test_calibration_images_accepts_every_ocr_layout(tmp_path, monkeypatch, layout):
+    """docs/dataset_schema.md: a root directory, or a YAML with ``path`` plus optional
+    ``images``/``labels``; calibration needs images only, no JSONL labels."""
+    from libreyolo.models.ppocr.axelera_detector import _calibration_images
+
+    names = "nc: 1\nnames: {0: text}\n"
+    if layout == "minimal_yaml":
+        expected = _ocr_root(tmp_path / "ds")
+        (tmp_path / "data.yaml").write_text(f"path: ds\n{names}")
+        data = tmp_path / "data.yaml"
+    elif layout == "yaml_without_path":
+        expected = _ocr_root(tmp_path / "ds")
+        (tmp_path / "ds" / "data.yaml").write_text(names)
+        data = tmp_path / "ds" / "data.yaml"
+    elif layout == "relative_yaml_without_path":
+        expected = _ocr_root(tmp_path / "ds")
+        (tmp_path / "ds" / "data.yaml").write_text(names)
+        monkeypatch.chdir(tmp_path)
+        data = "ds/data.yaml"  # the YAML's folder, not ds/ds
+        expected = [p.resolve() for p in expected]
+    elif layout == "named_dirs_yaml":
+        expected = _ocr_root(tmp_path / "ds", images="imgs")
+        (tmp_path / "data.yaml").write_text(f"path: {tmp_path / 'ds'}\nimages: imgs\nlabels: lbls\n{names}")
+        data = tmp_path / "data.yaml"
+    elif layout == "directory":
+        expected = _ocr_root(tmp_path / "ds")
+        data = tmp_path / "ds"
+    else:  # val_only
+        expected = _ocr_root(tmp_path / "ds", split="val")
+        data = tmp_path / "ds"
+    got = _calibration_images(data)
+    assert [Path(p).resolve() for p in got] == [Path(p).resolve() for p in expected]
+
+
+def test_calibration_images_without_an_image_split_says_where_it_looked(tmp_path):
+    from libreyolo.models.ppocr.axelera_detector import _calibration_images
+
+    (tmp_path / "data.yaml").write_text("nc: 1\nnames: {0: text}\n")
+    with pytest.raises(ValueError, match="images/<train|val>"):
+        _calibration_images(tmp_path / "data.yaml")
+
+
+def test_resolve_ocr_root_reads_path_relative_to_the_yaml(tmp_path, monkeypatch):
+    from libreyolo.data.ocr_dataset import resolve_ocr_root
+
+    (tmp_path / "ds").mkdir()
+    (tmp_path / "ds" / "data.yaml").write_text("nc: 1\n")
+    monkeypatch.chdir(tmp_path)
+    assert resolve_ocr_root("ds/data.yaml") == ((tmp_path / "ds").resolve(), "images", "labels")
+    (tmp_path / "ds" / "data.yaml").write_text("path: root\nimages: i\nlabels: l\n")
+    assert resolve_ocr_root("ds/data.yaml") == ((tmp_path / "ds" / "root").resolve(), "i", "l")

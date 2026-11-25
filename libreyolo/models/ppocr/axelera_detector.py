@@ -296,22 +296,32 @@ class _DetLogits:
 
 
 def _calibration_images(data: str | Path) -> List[Path]:
-    """Images of an OCR dataset (``images/<train or val>``) or of a detection dataset YAML."""
+    """Images of an OCR dataset (a root, or a YAML per docs/dataset_schema.md) or of a detection dataset YAML.
+
+    A YAML is read as OCR when it names ``images`` or ``labels``, or has neither
+    ``train`` nor ``val`` (the minimal OCR YAML is ``path``, ``nc``, ``names``).
+    Calibration needs images only: the OCR split's JSONL labels are not required.
+    """
     import yaml
 
+    from ...data.ocr_dataset import resolve_ocr_root
     from ...data.utils import get_img_files, load_data_config
 
     data_path = Path(str(data))
+    splits: list = ["train", "val"]
+    is_ocr = data_path.is_dir()
     if data_path.suffix.lower() in (".yaml", ".yml") and data_path.is_file():
         cfg = yaml.safe_load(data_path.read_text()) or {}
-        if "images" in cfg and "labels" in cfg:  # OCR schema (docs/dataset_schema.md)
-            root = Path(cfg.get("path", data_path.parent))
-            root = root if root.is_absolute() else data_path.parent / root
-            for split in (cfg.get("train"), "train", cfg.get("val"), "val"):
-                if split and (root / cfg["images"] / split).is_dir():
-                    return sorted(p for p in (root / cfg["images"] / split).iterdir()
-                                  if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp", ".webp"))
-            raise ValueError(f"No images/<train|val> directory under {root}.")
+        is_ocr = "images" in cfg or "labels" in cfg or ("train" not in cfg and "val" not in cfg)
+        splits = [cfg.get("train"), "train", cfg.get("val"), "val"]
+    if is_ocr:
+        root, images_dirname, _ = resolve_ocr_root(data_path)
+        for split in splits:
+            folder = root / images_dirname / str(split) if split else None
+            if folder is not None and folder.is_dir():
+                return sorted(p for p in folder.iterdir()
+                              if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp", ".webp"))
+        raise ValueError(f"No {images_dirname}/<train|val> directory under {root}.")
     config = load_data_config(str(data), autodownload=True)
     root = Path(config.get("path", "."))
     split = config.get("train") or config.get("val")
