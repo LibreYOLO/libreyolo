@@ -11,8 +11,11 @@ Supports YAML configs with:
 - Python download scripts
 """
 
+import functools
+import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import zipfile
@@ -341,7 +344,11 @@ def load_data_config(
         Dictionary with dataset configuration including:
         - path: Dataset root path
         - train/val/test: Resolved paths (directory or .txt file)
-        - {split}_img_files: List of resolved image paths (when discoverable)
+        - {split}_img_files: List of resolved image paths (when discoverable).
+          For a split with a COCO annotation file and one image directory,
+          the list comes from the JSON's ``images[].file_name`` joined with
+          that directory, the same paths ``COCODataset`` opens; the
+          directory itself is not walked.
         - {split}_label_files: List of resolved label paths (when discoverable)
         - {split}_annotation_file: Resolved COCO JSON path (when configured)
         - names: Class names dict or list
@@ -375,6 +382,8 @@ def load_data_config(
     if autodownload:
         config = check_dataset(config, yaml_path, allow_scripts=allow_scripts)
 
+    _resolve_coco_annotation_paths(config, dataset_path)
+
     # Resolve train/val/test paths and pre-compute image lists when possible.
     for split in ("train", "val", "test"):
         if split in config and config[split]:
@@ -397,7 +406,11 @@ def load_data_config(
 
             img_files = []
             try:
-                img_files = get_img_files(split_path, formats={".npy"} if profile else None)
+                img_files = _coco_split_img_files(config, split, split_path)
+                if img_files is None:
+                    img_files = get_img_files(
+                        split_path, formats={".npy"} if profile else None
+                    )
                 if img_files:
                     config[f"{split}_img_files"] = img_files
                     config[f"{split}_label_files"] = img2label_paths(img_files)
@@ -415,8 +428,6 @@ def load_data_config(
                     yaml_path,
                     f": {search_error}" if search_error else ".",
                 )
-
-    _resolve_coco_annotation_paths(config, dataset_path)
 
     # Keep 'root' for backward compatibility
     config["root"] = str(dataset_path)
@@ -468,6 +479,75 @@ def _resolve_coco_annotation_paths(config: Dict, dataset_path: Path) -> None:
         if not path.is_absolute():
             path = dataset_path / path
         config[f"{split}_annotation_file"] = str(path)
+
+
+# JSON whitespace (RFC 8259, section 2): space, tab, line feed, carriage return.
+_JSON_WS = re.compile(r"[ \t\n\r]*")
+
+
+@functools.lru_cache(maxsize=8)
+def _coco_image_file_names(path: str, mtime_ns: int, size: int) -> tuple:
+    """Return ``images[].file_name`` from a COCO JSON file.
+
+    Decodes the top-level members in order and stops at ``images``, so the
+    ``annotations`` array, which is most of a COCO file and comes after
+    ``images`` in the official files, is not built. ``mtime_ns`` and ``size``
+    only key the cache, so repeated ``load_data_config`` calls in one process
+    read an unchanged file once.
+    """
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    decoder = json.JSONDecoder()
+    i = _JSON_WS.match(text, 0).end()
+    if text[i : i + 1] != "{":
+        raise ValueError("COCO annotation file is not a JSON object")
+    i = _JSON_WS.match(text, i + 1).end()
+    while text[i : i + 1] != "}":
+        key, i = decoder.raw_decode(text, i)
+        i = _JSON_WS.match(text, i).end()
+        if text[i : i + 1] != ":":
+            raise ValueError(f"expected ':' at offset {i}")
+        i = _JSON_WS.match(text, i + 1).end()
+        value, i = decoder.raw_decode(text, i)
+        if key == "images":
+            return tuple(str(image["file_name"]) for image in value)
+        i = _JSON_WS.match(text, i).end()
+        if text[i : i + 1] == ",":
+            i = _JSON_WS.match(text, i + 1).end()
+        elif text[i : i + 1] != "}":
+            raise ValueError(f"expected ',' or '}}' at offset {i}")
+    raise KeyError("images")
+
+
+def _coco_split_img_files(config: Dict, split: str, split_path) -> Optional[List[Path]]:
+    """Image list for a split read from its COCO JSON, or None to scan instead.
+
+    Only a split with a resolved annotation file and a single image directory
+    qualifies; that is the layout ``COCODataset`` accepts (see
+    ``get_coco_image_dir``). Paths are joined the way ``COCODataset`` joins
+    them: the split's image directory, then ``file_name``.
+    """
+    annotation_file = config.get(f"{split}_annotation_file")
+    if not annotation_file or isinstance(split_path, list):
+        return None
+    image_root = Path(split_path)
+    if image_root.suffix.lower() == ".txt":
+        return None
+    try:
+        stat = os.stat(annotation_file)
+        names = _coco_image_file_names(
+            str(annotation_file), stat.st_mtime_ns, stat.st_size
+        )
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.warning(
+            "Could not read the image list of '%s' from %s (%s); scanning %s instead.",
+            split,
+            annotation_file,
+            exc,
+            image_root,
+        )
+        return None
+    return sorted({image_root / name for name in names})
 
 
 def get_coco_annotation_file(config: Dict, split: str) -> Optional[str]:

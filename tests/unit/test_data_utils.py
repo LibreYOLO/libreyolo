@@ -468,3 +468,156 @@ def test_zip_download_needs_only_dest_to_be_writable(tmp_path, monkeypatch):
         parent.chmod(0o755)
     assert (project / "a.txt").exists() and (project / "b" / "c.txt").exists()
     assert not list(project.glob(".libreyolo-extract-*"))
+
+
+# ---------------------------------------------------------------------------
+# #1078: a split with a COCO JSON takes its image list from the JSON
+# ---------------------------------------------------------------------------
+
+
+def _coco_split_dataset(tmp_path, *, indent=None):
+    """Image root with two referenced images and one the JSON does not list."""
+    import json
+
+    root = tmp_path / "raw"
+    (root / "sub").mkdir(parents=True)
+    for rel in ("sub/a.jpg", "b.jpg", "unreferenced.jpg"):
+        Image.new("RGB", (8, 8)).save(root / rel)
+    images = [
+        {"id": 1, "file_name": "sub/a.jpg", "width": 8, "height": 8},
+        {"id": 2, "file_name": "b.jpg", "width": 8, "height": 8},
+    ]
+    annotations = [
+        {"id": i, "image_id": i, "category_id": 1, "bbox": [1, 1, 4, 4],
+         "area": 16, "iscrowd": 0}
+        for i in (1, 2)
+    ]
+    body = {
+        "info": {"description": "images: not this one"},
+        "images": images,
+        "annotations": annotations,
+        "categories": [{"id": 1, "name": "person"}],
+    }
+    ann = tmp_path / "dataset" / "annotations" / "train.json"
+    ann.parent.mkdir(parents=True)
+    ann.write_text(json.dumps(body, indent=indent), encoding="utf-8")
+    yaml_path = tmp_path / "data.yaml"
+    yaml_path.write_text(
+        yaml.safe_dump(
+            {
+                "path": str(tmp_path / "dataset"),
+                "train": str(root),
+                "annotations": {"train": "annotations/train.json"},
+                "names": {0: "person"},
+            }
+        )
+    )
+    return root, ann, yaml_path, images, annotations
+
+
+def _record_scans(monkeypatch):
+    import libreyolo.data.utils as data_utils
+
+    scanned = []
+    real = data_utils.get_img_files
+
+    def recording(path, *args, **kwargs):
+        scanned.append(Path(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(data_utils, "get_img_files", recording)
+    return scanned
+
+
+@pytest.mark.parametrize("indent", [None, 2])
+def test_coco_split_lists_images_from_json_without_scanning(tmp_path, monkeypatch, indent):
+    root, _, yaml_path, _, _ = _coco_split_dataset(tmp_path, indent=indent)
+    scanned = _record_scans(monkeypatch)
+
+    config = load_data_config(str(yaml_path), autodownload=False)
+
+    assert scanned == []
+    assert config["train_img_files"] == [root / "b.jpg", root / "sub" / "a.jpg"]
+    assert config["train_label_files"] == img2label_paths(config["train_img_files"])
+
+
+def test_coco_split_images_after_annotations_are_still_found(tmp_path, monkeypatch):
+    import json
+
+    root, ann, yaml_path, images, annotations = _coco_split_dataset(tmp_path)
+    reordered = {
+        "annotations": annotations,
+        "categories": [{"id": 1, "name": "person"}],
+        "images": images,
+    }
+    ann.write_text(json.dumps(reordered), encoding="utf-8")
+    scanned = _record_scans(monkeypatch)
+
+    config = load_data_config(str(yaml_path), autodownload=False)
+
+    assert scanned == []
+    assert config["train_img_files"] == [root / "b.jpg", root / "sub" / "a.jpg"]
+
+
+def test_coco_split_list_matches_the_paths_coco_dataset_opens(tmp_path):
+    from libreyolo.data.dataset import COCODataset
+    from libreyolo.data.utils import get_coco_annotation_file
+
+    _, _, yaml_path, _, _ = _coco_split_dataset(tmp_path)
+    config = load_data_config(str(yaml_path), autodownload=False)
+
+    dataset = COCODataset(
+        data_dir=config["root"],
+        json_file=get_coco_annotation_file(config, "train"),
+        name=get_coco_image_dir(config, "train", "train"),
+        img_size=(64, 64),
+    )
+
+    opened = sorted(dataset._image_path(i) for i in range(len(dataset)))
+    assert opened == config["train_img_files"]
+    assert all(path.exists() for path in opened)
+
+
+def test_coco_split_reads_a_rewritten_json_again(tmp_path):
+    import json
+
+    root, ann, yaml_path, images, _ = _coco_split_dataset(tmp_path)
+    first = load_data_config(str(yaml_path), autodownload=False)["train_img_files"]
+    ann.write_text(json.dumps({"images": images[:1]}), encoding="utf-8")
+
+    second = load_data_config(str(yaml_path), autodownload=False)["train_img_files"]
+
+    assert first == [root / "b.jpg", root / "sub" / "a.jpg"]
+    assert second == [root / "sub" / "a.jpg"]
+
+
+@pytest.mark.parametrize(
+    "text", ["{not json", '{"annotations": []}', "[]", '{"images": [{"id": 1}]}']
+)
+def test_unreadable_coco_image_list_falls_back_to_the_scan(tmp_path, monkeypatch, caplog, text):
+    root, ann, yaml_path, _, _ = _coco_split_dataset(tmp_path)
+    ann.write_text(text, encoding="utf-8")
+    scanned = _record_scans(monkeypatch)
+
+    with caplog.at_level("WARNING"):
+        config = load_data_config(str(yaml_path), autodownload=False)
+
+    assert scanned == [root]
+    assert config["train_img_files"] == [
+        root / "b.jpg", root / "sub" / "a.jpg", root / "unreferenced.jpg"
+    ]
+    assert any("scanning" in r.getMessage() for r in caplog.records)
+
+
+def test_split_without_annotation_file_is_still_scanned(tmp_path, monkeypatch):
+    root, _, yaml_path, _, _ = _coco_split_dataset(tmp_path)
+    data = yaml.safe_load(yaml_path.read_text())
+    data["val"] = str(root)
+    yaml_path.write_text(yaml.safe_dump(data))
+    scanned = _record_scans(monkeypatch)
+
+    config = load_data_config(str(yaml_path), autodownload=False)
+
+    assert scanned == [root]
+    assert len(config["val_img_files"]) == 3
+    assert len(config["train_img_files"]) == 2
