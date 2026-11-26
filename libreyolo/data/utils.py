@@ -406,12 +406,16 @@ def load_data_config(
 
             img_files = []
             try:
-                img_files = _coco_split_img_files(config, split, split_path)
-                if img_files is None:
+                coco_files = _coco_split_img_files(config, split, split_path)
+                if coco_files is None:
                     img_files = get_img_files(
                         split_path, formats={".npy"} if profile else None
                     )
-                if img_files:
+                else:
+                    img_files = coco_files
+                # A COCO list is saved even when empty: callers such as export
+                # calibration scan the directory when the key is missing.
+                if img_files or coco_files is not None:
                     config[f"{split}_img_files"] = img_files
                     config[f"{split}_label_files"] = img2label_paths(img_files)
             except (FileNotFoundError, ValueError) as e:
@@ -519,7 +523,7 @@ def _coco_image_file_names(path: str, mtime_ns: int, size: int) -> tuple:
     raise KeyError("images")
 
 
-def _coco_split_img_files(config: Dict, split: str, split_path) -> Optional[List[Path]]:
+def _coco_split_img_files(config: dict, split: str, split_path) -> list[Path] | None:
     """Image list for a split read from its COCO JSON, or None to scan instead.
 
     Only a split with a resolved annotation file and a single image directory

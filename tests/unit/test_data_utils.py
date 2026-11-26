@@ -621,3 +621,18 @@ def test_split_without_annotation_file_is_still_scanned(tmp_path, monkeypatch):
     assert scanned == [root]
     assert len(config["val_img_files"]) == 3
     assert len(config["train_img_files"]) == 2
+
+
+def test_coco_split_with_no_images_keeps_an_empty_list(tmp_path, monkeypatch):
+    """Export calibration scans when the key is missing, so an empty list stays."""
+    import json
+
+    _, ann, yaml_path, _, _ = _coco_split_dataset(tmp_path)
+    ann.write_text(json.dumps({"images": [], "annotations": []}), encoding="utf-8")
+    scanned = _record_scans(monkeypatch)
+
+    config = load_data_config(str(yaml_path), autodownload=False)
+
+    assert config["train_img_files"] == []
+    assert config["train_label_files"] == []
+    assert scanned == []
