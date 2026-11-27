@@ -62,7 +62,7 @@ Apache License 2.0 COCO weights)
     Source:  https://github.com/Intellindust-AI-Lab/LoopDVR
     Commit:  f2aba1f122029e4db757b69cd37fc5a4909db34e
 
-    Native inference-only port of LoopDVR (LoopDet, LoopSeg, LoopPose;
+    Native port of LoopDVR (LoopDet, LoopSeg, LoopPose;
     arXiv:2611.32067, Great Bay University / Intellindust AI Lab, 2026).
     Derived from Intellindust-AI-Lab/LoopDVR (Apache-2.0), which builds on
     EdgeCrafter / RT-DETR / D-FINE / RF-DETR / DETRPose (Apache-2.0),

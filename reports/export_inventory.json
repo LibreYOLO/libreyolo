@@ -1649,7 +1649,7 @@
     "export_override": "none",
     "optional_extra": null,
     "available": true,
-    "group": "g3"
+    "group": "g1"
   },
   "lwdetr": {
     "class": "libreyolo.models.lwdetr.model.LibreLWDETR",

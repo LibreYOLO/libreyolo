@@ -27,6 +27,7 @@ MODEL_GROUPS: dict[str, str] = {
     "yolo9_e2e": "g1",
     "yolo9_p2": "g1",
     "ec": "g1",
+    "loopdvr": "g1",
     "gtr": "g1",
     "rtdetr": "g1",
     "rtdetrv2": "g1",
@@ -62,7 +63,6 @@ MODEL_GROUPS: dict[str, str] = {
     "pe": "s",
     # g3 - inference-only specialists
     "levjepa": "g3",
-    "loopdvr": "g3",
     "lwdetr": "g3",
     "riodetrv2": "g3",
     "detr": "g3",

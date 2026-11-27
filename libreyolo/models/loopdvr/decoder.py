@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from collections.abc import Sequence
 
 import torch
 from torch import nn
@@ -166,6 +167,25 @@ class SegmentationHead(nn.Module):
         queries = self.query_features_proj(self.query_features_block(queries))
         return torch.einsum("bchw,bnc->bnhw", spatial, queries) + self.bias
 
+    def sparse_forward(
+        self, spatial: torch.Tensor, query_features: list[torch.Tensor]
+    ) -> list[dict[str, torch.Tensor]]:
+        """Deferred per-layer masks for memory-efficient point-sampled training."""
+        spatial = F.interpolate(
+            spatial, size=self.mask_size, mode="bilinear", align_corners=False
+        )
+        spatial = self.spatial_features_proj(self.blocks[0](spatial))
+        return [
+            {
+                "spatial_features": spatial,
+                "query_features": self.query_features_proj(
+                    self.query_features_block(queries)
+                ),
+                "bias": self.bias,
+            }
+            for queries in query_features
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Detection & instance segmentation decoder
@@ -249,9 +269,12 @@ class DetectionLayer(nn.Module):
         refs: torch.Tensor,
         values: tuple[torch.Tensor, ...],
         shapes: list[tuple[int, int]],
+        attn_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         query = target + pos
-        target = self.norm1(target + self.self_attn(query, query, target)[0])
+        target = self.norm1(
+            target + self.self_attn(query, query, target, attn_mask=attn_mask)[0]
+        )
         target = self.gateway(
             target, self.cross_attn(target + pos, refs, values, shapes)
         )
@@ -339,9 +362,17 @@ class DetectionDecoder(nn.Module):
             raise ValueError(
                 "Incompatible decoder feature levels or attention dimensions"
             )
+        self.num_classes = num_classes
+        self.hidden_dim = hidden_dim
         self.num_queries = num_queries
+        self.feat_strides = tuple(feat_strides)
         self.nhead = nhead
         self.reg_max = reg_max
+        self.num_denoising = 100
+        self.label_noise_ratio = 0.5
+        self.box_noise_scale = 1.0
+        self.aux_loss = True
+        self.emit_loss_outputs = False
         self.up = nn.Parameter(torch.tensor([0.5]), requires_grad=False)
         self.reg_scale = nn.Parameter(
             torch.tensor([reg_scale], dtype=torch.float32), requires_grad=False
@@ -374,60 +405,288 @@ class DetectionDecoder(nn.Module):
         self.dec_bbox_head = nn.ModuleList(
             [MLP(hidden_dim, hidden_dim, 4 * (reg_max + 1), 3, activation)]
         )
+        self.denoising_class_embed = nn.Embedding(
+            num_classes + 1, hidden_dim, padding_idx=num_classes
+        )
 
+        self._eval_shapes = tuple(
+            (eval_spatial_size[0] // stride, eval_spatial_size[1] // stride)
+            for stride in feat_strides
+        )
+        anchors, valid = self._build_anchors(self._eval_shapes)
+        self.register_buffer("anchors", anchors)
+        self.register_buffer("valid_mask", valid)
+
+    @staticmethod
+    def _build_anchors(
+        shapes: Sequence[tuple[int, int]] | list[tuple[int, int]],
+        device: torch.device | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         anchors = []
-        for level, stride in enumerate(feat_strides):
-            h, w = [side // stride for side in eval_spatial_size]
-            y, x = torch.meshgrid(torch.arange(h), torch.arange(w), indexing="ij")
+        for level, (h, w) in enumerate(shapes):
+            y, x = torch.meshgrid(
+                torch.arange(h, device=device),
+                torch.arange(w, device=device),
+                indexing="ij",
+            )
             xy = (torch.stack([x, y], dim=-1) + 0.5) / torch.tensor(
-                [w, h], dtype=torch.float32
+                [w, h], dtype=torch.float32, device=device
             )
             wh = torch.ones_like(xy) * 0.05 * (2.0**level)
             anchors.append(torch.cat([xy, wh], dim=-1).reshape(1, h * w, 4))
         anchors = torch.cat(anchors, 1)
         valid = ((anchors > 0.01) & (anchors < 0.99)).all(-1, keepdim=True)
-        self.register_buffer(
-            "anchors", torch.where(valid, torch.log(anchors / (1 - anchors)), torch.inf)
-        )
-        self.register_buffer("valid_mask", valid)
+        anchors = torch.where(valid, torch.log(anchors / (1 - anchors)), torch.inf)
+        return anchors, valid
+
+    @staticmethod
+    def _split_seg(segs, s_idx):
+        if segs is None:
+            return None, None
+        seg_match, seg_dn = [], []
+        for d in segs:
+            shared = {"spatial_features": d["spatial_features"], "bias": d["bias"]}
+            if s_idx is None:
+                seg_match.append({**shared, "query_features": d["query_features"]})
+            else:
+                dn_qf, match_qf = torch.split(d["query_features"], s_idx, dim=1)
+                seg_dn.append({**shared, "query_features": dn_qf})
+                seg_match.append({**shared, "query_features": match_qf})
+        return seg_match, (seg_dn if s_idx is not None else None)
+
+    @staticmethod
+    def _set_aux_loss2(
+        outputs_class,
+        outputs_coord,
+        outputs_corners,
+        outputs_ref,
+        teacher_corners=None,
+        teacher_logits=None,
+    ):
+        return [
+            {
+                "pred_logits": c,
+                "pred_boxes": b,
+                "pred_corners": corners,
+                "ref_points": ref,
+                "teacher_corners": teacher_corners,
+                "teacher_logits": teacher_logits,
+            }
+            for c, b, corners, ref in zip(
+                outputs_class, outputs_coord, outputs_corners, outputs_ref
+            )
+        ]
 
     def forward(
-        self, feats: list[torch.Tensor], spatial_feat: torch.Tensor | None = None
-    ) -> dict[str, torch.Tensor | None]:
+        self,
+        feats: list[torch.Tensor],
+        targets: list[dict] | None = None,
+        spatial_feat: torch.Tensor | None = None,
+    ) -> dict:
         memory, shapes = flatten_features(feats)
-        proposals = self.valid_mask.to(memory.dtype) * memory
-        scores = self.enc_score_head(proposals).max(-1).values
-        index = scores.topk(self.num_queries, dim=-1).indices.unsqueeze(-1)
-        output = proposals.gather(1, index.expand(-1, -1, memory.shape[-1]))
-        anchors = self.anchors.expand(memory.shape[0], -1, -1).gather(
-            1, index.expand(-1, -1, 4)
+        if tuple(shapes) == self._eval_shapes:
+            cached_anchors, cached_valid = self.anchors, self.valid_mask
+        else:
+            cached_anchors, cached_valid = self._build_anchors(shapes, memory.device)
+
+        if not (self.training or self.emit_loss_outputs):
+            proposals = cached_valid.to(memory.dtype) * memory
+            scores = self.enc_score_head(proposals).max(-1).values
+            index = scores.topk(self.num_queries, dim=-1).indices.unsqueeze(-1)
+            output = proposals.gather(1, index.expand(-1, -1, memory.shape[-1]))
+            anchors = cached_anchors.expand(memory.shape[0], -1, -1).gather(
+                1, index.expand(-1, -1, 4)
+            )
+            refs = (self.enc_bbox_head(output) + anchors).sigmoid()
+            pos = self.query_pos_head(refs).clamp(-10, 10)
+            values = memory.reshape(*memory.shape[:2], self.nhead, -1).permute(
+                0, 2, 3, 1
+            )
+            values = values.split([h * w for h, w in shapes], dim=-1)
+            bins = regression_bins(self.reg_max, self.up, self.reg_scale)
+            previous, corners = 0, 0
+            for layer_idx, group_idx in enumerate(self.decoder.layer_to_group):
+                output = self.decoder.layers[group_idx](
+                    output, pos, refs, values, shapes
+                )
+                output = self.decoder.loop_adapters[layer_idx](output)
+                if layer_idx == 0:
+                    base = (
+                        self.pre_bbox_head(output) + inverse_sigmoid(refs, 1e-5)
+                    ).sigmoid()
+                corners = self.dec_bbox_head[0](output + previous) + corners
+                refs = refine_boxes(base, expectation(corners, bins), self.reg_scale)
+                previous = output
+            final_group = self.decoder.layer_to_group[-1]
+            scores = self.decoder.lqe_layers[final_group](
+                self.dec_score_head[final_group](output), corners
+            )
+            out: dict = {
+                "pred_logits": scores,
+                "pred_boxes": refs,
+            }
+            if self.decoder.segmentation_head is not None:
+                out["pred_masks"] = self.decoder.segmentation_head(
+                    spatial_feat, output
+                )
+            return out
+
+        # --- Training / validation-loss path (ECCriterion / ECSegCriterion) ---
+        denoising_logits = denoising_bbox_unact = attn_mask = dn_meta = None
+        if self.training and self.num_denoising > 0 and targets is not None:
+            from ..dfine.denoising import get_contrastive_denoising_training_group
+
+            denoising_logits, denoising_bbox_unact, attn_mask, dn_meta = (
+                get_contrastive_denoising_training_group(
+                    targets,
+                    self.num_classes,
+                    self.num_queries,
+                    self.denoising_class_embed,
+                    num_denoising=self.num_denoising,
+                    label_noise_ratio=self.label_noise_ratio,
+                    box_noise_scale=self.box_noise_scale,
+                )
+            )
+
+        proposals = cached_valid.to(memory.dtype) * memory
+        enc_logits_all = self.enc_score_head(proposals)
+        index = (
+            enc_logits_all.max(-1).values.topk(self.num_queries, dim=-1).indices
         )
-        refs = (self.enc_bbox_head(output) + anchors).sigmoid()
-        pos = self.query_pos_head(refs).clamp(-10, 10)
+        index_exp = index.unsqueeze(-1)
+        output = proposals.gather(1, index_exp.expand(-1, -1, memory.shape[-1]))
+        enc_topk_logits = enc_logits_all.gather(
+            1, index_exp.expand(-1, -1, enc_logits_all.shape[-1])
+        )
+        anchors = cached_anchors.expand(memory.shape[0], -1, -1).gather(
+            1, index_exp.expand(-1, -1, 4)
+        )
+        enc_topk_bboxes_unact = self.enc_bbox_head(output) + anchors
+        enc_topk_bboxes = enc_topk_bboxes_unact.sigmoid()
+
+        output = output.detach()
+        refs_unact = enc_topk_bboxes_unact.detach()
+        if denoising_logits is not None and denoising_bbox_unact is not None:
+            output = torch.cat([denoising_logits, output], dim=1)
+            refs_unact = torch.cat([denoising_bbox_unact, refs_unact], dim=1)
+
+        refs_detach = refs_unact.sigmoid()
+        pos = self.query_pos_head(refs_detach).clamp(-10, 10)
         values = memory.reshape(*memory.shape[:2], self.nhead, -1).permute(0, 2, 3, 1)
         values = values.split([h * w for h, w in shapes], dim=-1)
         bins = regression_bins(self.reg_max, self.up, self.reg_scale)
-        previous, corners = 0, 0
+
+        dec_out_bboxes: list[torch.Tensor] = []
+        dec_out_logits: list[torch.Tensor] = []
+        dec_out_corners: list[torch.Tensor] = []
+        dec_out_refs: list[torch.Tensor] = []
+        dec_out_hs: list[torch.Tensor] = []
+
+        previous: torch.Tensor | int = 0
+        corners: torch.Tensor | int = 0
+        pre_bboxes = pre_scores = base_detach = None
         for layer_idx, group_idx in enumerate(self.decoder.layer_to_group):
-            output = self.decoder.layers[group_idx](output, pos, refs, values, shapes)
+            output = self.decoder.layers[group_idx](
+                output, pos, refs_detach, values, shapes, attn_mask=attn_mask
+            )
             output = self.decoder.loop_adapters[layer_idx](output)
             if layer_idx == 0:
-                base = (
-                    self.pre_bbox_head(output) + inverse_sigmoid(refs, 1e-5)
+                pre_bboxes = (
+                    self.pre_bbox_head(output) + inverse_sigmoid(refs_detach, 1e-5)
                 ).sigmoid()
+                pre_scores = self.dec_score_head[0](output)
+                base_detach = pre_bboxes.detach()
             corners = self.dec_bbox_head[0](output + previous) + corners
-            refs = refine_boxes(base, expectation(corners, bins), self.reg_scale)
-            previous = output
-        final_group = self.decoder.layer_to_group[-1]
-        scores = self.decoder.lqe_layers[final_group](
-            self.dec_score_head[final_group](output), corners
-        )
-        out: dict[str, torch.Tensor | None] = {
-            "pred_logits": scores,
-            "pred_boxes": refs,
+            inter_ref_bbox = refine_boxes(
+                base_detach, expectation(corners, bins), self.reg_scale
+            )
+            layer_scores = self.decoder.lqe_layers[group_idx](
+                self.dec_score_head[group_idx](output), corners
+            )
+            dec_out_logits.append(layer_scores)
+            dec_out_bboxes.append(inter_ref_bbox)
+            dec_out_corners.append(corners)
+            dec_out_refs.append(base_detach)
+            dec_out_hs.append(output)
+
+            refs_detach = inter_ref_bbox.detach()
+            previous = output.detach()
+
+        out_bboxes = torch.stack(dec_out_bboxes)
+        out_logits = torch.stack(dec_out_logits)
+        out_corners = torch.stack(dec_out_corners)
+        out_refs = torch.stack(dec_out_refs)
+
+        out_segs = None
+        if self.decoder.segmentation_head is not None and spatial_feat is not None:
+            out_segs = self.decoder.segmentation_head.sparse_forward(
+                spatial_feat, dec_out_hs
+            )
+
+        s_idx = dn_meta["dn_num_split"] if (self.training and dn_meta is not None) else None
+        seg_match, seg_dn = self._split_seg(out_segs, s_idx)
+
+        dn_pre_logits = dn_pre_bboxes = None
+        dn_out_logits = dn_out_bboxes = dn_out_corners = dn_out_refs = None
+        if self.training and dn_meta is not None:
+            dn_pre_logits, pre_scores = torch.split(pre_scores, s_idx, dim=1)
+            dn_pre_bboxes, pre_bboxes = torch.split(pre_bboxes, s_idx, dim=1)
+            dn_out_logits, out_logits = torch.split(out_logits, s_idx, dim=2)
+            dn_out_bboxes, out_bboxes = torch.split(out_bboxes, s_idx, dim=2)
+            dn_out_corners, out_corners = torch.split(out_corners, s_idx, dim=2)
+            dn_out_refs, out_refs = torch.split(out_refs, s_idx, dim=2)
+
+        out = {
+            "pred_logits": out_logits[-1],
+            "pred_boxes": out_bboxes[-1],
+            "pred_corners": out_corners[-1],
+            "ref_points": out_refs[-1],
+            "up": self.up,
+            "reg_scale": self.reg_scale,
         }
-        if self.decoder.segmentation_head is not None:
-            out["pred_masks"] = self.decoder.segmentation_head(spatial_feat, output)
+        if seg_match is not None:
+            out["pred_masks"] = seg_match[-1]
+
+        if self.aux_loss:
+            out["aux_outputs"] = self._set_aux_loss2(
+                out_logits[:-1],
+                out_bboxes[:-1],
+                out_corners[:-1],
+                out_refs[:-1],
+                out_corners[-1],
+                out_logits[-1],
+            )
+            if seg_match is not None:
+                for i, aux in enumerate(out["aux_outputs"]):
+                    aux["pred_masks"] = seg_match[i]
+            out["enc_aux_outputs"] = [
+                {"pred_logits": enc_topk_logits, "pred_boxes": enc_topk_bboxes}
+            ]
+            out["pre_outputs"] = {"pred_logits": pre_scores, "pred_boxes": pre_bboxes}
+            if seg_match is not None:
+                out["pre_outputs"]["pred_masks"] = seg_match[0]
+            out["enc_meta"] = {"class_agnostic": False}
+
+            if self.training and dn_meta is not None:
+                out["dn_outputs"] = self._set_aux_loss2(
+                    dn_out_logits,
+                    dn_out_bboxes,
+                    dn_out_corners,
+                    dn_out_refs,
+                    dn_out_corners[-1],
+                    dn_out_logits[-1],
+                )
+                if seg_dn is not None:
+                    for i, dn in enumerate(out["dn_outputs"]):
+                        dn["pred_masks"] = seg_dn[i]
+                out["dn_pre_outputs"] = {
+                    "pred_logits": dn_pre_logits,
+                    "pred_boxes": dn_pre_bboxes,
+                }
+                if seg_dn is not None:
+                    out["dn_pre_outputs"]["pred_masks"] = seg_dn[0]
+                out["dn_meta"] = dn_meta
+
         return out
 
 
@@ -522,13 +781,14 @@ class PoseLayer(nn.Module):
         references: torch.Tensor,
         values: tuple[torch.Tensor, ...],
         shapes: list[tuple[int, int]],
+        attn_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         batch, queries, joints, dim = tgt.shape
         q = self.with_position(tgt, pos).flatten(0, 1)
         update = self.within_attn(q, q, tgt.flatten(0, 1))[0].reshape_as(tgt)
         tgt = self.within_norm(tgt + update)
         tgt = tgt.transpose(1, 2).flatten(0, 1)
-        update = self.across_attn(tgt, tgt, tgt)[0]
+        update = self.across_attn(tgt, tgt, tgt, attn_mask=attn_mask)[0]
         tgt = (
             self.across_norm(tgt + update)
             .reshape(batch, joints, queries, dim)
@@ -622,10 +882,18 @@ class PoseDecoder(nn.Module):
             raise ValueError(
                 "Pose dimension must be divisible by the head count and by four"
             )
+        self.hidden_dim = hidden_dim
         self.num_queries = num_queries
+        self.num_classes = num_classes
         self.num_body_points = num_body_points
+        self.num_keypoints = num_body_points
         self.nhead = nhead
         self.reg_max = reg_max
+        self.feat_strides = tuple(feat_strides)
+        self.aux_loss = True
+        self.dn_number = 20
+        self.label_noise_ratio = 0.5
+        self.oks_sigmas: Sequence[float] | None = None
         self.up = nn.Parameter(torch.tensor([0.5]), requires_grad=False)
         self.reg_scale = nn.Parameter(
             torch.tensor([reg_scale], dtype=torch.float32), requires_grad=False
@@ -643,6 +911,10 @@ class PoseDecoder(nn.Module):
         self.keypoint_embedding = nn.Embedding(num_body_points, hidden_dim)
         self.instance_embedding = nn.Embedding(1, hidden_dim)
         self.tgt_embed = nn.Embedding(num_queries, hidden_dim)
+        # Contrastive denoising embeddings (DETRPose recipe; used during
+        # training only — absent from inference-only release checkpoints).
+        self.label_enc = nn.Embedding(81, hidden_dim)
+        self.pose_enc = nn.Embedding(num_body_points, hidden_dim)
         self.enc_output = nn.Linear(hidden_dim, hidden_dim)
         self.enc_output_norm = nn.LayerNorm(hidden_dim)
         self.enc_out_class_embed = nn.Linear(hidden_dim, num_classes)
@@ -658,73 +930,246 @@ class PoseDecoder(nn.Module):
         )
         self.pre_pose_embed = MLP(hidden_dim, hidden_dim, 2, 3)
 
+        self._eval_shapes = tuple(
+            (eval_spatial_size[0] // stride, eval_spatial_size[1] // stride)
+            for stride in feat_strides
+        )
+        anchors, valid_mask = self._build_anchors(self._eval_shapes)
+        self.register_buffer("valid_mask", valid_mask)
+        self.register_buffer("anchors", anchors)
+
+    @staticmethod
+    def _build_anchors(
+        shapes: Sequence[tuple[int, int]],
+        device: torch.device | str = "cpu",
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         anchors = []
-        for stride in feat_strides:
-            h, w = [size // stride for size in eval_spatial_size]
+        for h, w in shapes:
             y, x = torch.meshgrid(
-                torch.linspace(0, h - 1, h),
-                torch.linspace(0, w - 1, w),
+                torch.linspace(0, h - 1, h, device=device),
+                torch.linspace(0, w - 1, w, device=device),
                 indexing="ij",
             )
             xy = (torch.stack([x, y], dim=-1) + 0.5) / torch.tensor(
-                [w, h], dtype=torch.float32
+                [w, h], dtype=torch.float32, device=device
             )
             anchors.append(xy.reshape(1, h * w, 2))
         coords = torch.cat(anchors, 1)
-        self.register_buffer(
-            "valid_mask", ~((coords > 0.01) & (coords < 0.99)).all(-1, keepdim=True)
-        )
-        self.register_buffer("anchors", torch.log(coords / (1 - coords)))
+        valid_mask = ~((coords > 0.01) & (coords < 0.99)).all(-1, keepdim=True)
+        return torch.log(coords / (1 - coords)), valid_mask
 
-    def forward(self, feats: list[torch.Tensor]) -> dict[str, torch.Tensor]:
+    @staticmethod
+    def _set_aux_loss(
+        outputs_class: torch.Tensor, outputs_keypoints: torch.Tensor
+    ) -> list[dict[str, torch.Tensor]]:
+        return [
+            {"pred_logits": a, "pred_keypoints": b}
+            for a, b in zip(outputs_class, outputs_keypoints)
+        ]
+
+    def forward(
+        self,
+        feats: list[torch.Tensor],
+        targets: list[dict] | None = None,
+        samples: torch.Tensor | None = None,
+    ) -> dict:
         memory, shapes = flatten_features(feats)
+        if tuple(shapes) == self._eval_shapes:
+            cached_anchors, cached_valid = self.anchors, self.valid_mask
+        else:
+            cached_anchors, cached_valid = self._build_anchors(shapes, memory.device)
+
+        if not self.training:
+            proposal = self.enc_output_norm(
+                self.enc_output(memory.masked_fill(cached_valid, 0.0))
+            )
+            index = (
+                self.enc_out_class_embed(proposal)
+                .max(-1)
+                .values.topk(self.num_queries, dim=1)
+                .indices.unsqueeze(-1)
+            )
+            top = proposal.gather(1, index.expand(-1, -1, proposal.shape[-1]))
+            batch, count = top.shape[:2]
+            anchors = cached_anchors.expand(batch, -1, -1).gather(
+                1, index.expand(-1, -1, 2)
+            )
+            offsets = self.enc_pose_embed(top).reshape(
+                batch, count, self.num_body_points, 2
+            )
+            coords = (offsets + anchors.unsqueeze(-2)).sigmoid()
+            references = torch.cat([coords.mean(2, keepdim=True), coords], dim=2)
+            target = self.tgt_embed.weight[None, :, None, :].expand(batch, -1, -1, -1)
+            joints = self.keypoint_embedding.weight[None, None, :, :] + target
+            person = self.instance_embedding.weight[None, None, :, :].expand(
+                batch, count, -1, -1
+            )
+            output = torch.cat([person, joints], dim=2)
+            values = (
+                memory.unflatten(2, (self.nhead, -1)).permute(0, 2, 3, 1).flatten(0, 1)
+            )
+            values = values.split([h * w for h, w in shapes], dim=-1)
+            bins = regression_bins(self.reg_max, self.up, self.reg_scale)
+            previous, corners = 0, 0
+            for layer_idx, group_idx in enumerate(self.decoder.layer_to_group):
+                coords = references[:, :, 1:]
+                pos = self.decoder.query_position(coords)
+                output = self.decoder.layers[group_idx](
+                    output, pos, references, values, shapes
+                )
+                output = self.decoder.loop_adapters[layer_idx](output)
+                joints = output[:, :, 1:]
+                if layer_idx == 0:
+                    base = (
+                        self.pre_pose_embed(joints) + inverse_sigmoid(coords, 1e-3)
+                    ).sigmoid()
+                corners = self.pose_embed[group_idx](joints + previous) + corners
+                coords = base + expectation(corners, bins) / self.reg_scale.abs()
+                references = torch.cat([coords.mean(2, keepdim=True), coords], dim=2)
+                previous = joints
+            final_group = self.decoder.layer_to_group[-1]
+            scores = self.lqe_embed[final_group](
+                self.class_embed[final_group](output[:, :, 0]), coords, feats[0]
+            )
+            return {"pred_logits": scores, "pred_keypoints": coords.flatten(-2)}
+
+        # --- Training path (DETRPose / ECPoseCriterion) ---
         proposal = self.enc_output_norm(
-            self.enc_output(memory.masked_fill(self.valid_mask, 0.0))
+            self.enc_output(memory.masked_fill(cached_valid, 0.0))
         )
+        enc_logits_all = self.enc_out_class_embed(proposal)
         index = (
-            self.enc_out_class_embed(proposal)
-            .max(-1)
+            enc_logits_all.max(-1)
             .values.topk(self.num_queries, dim=1)
             .indices.unsqueeze(-1)
         )
+        enc_outputs_class = enc_logits_all.gather(
+            1, index.expand(-1, -1, enc_logits_all.shape[-1])
+        )
         top = proposal.gather(1, index.expand(-1, -1, proposal.shape[-1]))
         batch, count = top.shape[:2]
-        anchors = self.anchors.expand(batch, -1, -1).gather(
+        anchors = cached_anchors.expand(batch, -1, -1).gather(
             1, index.expand(-1, -1, 2)
         )
-        offsets = self.enc_pose_embed(top).reshape(batch, count, self.num_body_points, 2)
-        coords = (offsets + anchors.unsqueeze(-2)).sigmoid()
-        references = torch.cat([coords.mean(2, keepdim=True), coords], dim=2)
+        offsets = self.enc_pose_embed(top).reshape(
+            batch, count, self.num_body_points, 2
+        )
+        enc_kpt = (offsets + anchors.unsqueeze(-2)).sigmoid()
+        references = torch.cat(
+            [enc_kpt.mean(2, keepdim=True), enc_kpt], dim=2
+        ).detach()
+
         target = self.tgt_embed.weight[None, :, None, :].expand(batch, -1, -1, -1)
         joints = self.keypoint_embedding.weight[None, None, :, :] + target
         person = self.instance_embedding.weight[None, None, :, :].expand(
             batch, count, -1, -1
         )
         output = torch.cat([person, joints], dim=2)
+
+        attn_mask = None
+        dn_meta = None
+        if targets is not None and samples is not None and self.dn_number > 0:
+            from ..ec.pose_denoising import prepare_for_cdn
+
+            input_query_label, input_query_pose, attn_mask, dn_meta = prepare_for_cdn(
+                dn_args=(targets, self.dn_number, self.label_noise_ratio),
+                training=self.training,
+                num_queries=self.num_queries,
+                num_classes=80,
+                num_keypoints=self.num_body_points,
+                hidden_dim=self.hidden_dim,
+                label_enc=self.label_enc,
+                pose_enc=self.pose_enc,
+                img_dim=samples.shape[-2:],
+                device=feats[0].device,
+                sigmas=self.oks_sigmas,
+            )
+            if dn_meta is not None:
+                output = torch.cat([input_query_label, output], dim=1)
+                references = torch.cat(
+                    [input_query_pose.sigmoid(), references], dim=1
+                )
+
         values = (
             memory.unflatten(2, (self.nhead, -1)).permute(0, 2, 3, 1).flatten(0, 1)
         )
         values = values.split([h * w for h, w in shapes], dim=-1)
         bins = regression_bins(self.reg_max, self.up, self.reg_scale)
-        previous, corners = 0, 0
+
+        dec_out_poses: list[torch.Tensor] = []
+        dec_out_logits: list[torch.Tensor] = []
+        previous: torch.Tensor | int = 0
+        corners: torch.Tensor | int = 0
+        pre_poses = pre_scores = base = None
         for layer_idx, group_idx in enumerate(self.decoder.layer_to_group):
             coords = references[:, :, 1:]
             pos = self.decoder.query_position(coords)
             output = self.decoder.layers[group_idx](
-                output, pos, references, values, shapes
+                output, pos, references, values, shapes, attn_mask=attn_mask
             )
             output = self.decoder.loop_adapters[layer_idx](output)
             joints = output[:, :, 1:]
+            instance = output[:, :, 0]
             if layer_idx == 0:
-                base = (
+                pre_poses = (
                     self.pre_pose_embed(joints) + inverse_sigmoid(coords, 1e-3)
                 ).sigmoid()
+                pre_scores = self.class_embed[0](instance)
+                base = pre_poses.detach()
             corners = self.pose_embed[group_idx](joints + previous) + corners
             coords = base + expectation(corners, bins) / self.reg_scale.abs()
-            references = torch.cat([coords.mean(2, keepdim=True), coords], dim=2)
-            previous = joints
-        final_group = self.decoder.layer_to_group[-1]
-        scores = self.lqe_embed[final_group](
-            self.class_embed[final_group](output[:, :, 0]), coords, feats[0]
-        )
-        return {"pred_logits": scores, "pred_keypoints": coords.flatten(-2)}
+            layer_scores = self.lqe_embed[group_idx](
+                self.class_embed[group_idx](instance), coords, feats[0]
+            )
+            dec_out_logits.append(layer_scores)
+            dec_out_poses.append(coords)
+            references = torch.cat(
+                [coords.mean(2, keepdim=True), coords], dim=2
+            ).detach()
+            previous = joints.detach()
+
+        out_poses = torch.stack(dec_out_poses).flatten(-2)
+        out_logits = torch.stack(dec_out_logits)
+        out_pre_poses = pre_poses.flatten(-2)
+        out_pre_scores = pre_scores
+
+        dn_out_poses = dn_out_logits = dn_pre_poses = dn_pre_scores = None
+        if dn_meta is not None:
+            pad = dn_meta["pad_size"]
+            dn_out_poses, out_poses = torch.split(
+                out_poses, [pad, self.num_queries], dim=2
+            )
+            dn_out_logits, out_logits = torch.split(
+                out_logits, [pad, self.num_queries], dim=2
+            )
+            dn_pre_poses, out_pre_poses = torch.split(
+                out_pre_poses, [pad, self.num_queries], dim=1
+            )
+            dn_pre_scores, out_pre_scores = torch.split(
+                out_pre_scores, [pad, self.num_queries], dim=1
+            )
+
+        out: dict = {
+            "pred_logits": out_logits[-1],
+            "pred_keypoints": out_poses[-1],
+        }
+        if self.aux_loss:
+            out["aux_outputs"] = self._set_aux_loss(out_logits[:-1], out_poses[:-1])
+            out["aux_interm_outputs"] = [
+                {
+                    "pred_logits": enc_outputs_class,
+                    "pred_keypoints": enc_kpt.flatten(-2),
+                }
+            ]
+            out["aux_pre_outputs"] = {
+                "pred_logits": out_pre_scores,
+                "pred_keypoints": out_pre_poses,
+            }
+            if dn_meta is not None:
+                out["dn_aux_outputs"] = self._set_aux_loss(dn_out_logits, dn_out_poses)
+                out["dn_aux_pre_outputs"] = {
+                    "pred_logits": dn_pre_scores,
+                    "pred_keypoints": dn_pre_poses,
+                }
+                out["dn_meta"] = dn_meta
+        return out

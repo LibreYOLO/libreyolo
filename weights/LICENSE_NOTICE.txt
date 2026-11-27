@@ -1582,6 +1582,8 @@ All 12 checkpoints are COCO-trained (not Objects365). Conversion adds
 LibreYOLO v1.0 metadata without modifying learned tensors. Backbone
 distillation follows EdgeCrafter's COCO recipe from a frozen DINOv3 teacher;
 upstream releases the resulting LoopDVR checkpoints under Apache-2.0.
+Converted checkpoints: LibreYOLO/LibreLoopDVR{s,m,l,x},
+LibreYOLO/LibreLoopDVR{s,m,l,x}-seg, and LibreYOLO/LibreLoopDVR{s,m,l,x}-pose.
 
 GTR detection and pose (s/m/l/x)
 Upstream: https://huggingface.co/Phoenix8125/GTR

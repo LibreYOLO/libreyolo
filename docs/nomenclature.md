@@ -103,7 +103,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `picodet`   | `LibrePICODET`  | All-caps (`PicoDet` rendered uppercase) |
 | `ppyoloe`   | `LibrePPYOLOE`  | All-caps, hyphen dropped (`PP-YOLOE` rendered uppercase) |
 | `ec`     | `LibreEC`    | Short form of EdgeCrafter — used as the family alias for the three sibling upstream models `ECDet`, `ECPose`, `ECSeg` |
-| `loopdvr` | `LibreLoopDVR` | Upstream mixed-case acronym preserved (`LoopDVR`) — inference-only looped transformer family covering `LoopDet`, `LoopSeg`, and `LoopPose` (`s`/`m`/`l`/`x`) |
+| `loopdvr` | `LibreLoopDVR` | Upstream mixed-case acronym preserved (`LoopDVR`) — looped transformer family covering `LoopDet`, `LoopSeg`, and `LoopPose` (`s`/`m`/`l`/`x`), with native inference, export, and fine-tuning |
 | `l2cs`      | `LibreL2CS`     | All-caps acronym (`L2CS` gaze estimation) — inference-only |
 | `fomo`      | `LibreFOMO`     | All-caps acronym (Faster Objects, More Objects) |
 | `mobilenetv4` | `LibreMobileNetV4` | CamelCase preserved (MobileNet is not an acronym) — first classify-only family |

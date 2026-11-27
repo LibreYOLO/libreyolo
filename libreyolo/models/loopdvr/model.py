@@ -17,9 +17,12 @@ import numpy as np
 import torch
 from torch import nn
 
+from libreyolo.training.ddp_spawn import ddp_aware
+
 from ...postprocess.loopdvr import postprocess, postprocess_pose, postprocess_seg
 from ...preprocess.ec import preprocess_numpy
 from ...tasks import normalize_task
+from ...training.callbacks import TrainCallbacks
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import ECValPreprocessor
@@ -29,6 +32,7 @@ from .nn import (
     LibreLoopDVRPoseModel,
     LibreLoopDVRSegModel,
 )
+from .trainer import LoopDVRConfig
 
 _POSE_HEAD_KEY = "decoder.keypoint_embedding.weight"
 _SEG_HEAD_KEY = "decoder.decoder.segmentation_head.bias"
@@ -63,14 +67,10 @@ def preprocess_image(
 
 
 class LibreLoopDVR(BaseModel):
-    """LibreYOLO wrapper for LoopDVR (LoopDet / LoopSeg / LoopPose).
-
-    Inference-only: upstream ``Intellindust-AI-Lab/LoopDVR`` currently ships
-    inference and COCO evaluation code without training or distillation scripts,
-    so :meth:`train` raises ``NotImplementedError``.
-    """
+    """LibreYOLO wrapper for LoopDVR (LoopDet / LoopSeg / LoopPose)."""
 
     FAMILY = "loopdvr"
+    RESUME_RESTORES_TRAIN_ARGS = True
     FILENAME_PREFIX = "LibreLoopDVR"
     INPUT_SIZES: ClassVar[dict[str, int]] = {"s": 640, "m": 640, "l": 640, "x": 640}
     POSE_INPUT_SIZES: ClassVar[dict[str, int]] = {
@@ -87,7 +87,7 @@ class LibreLoopDVR(BaseModel):
         "pose": POSE_INPUT_SIZES,
         "segment": SEG_INPUT_SIZES,
     }
-    TRAIN_CONFIG = None  # inference-only
+    TRAIN_CONFIG: ClassVar[type[LoopDVRConfig]] = LoopDVRConfig
     TTA_FIXED_SIZE = True  # fixed 640x640 eval spatial grid
     POSE_NUM_KEYPOINTS = 17
     KEYPOINT_DIM = 3
@@ -215,6 +215,7 @@ class LibreLoopDVR(BaseModel):
         task: str | None = None,
         **kwargs,
     ):
+        checkpoint = model_path if isinstance(model_path, dict) else None
         if isinstance(model_path, dict):
             model_path = unwrap_loopdvr_checkpoint(model_path)
         resolved_task = normalize_task(task) if task is not None else None
@@ -230,6 +231,8 @@ class LibreLoopDVR(BaseModel):
             task=resolved_task,
             **kwargs,
         )
+        if checkpoint is not None:
+            self._cache_checkpoint_train_config(checkpoint)
         if self.task == "pose":
             self.names = {0: "person"}
         if isinstance(model_path, str):
@@ -254,7 +257,7 @@ class LibreLoopDVR(BaseModel):
         )
 
     def _get_available_layers(self) -> dict[str, nn.Module]:
-        return {
+        layers: dict[str, nn.Module] = {
             "backbone": self.model.looped_vit,
             "looped_vit": self.model.looped_vit,
             "backbone_projector": self.model.looped_vit.projector,
@@ -262,10 +265,15 @@ class LibreLoopDVR(BaseModel):
             "encoder_fpn": self.model.encoder.fpn_blocks,
             "encoder_pan": self.model.encoder.pan_blocks,
             "decoder": self.model.decoder,
-            "decoder_input_proj": self.model.decoder.input_proj,
-            "dec_bbox_head": self.model.decoder.dec_bbox_head,
-            "dec_score_head": self.model.decoder.dec_score_head,
         }
+        if self.task == "pose":
+            layers["pose_embed"] = self.model.decoder.pose_embed
+            layers["class_embed"] = self.model.decoder.class_embed
+        else:
+            layers["decoder_input_proj"] = self.model.decoder.input_proj
+            layers["dec_bbox_head"] = self.model.decoder.dec_bbox_head
+            layers["dec_score_head"] = self.model.decoder.dec_score_head
+        return layers
 
     def _rebuild_for_new_classes(self, new_nb_classes: int):
         if self.task == "pose":
@@ -325,14 +333,277 @@ class LibreLoopDVR(BaseModel):
     def _strict_loading(self) -> bool:
         return False
 
-    def train(self, *args, **kwargs):
-        raise NotImplementedError(
-            "LoopDVR is inference-only in LibreYOLO: upstream "
-            "Intellindust-AI-Lab/LoopDVR ships inference and evaluation code "
-            "without training or distillation scripts. Use LibreEC for "
-            "trainable detection, segmentation, and pose on the same "
-            "EdgeCrafter architecture."
+    @ddp_aware()
+    def train(
+        self,
+        data: str,
+        *,
+        epochs: int = 74,
+        batch: int = 16,
+        imgsz: int = 640,
+        lr0: float = 5e-4,
+        device: str = "",
+        workers: int = 4,
+        seed: int = 0,
+        project: str = "runs/train",
+        name: str = "loopdvr_exp",
+        exist_ok: bool = False,
+        resume: bool = False,
+        amp: bool = True,
+        patience: int = 50,
+        callbacks: TrainCallbacks = None,
+        loggers=None,
+        **kwargs,
+    ) -> dict:
+        """Fine-tune LoopDVR on a YOLO-format dataset (detect / segment / pose).
+
+        The task is taken from ``self.task`` (set at load time): ``detect`` uses
+        :class:`LoopDVRTrainer` (MAL+L1+GIoU+FGL+DDF + contrastive denoising),
+        ``segment`` uses :class:`LoopDVRSegTrainer` (adding point-sampled
+        BCE+Dice mask loss), and ``pose`` delegates to :meth:`_train_pose`
+        (:class:`LoopDVRPoseTrainer`, DETRPose Hungarian matcher + VFL/L1/OKS
+        + contrastive keypoint denoising).
+        """
+        if self.task == "pose":
+            return self._train_pose(
+                data=data,
+                epochs=epochs,
+                batch=batch,
+                imgsz=imgsz,
+                lr0=lr0,
+                device=device,
+                workers=workers,
+                seed=seed,
+                project=project,
+                name=name,
+                exist_ok=exist_ok,
+                resume=resume,
+                amp=amp,
+                patience=patience,
+                callbacks=callbacks,
+                loggers=loggers,
+                **kwargs,
+            )
+
+        from libreyolo.data import load_data_config
+
+        if self.task == "segment":
+            from .trainer import LoopDVRSegTrainer as trainer_cls
+        else:
+            from .trainer import LoopDVRTrainer as trainer_cls
+
+        native_imgsz = int(self.input_size)
+        if self.task == "segment" and int(imgsz) != native_imgsz:
+            raise ValueError(
+                "LoopDVR segmentation fine-tuning currently requires "
+                f"imgsz={native_imgsz}; the eval anchor grid is built at "
+                "model construction for the native input size."
+            )
+
+        try:
+            data_config = load_data_config(
+                data,
+                autodownload=True,
+                single_cls=bool(kwargs.get("single_cls", False)),
+            )
+            data = data_config.get("yaml_file", data)
+        except Exception as e:
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}") from e
+
+        yaml_nc = data_config.get("nc")
+        yaml_names = data_config.get("names")
+        if yaml_nc is not None and yaml_nc != self.nb_classes:
+            self._rebuild_for_new_classes(yaml_nc)
+
+        if yaml_names is not None:
+            if isinstance(yaml_names, list):
+                yaml_names = {i: n for i, n in enumerate(yaml_names)}
+            self.names = self._sanitize_names(yaml_names, self.nb_classes)
+
+        if seed > 0:
+            import random as _r
+
+            _r.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        trainer = trainer_cls(
+            model=self.model,
+            wrapper_model=self,
+            size=self.size,
+            num_classes=self.nb_classes,
+            data=data,
+            epochs=epochs,
+            batch=batch,
+            imgsz=imgsz,
+            lr0=lr0,
+            device=device if device else "auto",
+            workers=workers,
+            seed=seed,
+            project=project,
+            name=name,
+            exist_ok=exist_ok,
+            resume=resume,
+            amp=amp,
+            patience=patience,
+            callbacks=callbacks,
+            loggers=loggers,
+            **kwargs,
         )
+
+        if resume:
+            trainer.setup()
+            trainer.resume(self._resume_checkpoint(resume))
+            return trainer.train()
+
+        results = trainer.train()
+
+        best_ckpt = results.get("best_checkpoint")
+        if best_ckpt and Path(best_ckpt).exists():
+            self.model_path = best_ckpt
+            self._load_weights(best_ckpt)
+
+        self.model.to(self.device)
+        return results
+
+    def _train_pose(
+        self,
+        data: str,
+        *,
+        epochs: int = 74,
+        batch: int = 16,
+        imgsz: int = 640,
+        lr0: float = 5e-4,
+        device: str = "",
+        workers: int = 4,
+        seed: int = 0,
+        project: str = "runs/train",
+        name: str = "loopdvr_pose_exp",
+        exist_ok: bool = False,
+        resume: bool = False,
+        amp: bool = True,
+        patience: int = 50,
+        callbacks=None,
+        loggers=None,
+        **kwargs,
+    ) -> dict:
+        """Fine-tune LoopPose on a YOLO-format keypoint dataset."""
+        from libreyolo.data import load_data_config
+
+        from .trainer import LoopDVRPoseTrainer
+
+        native_imgsz = int(self.input_size)
+        if int(imgsz) != native_imgsz:
+            raise ValueError(
+                "LoopDVR pose fine-tuning currently requires "
+                f"imgsz={native_imgsz}; the eval anchor grid is built at "
+                "model construction for the native input size."
+            )
+
+        flip_idx_override = object()
+        explicit_flip_idx = kwargs.pop("flip_idx", flip_idx_override)
+
+        try:
+            data_config = load_data_config(data, autodownload=True)
+            data = data_config.get("yaml_file", data)
+        except Exception as e:
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}") from e
+
+        kpt_shape = data_config.get("kpt_shape")
+        if not kpt_shape or len(kpt_shape) < 1:
+            raise ValueError(
+                "Pose training requires 'kpt_shape: [num_keypoints, 2|3]' in the "
+                "dataset data.yaml."
+            )
+        num_keypoints = int(kpt_shape[0])
+        keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
+        if keypoint_dim not in (2, 3):
+            raise ValueError(
+                "Pose training requires kpt_shape second value to be 2 or 3 "
+                f"(got {keypoint_dim})."
+            )
+        if num_keypoints != self.POSE_NUM_KEYPOINTS:
+            raise ValueError(
+                f"LoopDVR pose fine-tuning supports {self.POSE_NUM_KEYPOINTS} "
+                f"keypoints only (dataset declares {num_keypoints})."
+            )
+
+        yaml_nc = data_config.get("nc")
+        if yaml_nc is not None and int(yaml_nc) != 1:
+            raise ValueError(
+                "LoopDVR pose fine-tuning supports single-class pose datasets "
+                f"only (dataset declares nc={yaml_nc})."
+            )
+
+        yaml_names = data_config.get("names")
+        if yaml_names is not None:
+            if len(yaml_names) != 1:
+                raise ValueError(
+                    "LoopDVR pose fine-tuning supports single-class pose datasets "
+                    f"only (dataset declares {len(yaml_names)} names)."
+                )
+            if isinstance(yaml_names, list):
+                yaml_names = {i: n for i, n in enumerate(yaml_names)}
+            self.names = self._sanitize_names(yaml_names, 1)
+
+        flip_idx = (
+            explicit_flip_idx
+            if explicit_flip_idx is not flip_idx_override
+            else data_config.get("flip_idx")
+        )
+
+        if seed > 0:
+            import random as _r
+
+            _r.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        trainer = LoopDVRPoseTrainer(
+            model=self.model,
+            wrapper_model=self,
+            size=self.size,
+            num_classes=1,
+            num_keypoints=num_keypoints,
+            keypoint_dim=keypoint_dim,
+            flip_idx=flip_idx,
+            data=data,
+            epochs=epochs,
+            batch=batch,
+            imgsz=imgsz,
+            lr0=lr0,
+            device=device if device else "auto",
+            workers=workers,
+            seed=seed,
+            project=project,
+            name=name,
+            exist_ok=exist_ok,
+            resume=resume,
+            amp=amp,
+            patience=patience,
+            callbacks=callbacks,
+            loggers=loggers,
+            **kwargs,
+        )
+
+        if resume:
+            trainer.setup()
+            trainer.resume(self._resume_checkpoint(resume))
+            return trainer.train()
+
+        results = trainer.train()
+
+        best_ckpt = results.get("best_checkpoint")
+        if best_ckpt and Path(best_ckpt).exists():
+            self.model_path = best_ckpt
+            self._load_weights(best_ckpt)
+
+        self.model.to(self.device)
+        return results
 
     def _load_weights(self, model_path: str):
         model_path = self._resolve_weights_path(model_path)
@@ -357,6 +628,7 @@ class LibreLoopDVR(BaseModel):
             loaded = load_untrusted_torch_file(
                 model_path, map_location="cpu", context="LoopDVR weights"
             )
+            self._cache_checkpoint_train_config(loaded)
             state_dict = unwrap_loopdvr_checkpoint(loaded)
             state_dict = self._strip_ddp_prefix(dict(state_dict))
 

@@ -161,9 +161,11 @@ class LibreLoopDVRModel(_BaseLoopDVRModule):
             mask_downsample_ratio=None,
         )
 
-    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, targets: list[dict] | None = None
+    ) -> dict:
         features = self.encoder(self.looped_vit(x))
-        return self.decoder(features)
+        return self.decoder(features, targets=targets)
 
 
 class LibreLoopDVRSegModel(_BaseLoopDVRModule):
@@ -200,9 +202,11 @@ class LibreLoopDVRSegModel(_BaseLoopDVRModule):
             mask_downsample_ratio=4,
         )
 
-    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, targets: list[dict] | None = None
+    ) -> dict:
         features = self.encoder(self.looped_vit(x))
-        return self.decoder(features, spatial_feat=features[0])
+        return self.decoder(features, targets=targets, spatial_feat=features[0])
 
 
 class LibreLoopDVRPoseModel(_BaseLoopDVRModule):
@@ -241,9 +245,11 @@ class LibreLoopDVRPoseModel(_BaseLoopDVRModule):
             num_body_points=self.POSE_NUM_KEYPOINTS,
         )
 
-    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, targets: list[dict] | None = None
+    ) -> dict:
         features = self.encoder(self.looped_vit(x))
-        return self.decoder(features)
+        return self.decoder(features, targets=targets, samples=x)
 
 
 class LoopDVRExportWrapper(nn.Module):
