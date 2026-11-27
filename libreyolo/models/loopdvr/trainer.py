@@ -138,6 +138,21 @@ class LoopDVRValidationLoss(DETRValidationLoss):
         super().__init__(model, criterion)
 
 
+def _loopdvr_freeze_groups(model: nn.Module) -> list[tuple[str, nn.Module]]:
+    """Return semantic freeze groups so ``freeze='backbone'`` and ``freeze='looped_vit'`` both work."""
+    groups: list[tuple[str, nn.Module]] = []
+    looped_vit = getattr(model, "looped_vit", None)
+    if looped_vit is not None:
+        groups.append(("backbone", looped_vit))
+    encoder = getattr(model, "encoder", None)
+    if encoder is not None:
+        groups.append(("encoder", encoder))
+    decoder = getattr(model, "decoder", None)
+    if decoder is not None:
+        groups.append(("decoder", decoder))
+    return groups
+
+
 class LoopDVRTrainer(ECTrainer):
     """Trainer for LoopDVR detection models (LoopDet)."""
 
@@ -153,11 +168,15 @@ class LoopDVRTrainer(ECTrainer):
     def get_model_tag(self) -> str:
         return f"LoopDVR-{self.config.size}"
 
+    def get_freeze_groups(self):
+        return _loopdvr_freeze_groups(self.model) or super().get_freeze_groups()
+
     def on_setup(self):
         if getattr(self.config, "lora", False):
             raise ValueError(
                 "LoopDVR training does not support lora=True yet. "
-                "Use freeze='backbone' for parameter-efficient fine-tuning."
+                "Use freeze='backbone' or freeze='looped_vit' for "
+                "parameter-efficient fine-tuning."
             )
         self.criterion = self.build_criterion()
 
@@ -179,6 +198,7 @@ class LoopDVRSegTrainer(ECSegTrainer):
     """Trainer for LoopDVR instance-segmentation models (LoopSeg)."""
 
     artifact_model_families = ("loopdvr",)
+    supports_lora = False
 
     @classmethod
     def _config_class(cls) -> type[TrainConfig]:
@@ -189,6 +209,18 @@ class LoopDVRSegTrainer(ECSegTrainer):
 
     def get_model_tag(self) -> str:
         return f"LoopDVR-Seg-{self.config.size}"
+
+    def get_freeze_groups(self):
+        return _loopdvr_freeze_groups(self.model) or super().get_freeze_groups()
+
+    def on_setup(self):
+        if getattr(self.config, "lora", False):
+            raise ValueError(
+                "LoopDVR training does not support lora=True yet. "
+                "Use freeze='backbone' or freeze='looped_vit' for "
+                "parameter-efficient fine-tuning."
+            )
+        super().on_setup()
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
         return _build_loopdvr_optimizer(
@@ -203,6 +235,7 @@ class LoopDVRPoseTrainer(ECPoseTrainer):
     """Trainer for LoopDVR pose-estimation models (LoopPose)."""
 
     artifact_model_families = ("loopdvr",)
+    supports_lora = False
 
     @classmethod
     def _config_class(cls) -> type[TrainConfig]:
@@ -213,6 +246,18 @@ class LoopDVRPoseTrainer(ECPoseTrainer):
 
     def get_model_tag(self) -> str:
         return f"LoopDVR-Pose-{self.config.size}"
+
+    def get_freeze_groups(self):
+        return _loopdvr_freeze_groups(self.model) or super().get_freeze_groups()
+
+    def on_setup(self):
+        if getattr(self.config, "lora", False):
+            raise ValueError(
+                "LoopDVR training does not support lora=True yet. "
+                "Use freeze='backbone' or freeze='looped_vit' for "
+                "parameter-efficient fine-tuning."
+            )
+        super().on_setup()
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
         return _build_loopdvr_optimizer(

@@ -106,6 +106,12 @@ The pinned commits and source licenses are recorded in the per-family NOTICE
 files. External checkpoints retain their own data/weight terms and must not be
 added to the repository as test fixtures.
 
+LoopDVR: `tests/unit/test_loopdvr_parity.py` compares `LibreLoopDVR` across
+detect (`loopdet`), segment (`loopseg`), and pose (`looppose`) against the
+pinned `Intellindust-AI-Lab/LoopDVR` commit
+`f2aba1f122029e4db757b69cd37fc5a4909db34e` (`LIBREYOLO_LOOPDVR_UPSTREAM` and
+`LIBREYOLO_LOOPDVR_WEIGHTS`), asserting bit-exact forward tensor parity.
+
 ### LibreMODUS external-weight gates
 
 LibreMODUS is marked `modus`. Its PR-gate coverage is entirely local:

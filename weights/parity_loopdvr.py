@@ -15,17 +15,45 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
 import torch
 from _conversion_utils import add_repo_root_to_path
 
+EXPECTED_UPSTREAM_COMMIT = "f2aba1f122029e4db757b69cd37fc5a4909db34e"
+
 ALL_MODELS = [
     f"{prefix}-{size}"
     for prefix in ("loopdet", "loopseg", "looppose")
     for size in ("s", "m", "l", "x")
 ]
+
+
+def verify_upstream_commit(
+    upstream_repo: Path,
+    expected_commit: str = EXPECTED_UPSTREAM_COMMIT,
+) -> str:
+    """Verify ``upstream_repo`` is checked out at the pinned upstream commit."""
+    result = subprocess.run(
+        ["git", "-C", str(upstream_repo), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Could not determine git commit of upstream checkout {upstream_repo}: "
+            f"{result.stderr.strip()}"
+        )
+    actual = result.stdout.strip()
+    if actual != expected_commit:
+        raise RuntimeError(
+            f"Upstream LoopDVR checkout at {upstream_repo} is at commit {actual}, "
+            f"expected pinned commit {expected_commit}"
+        )
+    return actual
 
 
 def _task_and_size(model_id: str) -> tuple[str, str]:
@@ -42,6 +70,7 @@ def check_model_parity(
     atol: float = 0.0,
     deploy_atol: float = 1e-2,
 ) -> dict[str, float]:
+    verify_upstream_commit(upstream_repo)
     add_repo_root_to_path()
     if str(upstream_repo) not in sys.path:
         sys.path.insert(0, str(upstream_repo))

@@ -596,3 +596,79 @@ def test_export_onnx_and_torchscript_parity(tmp_path, task):
     r_ts = ts_backend.predict(img, conf=0.0, max_det=10)
     assert len(r_ts.boxes) == 10
     assert np.allclose(r_pt.boxes.conf.numpy(), r_ts.boxes.conf.numpy(), atol=1e-3)
+
+
+@pytest.mark.parametrize("task", ["detect", "segment", "pose"])
+def test_get_available_layer_names_all_tasks(task):
+    nb_classes = 1 if task == "pose" else 4
+    model = LibreLoopDVR(None, size="s", nb_classes=nb_classes, device="cpu", task=task)
+    names = model.get_available_layer_names()
+    assert "backbone" in names
+    assert "looped_vit" in names
+    assert "encoder" in names
+    assert "decoder" in names
+    layers = model._get_available_layers()
+    assert set(names) == set(layers)
+    if task == "pose":
+        assert "pose_embed" in layers
+        assert "class_embed" in layers
+    else:
+        assert "dec_bbox_head" in layers
+        assert "dec_score_head" in layers
+        if task == "segment":
+            assert "segmentation_head" in layers
+
+
+@pytest.mark.parametrize(
+    ("task", "extra_cfg"),
+    [
+        ("detect", {"backbone_lr_mult": 0.25}),
+        ("segment", {"mask_ce_loss_weight": 3.5, "mask_dice_loss_weight": 2.5}),
+        ("pose", {"dn_number": 12, "oks_loss_weight": 5.5, "oks_sigmas": [0.1] * 17}),
+    ],
+)
+def test_resume_preserves_task_specific_train_config(tmp_path, task, extra_cfg):
+    nb_classes = 1 if task == "pose" else 4
+    model = LibreLoopDVR(None, size="s", nb_classes=nb_classes, device="cpu", task=task)
+    ckpt_path = tmp_path / "run" / "weights" / "last.pt"
+    ckpt_path.parent.mkdir(parents=True)
+    torch.save(
+        {
+            "model": model.model.state_dict(),
+            "config": {"epochs": 10, "batch": 8, **extra_cfg},
+        },
+        ckpt_path,
+    )
+    restored = model._resume_train_args(ckpt_path, given=set())
+    for key, value in extra_cfg.items():
+        assert restored[key] == value
+
+
+@pytest.mark.parametrize("task", ["detect", "segment", "pose"])
+def test_freeze_backbone_and_looped_vit_selectors(task):
+    from libreyolo.models.loopdvr.trainer import (
+        LoopDVRPoseTrainer,
+        LoopDVRSegTrainer,
+        LoopDVRTrainer,
+    )
+    from libreyolo.training.freezing import apply_freeze
+
+    trainer_cls = {
+        "detect": LoopDVRTrainer,
+        "segment": LoopDVRSegTrainer,
+        "pose": LoopDVRPoseTrainer,
+    }[task]
+    nb_classes = 1 if task == "pose" else 4
+    for selector in ("backbone", "looped_vit", 1):
+        wrapper = LibreLoopDVR(
+            None, size="s", nb_classes=nb_classes, device="cpu", task=task
+        )
+        trainer = trainer_cls.__new__(trainer_cls)
+        trainer.model = wrapper.model
+        groups = trainer.get_freeze_groups()
+        summary = apply_freeze(wrapper.model, selector, freeze_groups=groups)
+        assert summary is not None
+        assert summary.frozen_param_count > 0
+        assert all(not p.requires_grad for p in wrapper.model.looped_vit.parameters())
+        assert any(p.requires_grad for p in wrapper.model.decoder.parameters())
+

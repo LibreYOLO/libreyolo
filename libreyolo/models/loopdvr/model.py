@@ -32,7 +32,7 @@ from .nn import (
     LibreLoopDVRPoseModel,
     LibreLoopDVRSegModel,
 )
-from .trainer import LoopDVRConfig
+from .trainer import LoopDVRConfig, LoopDVRPoseConfig, LoopDVRSegConfig
 
 _POSE_HEAD_KEY = "decoder.keypoint_embedding.weight"
 _SEG_HEAD_KEY = "decoder.decoder.segmentation_head.bias"
@@ -88,6 +88,11 @@ class LibreLoopDVR(BaseModel):
         "segment": SEG_INPUT_SIZES,
     }
     TRAIN_CONFIG: ClassVar[type[LoopDVRConfig]] = LoopDVRConfig
+    _TASK_TRAIN_CONFIGS: ClassVar[dict[str, type[LoopDVRConfig]]] = {
+        "detect": LoopDVRConfig,
+        "segment": LoopDVRSegConfig,
+        "pose": LoopDVRPoseConfig,
+    }
     TTA_FIXED_SIZE = True  # fixed 640x640 eval spatial grid
     POSE_NUM_KEYPOINTS = 17
     KEYPOINT_DIM = 3
@@ -231,6 +236,7 @@ class LibreLoopDVR(BaseModel):
             task=resolved_task,
             **kwargs,
         )
+        self.TRAIN_CONFIG = self._TASK_TRAIN_CONFIGS.get(self.task, LoopDVRConfig)
         if checkpoint is not None:
             self._cache_checkpoint_train_config(checkpoint)
         if self.task == "pose":
@@ -270,9 +276,10 @@ class LibreLoopDVR(BaseModel):
             layers["pose_embed"] = self.model.decoder.pose_embed
             layers["class_embed"] = self.model.decoder.class_embed
         else:
-            layers["decoder_input_proj"] = self.model.decoder.input_proj
             layers["dec_bbox_head"] = self.model.decoder.dec_bbox_head
             layers["dec_score_head"] = self.model.decoder.dec_score_head
+            if self.task == "segment":
+                layers["segmentation_head"] = self.model.decoder.decoder.segmentation_head
         return layers
 
     def _rebuild_for_new_classes(self, new_nb_classes: int):
