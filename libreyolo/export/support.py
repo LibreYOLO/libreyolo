@@ -119,6 +119,26 @@ _add("blocked", ("gtr",), ("detect", "pose", "obb", "depth", "semantic", "segmen
          "the host in between."
      ))
 
+_add(
+    "validated",
+    ("loopdvr",),
+    ("detect", "segment", "pose"),
+    ("onnx", "torchscript"),
+    reason=(
+        "Looped ViT + recurrent decoder with fixed 640x640 input; native and "
+        "exported detect/segment/pose parity is covered by test_loopdvr.py."
+    ),
+    constraint="FP32; static square input; no custom CUDA plugin",
+)
+
+_add(
+    "blocked",
+    ("loopdvr",),
+    ("detect", "segment", "pose"),
+    tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+    reason="LoopDVR currently implements only portable ONNX and TorchScript export.",
+)
+
 # Existing parity-backed paths. New validated rows must land with a parity test.
 _add(
     "validated",
@@ -4029,6 +4049,7 @@ _NCNN_BLOCKS = {
     "rtdetrv4": "RT-DETRv4",
     "rfdetr": "RF-DETR",
     "ec": "EC",
+    "loopdvr": "LoopDVR",
     "ppdoclayoutv3": "PP-DocLayoutV3",
 }
 

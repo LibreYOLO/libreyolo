@@ -441,7 +441,7 @@ def _resolve_claim(
     # those decoder keys but carry their own positive markers and are ordered
     # ahead, so they are not true ties and must not trigger the refusal.
     if {"dfine", "deim"}.issubset(families) and not (
-        families & {"ec", "deimv2", "rtdetrv4"}
+        families & {"ec", "loopdvr", "deimv2", "rtdetrv4"}
     ):
         for cls, converted in claims:
             if cls.detect_size_from_filename(source.name):

@@ -989,6 +989,7 @@ _VAL_LOSS_FAMILIES = {
     "libreyolo.models.deimv2.trainer": "DEIMv2Trainer",
     "libreyolo.models.tinyformer.trainer": "TinyFormerTrainer",
     "libreyolo.models.ec.trainer": "ECTrainer",
+    "libreyolo.models.loopdvr.trainer": "LoopDVRTrainer",
     "libreyolo.models.rtmdet.trainer": "RTMDetTrainer",
     "libreyolo.models.picodet.trainer": "PICODETTrainer",
     "libreyolo.models.ppyoloe.trainer": "PPYOLOETrainer",

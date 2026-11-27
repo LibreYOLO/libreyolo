@@ -495,6 +495,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
         "deimv2",
         "tinyformer",
         "ec",
+        "loopdvr",
         "faster_rcnn",
         "mask_rcnn",
         "lwdetr",
@@ -935,7 +936,7 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "ec":
+        elif self.model_family in ("ec", "loopdvr"):
             tensor, img, size = self._preprocess_ec(
                 image, effective_imgsz, color_format
             )
@@ -1751,7 +1752,7 @@ class BaseBackend(ABC):
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
             return boxes, scores, cls, None
-        elif self.model_family == "ec":
+        elif self.model_family in ("ec", "loopdvr"):
             if self.task == "segment":
                 return self._parse_ec_segment(
                     all_outputs, orig_w, orig_h, conf, max_det=max_det
@@ -4592,6 +4593,7 @@ class BaseBackend(ABC):
             "dinodetr": DeformableDETRValPreprocessor,
             "dfine": DFINEValPreprocessor,
             "ec": ECValPreprocessor,
+            "loopdvr": ECValPreprocessor,
             "efficientdet": EfficientDetValPreprocessor,
             "lwdetr": LWDETRValPreprocessor,
             "picodet": PICODETValPreprocessor,

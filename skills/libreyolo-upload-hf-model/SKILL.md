@@ -116,6 +116,7 @@ file = name + ".pt"
 | MEMFOF | `LibreMEMFOF` | `LibreMEMFOFm-flow.pt` (three-frame optical flow; BSD-3-Clause code, weights tagged `bsd-3-clause` upstream with no licence file; variants `-tartan`, `-tartan-t`, `-kitti`, `-sintel`, `-spring`, one repo each) |
 | FOMO | `LibreFOMO` | `LibreFOMOs-point.pt` (hosted s/m/l are randomly initialised MIT weights; upstream FOMO weights are cc-by-nc-4.0 and not mirrored) |
 | InstantHMR | `LibreInstantHMR` | `LibreInstantHMRm-mesh.pt` (converted from upstream ONNX; n/t/s/m CC BY-NC 4.0, `-commercial` variant of m Apache-2.0; all carry the SAM License for the SAM 3D Body training labels) |
+| LoopDVR | `LibreLoopDVR` | `LibreLoopDVRs.pt`, `LibreLoopDVRs-seg.pt`, `LibreLoopDVRs-pose.pt` (`s`/`m`/`l`/`x`; COCO-trained; Apache-2.0 code + weights; detect/segment/pose) |
 
 Never-upload families: **L2CS** (Gaze360 terms forbid redistribution) and any
 weight whose upstream/training-data license fails the gate in
@@ -398,7 +399,11 @@ LibreInstantHMRn-mesh.pt, LibreInstantHMRt-mesh.pt, LibreInstantHMRs-mesh.pt,
 LibreInstantHMRm-mesh.pt, LibreInstantHMRm-mesh-commercial.pt
 
 LibreMEMFOFm-flow.pt, LibreMEMFOFm-flow-tartan.pt, LibreMEMFOFm-flow-tartan-t.pt,
-LibreMEMFOFm-flow-kitti.pt, LibreMEMFOFm-flow-sintel.pt, LibreMEMFOFm-flow-spring.pt
+LibreMEMFOFm-flow-kitti.pt, LibreMEMFOFm-flow-sintel.pt, LibreMEMFOFm-flow-spring.pt,
+
+LibreLoopDVRs.pt, LibreLoopDVRm.pt, LibreLoopDVRl.pt, LibreLoopDVRx.pt,
+LibreLoopDVRs-seg.pt, LibreLoopDVRm-seg.pt, LibreLoopDVRl-seg.pt, LibreLoopDVRx-seg.pt,
+LibreLoopDVRs-pose.pt, LibreLoopDVRm-pose.pt, LibreLoopDVRl-pose.pt, LibreLoopDVRx-pose.pt
 ```
 
 License caveats inside the list: BiRefNet `l` (general) weights are MIT-tagged

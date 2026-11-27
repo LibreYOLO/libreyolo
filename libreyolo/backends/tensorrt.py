@@ -259,6 +259,8 @@ class TensorRTBackend(BaseBackend):
         # sigmoid/top-k). The LibreYOLO default naming is ``LibreEC*`` (see
         # LibreEC.FILENAME_PREFIX), so also honor that prefix explicitly.
         stem_tokens = re.split(r"[_\-.]+", stem)
+        if "loopdvr" in stem or stem.startswith(("loopdet", "loopseg", "looppose")):
+            return "loopdvr"
         if stem.startswith("libreec") or "ec" in stem_tokens:
             return "ec"
         if "dfine" in stem:
@@ -588,6 +590,8 @@ class TensorRTBackend(BaseBackend):
             return "rtdetr"
         elif self.model_family == "ec":
             return "ec"
+        elif self.model_family == "loopdvr":
+            return "loopdvr"
         return "libreyolo"
 
     def _get_input_size(self) -> ImageSize:

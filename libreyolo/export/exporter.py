@@ -203,9 +203,9 @@ def _pose_keypoint_shape_metadata(model) -> dict:
         schema = inner_model.get_num_keypoints_per_class()
 
     model_family = model._get_model_name() if hasattr(model, "_get_model_name") else ""
-    if model_family in ("ec", "gtr"):
-        # EC/GTR pose export raw xy-only tensors; visibility is appended by runtime
-        # postprocessing after decoding.
+    if model_family in ("ec", "gtr", "loopdvr"):
+        # EC/GTR/LoopDVR pose export raw xy-only tensors; visibility is appended
+        # by runtime postprocessing after decoding.
         keypoint_dim = 2
     elif model_family == "rfdetr" and schema:
         # GroupPose RF-DETR exports the raw padded per-class tensor, whose
@@ -242,6 +242,7 @@ _FIXED_SQUARE_EXPORT_FAMILIES = {
     "deimv2",
     "tinyformer",
     "ec",
+    "loopdvr",
     "lwdetr",
     "moge2",
     "moge3",
@@ -2733,6 +2734,15 @@ class BaseExporter(ABC):
             ).to(device)
             nn_model.eval()
             dfine_wrapped = True  # share the YOLOX-head-export skip path below
+        elif family == "loopdvr":
+            from ..models.loopdvr.nn import LoopDVRExportWrapper
+
+            nn_model = copy.deepcopy(nn_model)
+            nn_model = LoopDVRExportWrapper(
+                nn_model, task=getattr(self.model, "task", "detect")
+            ).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
         elif family in {"yolo1", "yolo2", "yolo3", "yolo4"}:
             from ..models.darknet.export import DarknetExportWrapper
 

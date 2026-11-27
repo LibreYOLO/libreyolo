@@ -93,6 +93,7 @@ FAMILY_DISPLAY_NAMES: Dict[str, str] = {
     "deimv2": "DEIMv2",
     "tinyformer": "TinyFormer",
     "ec": "EC",
+    "loopdvr": "LoopDVR",
     "rtmdet": "RTMDet",
     "picodet": "PICODET",
     "ppyoloe": "PP-YOLOE",
@@ -305,6 +306,13 @@ FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
     # hsv_prob/degrees/translate, so those cannot be marked IGNORED for the
     # family as a whole; the CLI warning must never be wrong for any task.
     "ec": {
+        **_DETR_STYLE,
+        "hsv_prob": _u("task='pose' only; detect/segment use fixed photometric recipes."),
+        "degrees": _u("task='pose' only (keypoint-aware affine)."),
+        "translate": _u("task='pose' only (keypoint-aware affine)."),
+    },
+    # LoopDVR reuses EC's multi-task (detect/segment/pose) pipelines.
+    "loopdvr": {
         **_DETR_STYLE,
         "hsv_prob": _u("task='pose' only; detect/segment use fixed photometric recipes."),
         "degrees": _u("task='pose' only (keypoint-aware affine)."),

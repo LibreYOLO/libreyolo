@@ -50,6 +50,28 @@ DINOv3 (Meta DINOv3 License Agreement)
     from this subtree; the LibreWAFTt-flow-dinov3 weights contain a
     fine-tuned DINOv3 ViT-S/16 and carry the DINOv3 License with them.
 
+    The LoopDVR family (libreyolo/models/loopdvr/) imports
+    RopePositionEmbedding and rope_apply from this subtree rather than
+    re-vendoring them, so the DINOv3 entry above continues to cover the
+    DINOv3 subtree.
+
+LoopDVR (Apache License 2.0 code; MIT backbone helpers; Apache License 2.0
+COCO weights)
+    Path:    libreyolo/models/loopdvr/
+    License: libreyolo/models/loopdvr/NOTICE
+    Source:  https://github.com/Intellindust-AI-Lab/LoopDVR
+    Commit:  f2aba1f122029e4db757b69cd37fc5a4909db34e
+
+    Native port of LoopDVR (LoopDet, LoopSeg, LoopPose;
+    arXiv:2611.32067, Great Bay University / Intellindust AI Lab, 2026).
+    Derived from Intellindust-AI-Lab/LoopDVR (Apache-2.0), which builds on
+    EdgeCrafter / RT-DETR / D-FINE / RF-DETR / DETRPose (Apache-2.0) and
+    Raptor / SReT (MIT). The 2D RoPE helpers (RopePositionEmbedding and
+    rope_apply) are imported from libreyolo/models/deimv2/engine/backbone/dinov3/
+    rather than re-vendored, so the DINOv3 entry above continues to cover
+    that subtree. Official v1.0 COCO checkpoints from Siruuui/LoopDVR carry
+    Apache-2.0; see weights/LICENSE_NOTICE.txt.
+
 WAFT (BSD 3-Clause License)
     Path:    libreyolo/models/waft/_vendor/
     License: libreyolo/models/waft/_vendor/LICENSE
