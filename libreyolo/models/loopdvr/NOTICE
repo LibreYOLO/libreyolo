@@ -18,11 +18,10 @@ Upstream source files also incorporate and attribute the following components:
   - LoopedViT recurrent block structure (backbone.py): adapted from Raptor
     (https://github.com/KempnerInstitute/raptor), Copyright (c) 2025
     mozesjacobs, MIT License.
-  - 2D Rotary Position Embedding (RopePositionEmbedding in backbone.py):
-    derived from DINOv3 (https://github.com/facebookresearch/dinov3),
-    Copyright (c) Meta Platforms, Inc. and affiliates, via EdgeCrafter ECViT.
-    Distributed under Meta's DINOv3 License Agreement; see the root NOTICE
-    and libreyolo/models/deimv2/engine/backbone/dinov3/LICENSE.md.
+  - 2D Rotary Position Embedding (RopePositionEmbedding and rope_apply used
+    by backbone.py): imported from libreyolo/models/deimv2/engine/backbone/dinov3/
+    rather than re-vendored here; see the root NOTICE and
+    libreyolo/models/deimv2/engine/backbone/dinov3/LICENSE.md.
   - HybridEncoder, DetectionDecoder, SegmentationHead, and PoseDecoder
     (encoder.py, decoder.py): derived from EdgeCrafter (Copyright (c) 2026
     The EdgeCrafter Authors), D-FINE (Copyright (c) 2024 D-FINE Authors,

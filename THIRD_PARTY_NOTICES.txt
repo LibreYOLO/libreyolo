@@ -1176,9 +1176,10 @@ Source: https://github.com/Intellindust-AI-Lab/LoopDVR
 Commit: f2aba1f122029e4db757b69cd37fc5a4909db34e
 Paper:  arXiv:2611.32067 ("LoopDVR: Looped Transformer for Efficient Dense
         Visual Recognition", 2026)
-License: Apache License 2.0 (with MIT components from Raptor and SReT,
-         and 2D RoPE in backbone.py adapted from Meta DINOv3 under the
-         DINOv3 License Agreement; see libreyolo/models/loopdvr/NOTICE).
+License: Apache License 2.0 (with MIT components from Raptor and SReT;
+         2D RoPE helpers are imported from
+         libreyolo/models/deimv2/engine/backbone/dinov3/ rather than
+         re-vendored, see root NOTICE and libreyolo/models/loopdvr/NOTICE).
 Copyright (c) 2026 The LoopDVR Authors.
 Used for: LoopDVR model family (LoopDet, LoopSeg, LoopPose) inference
           architecture and postprocessing (libreyolo/models/loopdvr/,

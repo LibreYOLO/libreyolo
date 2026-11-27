@@ -3,7 +3,7 @@
 Ported from Intellindust-AI-Lab/LoopDVR (commit f2aba1f122029e4db757b69cd37fc5a4909db34e):
     loopdvr/models/looped_vit.py
 Copyright (c) 2026 The LoopDVR Authors (modifications).
-SPDX-License-Identifier: Apache-2.0 AND MIT AND LicenseRef-DINOv3
+SPDX-License-Identifier: Apache-2.0 AND MIT
 
 Modified from Raptor (https://github.com/KempnerInstitute/raptor)
 Copyright (c) 2025 mozesjacobs.
@@ -11,10 +11,9 @@ Copyright (c) 2025 mozesjacobs.
 Modified from EdgeCrafter: Compact ViTs for Edge Dense Prediction via Task-Specialized Distillation
 Copyright (c) 2026 The EdgeCrafter Authors. All Rights Reserved.
 
-The 2D rotary position embedding derives from DINOv3 via EdgeCrafter ECViT.
-DINOv3 (https://github.com/facebookresearch/dinov3)
-Copyright (c) Meta Platforms, Inc. and affiliates.
-See root NOTICE and libreyolo/models/deimv2/engine/backbone/dinov3/LICENSE.md.
+2D rotary position embedding (`RopePositionEmbedding` and `rope_apply`) is
+imported from `libreyolo/models/deimv2/engine/backbone/dinov3/` rather than
+re-vendored here; see root NOTICE.
 """
 
 from __future__ import annotations
@@ -26,6 +25,10 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from ..deimv2.engine.backbone.dinov3.layers.attention import rope_apply
+from ..deimv2.engine.backbone.dinov3.layers.rope_position_encoding import (
+    RopePositionEmbedding,
+)
 from .encoder import ConvNormLayer_fuse
 from .loop_adapter import MLP, LoopAdapter
 
@@ -53,56 +56,6 @@ class ConvPyramidPatchEmbed(nn.Module):
         return self.proj(x)
 
 
-class RopePositionEmbedding(nn.Module):
-    def __init__(self, embed_dim: int, *, num_heads: int, base: float = 100.0) -> None:
-        super().__init__()
-        if embed_dim % num_heads != 0:
-            raise ValueError(
-                f"embed_dim={embed_dim} must be divisible by num_heads={num_heads}"
-            )
-        head_dim = embed_dim // num_heads
-        if head_dim % 4:
-            raise ValueError(
-                "Attention head dimension must be divisible by 4 for 2D RoPE"
-            )
-        self.base = float(base)
-        self.head_dim = head_dim
-        self.register_buffer("periods", torch.empty(head_dim // 4), persistent=True)
-        self._init_weights()
-
-    def _init_weights(self) -> None:
-        periods = self.base ** (
-            2
-            * torch.arange(
-                self.head_dim // 4,
-                device=self.periods.device,
-                dtype=self.periods.dtype,
-            )
-            / (self.head_dim // 2)
-        )
-        self.periods.data.copy_(periods)
-
-    def forward(self, *, H: int, W: int) -> tuple[torch.Tensor, torch.Tensor]:
-        dd = {"device": self.periods.device, "dtype": self.periods.dtype}
-        coords_h = torch.arange(0.5, H, **dd) / H
-        coords_w = torch.arange(0.5, W, **dd) / W
-        coords = torch.stack(torch.meshgrid(coords_h, coords_w, indexing="ij"), dim=-1)
-        coords = 2.0 * coords.flatten(0, 1) - 1.0
-        angles = 2 * math.pi * coords[:, :, None] / self.periods[None, None, :]
-        angles = angles.flatten(1, 2).repeat(1, 2)
-        return torch.sin(angles)[None, None], torch.cos(angles)[None, None]
-
-
-def _rotate_half(x: torch.Tensor) -> torch.Tensor:
-    first = x[..., : x.shape[-1] // 2]
-    second = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-second, first), dim=-1)
-
-
-def _apply_rope(x: torch.Tensor, sin: torch.Tensor, cos: torch.Tensor) -> torch.Tensor:
-    return x * cos + _rotate_half(x) * sin
-
-
 class RopeAttention(nn.Module):
     def __init__(self, dim: int, num_heads: int):
         super().__init__()
@@ -121,9 +74,9 @@ class RopeAttention(nn.Module):
         sin, cos = rope
         # The register token precedes the spatial tokens and has no rotary embedding.
         query = torch.cat(
-            (query[:, :, :1], _apply_rope(query[:, :, 1:], sin, cos)), dim=2
+            (query[:, :, :1], rope_apply(query[:, :, 1:], sin, cos)), dim=2
         )
-        key = torch.cat((key[:, :, :1], _apply_rope(key[:, :, 1:], sin, cos)), dim=2)
+        key = torch.cat((key[:, :, :1], rope_apply(key[:, :, 1:], sin, cos)), dim=2)
         output = F.scaled_dot_product_attention(query, key, value)
         return self.proj(output.transpose(1, 2).reshape(batch, tokens, dim))
 
@@ -231,7 +184,11 @@ class LoopedViT(nn.Module):
         batch, channels, height, width = patches.shape
         tokens = patches.flatten(2).transpose(1, 2)
         x = torch.cat((self.register_token.expand(batch, -1, -1), tokens), dim=1)
-        rope = self.rope_embed(H=height, W=width)
+        sin, cos = self.rope_embed(H=height, W=width)
+        rope = (
+            sin.to(dtype=x.dtype)[None, None],
+            cos.to(dtype=x.dtype)[None, None],
+        )
         selected = []
         index = 0
         for block in self.blocks:
