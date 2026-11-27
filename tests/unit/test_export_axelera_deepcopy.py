@@ -38,7 +38,9 @@ CASES = {
     "alexnet": ("LibreAlexNet", dict(size='b', nb_classes=3)),
     "yolo2": ("LibreYOLO2", dict(size='b', nb_classes=3)),
     "ssd": ("LibreSSD", dict(size='300', nb_classes=3)),
+    "deeplabv3_r50": ("LibreDeepLabv3", dict(size='r50', nb_classes=3)),
     "efficientdet_d1": ("LibreEfficientDet", dict(size='d1', nb_classes=3)),
+    "yolo9_e2e": ("LibreYOLO9E2E", dict(size='t', nb_classes=3)),
 }
 
 SUPPORT_KEYS = {
@@ -68,7 +70,9 @@ SUPPORT_KEYS = {
     "alexnet": ('alexnet', 'classify'),
     "yolo2": ('yolo2', 'detect'),
     "ssd": ('ssd', 'detect'),
+    "deeplabv3_r50": ('deeplabv3', 'semantic'),
     "efficientdet_d1": ('efficientdet', 'detect'),
+    "yolo9_e2e": ('yolo9_e2e', 'detect'),
 }
 
 #: Families whose model code needs an optional extra (skip, as the rest of the suite does, when it is missing).
@@ -144,9 +148,10 @@ def test_axelera_export_leaves_the_users_model_untouched(case, tmp_path, monkeyp
 
     monkeypatch.setattr(ex.AxeleraExporter, "_preflight", fake_preflight)
     monkeypatch.setattr(ax, "export_axelera", fake_export_axelera)
-    # Multi-part exports (SSD300) compile through the chain entry point instead.
-    if hasattr(ax, "export_axelera_chain"):
-        monkeypatch.setattr(ax, "export_axelera_chain", fake_export_axelera)
+    # Multi-part exports compile through the chain (SSD300) or parts entry point.
+    for entry in ("export_axelera_chain", "export_axelera_parts"):
+        if hasattr(ax, entry):
+            monkeypatch.setattr(ax, entry, fake_export_axelera)
     with pytest.raises(Exception) as info:
         model.export(
             format="axelera",

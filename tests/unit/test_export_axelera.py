@@ -13,7 +13,6 @@ import pytest
 from libreyolo.backends import axelera as axrt
 from libreyolo.export import axelera as ax
 
-
 @pytest.fixture(autouse=True)
 def _libreyolo_logs_reach_caplog(monkeypatch):
     """libreyolo's logging setup turns propagation off on the "libreyolo" logger
@@ -476,7 +475,7 @@ def test_export_writes_the_artifact_directory(exporter_sdk, tmp_path, task, capl
     model = _model(task)
     destination = tmp_path / "out" / "custom_axelera_model"
     with caplog.at_level(logging.INFO):
-        path = model.export(format="axelera", data=str(data), imgsz=64, output_path=str(destination))
+        path = model.export(format="axelera", data=str(data), imgsz=64, fraction=1.0, output_path=str(destination))
 
     assert Path(path) == destination
     assert sorted(p.name for p in destination.iterdir()) == [
@@ -673,7 +672,7 @@ def test_yolo4_export_uses_the_anchor_raw_head_layout(exporter_sdk, tmp_path):
     meta = yaml.safe_load((destination / "metadata.yaml").read_text())
     assert meta["model_family"] == "yolo4" and meta["output_layout"] == layout
     # Calibration used Darknet's own letterbox (it takes the (h, w) pair the loader passes).
-    assert len(exporter_sdk.seen["samples"]) == 4
+    assert len(exporter_sdk.seen["samples"]) == 2  # fraction unset: YOLOv4-t's measured 0.5 of the 4 images
     assert meta["output_names"] == exporter_sdk.seen["device_order"]
     assert meta["strides"] == [32, 16] and "reg_max" not in meta
     specs = model.model.net.detection_specs()
@@ -756,7 +755,7 @@ def test_yolo7_export_uses_the_anchor_raw_head_layout(exporter_sdk, tmp_path):
     assert meta["strides"] == [8, 16, 32] and "scale_x_y" not in meta
     net = model.model
     assert meta["anchors"] == [[list(pair) for pair in zip(a[0::2], a[1::2])] for a in net.anchors]
-    assert len(exporter_sdk.seen["samples"]) == 4
+    assert len(exporter_sdk.seen["samples"]) == 2  # fraction unset: YOLOv7-b's measured 0.5 of the 4 images
 
 
 def test_ppyoloe_export_uses_the_ppyoloe_raw_head_layout(exporter_sdk, tmp_path):
@@ -847,7 +846,10 @@ def test_failed_compile_keeps_previous_export(exporter_sdk, tmp_path):
 
 def test_batch_sizes_only_the_calibration_loader(exporter_sdk, tmp_path):
     data = _dataset(tmp_path, n=5)
-    _model().export(format="axelera", data=str(data), imgsz=64, batch=4, output_path=str(tmp_path / "b_axelera_model"), simplify=False)
+    _model().export(
+        format="axelera", data=str(data), imgsz=64, batch=4, fraction=1.0,
+        output_path=str(tmp_path / "b_axelera_model"), simplify=False,
+    )
     samples = exporter_sdk.seen["samples"]
     assert len(samples) == 5  # the padded duplicate in the last batch is dropped
     assert all(s.shape == (1, 3, 64, 64) for s in samples)
@@ -940,9 +942,11 @@ def test_missing_devkit_fails_before_tracing(fake_sdk, tmp_path, monkeypatch):
 
 
 def test_other_families_are_blocked(exporter_sdk):
-    from libreyolo import LibreDFINE
+    # ViT has a transformer backbone, out of scope for Metis (docs/axelera.md), so it
+    # stays blocked as porters add families.
+    from libreyolo import LibreViT
 
-    model = LibreDFINE(None, size="l", device="cpu")
+    model = LibreViT(None, size="ti", nb_classes=3, device="cpu")
     with pytest.raises(NotImplementedError, match="blocked"):
         model.export(format="axelera")
 
@@ -959,7 +963,7 @@ def test_verify_writes_a_parity_report(exporter_sdk, tmp_path, monkeypatch, capl
         backend_module, "require_axelera_rt", lambda: (_ for _ in ()).throw(ImportError("no axelera-rt"))
     )
     with caplog.at_level(logging.INFO):
-        _model().export(format="axelera", data=str(data), imgsz=64, verify=True, output_path=str(destination))
+        _model().export(format="axelera", data=str(data), imgsz=64, fraction=1.0, verify=True, output_path=str(destination))
     report = json.loads((destination / "v.parity.json").read_text())
     # data.yaml's val split is its train split, so verify falls back to the bundled samples.
     assert report["source"].startswith("bundled sample images")
@@ -1064,8 +1068,9 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("yolonas", "pose", "axelera")]) == ["n", "s"]
     assert get_support("yolo9", "detect", "axelera").tier in {"available", "validated"}
     assert precision_support("yolo9", "detect", "axelera") == (True, True)
-    for family in ("yolo9_e2e", "yolo9_p2"):
-        assert get_support(family, "detect", "axelera").tier == "blocked"
+    p2 = get_support("yolo9_p2", "detect", "axelera")
+    assert p2.tier == "validated" and "validated sizes: s " in p2.constraint
+    assert sorted(UNMEASURED_SIZES[("yolo9_p2", "detect", "axelera")]) == ["t"]
     rfdetr = get_support("rfdetr", "detect", "axelera")
     assert rfdetr.tier == "blocked" and "attention" in rfdetr.reason
     yolox = get_support("yolox", "detect", "axelera")
@@ -1075,7 +1080,7 @@ def test_support_matrix_rows_for_axelera():
     assert yolo3.tier == "validated" and "validated sizes: t, b, spp" in yolo3.constraint
     assert precision_support("yolo3", "detect", "axelera") == (True, True)
     vgg = get_support("vgg", "classify", "axelera")
-    assert vgg.tier == "validated" and "validated sizes: 16, 19, 16bn;" in vgg.constraint
+    assert vgg.tier == "validated" and "validated sizes: 16, 19, 16bn; supported sizes: 19bn" in vgg.constraint
     assert precision_support("vgg", "classify", "axelera") == (True, True)
     assert sorted(SIZE_ACCURACY_NOTES[("vgg", "classify", "axelera")]) == ["19bn"]
     assert ("vgg", "classify", "axelera") not in UNMEASURED_SIZES
@@ -1088,19 +1093,21 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(SIZE_ACCURACY_NOTES[("yolo4", "detect", "axelera")]) == ["b"]
     assert precision_support("yolo4", "detect", "axelera") == (True, True)
     ppyoloe = get_support("ppyoloe", "detect", "axelera")
-    assert ppyoloe.tier == "validated" and "validated sizes: l" in ppyoloe.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("ppyoloe", "detect", "axelera")]) == ["m", "s", "x"]
+    assert ppyoloe.tier == "validated" and "validated sizes: l, m" in ppyoloe.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("ppyoloe", "detect", "axelera")]) == ["s", "x"]
     retinanet = get_support("retinanet", "detect", "axelera")
     assert retinanet.tier == "available" and "supported sizes: r50 " in retinanet.constraint
     assert sorted(SIZE_ACCURACY_NOTES[("retinanet", "detect", "axelera")]) == ["r50"]
     assert "GroupNorm" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
+    assert "six compiled parts" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
+    assert "host CPU is not supported" in BLOCKED_SIZES[("retinanet", "detect", "axelera")]["r50v2"]
     assert ("retinanet", "detect", "axelera") not in UNMEASURED_SIZES
     yolo7 = get_support("yolo7", "detect", "axelera")
     assert yolo7.tier == "validated" and "validated sizes: b" in yolo7.constraint
     rtmdet = get_support("rtmdet", "detect", "axelera")
-    assert rtmdet.tier == "available" and "supported sizes: t, s, m, l " in rtmdet.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["l", "m", "s", "t"]
-    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]) == ["l", "m", "s", "t"]
+    assert rtmdet.tier == "available" and "supported sizes: t, s, m, l, x " in rtmdet.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "detect", "axelera")]) == ["l", "m", "s", "t", "x"]
+    assert sorted(SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]) == ["l", "m", "s", "t", "x"]
     effdet = get_support("efficientdet", "detect", "axelera")
     assert effdet.tier == "available"
     assert "supported sizes: d0, d1 and d2 " in effdet.constraint
@@ -1108,28 +1115,36 @@ def test_support_matrix_rows_for_axelera():
     assert sorted(effdet_notes) == ["d0", "d1", "d2"]
     assert precision_support("efficientdet", "detect", "axelera") == (True, True)
     fcos = get_support("fcos", "detect", "axelera")
-    assert fcos.tier == "blocked" and "GroupNorm" in fcos.reason
-    other = get_support("dfine", "detect", "axelera")
+    assert fcos.tier == "available" and "GroupNorm" in fcos.reason
+    assert "supported sizes: r50 " in fcos.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("fcos", "detect", "axelera")]) == ["r50"]
+    assert ("fcos", "detect") in INT8_EXPORTS["axelera"]
+    other = get_support("vit", "classify", "axelera")  # out of scope: transformer backbone
     assert other.tier == "blocked" and "not been compiled" in other.reason
     mnv4 = get_support("mobilenetv4", "classify", "axelera")
-    assert mnv4.tier == "validated" and "validated sizes: m;" in mnv4.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("mobilenetv4", "classify", "axelera")]) == ["l", "s"]
+    assert mnv4.tier == "validated" and "validated sizes: m, s " in mnv4.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("mobilenetv4", "classify", "axelera")]) == ["l"]
     assert sorted(SIZE_ACCURACY_NOTES[("yolox", "detect", "axelera")]) == ["n"]
     for notes in SIZE_ACCURACY_NOTES.values():
         assert all(note.startswith("measured ") and " vs FP32 " in note for note in notes.values())
     esrgan = get_support("realesrgan", "restore", "axelera")
-    assert esrgan.tier == "available" and "supported sizes: x4t " in esrgan.constraint
-    assert sorted(SIZE_ACCURACY_NOTES[("realesrgan", "restore", "axelera")]) == ["x4t"]
-    assert sorted(UNMEASURED_SIZES[("realesrgan", "restore", "axelera")]) == ["x2", "x4"]
+    assert esrgan.tier == "validated" and "validated sizes: x4 " in esrgan.constraint
+    assert "x4t (equalized trunk" in esrgan.constraint and "and x2 (three compiled parts" in esrgan.constraint
+    assert ("realesrgan", "restore", "axelera") not in SIZE_ACCURACY_NOTES
+    assert ("realesrgan", "restore", "axelera") not in UNMEASURED_SIZES
     assert ("realesrgan", "restore") in INT8_EXPORTS["axelera"]
     alexnet = get_support("alexnet", "classify", "axelera")
     assert alexnet.tier == "validated" and "validated sizes: b;" in alexnet.constraint
     yolo2 = get_support("yolo2", "detect", "axelera")
     assert yolo2.tier == "validated" and "validated sizes: t, b." in yolo2.constraint
-    assert "two output buffers" in BLOCKED_SIZES[("efficientnetv2", "classify", "axelera")]["b3"]
+    effv2 = get_support("efficientnetv2", "classify", "axelera")
+    assert effv2.tier == "validated" and "validated sizes: b1, b3; supported sizes: b0, b2 " in effv2.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("efficientnetv2", "classify", "axelera")]) == ["b0", "b2"]
+    assert ("efficientnetv2", "classify", "axelera") not in BLOCKED_SIZES
     assert ("efficientnetv2", "classify", "axelera") not in UNMEASURED_SIZES
     yolo1 = get_support("yolo1", "detect", "axelera")
-    assert yolo1.tier == "blocked" and "Einsum" in yolo1.reason
+    assert yolo1.tier == "validated" and "validated sizes: b " in yolo1.constraint
+    assert ("yolo1", "detect") in INT8_EXPORTS["axelera"]
     assert "ViT-L" in BLOCKED_SIZES[("midas", "depth", "axelera")]["l"]
     assert ("midas", "depth", "axelera") not in UNMEASURED_SIZES
     ssd = get_support("ssd", "detect", "axelera")
@@ -1157,23 +1172,43 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     from libreyolo import LibreMobileNetV4, LibreYOLO4
     from libreyolo.export.axelera import AXELERA_SIZE_RECIPES, size_recipe
 
-    assert size_recipe("yolo4", "detect", "t") == {}
-    recipes = set(AXELERA_SIZE_RECIPES) - {
+    # calibration_fraction alone does not change the graph (test_default_export_calibrates_on_the_images_...).
+    assert size_recipe("yolo4", "detect", "t") == {"calibration_fraction": 0.5}
+    recipes = {k for k, v in AXELERA_SIZE_RECIPES.items() if set(v) - {"calibration_fraction"}} - {
         ("efficientdet", "detect", "d1"),
         ("efficientdet", "detect", "d2"),
         ("retinanet", "detect", "r50"),
+        ("deeplabv3", "semantic", "r50"), ("deeplabv3", "semantic", "r101"),
+        ("vgg", "classify", "19bn"), ("rtmdet", "detect", "s"),
+        # RTMDet-Ins-s learned rounding (test_rtmdet_axelera_rounding).
+        ("rtmdet", "segment", "s"),
+        # HRNet-w32/w48 fusion_parts (test_hrnet_fusion_parts_chain_reproduces_the_native_model).
+        ("hrnet", "pose", "w32"), ("hrnet", "pose", "w48"),
+        # PIDNet pool_parts (test_pidnet_pool_parts_chain_reproduces_the_native_model).
+        ("pidnet", "semantic", "s"), ("pidnet", "semantic", "m"), ("pidnet", "semantic", "l"),
+        # DDRNet pool_parts at its native frame (test_ddrnet.py::test_axelera_pool_parts_chain_reproduces_the_native_model).
+        ("ddrnet", "semantic", "s"), ("ddrnet", "semantic", "m"),
+        # RTMDet-x / RTMDet-Ins-x neck_parts (test_rtmdet_neck_parts_chain_reproduces_the_raw_heads,
+        # test_rtmdet_ins_neck_parts_chain_reproduces_the_raw_heads).
+        ("rtmdet", "detect", "x"), ("rtmdet", "segment", "x"),
+        # Covered by their own tests (fixed canvas / three-part export).
+        ("realesrgan", "restore", "x4"), ("realesrgan", "restore", "x2"),
+        ("fcos", "detect", "r50"),
+        ("unet", "semantic", "s"),
     }
     assert recipes == {
         ("yolo4", "detect", "b"), ("mobilenetv4", "classify", "s"),
         ("mobilenetv4", "classify", "l"), ("yolonas", "pose", "s"),
-        ("vgg", "classify", "16bn"),
+        ("vgg", "classify", "16bn"), ("quicksrnet", "restore", "m2"),
+        ("realesrgan", "restore", "x4t"), ("ppyoloe", "detect", "x"), ("ppyoloe", "detect", "m"),
     }
     assert size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
-    # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default.
+    # VGG-16-BN: histogram ranges; the other VGG sizes keep the min-max default
+    # (VGG-19-BN runs its whole graph, test_vgg_axelera).
     assert size_recipe("vgg", "classify", "16bn") == {
         "quantization_scheme": "hybrid_per_tensor_per_channel"
     }
-    assert size_recipe("vgg", "classify", "19bn") == {}
+    assert size_recipe("vgg", "classify", "19bn") == {}  # whole graph
     data = str(_dataset(tmp_path))
     # YOLOv4-b: histogram ranges and a [-6, 6] window on the box output.
     torch.manual_seed(0)
@@ -1184,17 +1219,55 @@ def test_size_recipes_reach_the_export(exporter_sdk, tmp_path, monkeypatch):
     meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
     assert meta["output_windows"] == {"reg": [-6.0, 6.0]}
     assert meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+    # PP-YOLOE-x: histogram ranges; the other PP-YOLOE sizes keep the min-max default.
+    from libreyolo import LibrePPYOLOE
+
+    for size, scheme in (
+        ("x", "hybrid_per_tensor_per_channel"), ("m", "hybrid_per_tensor_per_channel"), ("l", "per_tensor_min_max"),
+    ):
+        torch.manual_seed(0)
+        ppy = LibrePPYOLOE(None, size="s", nb_classes=3, device="cpu")
+        monkeypatch.setattr(ppy, "size", size)
+        out = ppy.export(format="axelera", data=data, imgsz=64,
+                         output_path=str(tmp_path / f"ppy{size}_axelera_model"))
+        meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
+        assert meta["axelera"]["quantization_scheme"] == scheme
     # MobileNetV4-s: no residual-stream transform, histogram ranges.
     import libreyolo.models.mobilenetv4.quantize as q
 
     calls = []
     original = q.prepare_for_int8
     monkeypatch.setattr(q, "prepare_for_int8", lambda *a, **k: calls.append(1) or original(*a, **k))
+    import libreyolo.export.learned_rounding as lr
+
+    monkeypatch.setattr(lr, "LEARNED_ROUNDING_STEPS", 3)
     small = LibreMobileNetV4(size="s", nb_classes=5, device="cpu")
     out = small.export(format="axelera", data=data, imgsz=64,
                        output_path=str(tmp_path / "mn4s_axelera_model"))
     meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
     assert calls == [] and meta["axelera"]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+    # ... and learned INT8 rounding of every layer.
+    assert meta["network_learned_rounding"]["layers"] > 0
+    # QuickSRNet-m2: learned INT8 rounding of the equalized weights.
+    from libreyolo import LibreQuickSRNet
+    import libreyolo.models.quicksrnet.quantize as srq
+
+    seen = []
+    original_sr = srq.prepare_for_int8
+    monkeypatch.setattr(srq, "prepare_for_int8", lambda *a, **k: seen.append(k) or original_sr(*a, **k))
+    sr = LibreQuickSRNet(None, size="m2", device="cpu")
+    sr.export(format="axelera", data=data, imgsz=32, output_path=str(tmp_path / "sr_axelera_model"))
+    assert len(seen) == 1 and seen[0]["learned_rounding"] is True and len(seen[0]["rounding_samples"]) > 0
+    # Real-ESRGAN-x4t: exact equalization of the compact trunk through its PReLUs.
+    from libreyolo import LibreRealESRGAN
+    import libreyolo.models.realesrgan.quantize as esq
+
+    pairs = []
+    original_eq = esq.equalize_conv_activation_ranges
+    monkeypatch.setattr(esq, "equalize_conv_activation_ranges", lambda *a, **k: pairs.append(original_eq(*a, **k)) or pairs[-1])
+    esr = LibreRealESRGAN(None, size="x4t", device="cpu")
+    esr.export(format="axelera", data=data, imgsz=32, output_path=str(tmp_path / "esr_axelera_model"))
+    assert pairs == [len([m for m in esr.model.body if isinstance(m, torch.nn.Conv2d)]) - 1]
 
 
 def _pad_maxpool_graph(pad_value):
@@ -1266,32 +1339,29 @@ def test_efficientnetv2_b0_exports_with_histogram_ranges(exporter_sdk, tmp_path,
                for r in caplog.records)
 
 
-@pytest.mark.parametrize("size", ["b1", "b2"])
-def test_efficientnetv2_sizes_that_do_not_compile_are_blocked(tmp_path, size):
-    """Structural blocks only: these sizes do not compile."""
-    from libreyolo import LibreEfficientNetV2
+def test_rtmdet_ins_x_exports_as_full_metis_neck_parts_with_a_mask_part():
+    """RTMDet-Ins-x is a full-Metis multi-part export (recipe ``neck_parts``: stem, one part per PAFPN block, mask
+    module), supported with its measured drop; it is no longer blocked."""
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.support import BLOCKED_SIZES, SIZE_ACCURACY_NOTES
 
-    model = LibreEfficientNetV2(size=size, nb_classes=5, device="cpu")
-    with pytest.raises(NotImplementedError, match=rf"efficientnetv2-{size} classify export to axelera is blocked"):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
-
-
-def test_rtmdet_ins_x_is_blocked_with_its_compile_failure(tmp_path):
-    from libreyolo import LibreRTMDet
-
-    model = LibreRTMDet(None, size="x", nb_classes=3, task="segment", device="cpu")
-    message = r"rtmdet-x segment export to axelera is blocked: it does not compile .*tiling factor fits L1"
-    with pytest.raises(NotImplementedError, match=message):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+    assert size_recipe("rtmdet", "segment", "x") == {
+        "neck_parts": True, "quantization_scheme": "hybrid_per_tensor_per_channel", "calibration_fraction": 0.5,
+    }
+    assert "x" not in BLOCKED_SIZES.get(("rtmdet", "segment", "axelera"), {})
+    note = SIZE_ACCURACY_NOTES[("rtmdet", "segment", "axelera")]["x"]
+    assert "1.50" in note and "resize+concat between parts, no weights" in note
 
 
-def test_rtmdet_x_is_blocked_with_its_compile_failure(tmp_path):
-    from libreyolo import LibreRTMDet
+def test_rtmdet_x_detect_exports_as_full_metis_neck_parts():
+    """RTMDet-x detect is a full-Metis multi-part export (recipe ``neck_parts``)."""
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.support import BLOCKED_SIZES
 
-    model = LibreRTMDet(None, size="x", nb_classes=3, device="cpu")
-    message = r"rtmdet-x detect export to axelera is blocked: it does not compile .*LowerTIR"
-    with pytest.raises(NotImplementedError, match=message):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
+    assert size_recipe("rtmdet", "detect", "x") == {
+        "neck_parts": "stem_td0", "quantization_scheme": "hybrid_per_tensor_per_channel", "calibration_fraction": 0.5,
+    }
+    assert "x" not in BLOCKED_SIZES.get(("rtmdet", "detect", "axelera"), {})
 
 
 def test_unmeasured_sizes_are_not_exportable_and_not_called_blocked(tmp_path):
@@ -1312,15 +1382,6 @@ def test_unmeasured_sizes_are_not_exportable_and_not_called_blocked(tmp_path):
     ):
         with pytest.raises(NotImplementedError, match=r"efficientnetv2-b3 classify export to axelera is not available yet: it has not been measured on a Metis yet"):
             model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
-
-
-def test_efficientnetv2_b3_is_blocked_with_its_compile_failure(tmp_path):
-    from libreyolo import LibreEfficientNetV2
-
-    model = LibreEfficientNetV2(size="b3", nb_classes=5, device="cpu")
-    with pytest.raises(NotImplementedError, match=r"efficientnetv2-b3 classify export to axelera is blocked: .*two output buffers"):
-        model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64)
-
 
 
 def _shuffle_graph():
@@ -1398,14 +1459,31 @@ def test_only_listed_families_request_graph_passes():
     # passes (the leave-other-graphs-alone tests cover the no-op).
     assert _AXELERA_GRAPH_PASSES == {
         "picodet": ("channel_shuffle_to_conv",),
+        "efficientnetv2": ("stem_residual_skip_conv",),
         "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
         "vgg": ("fc_rowconv",),
+        "yolo1": ("fc_rowconv",),
         "efficientdet": (
             "float_div_to_mul",
             "stack_sum_to_add",
             "mean_hw_to_gap",
             "gap_staged",
         ),
+        "ppliteseg": (
+            "channel_reduce_to_conv",
+            "channel_max_tree",
+            "broadcast_mul_expand",
+            "conv_reduction_split",
+            "resize_1x1_broadcast_add",
+            "resize_corner_chain",
+            "avgpool_staged",
+        ),
+        "pidnet": (
+            "channel_reduce_to_conv",
+            "broadcast_mul_expand",
+            "resize_1x1_broadcast_add",
+        ),
+        "ddrnet": ("resize_1x1_broadcast_add",),
     }
     requested = {name for names in _AXELERA_GRAPH_PASSES.values() for name in names}
     assert requested <= set(ax.GRAPH_PASSES)
@@ -1584,6 +1662,47 @@ def test_graph_passes_are_exact(tmp_path, graph, name, shape, gone):
 
 
 
+@pytest.mark.parametrize(("dilation", "bias"), [(2, False), (12, False), (24, False), (3, True)])
+def test_aspp_shift_matches_the_dilated_convolution(dilation, bias):
+    import torch
+
+    from libreyolo.export.exporter import _ShiftedDilatedConv
+
+    torch.manual_seed(dilation)
+    conv = torch.nn.Conv2d(16, 8, 3, padding=dilation, dilation=dilation, bias=bias).eval()
+    x = torch.randn(1, 16, 20, 20)  # dilation 24 >= 20: the off-centre taps read only padding
+    with torch.no_grad():
+        torch.testing.assert_close(_ShiftedDilatedConv(conv)(x), conv(x), atol=1e-5, rtol=1e-5)
+
+
+def test_deeplabv3_resnet_sizes_run_their_aspp_as_shifted_1x1():
+    import torch
+
+    from libreyolo.export.exporter import _aspp_shift, _ShiftedDilatedConv
+    from libreyolo.export.support import BLOCKED_SIZES, SIZE_ACCURACY_NOTES
+    from libreyolo.models.deeplabv3.nn import ASPPConv, LibreDeepLabv3Net
+
+    # R50/R101 run whole on the Metis.
+    for size in ("r50", "r101"):
+        assert ax.size_recipe("deeplabv3", "semantic", size) == {"aspp_shift": True}
+        assert size in SIZE_ACCURACY_NOTES[("deeplabv3", "semantic", "axelera")]
+    assert "mv3" in SIZE_ACCURACY_NOTES[("deeplabv3", "semantic", "axelera")]
+    assert ax.size_recipe("deeplabv3", "semantic", "mv3") == {}
+    assert ("deeplabv3", "semantic", "axelera") not in BLOCKED_SIZES
+    torch.manual_seed(0)
+    net = LibreDeepLabv3Net("r50").eval()
+    import copy
+
+    clone = copy.deepcopy(net)
+    assert _aspp_shift(clone) == 3
+    aspp = [m for m in net.modules() if isinstance(m, ASPPConv)]
+    assert all(isinstance(m[0], torch.nn.Conv2d) for m in aspp)  # the original is left alone
+    assert all(isinstance(m[0], _ShiftedDilatedConv) for m in clone.modules() if isinstance(m, ASPPConv))
+    x = torch.randn(1, 3, 128, 128)
+    with torch.no_grad():
+        torch.testing.assert_close(clone(x), net(x), atol=1e-4, rtol=1e-4)
+
+
 def test_deeplabv3_graph_passes_leave_other_graphs_alone(tmp_path):
     onnx = pytest.importorskip("onnx")
     from onnx import helper
@@ -1707,6 +1826,54 @@ def test_bifpn_passes_are_exact(tmp_path):
     np.testing.assert_allclose(after, before, rtol=1e-5, atol=1e-5)
 
 
+def _pyramid_pool_graph(height, width):
+    from onnx import helper
+
+    nodes = [
+        helper.make_node(
+            "AveragePool", ["x"], [f"bin{n}"], kernel_shape=[height // n, width // n], strides=[height // n, width // n]
+        )
+        for n in (1, 2, 4)
+    ]
+    nodes.append(helper.make_node("AveragePool", ["x"], ["ovl"], kernel_shape=[3, 3], strides=[2, 2], pads=[1, 1, 1, 1]))
+    outs = [("bin1", [1, 3, 1, 1]), ("bin2", [1, 3, 2, 2]), ("bin4", [1, 3, 4, 4])]
+    outs.append(("ovl", [1, 3, (height + 1) // 2, (width + 1) // 2]))
+    return _onnx_model(nodes, [("x", [1, 3, height, width])], outs, [])
+
+
+def test_avgpool_staged_is_exact_on_wide_pyramid_bins(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    source = tmp_path / "model.onnx"
+    onnx.save(_pyramid_pool_graph(24, 48), str(source))  # PP-LiteSeg-t75's stride-32 map
+
+    rewritten = ax.apply_graph_passes(str(source), tmp_path, ["avgpool_staged"])
+
+    pools = [n for n in onnx.load(rewritten).graph.node if n.op_type == "AveragePool"]
+    windows = sorted(
+        tuple(next(a.ints for a in n.attribute if a.name == "kernel_shape")) for n in pools
+    )
+    # 12x24 bin (288) -> 2x2 then 6x12; the 24x48 whole-map bin -> 2x2 then 12x24 (288 <= 512);
+    # the 6x12 bin and the overlapping 3x3/2 pool stay as they are.
+    assert windows == [(2, 2), (2, 2), (3, 3), (6, 12), (6, 12), (12, 24)]
+    x = np.random.default_rng(9).normal(size=(1, 3, 24, 48)).astype(np.float32)
+    before = ort.InferenceSession(str(source)).run(None, {"x": x})
+    after = ort.InferenceSession(rewritten).run(None, {"x": x})
+    for a, b in zip(after, before):
+        np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-6)
+
+
+def test_avgpool_staged_leaves_the_512x1024_pyramid_alone(tmp_path):
+    onnx = pytest.importorskip("onnx")
+    source = tmp_path / "model.onnx"
+    onnx.save(_pyramid_pool_graph(16, 32), str(source))  # t50/b50: bins 16x32 (whole map), 8x16, 4x8
+    before = source.read_bytes()
+
+    assert ax.apply_graph_passes(str(source), tmp_path, ["avgpool_staged"]) == str(source)
+    assert source.read_bytes() == before
+
+
 def test_float_div_to_mul_leaves_integer_division_alone(tmp_path):
     np = pytest.importorskip("numpy")
     onnx = pytest.importorskip("onnx")
@@ -1748,13 +1915,9 @@ def test_efficientdet_preprocessing_accepts_a_square_pair():
 @pytest.mark.parametrize(
     ("family", "task", "keyword"),
     [
-        ("centernet", "detect", "deformable"),
         ("convnext", "classify", "LayerNorm"),
         ("convnextv2", "classify", "Global"),
-        ("faster_rcnn", "detect", "two-stage"),
         ("ec", "detect", "deformable attention"),
-        ("tinyformer", "detect", "deformable attention"),
-        ("nafnet", "restore", "LayerNorm"),
         ("teed", "edge", "logarithm"),
     ],
 )
@@ -1765,16 +1928,57 @@ def test_structurally_blocked_axelera_families_name_the_reason(family, task, key
     assert entry.tier == "blocked" and keyword in entry.reason
 
 
-@pytest.mark.parametrize("family", ["pidnet", "unet"])
-def test_long_compiles_are_not_available_yet(family):
+def test_gtr_is_out_of_scope_for_every_task_with_the_layernorm_reason():
     from libreyolo.export.support import get_support
 
-    entry = get_support(family, "semantic", "axelera")
+    for task in ("detect", "pose", "obb", "depth", "semantic", "segment"):
+        entry = get_support("gtr", task, "axelera")
+        assert entry.tier == "blocked" and "LayerNorm" in entry.reason and "30" in entry.reason
+
+
+def test_convnext_block_names_the_layernorm_and_the_part_count():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("convnext", "classify", "axelera")
     assert entry.tier == "blocked"
-    assert (
-        entry.reason.startswith("Not available yet")
-        and "did not finish" in entry.reason
-    )
+    assert "reciprocal square root" in entry.reason and "23 parts" in entry.reason
+
+
+def test_nafnet_is_not_available_yet_for_lack_of_weights():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("nafnet", "restore", "axelera")
+    assert entry.reason.startswith("Not available yet") and "weights" in entry.reason
+
+
+def test_ppliteseg_is_supported_with_its_measured_fidelity():
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES, get_support
+
+    entry = get_support("ppliteseg", "semantic", "axelera")
+    assert entry.tier == "available" and "sigmoid(-z)" in entry.reason
+    assert "supported sizes: t50, b50, t75, b75" in entry.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("ppliteseg", "semantic", "axelera")]) == ["b50", "b75", "t50", "t75"]
+    assert ("ppliteseg", "semantic", "axelera") not in UNMEASURED_SIZES
+
+
+def test_pidnet_is_supported_as_pool_parts_with_its_measured_fidelity():
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES, get_support
+
+    entry = get_support("pidnet", "semantic", "axelera")
+    assert entry.tier == "available" and "three compiled parts" in entry.reason and "0.864" in entry.reason
+    assert "0.864" in SIZE_ACCURACY_NOTES[("pidnet", "semantic", "axelera")]["s"]
+    assert "0.820" in SIZE_ACCURACY_NOTES[("pidnet", "semantic", "axelera")]["l"]
+    assert "0.825" in SIZE_ACCURACY_NOTES[("pidnet", "semantic", "axelera")]["m"]
+    assert ("pidnet", "semantic", "axelera") not in UNMEASURED_SIZES
+
+
+def test_unet_is_supported_with_its_measured_fidelity():
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, get_support
+
+    entry = get_support("unet", "semantic", "axelera")
+    assert entry.tier == "available"
+    assert "0.856" in entry.reason and "512x1024" in entry.constraint
+    assert "0.856" in SIZE_ACCURACY_NOTES[("unet", "semantic", "axelera")]["s"]
 
 
 def test_efficientdet_canvas_copy_runs_smaller_and_leaves_the_model_alone():
@@ -1802,12 +2006,15 @@ def test_efficientdet_d1_axelera_recipe_is_the_512_canvas():
     assert ax.size_recipe("efficientdet", "detect", "d1") == {"canvas": 512}
     notes = SIZE_ACCURACY_NOTES[("efficientdet", "detect", "axelera")]
     assert "512x512 canvas" in notes["d1"] and "INT8" in notes["d1"]
-    assert "d1" not in UNMEASURED_SIZES[("efficientdet", "detect", "axelera")]
+    assert "d1" not in UNMEASURED_SIZES.get(("efficientdet", "detect", "axelera"), {})
     assert ax.size_recipe("efficientdet", "detect", "d2") == {"canvas": 512}
-    assert sorted(UNMEASURED_SIZES[("efficientdet", "detect", "axelera")]) == ["d4"]
-    from libreyolo.export.support import BLOCKED_SIZES
+    assert ("efficientdet", "detect", "axelera") not in UNMEASURED_SIZES
+    from libreyolo.export.support import BLOCKED_SIZES, get_support
 
-    assert "L1" in BLOCKED_SIZES[("efficientdet", "detect", "axelera")]["d3"]
+    for size in ("d3", "d4"):  # the whole graph does not compile
+        reason = BLOCKED_SIZES[("efficientdet", "detect", "axelera")][size]
+        assert "does not compile" in reason and "host CPU is not supported" in reason
+    assert "d3 and d4 do not compile" in get_support("efficientdet", "detect", "axelera").constraint
 
 
 def test_axelera_canvas_recipe_sets_only_the_default_imgsz(monkeypatch):
@@ -1857,3 +2064,895 @@ def test_efficientdet_canvas_recipe_exports_the_smaller_canvas(
     assert exporter_sdk.seen["onnx_input"][-2:] == [256, 256]
     assert model.input_size == 512 and model.model.image_size == 512
     assert tuple(model._last_export_imgsz) == (256, 256)
+
+
+def test_yolo9_e2e_axelera_is_validated():
+    from libreyolo.export.support import get_support, precision_support
+
+    entry = get_support("yolo9_e2e", "detect", "axelera")
+    assert entry.tier == "validated"
+    assert "validated sizes: t, s, m, c" in entry.constraint
+    assert precision_support("yolo9_e2e", "detect", "axelera") == (True, True)
+
+
+def test_l2cs_axelera_is_blocked_by_the_weights_licence():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("l2cs", "gaze", "axelera")
+    assert entry.tier == "blocked" and "Gaze360" in entry.reason
+
+
+def _seg_attention_graph():
+    """PP-LiteSeg-style spatial attention and pyramid upsampling, small."""
+    import numpy as np
+    from onnx import TensorProto, helper, numpy_helper
+
+    nodes = [
+        helper.make_node("ReduceMean", ["x", "axis1"], ["mean"], keepdims=1),
+        helper.make_node("ReduceMax", ["x", "axis1"], ["max"], keepdims=1),
+        helper.make_node("ReduceSum", ["x", "axis1"], ["sum"], keepdims=1),
+        helper.make_node("Add", ["mean", "max"], ["att0"]),
+        helper.make_node("Add", ["att0", "sum"], ["att"]),
+        helper.make_node("Mul", ["att", "x"], ["gated"]),
+        helper.make_node(
+            "Resize",
+            ["p", "", "", "sizes"],
+            ["up_raw"],
+            mode="linear",
+            coordinate_transformation_mode="half_pixel",
+        ),
+        helper.make_node("Add", ["up_raw", "q"], ["up"]),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "seg_attention",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 7, 8, 8]),
+            helper.make_tensor_value_info("p", TensorProto.FLOAT, [1, 3, 2, 2]),
+            helper.make_tensor_value_info("q", TensorProto.FLOAT, [1, 3, 16, 32]),
+        ],
+        [
+            helper.make_tensor_value_info("gated", TensorProto.FLOAT, [1, 7, 8, 8]),
+            helper.make_tensor_value_info("up", TensorProto.FLOAT, [1, 3, 16, 32]),
+        ],
+        [
+            numpy_helper.from_array(np.array([1], np.int64), "axis1"),
+            numpy_helper.from_array(np.array([1, 3, 16, 32], np.int64), "sizes"),
+        ],
+    )
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("", 18)], ir_version=8
+    )
+
+
+def test_segmentation_passes_are_exact(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    source = tmp_path / "model.onnx"
+    onnx.save(_seg_attention_graph(), str(source))
+    names = [
+        "channel_reduce_to_conv",
+        "channel_max_tree",
+        "broadcast_mul_expand",
+        "resize_corner_chain",
+    ]
+
+    rewritten = ax.apply_graph_passes(str(source), tmp_path, names)
+
+    graph = onnx.load(rewritten).graph
+    ops = [node.op_type for node in graph.node]
+    for gone in ("ReduceMean", "ReduceMax", "ReduceSum"):
+        assert gone not in ops
+    # 2x2 -> 16x32 (factors 8, 16): factor-2 align-corners steps, a 2x2
+    # average, then a 2x1 average for the smaller factor.
+    resizes = [n for n in graph.node if n.op_type == "Resize"]
+    assert len(resizes) == 4  # 4 -> 7 -> 13 -> 25 -> 49 >= 3 * 16 + 1
+    pools = [n for n in graph.node if n.op_type == "AveragePool"]
+    assert [list(p.attribute[0].ints) for p in pools] == [[2, 2], [2, 1]]
+    rng = np.random.default_rng(7)
+    feeds = {
+        "x": rng.normal(size=(1, 7, 8, 8)).astype(np.float32),
+        "p": rng.normal(size=(1, 3, 2, 2)).astype(np.float32),
+        "q": rng.normal(size=(1, 3, 16, 32)).astype(np.float32),
+    }
+    before = ort.InferenceSession(str(source)).run(None, feeds)
+    after = ort.InferenceSession(rewritten).run(None, feeds)
+    for b, a in zip(before, after):
+        np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("source_hw", "target_hw", "as_output", "rewritten"),
+    [
+        ((2, 2), (16, 32), False, True),
+        ((4, 4), (32, 16), False, True),
+        ((3, 5), (24, 80), False, True),
+        ((4, 4), (64, 64), False, True),
+        ((2, 2), (24, 48), False, True),  # PP-LiteSeg t75/b75: factors 12 and 24
+        ((4, 4), (24, 48), False, True),  # factors 6 and 12
+        ((2, 2), (20, 40), False, False),  # factor 20 has a 5: no 2/3 steps
+        ((4, 4), (8, 8), False, False),  # equal factor 2: compiles as it is
+        ((3, 3), (9, 18), False, False),  # odd factor: not exact this way
+        ((2, 2), (16, 32), True, False),  # a graph-output upsample stays on the host
+    ],
+)
+def test_resize_corner_chain_is_exact(
+    tmp_path, source_hw, target_hw, as_output, rewritten
+):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    from onnx import TensorProto, helper, numpy_helper
+
+    nodes = [
+        helper.make_node(
+            "Resize",
+            ["p", "", "", "sizes"],
+            ["up" if as_output else "up_raw"],
+            mode="linear",
+            coordinate_transformation_mode="half_pixel",
+        )
+    ]
+    if not as_output:
+        nodes.append(helper.make_node("Relu", ["up_raw"], ["up"]))
+    graph = helper.make_graph(
+        nodes,
+        "resize",
+        [helper.make_tensor_value_info("p", TensorProto.FLOAT, [1, 2, *source_hw])],
+        [helper.make_tensor_value_info("up", TensorProto.FLOAT, [1, 2, *target_hw])],
+        [numpy_helper.from_array(np.array([1, 2, *target_hw], np.int64), "sizes")],
+    )
+    model = helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("", 18)], ir_version=8
+    )
+    source = tmp_path / "model.onnx"
+    onnx.save(model, str(source))
+
+    out = ax.apply_graph_passes(str(source), tmp_path, ["resize_corner_chain"])
+
+    assert (out != str(source)) is rewritten
+    if rewritten:
+        convs = [n for n in onnx.load(out).graph.node if n.op_type == "Conv"]
+        assert len(convs) == 1 and convs[0].name.endswith("_identity")
+        for node in onnx.load(out).graph.node:
+            if node.op_type == "Resize":
+                assert (
+                    ax._attributes(node)["coordinate_transformation_mode"]
+                    == b"align_corners"
+                )
+    feeds = {
+        "p": np.random.default_rng(3).normal(size=(1, 2, *source_hw)).astype(np.float32)
+    }
+    before = ort.InferenceSession(str(source)).run(None, feeds)[0]
+    after = ort.InferenceSession(out).run(None, feeds)[0]
+    np.testing.assert_allclose(after, before, rtol=1e-5, atol=1e-5)
+
+
+def test_resize_1x1_broadcast_add_is_exact(tmp_path):
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    from onnx import TensorProto, helper, numpy_helper
+
+    graph = helper.make_graph(
+        [
+            helper.make_node("GlobalAveragePool", ["x"], ["pooled"]),
+            helper.make_node(
+                "Resize",
+                ["pooled", "", "", "sizes"],
+                ["up"],
+                mode="linear",
+                coordinate_transformation_mode="half_pixel",
+            ),
+            helper.make_node("Add", ["up", "x"], ["y"]),
+        ],
+        "pool_branch",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 3, 16, 32])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 3, 16, 32])],
+        [numpy_helper.from_array(np.array([1, 3, 16, 32], np.int64), "sizes")],
+    )
+    model = helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("", 18)], ir_version=8
+    )
+    source = tmp_path / "model.onnx"
+    onnx.save(model, str(source))
+
+    out = ax.apply_graph_passes(str(source), tmp_path, ["resize_1x1_broadcast_add"])
+
+    assert [n.op_type for n in onnx.load(out).graph.node] == [
+        "GlobalAveragePool",
+        "Add",
+    ]
+    feeds = {
+        "x": np.random.default_rng(4).normal(size=(1, 3, 16, 32)).astype(np.float32)
+    }
+    before = ort.InferenceSession(str(source)).run(None, feeds)[0]
+    after = ort.InferenceSession(out).run(None, feeds)[0]
+    np.testing.assert_allclose(after, before, rtol=1e-6, atol=1e-6)
+
+
+def test_rrdb_parts_compose_to_the_network_with_a_host_add():
+    torch = pytest.importorskip("torch")
+    np = pytest.importorskip("numpy")
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import _RRDBPart
+    from libreyolo.models.realesrgan.nn import RRDBNet
+
+    torch.manual_seed(0)
+    net = RRDBNet(scale=4, num_feat=8, num_block=4, num_grow_ch=4).eval()
+    head, tail, upsample = (_RRDBPart(net, role, 2).eval() for role in ("head", "tail", "upsample"))
+    assert (head.output_names, tail.output_names, upsample.output_names) == (("skip", "mid"), ("body",), ("restored",))
+    x = torch.rand(1, 3, 16, 16)
+    with torch.no_grad():
+        skip, mid = head(x)
+        feat = HOST_OPS["add"](skip.numpy(), tail(mid)[0].numpy())
+        chained = upsample(torch.from_numpy(feat))[0]
+        whole = net(x)
+    assert chained.shape == whole.shape == (1, 3, 64, 64)
+    np.testing.assert_allclose(chained.numpy(), whole.numpy(), rtol=1e-5, atol=1e-5)
+
+
+def test_realesrgan_x4_recipe_runs_three_parts_with_min_max_ranges():
+    from libreyolo.export.axelera import AXELERA_SIZE_RECIPES
+
+    assert AXELERA_SIZE_RECIPES[("realesrgan", "restore", "x4")] == {
+        "rrdb_split": 12,
+        "quantization_scheme": "per_tensor_min_max",
+    }
+
+
+def test_fcos_parts_chain_matches_the_export_wrapper():
+    """FCOS multi-part export in FP32: trunk -> host pack -> 4 x (head conv -> host GroupNorm+ReLU) ->
+    predictor -> host decode reproduces FCOSExportWrapper's tensor."""
+    torch = pytest.importorskip("torch")
+    np = pytest.importorskip("numpy")
+    import copy
+
+    from libreyolo import LibreFCOS
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import _fcos_parts
+    from libreyolo.models.fcos.nn import FCOSExportWrapper
+
+    torch.manual_seed(0)
+    model = LibreFCOS(None, size="r50", device="cpu")
+    net = model.model.eval()
+    ref = FCOSExportWrapper(copy.deepcopy(net)).eval()
+    trunk, layers, final, arrays, canvas, groups, eps, n_cls, _ = _fcos_parts(copy.deepcopy(net), 256)
+    x = torch.rand(1, 3, 256, 256, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = ref(x).numpy()
+        h = HOST_OPS["pack_levels"](*[t.numpy() for t in trunk(x)], boxes=arrays["boxes"], canvas=canvas)
+        for k in range(4):
+            h = layers[k](torch.from_numpy(h)).numpy()
+            h = HOST_OPS["gn_relu_levels"](h, boxes=arrays["boxes"], groups=2 * groups,
+                                           gamma=arrays[f"g{k + 1}"], beta=arrays[f"b{k + 1}"], eps=eps)
+        got = HOST_OPS["fcos_decode"](final(torch.from_numpy(h)).numpy(), boxes=arrays["boxes"], n_cls=n_cls,
+                                      anchors=arrays["anchors"], class_indices=arrays["class_indices"])
+    assert got.shape == want.shape
+    np.testing.assert_allclose(got[..., 5:], want[..., 5:], atol=1e-3)
+    np.testing.assert_allclose(got[..., :4], want[..., :4], atol=0.05)
+    assert np.array_equal(got[..., 4], want[..., 4])
+
+
+def test_fcos_level_boxes_leave_one_pixel_gutters():
+    from libreyolo.export.exporter import _fcos_level_boxes
+
+    boxes, canvas = _fcos_level_boxes([(8, 8), (4, 4), (2, 2)])
+    assert boxes == [[0, 0, 8, 8], [9, 0, 4, 4], [9, 5, 2, 2]]
+    assert canvas == [13, 8]
+
+
+def test_unet_axelera_export_uses_its_training_crop_and_dense_logits():
+    from libreyolo.export.axelera import AXELERA_SIZE_RECIPES
+    from libreyolo.export.exporter import _AXELERA_GRAPH_OUTPUTS
+
+    assert AXELERA_SIZE_RECIPES[("unet", "semantic", "s")]["canvas"] == (512, 1024)
+    assert AXELERA_SIZE_RECIPES[("unet", "semantic", "s")]["quantization_scheme"] == "hybrid_per_tensor_per_channel"
+    assert _AXELERA_GRAPH_OUTPUTS[("unet", "semantic")] == ("semantic_logits",)
+
+
+def test_unet_onnx_semantic_export_is_wired_at_its_rectangles():
+    from libreyolo.backends.base import _RECTANGULAR_BACKEND_FAMILIES
+    from libreyolo.export.support import get_support
+
+    assert "unet" in _RECTANGULAR_BACKEND_FAMILIES
+    assert get_support("unet", "semantic", "onnx").tier == "validated"
+def test_realesrgan_x2_recipe_uses_histogram_ranges_and_a_dense_tail_entry():
+    """x2 calibrates with hybrid_per_tensor_per_channel; under it the tail part's graph input enters through a
+    dense 1x1 identity conv (a depthwise identity gets per-channel ranges and fails the SDK), same function."""
+    torch = pytest.importorskip("torch")
+    from libreyolo.export.axelera import AXELERA_SIZE_RECIPES
+    from libreyolo.export.exporter import _RRDBPart
+    from libreyolo.models.realesrgan.nn import RRDBNet
+
+    recipe = AXELERA_SIZE_RECIPES[("realesrgan", "restore", "x2")]
+    assert recipe["quantization_scheme"] == "hybrid_per_tensor_per_channel" and recipe["rrdb_split"] == 12
+    torch.manual_seed(0)
+    net = RRDBNet(scale=2, num_feat=8, num_block=4, num_grow_ch=4).eval()
+    dense, depthwise = (_RRDBPart(net, "tail", 2, dense_entry=d).eval() for d in (True, False))
+    mid = torch.rand(1, 8, 8, 8)
+    with torch.no_grad():
+        assert torch.equal(dense(mid)[0], depthwise(mid)[0])
+    traced = torch.jit.trace(dense, (mid,))
+    entry = [n for n in traced.inlined_graph.nodes() if n.kind() == "aten::_convolution"][0]
+    assert entry.inputsAt(8).toIValue() == 1  # groups: dense
+
+
+def test_rrdb_x2_parts_unshuffle_exactly_and_compose_to_the_network():
+    torch = pytest.importorskip("torch")
+    np = pytest.importorskip("numpy")
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import _RRDBPart
+    from libreyolo.models.realesrgan.nn import RRDBNet, pixel_unshuffle
+
+    torch.manual_seed(0)
+    net = RRDBNet(scale=2, num_feat=8, num_block=4, num_grow_ch=4).eval()
+    head, tail, upsample = (_RRDBPart(net, role, 2).eval() for role in ("head", "tail", "upsample"))
+    x = torch.rand(1, 3, 16, 16)
+    unshuffled = torch.nn.functional.conv2d(x, head.unshuffle_weight, stride=2)
+    assert torch.equal(unshuffled, pixel_unshuffle(x, 2))
+    with torch.no_grad():
+        skip, mid = head(x)
+        feat = HOST_OPS["add"](skip.numpy(), tail(mid)[0].numpy())
+        chained = upsample(torch.from_numpy(feat))[0]
+        whole = net(x)
+    assert chained.shape == whole.shape == (1, 3, 32, 32)
+    np.testing.assert_allclose(chained.numpy(), whole.numpy(), rtol=1e-5, atol=1e-5)
+
+
+def test_fomo_is_not_available_yet_without_trained_weights():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("fomo", "point", "axelera")
+    assert entry.tier == "blocked" and entry.reason.startswith("Not available yet")
+    assert "randomly initialised" in entry.reason
+
+
+def test_feynobg_is_out_of_scope_for_its_swin_backbone():
+    from libreyolo.export.support import get_support
+
+    entry = get_support("feynobg", "matte", "axelera")
+    assert entry.tier == "blocked" and entry.reason.startswith("Out of scope") and "Swin" in entry.reason
+
+
+def test_edge_preprocess_takes_a_square_pair_as_export_verify_passes_it():
+    np = pytest.importorskip("numpy")
+    from libreyolo.models.edge_common import preprocess_numpy
+
+    image = np.random.default_rng(0).integers(0, 255, (48, 64, 3), dtype=np.uint8)
+    single, _ = preprocess_numpy(image, 32)
+    pair, _ = preprocess_numpy(image, (32, 32))
+    assert np.array_equal(single, pair)
+    with pytest.raises(ValueError, match="square"):
+        preprocess_numpy(image, (32, 48))
+
+
+def test_dexined_is_supported_with_its_measured_fidelity():
+    from libreyolo.export.exporter import _AXELERA_GRAPH_OUTPUTS
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES, get_support
+
+    entry = get_support("dexined", "edge", "axelera")
+    assert entry.tier == "available" and "0.965" in entry.reason and "non-commercial" in entry.reason
+    assert "0.965" in SIZE_ACCURACY_NOTES[("dexined", "edge", "axelera")]["b"]
+    assert ("dexined", "edge", "axelera") not in UNMEASURED_SIZES
+    assert _AXELERA_GRAPH_OUTPUTS[("dexined", "edge")] == ("edges",)
+
+
+def test_stem_residual_skip_conv_reads_a_stem_resolution_skip_through_an_identity_conv():
+    np = pytest.importorskip("numpy")
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    from onnx import TensorProto, helper, numpy_helper
+
+    from libreyolo.export.axelera import GRAPH_PASSES
+    from libreyolo.export.exporter import _AXELERA_GRAPH_PASSES
+
+    assert _AXELERA_GRAPH_PASSES["efficientnetv2"] == ("stem_residual_skip_conv",)
+    rng = np.random.default_rng(0)
+
+    def graph(residual_at_stem: bool):
+        init = [numpy_helper.from_array(rng.standard_normal((4, 3, 3, 3)).astype(np.float32), "ws"),
+                numpy_helper.from_array(rng.standard_normal((4, 4, 3, 3)).astype(np.float32), "wb"),
+                numpy_helper.from_array(rng.standard_normal((4, 4, 3, 3)).astype(np.float32), "wd")]
+        nodes = [helper.make_node("Conv", ["images", "ws"], ["stem"], strides=[2, 2], pads=[1, 1, 1, 1]),
+                 helper.make_node("Conv", ["stem", "wb"], ["blk"], pads=[1, 1, 1, 1])]
+        if residual_at_stem:
+            nodes.append(helper.make_node("Add", ["blk", "stem"], ["out"]))
+        else:  # a residual one stride further down, as in b0's first residual stage
+            nodes += [helper.make_node("Conv", ["blk", "wd"], ["down"], strides=[2, 2], pads=[1, 1, 1, 1]),
+                      helper.make_node("Conv", ["down", "wb"], ["blk2"], pads=[1, 1, 1, 1]),
+                      helper.make_node("Add", ["blk2", "down"], ["out"])]
+        g = helper.make_graph(nodes, "g", [helper.make_tensor_value_info("images", TensorProto.FLOAT, [1, 3, 16, 16])],
+                              [helper.make_tensor_value_info("out", TensorProto.FLOAT, None)], init)
+        return helper.make_model(g, opset_imports=[helper.make_opsetid("", 17)], ir_version=8)
+
+    x = rng.random((1, 3, 16, 16), dtype=np.float32)
+    run = lambda m: ort.InferenceSession(m.SerializeToString()).run(None, {"images": x})[0]
+    model = graph(True)
+    want = run(model)
+    assert GRAPH_PASSES["stem_residual_skip_conv"](model) == 1
+    assert [n.op_type for n in model.graph.node].count("Conv") == 3
+    np.testing.assert_allclose(run(model), want, atol=1e-6)
+    deeper = graph(False)
+    before = deeper.graph.SerializeToString()
+    assert GRAPH_PASSES["stem_residual_skip_conv"](deeper) == 0
+    assert deeper.graph.SerializeToString() == before
+
+
+def test_rtmdet_ins_neck_parts_chain_reproduces_the_raw_heads():
+    """RTMDet-Ins ``neck_parts`` in FP32: stem, the PAFPN parts joined by nearest upsampling + concatenation, and the
+    mask part on the host's bilinear resize + concatenation reproduce every raw output of the whole graph."""
+    import torch
+
+    from libreyolo import LibreRTMDet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import (
+        _RTMDET_NECK_STEPS,
+        _RTMDetInsMaskPart,
+        _RTMDetInsNeckPart,
+        _RTMDetInsRawHeadsWrapper,
+        _RTMDetStemPart,
+    )
+
+    torch.manual_seed(0)
+    net = LibreRTMDet(None, size="t", nb_classes=3, task="segment", device="cpu").model.eval()
+    raw = _RTMDetInsRawHeadsWrapper(net, "segment").eval()
+    stem = _RTMDetStemPart(net).eval()
+    x = torch.rand(1, 3, 128, 128, generator=torch.Generator().manual_seed(1)) * 255
+    with torch.no_grad():
+        want = dict(zip(raw.output_names, raw(x)))
+        values = dict(zip(stem.output_names, (t.numpy() for t in stem(x))))
+        for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+            values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+            part = _RTMDetInsNeckPart(raw, stage).eval()
+            values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[joined])))))
+        mask_in = HOST_OPS["resize_concat"](values["n3"], values["n4"], values["n5"])
+        values["mask_feat"] = _RTMDetInsMaskPart(raw).eval()(torch.from_numpy(mask_in))[0].numpy()
+    for name in raw.output_names:
+        torch.testing.assert_close(torch.from_numpy(values[name]), want[name], atol=1e-4, rtol=1e-4)
+
+
+def test_host_resize_concat_matches_torch_bilinear():
+    import numpy as np
+    import torch
+
+    from libreyolo.backends.axelera import HOST_OPS
+
+    rng = np.random.default_rng(0)
+    a, b, c = (rng.standard_normal((1, 4, h, w)).astype(np.float32) for h, w in ((20, 24), (10, 12), (5, 6)))
+    got = HOST_OPS["resize_concat"](a, b, c)
+    want = torch.cat(
+        [torch.from_numpy(a)]
+        + [torch.nn.functional.interpolate(torch.from_numpy(t), size=a.shape[2:], mode="bilinear", align_corners=False)
+           for t in (b, c)],
+        dim=1,
+    ).numpy()
+    assert got.shape == (1, 12, 20, 24)
+    np.testing.assert_allclose(got, want, atol=1e-5)
+
+
+def test_network_learned_rounding_reaches_single_part_raw_head_exports(exporter_sdk, tmp_path, monkeypatch):
+    """Recipe ``network_learned_rounding`` rounds every layer of a raw-head export before its ONNX export."""
+    import torch
+    import yaml
+
+    import libreyolo.export.axelera as ax
+    import libreyolo.export.learned_rounding as lr
+    from libreyolo import LibreYOLO4
+
+    monkeypatch.setattr(lr, "LEARNED_ROUNDING_STEPS", 2)
+    monkeypatch.setitem(ax.AXELERA_SIZE_RECIPES, ("yolo4", "detect", "t"), {"network_learned_rounding": 2})
+    torch.manual_seed(0)
+    model = LibreYOLO4(None, size="t", nb_classes=3, device="cpu")
+    out = model.export(format="axelera", data=str(_dataset(tmp_path)), imgsz=64,
+                       output_path=str(tmp_path / "y4t_axelera_model"))
+    meta = yaml.safe_load((Path(out) / "metadata.yaml").read_text())
+    assert meta["network_learned_rounding"]["layers"] > 0
+
+
+def test_rtmdet_neck_parts_chain_reproduces_the_raw_heads():
+    """RTMDet ``neck_parts`` in FP32: the stem part, then one compiled part per PAFPN block joined on the host by
+    nearest upsampling + channel concatenation, reproduces every raw-head output of the whole graph."""
+    import torch
+
+    from libreyolo import LibreRTMDet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.exporter import (
+        _RTMDET_NECK_STEPS,
+        _RTMDetNeckPart,
+        _RTMDetRawHeadsWrapper,
+        _RTMDetStemPart,
+    )
+
+    torch.manual_seed(0)
+    net = LibreRTMDet(None, size="x", nb_classes=3, device="cpu").model.eval()
+    raw = _RTMDetRawHeadsWrapper(net, "detect").eval()
+    stem = _RTMDetStemPart(net).eval()
+    x = torch.rand(1, 3, 128, 128, generator=torch.Generator().manual_seed(1)) * 255
+    with torch.no_grad():
+        want = dict(zip(raw.output_names, raw(x)))
+        values = dict(zip(stem.output_names, (t.numpy() for t in stem(x))))
+        produced = []
+        for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+            values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+            part = _RTMDetNeckPart(raw, stage).eval()
+            values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[joined])))))
+            produced += [n for n in part.output_names if n in want]
+    assert sorted(produced) == sorted(raw.output_names)
+    for name in raw.output_names:
+        torch.testing.assert_close(torch.from_numpy(values[name]), want[name], atol=1e-4, rtol=1e-4)
+    # "stem_td0" (RTMDet-x's recipe): the stem part also runs top-down block 0, the chain skips the td0 part.
+    stem4 = _RTMDetStemPart(net, with_td0=True).eval()
+    assert stem4.output_names == ("c3", "r4", "r5")
+    with torch.no_grad():
+        values = dict(zip(stem4.output_names, (t.numpy() for t in stem4(x))))
+        for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+            if stage == "td0":
+                continue
+            values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+            part = _RTMDetNeckPart(raw, stage).eval()
+            values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[joined])))))
+    for name in raw.output_names:
+        torch.testing.assert_close(torch.from_numpy(values[name]), want[name], atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.parametrize("size", ["s", "l"])
+def test_pidnet_pool_parts_chain_reproduces_the_native_model(size):
+    """PIDNet ``pool_parts`` in FP32 (s: PAPPM + LightBag, l: DAPPM + Bag): the trunk with the pooling module's
+    per-branch layers (pools as separable depthwise convs), the pooling sums part and the fusion + head part, joined
+    on the host by bilinear upsampling + channel concat only, reproduce the native logits."""
+    import torch
+
+    from libreyolo import LibrePIDNet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.exporter import (
+        _PIDNetFusionHeadPart,
+        _PIDNetPoolMergePart,
+        _PIDNetTrunkPart,
+        _pidnet_pool_sizes,
+    )
+
+    torch.manual_seed(0)
+    model = LibrePIDNet(None, size=size, device="cpu")
+    for s in ("s", "m", "l"):
+        assert size_recipe("pidnet", "semantic", s)["pool_parts"] is True
+    net = model.model.eval().requires_grad_(False)
+    trunk = _PIDNetTrunkPart(net, (256, 256)).eval()
+    merge = _PIDNetPoolMergePart(trunk.model.spp).eval()
+    head = _PIDNetFusionHeadPart(trunk.model).eval()
+    factors = [4 // h for h, _ in _pidnet_pool_sizes(trunk.model.spp, (4, 4))]
+    assert factors == [2, 4, 4, 4]
+    x = torch.rand(1, 3, 256, 256, generator=torch.Generator().manual_seed(1)) * 255
+    with torch.no_grad():
+        want = net(x)
+        v = dict(zip(trunk.output_names, (t.numpy() for t in trunk(x))))
+        pool_in = HOST_OPS["concat"](
+            *(v[n] for n in ("pp1", "pp2", "pp3", "pp4", "pp0", "ppsc")), upsample=[*factors, 1, 1], mode="bilinear"
+        )
+        spp = merge(torch.from_numpy(pool_in))[0].numpy()
+        fuse_in = HOST_OPS["concat"](v["p5"], spp, v["d5"], upsample=[1, 8, 1], mode="bilinear")
+        got = head(torch.from_numpy(fuse_in))[0]
+    assert all(type(m).__name__ != "PagFM" or "forward" not in vars(m) for m in net.modules())
+    scale = want.abs().max()
+    torch.testing.assert_close(got / scale, want / scale, atol=1e-5, rtol=0)
+
+
+def test_host_concat_bilinear_matches_interpolate():
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+
+    from libreyolo.backends.axelera import HOST_OPS
+
+    for n, f in ((1, 16), (2, 8), (4, 4), (8, 2), (16, 8), (3, 5)):
+        x = torch.rand(1, 3, n, n + 1, generator=torch.Generator().manual_seed(n))
+        want = F.interpolate(x, size=[n * f, (n + 1) * f], mode="bilinear", align_corners=False)
+        got = HOST_OPS["concat"](x.numpy(), np.ones((1, 2, n * f, (n + 1) * f), np.float32), upsample=[f, 1], mode="bilinear")
+        np.testing.assert_allclose(got[:, :3], want.numpy(), atol=1e-6)
+        assert (got[:, 3:] == 1).all()
+    nearest = HOST_OPS["concat"](np.arange(4, dtype=np.float32).reshape(1, 1, 2, 2), upsample=[2])
+    assert nearest.shape == (1, 1, 4, 4) and nearest[0, 0, 0, 1] == 0 and nearest[0, 0, 0, 2] == 1
+
+
+def test_hrnet_fusion_parts_chain_reproduces_the_native_model():
+    """HRNet-w32 ``fusion_parts`` in FP32: the trunk, the stage-4 branch parts joined on the host by nearest
+    upsampling + channel concatenation (each fusion's sum as a fixed 1x1 conv in the next part), and the heatmap
+    part reproduce the native heatmaps; w32 is validated, w48 not measured yet."""
+    import torch
+
+    from libreyolo import LibreHRNet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.axelera import size_recipe
+    from libreyolo.export.exporter import AxeleraExporter, _HRNetTrunkPart, _hrnet_fusion_steps
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES, get_support
+
+    model = LibreHRNet(size="w32", device="cpu")
+    exporter = AxeleraExporter(model)
+    assert exporter._rectangular_imgsz_supported()
+    assert size_recipe("hrnet", "pose", "w32")["fusion_parts"] is True
+    entry = get_support("hrnet", "pose", "axelera")
+    assert entry.tier == "validated" and "validated sizes: w32" in entry.constraint
+    assert "w48" not in UNMEASURED_SIZES.get(("hrnet", "pose", "axelera"), {})
+    assert sorted(SIZE_ACCURACY_NOTES[("hrnet", "pose", "axelera")]) == ["w48"]
+    net = model.model.eval()
+    trunk = _HRNetTrunkPart(net).eval()
+    steps = _hrnet_fusion_steps(net)
+    assert len(steps) == 13
+    x = torch.rand(1, 3, 256, 192, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        want = net(x)
+        values = dict(zip(trunk.output_names, (t.numpy() for t in trunk(x))))
+        for join, source, part in steps:
+            if join is not None:
+                inputs, factors, joined = join
+                values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+            values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[source])))))
+    torch.testing.assert_close(torch.from_numpy(values["heatmaps"]), want, atol=1e-4, rtol=1e-4)
+
+def test_device_output_order_takes_a_single_output_part_returning_a_bare_tensor():
+    """A one-output part may return a bare tensor; the probe must not iterate its batch rows."""
+    import numpy as np
+    import torch
+
+    from libreyolo.export.axelera import device_output_order
+
+    class Bare(torch.nn.Module):
+        output_names = ("feat",)
+
+        def forward(self, x):
+            return x * 2
+
+    part = Bare().eval()
+    sample = np.random.default_rng(0).random((1, 8, 4, 4), dtype=np.float32)
+    assert device_output_order(lambda t: (part(t),), part, sample) == ["feat"]
+
+
+def test_rtmdet_multi_part_modules_return_one_tensor_per_output_name():
+    """Every RTMDet / RTMDet-Ins compiled-part module returns a tuple with one tensor per ``output_names`` entry, and
+    the export's output-order probe names them all (a bare tensor once failed the probe after a 2 h compile)."""
+    import numpy as np
+    import torch
+
+    from libreyolo import LibreRTMDet
+    from libreyolo.backends.axelera import HOST_OPS
+    from libreyolo.export.axelera import device_output_order
+    from libreyolo.export.exporter import (
+        _RTMDET_NECK_STEPS,
+        _RTMDetInsMaskPart,
+        _RTMDetInsNeckPart,
+        _RTMDetInsRawHeadsWrapper,
+        _RTMDetNeckPart,
+        _RTMDetRawHeadsWrapper,
+        _RTMDetStemPart,
+    )
+
+    torch.manual_seed(0)
+    for task, raw_cls, neck_cls in (
+        ("detect", _RTMDetRawHeadsWrapper, _RTMDetNeckPart),
+        ("segment", _RTMDetInsRawHeadsWrapper, _RTMDetInsNeckPart),
+    ):
+        net = LibreRTMDet(None, size="t", nb_classes=3, task=task, device="cpu").model.eval()
+        raw = raw_cls(net, task).eval()
+        parts = [("images", _RTMDetStemPart(net).eval())]
+        x = torch.rand(1, 3, 64, 64) * 255
+        values = {}
+        with torch.no_grad():
+            stem_out = parts[0][1](x)
+            values.update(zip(parts[0][1].output_names, (t.numpy() for t in stem_out)))
+            for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+                values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+                part = neck_cls(raw, stage).eval()
+                parts.append((joined, part))
+                values.update(zip(part.output_names, (t.numpy() for t in part(torch.from_numpy(values[joined])))))
+            if task == "segment":
+                values["mask_in"] = HOST_OPS["resize_concat"](values["n3"], values["n4"], values["n5"])
+                parts.append(("mask_in", _RTMDetInsMaskPart(raw).eval()))
+        values["images"] = x.numpy()
+        for name, part in parts:
+            with torch.no_grad():
+                out = part(torch.from_numpy(values[name]))
+            assert isinstance(out, tuple) and len(out) == len(part.output_names), type(part).__name__
+            assert device_output_order(lambda t, p=part: p(t), part, values[name]) == list(part.output_names)
+
+
+# Every shipped Axelera size with the calibration its supported/validated (tier) measurement used. Sizes measured
+# on a dedicated calibration set (ImageNetV2-250, DOTA-64, ...) calibrate on the whole set the user passes; coco128
+# sizes measured on part of it carry the recipe key calibration_fraction. 95 of the 97 shipped sizes: the face
+# embedder's recognition head and face detector do not export through the size recipes (LibreFaceEmbedder.export)
+# and are pinned by test_face_embedder_exports_calibrate_on_the_whole_set_as_measured.
+#: (family, task, size) -> (calibration images of its tier ledger line, images in that calibration set, ledger id).
+_TIER_CALIBRATION = {
+    # Ledger calib_n empty: the count is the measured artifact's metadata.yaml (fraction 1.0).
+    ("hrnet", "pose", "w32"): (597, 597, "hrnet/pose/w32/2026-11-20/2"),
+    ("hrnet", "pose", "w48"): (597, 597, "hrnet/pose/w48/2026-11-21"),
+    ("realesrgan", "restore", "x4t"): (125, 125, "realesrgan/restore/x4t/2026-11-16"),
+    ("yolonas", "detect", "s"): (64, 128, "yolonas/detect/s/2026-11-08/3"),
+    ("yolonas", "detect", "m"): (128, 128, "yolonas/detect/m/2026-11-08"),
+    ("yolonas", "detect", "l"): (64, 128, "yolonas/detect/l/2026-11-10"),
+    ("yolonas", "pose", "n"): (128, 128, "yolonas/pose/n/2026-11-11"),
+    ("yolonas", "pose", "s"): (128, 128, "yolonas/pose/s/2026-11-10/16"),
+    ("yolonas", "pose", "m"): (128, 128, "yolonas/pose/m/2026-11-11/2"),
+    ("yolonas", "pose", "l"): (128, 128, "yolonas/pose/l/2026-11-10/2"),
+    ("yolonas", "obb", "s"): (64, 64, "yolonas/obb/s/2026-11-10/2"),
+    ("yolonas", "obb", "m"): (64, 64, "yolonas/obb/m/2026-11-10"),
+    ("yolonas", "obb", "l"): (64, 64, "yolonas/obb/l/2026-11-10"),
+    ("yolo9", "detect", "t"): (64, 128, "yolo9/detect/t/2026-11-10/7"),
+    ("yolo9", "detect", "s"): (64, 128, "yolo9/detect/s/2026-11-10/2"),
+    ("yolo9", "detect", "m"): (64, 128, "yolo9/detect/m/2026-11-10/2"),
+    ("yolo9", "detect", "c"): (64, 128, "yolo9/detect/c/2026-11-10/2"),
+    ("yolo9_p2", "detect", "s"): (100, 100, "yolo9_p2/detect/s/2026-11-15"),
+    ("yolo9_e2e", "detect", "t"): (128, 128, "yolo9_e2e/detect/t/2026-11-13"),
+    ("yolo9_e2e", "detect", "s"): (128, 128, "yolo9_e2e/detect/s/2026-11-13"),
+    ("yolo9_e2e", "detect", "m"): (128, 128, "yolo9_e2e/detect/m/2026-11-13"),
+    ("yolo9_e2e", "detect", "c"): (128, 128, "yolo9_e2e/detect/c/2026-11-13"),
+    ("yolox", "detect", "n"): (64, 128, "yolox/detect/n/2026-11-11/7"),
+    ("yolox", "detect", "t"): (64, 128, "yolox/detect/t/2026-11-11/2"),
+    ("yolox", "detect", "s"): (64, 128, "yolox/detect/s/2026-11-11/2"),
+    ("yolox", "detect", "m"): (64, 128, "yolox/detect/m/2026-11-11/2"),
+    ("yolox", "detect", "l"): (64, 128, "yolox/detect/l/2026-11-11/2"),
+    ("yolox", "detect", "x"): (64, 128, "yolox/detect/x/2026-11-11/2"),
+    ("yolo1", "detect", "b"): (128, 128, "yolo1/detect/b/2026-11-15/2"),
+    ("yolo2", "detect", "t"): (128, 128, "yolo2/detect/t/2026-11-13/2"),
+    ("yolo2", "detect", "b"): (128, 128, "yolo2/detect/b/2026-11-13/2"),
+    ("yolo3", "detect", "t"): (64, 128, "yolo3/detect/t/2026-11-11/6"),
+    ("yolo3", "detect", "b"): (64, 128, "yolo3/detect/b/2026-11-11/6"),
+    ("yolo3", "detect", "spp"): (64, 128, "yolo3/detect/spp/2026-11-11/3"),
+    ("yolo4", "detect", "t"): (64, 128, "yolo4/detect/t/2026-11-11/5"),
+    ("yolo4", "detect", "b"): (64, 128, "yolo4/detect/b/2026-11-11/6"),
+    ("yolo7", "detect", "b"): (64, 128, "yolo7/detect/b/2026-11-11/4"),
+    ("ppyoloe", "detect", "s"): (64, 128, "ppyoloe/detect/s/2026-11-11/3"),
+    ("ppyoloe", "detect", "m"): (64, 128, "ppyoloe/detect/m/2026-11-21/6"),
+    ("ppyoloe", "detect", "l"): (64, 128, "ppyoloe/detect/l/2026-11-11/2"),
+    ("ppyoloe", "detect", "x"): (64, 128, "ppyoloe/detect/x/2026-11-19/2"),
+    ("picodet", "detect", "s"): (64, 128, "picodet/detect/s/2026-11-11/7"),
+    ("picodet", "detect", "m"): (64, 128, "picodet/detect/m/2026-11-11/4"),
+    ("picodet", "detect", "l"): (64, 128, "picodet/detect/l/2026-11-11/4"),
+    ("rtmdet", "detect", "t"): (64, 128, "rtmdet/detect/t/2026-11-11/8"),
+    ("rtmdet", "detect", "s"): (64, 128, "rtmdet/detect/s/2026-11-17/8"),
+    ("rtmdet", "detect", "m"): (64, 128, "rtmdet/detect/m/2026-11-12/2"),
+    ("rtmdet", "detect", "l"): (64, 128, "rtmdet/detect/l/2026-11-12/2"),
+    ("rtmdet", "detect", "x"): (64, 128, "rtmdet/detect/x/2026-11-20/13"),
+    ("fcos", "detect", "r50"): (128, 128, "fcos/detect/r50/2026-11-15/3"),
+    ("retinanet", "detect", "r50"): (128, 128, "retinanet/detect/r50/2026-11-14/4"),
+    ("ssd", "detect", "300"): (128, 128, "ssd/detect/300/2026-11-13/2"),
+    ("efficientdet", "detect", "d0"): (128, 128, "efficientdet/detect/d0/2026-11-12/3"),
+    ("efficientdet", "detect", "d1"): (128, 128, "efficientdet/detect/d1/2026-11-13/3"),
+    ("efficientdet", "detect", "d2"): (128, 128, "efficientdet/detect/d2/2026-11-14"),
+    ("rtmdet", "segment", "t"): (64, 128, "rtmdet/segment/t/2026-11-12/2"),
+    ("rtmdet", "segment", "s"): (64, 128, "rtmdet/segment/s/2026-11-19/4"),
+    ("rtmdet", "segment", "m"): (64, 128, "rtmdet/segment/m/2026-11-12/2"),
+    ("rtmdet", "segment", "l"): (64, 128, "rtmdet/segment/l/2026-11-12/2"),
+    ("rtmdet", "segment", "x"): (64, 128, "rtmdet/segment/x/2026-11-20/2"),
+    ("resnet", "classify", "18"): (250, 250, "resnet/classify/18/2026-11-10/2"),
+    ("resnet", "classify", "34"): (250, 250, "resnet/classify/34/2026-11-10"),
+    ("resnet", "classify", "50"): (250, 250, "resnet/classify/50/2026-11-10"),
+    ("resnet", "classify", "101"): (250, 250, "resnet/classify/101/2026-11-10"),
+    ("mobilenetv4", "classify", "s"): (250, 250, "mobilenetv4/classify/s/2026-11-20/6"),
+    ("mobilenetv4", "classify", "m"): (250, 250, "mobilenetv4/classify/m/2026-11-11/2"),
+    ("mobilenetv4", "classify", "l"): (250, 250, "mobilenetv4/classify/l/2026-11-10"),
+    ("efficientnetv2", "classify", "b0"): (250, 250, "efficientnetv2/classify/b0/2026-11-11/5"),
+    ("efficientnetv2", "classify", "b1"): (250, 250, "efficientnetv2/classify/b1/2026-11-17"),
+    ("efficientnetv2", "classify", "b2"): (250, 250, "efficientnetv2/classify/b2/2026-11-17"),
+    ("efficientnetv2", "classify", "b3"): (250, 250, "efficientnetv2/classify/b3/2026-11-17"),
+    ("vgg", "classify", "16"): (250, 250, "vgg/classify/16/2026-11-12"),
+    ("vgg", "classify", "19"): (250, 250, "vgg/classify/19/2026-11-12"),
+    ("vgg", "classify", "16bn"): (250, 250, "vgg/classify/16bn/2026-11-12/2"),
+    ("vgg", "classify", "19bn"): (250, 250, "vgg/classify/19bn/2026-11-12"),
+    ("alexnet", "classify", "b"): (250, 250, "alexnet/classify/b/2026-11-13"),
+    ("fcn", "semantic", "r50"): (128, 128, "fcn/semantic/r50/2026-11-11/2"),
+    ("fcn", "semantic", "r101"): (128, 128, "fcn/semantic/r101/2026-11-11"),
+    ("quicksrnet", "restore", "m2"): (125, 125, "quicksrnet/restore/m2/2026-11-16/5"),
+    ("realesrgan", "restore", "x4"): (125, 125, "realesrgan/restore/x4/2026-11-16"),
+    ("realesrgan", "restore", "x2"): (125, 125, "realesrgan/restore/x2/2026-11-25"),
+    ("midas", "depth", "s"): (128, 128, "midas/depth/s/2026-11-11/4"),
+    ("dexined", "edge", "b"): (64, 128, "dexined/edge/b/2026-11-16"),
+    ("deeplabv3", "semantic", "mv3"): (128, 128, "deeplabv3/semantic/mv3/2026-11-11/6"),
+    ("deeplabv3", "semantic", "r50"): (128, 128, "deeplabv3/semantic/r50/2026-11-17/2"),
+    ("deeplabv3", "semantic", "r101"): (128, 128, "deeplabv3/semantic/r101/2026-11-14"),
+    ("unet", "semantic", "s"): (64, 128, "unet/semantic/s/2026-11-20"),
+    ("pidnet", "semantic", "s"): (128, 128, "pidnet/semantic/s/2026-11-20/4"),
+    ("ddrnet", "semantic", "s"): (128, 128, "ddrnet/semantic/s/2026-11-25/6"),
+    ("ddrnet", "semantic", "m"): (128, 128, "ddrnet/semantic/m/2026-11-25/4"),
+    ("pidnet", "semantic", "m"): (32, 128, "pidnet/semantic/m/2026-11-21"),
+    ("pidnet", "semantic", "l"): (128, 128, "pidnet/semantic/l/2026-11-20"),
+    ("ppliteseg", "semantic", "t50"): (64, 128, "ppliteseg/semantic/t50/2026-11-18"),
+    ("ppliteseg", "semantic", "b50"): (64, 128, "ppliteseg/semantic/b50/2026-11-18"),
+    ("ppliteseg", "semantic", "t75"): (64, 128, "ppliteseg/semantic/t75/2026-11-18"),
+    ("ppliteseg", "semantic", "b75"): (64, 128, "ppliteseg/semantic/b75/2026-11-18"),
+    ("picosam3", "segment", "pico"): (128, 128, "picosam3/segment/pico/2026-11-19"),
+}
+
+
+def test_default_export_calibrates_on_the_images_each_tier_measurement_used():
+    """With ``fraction`` left unset, each shipped size calibrates on as many images as its tier ledger line
+    (``CalibrationDataLoader``: ``int(total * fraction)``)."""
+    from libreyolo.export.axelera import size_recipe
+
+    wrong = {}
+    for (family, task, size), (measured, total, ledger_id) in _TIER_CALIBRATION.items():
+        fraction = float(size_recipe(family, task, size).get("calibration_fraction", 1.0))
+        effective = max(1, int(total * fraction))
+        if effective != measured:
+            wrong[(family, task, size)] = (effective, measured, ledger_id)
+    assert not wrong, wrong
+    assert len(_TIER_CALIBRATION) >= 90
+
+
+def test_calibration_fraction_applies_only_when_fraction_is_left_unset():
+    import types
+
+    from libreyolo.export.exporter import AxeleraExporter, OnnxExporter
+
+    def exporter(cls, family, task, size):
+        e = cls.__new__(cls)
+        e.model = types.SimpleNamespace(_get_model_name=lambda: family, task=task, size=size)
+        return e
+
+    assert exporter(AxeleraExporter, "rtmdet", "detect", "s")._default_calibration_fraction() == 0.5
+    assert exporter(AxeleraExporter, "pidnet", "semantic", "m")._default_calibration_fraction() == 0.25
+    assert exporter(AxeleraExporter, "yolonas", "detect", "m")._default_calibration_fraction() == 1.0
+    assert exporter(OnnxExporter, "rtmdet", "detect", "s")._default_calibration_fraction() == 1.0
+
+
+def test_cli_export_leaves_fraction_unset_by_default():
+    """``libreyolo export`` must not pass fraction=1.0 itself, or it would override the size's measured fraction."""
+    import inspect
+
+    from libreyolo.cli.commands.export import export_cmd
+
+    option = inspect.signature(export_cmd).parameters["fraction"].default
+    assert getattr(option, "default", option) is None
+
+
+def test_face_embedder_exports_calibrate_on_the_whole_set_as_measured():
+    """The two shipped sizes outside the size recipes (97 = 95 + 2): the face recognition head
+    (facerec/embed/l/2026-11-20/3, 128 calibration faces) and the face detector (facerec/embed/det/2026-11-20/2,
+    128 coco128 images) were both measured at fraction 1.0, which their own export paths default to."""
+    import inspect
+
+    from libreyolo.models.facerec.axelera_detector import export_face_detector_axelera
+    from libreyolo.models.facerec.model import LibreFaceEmbedder
+
+    assert inspect.signature(LibreFaceEmbedder.export).parameters["fraction"].default == 1.0
+    assert inspect.signature(export_face_detector_axelera).parameters["fraction"].default == 1.0
+
+
+def test_recipe_fraction_keeps_two_calibration_images_on_a_tiny_dataset(exporter_sdk, tmp_path):
+    """A size recipe's calibration_fraction never takes a tiny dataset below the 2-image minimum (YOLO-NAS-s:
+    0.5 of 2 images would be 1); an explicit fraction is not adjusted and still raises."""
+    data = _dataset(tmp_path, n=2)
+    _model().export(format="axelera", data=str(data), imgsz=64, output_path=str(tmp_path / "t_axelera_model"))
+    assert len(exporter_sdk.seen["samples"]) == 2
+    with pytest.raises(ValueError, match="at least 2 images"):
+        _model().export(
+            format="axelera", data=str(data), imgsz=64, fraction=0.5, output_path=str(tmp_path / "u_axelera_model")
+        )
+
+
+def test_host_concat_takes_a_per_axis_factor_pair():
+    """DDRNet's 1x1 global DAPPM branch on a 2:1 frame: an (fh, fw) pair upsamples it as F.interpolate does
+    (bilinear of a 1x1 map is a broadcast); an int keeps one factor for both axes."""
+    torch = pytest.importorskip("torch")
+    np = pytest.importorskip("numpy")
+    from libreyolo.backends.axelera import HOST_OPS
+
+    rng = np.random.default_rng(0)
+    g, x = rng.random((1, 3, 1, 1), dtype=np.float32), rng.random((1, 2, 2, 4), dtype=np.float32)
+    got = HOST_OPS["concat"](g, x, upsample=[[16, 32], 8], mode="bilinear")
+    want = torch.cat(
+        [torch.nn.functional.interpolate(torch.from_numpy(t), size=(16, 32), mode="bilinear", align_corners=False)
+         for t in (g, x)], dim=1,
+    ).numpy()
+    np.testing.assert_allclose(got, want, rtol=0, atol=1e-6)
+
+
+def test_ddrnet_axelera_support_rows():
+    from libreyolo.export.support import SIZE_ACCURACY_NOTES, UNMEASURED_SIZES, get_support
+
+    ddr = get_support("ddrnet", "semantic", "axelera")
+    assert ddr.tier == "available" and "supported sizes: s, m " in ddr.constraint and "1024x2048" in ddr.constraint
+    assert sorted(SIZE_ACCURACY_NOTES[("ddrnet", "semantic", "axelera")]) == ["m", "s"]
+    assert sorted(UNMEASURED_SIZES[("ddrnet", "semantic", "axelera")]) == ["l"]
+    assert get_support("ddrnet", "semantic", "onnx").tier == "validated"

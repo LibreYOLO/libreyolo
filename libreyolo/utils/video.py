@@ -423,6 +423,8 @@ def run_video_inference(
     output_path: Union[str, None] = None,
     annotate_fn: Union[Callable, None] = None,
     progress: bool = True,
+    predict_frames_fn: Union[Callable, None] = None,
+    batch: int = 1,
 ) -> Generator:
     """Generic frame-by-frame inference loop shared by all backends.
 
@@ -442,6 +444,10 @@ def run_video_inference(
             custom annotation (e.g. tracking labels). When *None*, the frame is
             drawn with ``draw_results()``, as ``Results.plot()`` does.
         progress: Show a tqdm progress bar (frames processed, fps).
+        predict_frames_fn: Optional callable taking a list of PIL RGB images
+            and returning their ``Results`` in order. With ``batch > 1`` frames
+            are buffered and run ``batch`` at a time through it.
+        batch: Frames per ``predict_frames_fn`` call.
 
     Yields:
         ``Results`` for each processed frame.
@@ -505,7 +511,7 @@ def run_video_inference(
             else None
         )
 
-        try:
+        def frames():
             for frame_item in video_src:
                 if hasattr(frame_item, "frame_bgr"):
                     frame_bgr = frame_item.frame_bgr
@@ -526,9 +532,25 @@ def run_video_inference(
                 # Convert BGR frame to PIL RGB for the model pipeline
                 frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
                 pil_img = Image.fromarray(frame_rgb)
+                yield pil_img, frame_idx, source_index, source_label, frame_fps
 
-                # Run model-specific inference
-                result = predict_frame_fn(pil_img)
+        def predicted():
+            # Run model-specific inference, frame by frame or ``batch`` frames per call
+            if predict_frames_fn is None or batch <= 1:
+                for item in frames():
+                    yield item, predict_frame_fn(item[0])
+                return
+            chunk = []
+            for item in frames():
+                chunk.append(item)
+                if len(chunk) == batch:
+                    yield from zip(chunk, predict_frames_fn([c[0] for c in chunk]))
+                    chunk = []
+            if chunk:
+                yield from zip(chunk, predict_frames_fn([c[0] for c in chunk]))
+
+        try:
+            for (pil_img, frame_idx, source_index, source_label, frame_fps), result in predicted():
                 result.frame_idx = frame_idx
                 if source_label is not None:
                     result.path = source_label

@@ -26,6 +26,48 @@ from ..utils.lazy import lazy_module, module_available
 torch = lazy_module("torch")
 
 
+def normalize_hwc_to_chw(
+    img_hwc: np.ndarray,
+    mean=None,
+    std=None,
+    *,
+    scale=None,
+    reverse_channels: bool = False,
+) -> np.ndarray:
+    """Normalize an HWC image into a contiguous float32 CHW array, one channel plane at a time.
+
+    Per element this is the float32 arithmetic of the usual HWC recipe
+    ``((img.astype(float32)[..., ::-1 if reverse_channels] / scale - mean) / std).transpose(2, 0, 1)``
+    (each step only when given, scalars as float32), so the result is bitwise
+    identical to it. Working plane by plane straight into the CHW output
+    avoids the strided broadcast over the channel axis, the float HWC
+    temporaries and the later copy of a transposed view (about 3-4x faster
+    on a 640x640 image).
+
+    The result is a contiguous CHW array. A recipe that returned a transposed
+    view of an HWC buffer must keep doing so: ``np.stack`` of such views keeps the
+    channels-last memory order, and PyTorch then runs channels-last convolution
+    kernels whose float sums differ at the last bit (YOLO-NAS native val
+    best_conf, 2026-11-20), so the switch is only exact for recipes that were
+    already contiguous (RTMDet).
+    """
+    height, width, channels = img_hwc.shape
+    mean = None if mean is None else np.asarray(mean, dtype=np.float32).reshape(-1)
+    std = None if std is None else np.asarray(std, dtype=np.float32).reshape(-1)
+    scale = None if scale is None else np.float32(scale)
+    out = np.empty((channels, height, width), dtype=np.float32)
+    for c in range(channels):
+        plane = out[c]
+        plane[...] = img_hwc[:, :, channels - 1 - c if reverse_channels else c]
+        if scale is not None:
+            np.divide(plane, scale, out=plane)
+        if mean is not None:
+            np.subtract(plane, mean[c], out=plane)
+        if std is not None:
+            np.divide(plane, std[c], out=plane)
+    return out
+
+
 def as_input(img_nchw: np.ndarray):
     """Wrap an already-batched array, as a ``torch.Tensor`` if torch is installed.
 

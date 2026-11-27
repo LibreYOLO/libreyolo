@@ -338,7 +338,10 @@ def test_yolo9_backend_matches_the_exported_graph(exports, tmp_path):
     # expectations times the stride (up to 32 px), so 0.1 px is 0.003 of a bin;
     # measured up to 0.03 px across CI platforms.
     np.testing.assert_allclose(decoded[:, :4], reference[:, :4], atol=1e-1)
-    np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=3e-3)  # 3e-4 measured; scores sit >= 5e-3 from conf
+    # Scores: this synthetic net amplifies FP32 summation order; PyTorch FP32 alone
+    # is 6e-3 from a float64 run, and ONNX Runtime vs PyTorch measured up to 4e-3
+    # (it moves with thread count and CPU). Scores sit >= 2e-2 from conf.
+    np.testing.assert_allclose(decoded[:, 4:], reference[:, 4:], atol=1e-2)
 
     # Predictions can only be compared if no score sits near conf, no same-class
     # pair near the NMS IoU and no overlapping pair on a score tie, with margins
@@ -346,7 +349,7 @@ def test_yolo9_backend_matches_the_exported_graph(exports, tmp_path):
     # IoU of these 20+ px boxes by under 0.01).
     conf, iou = 0.5, 0.5
     boxes, scores = np.clip(reference[0, :4].T, 0, 96), reference[0, 4:].T
-    assert np.abs(scores - conf).min() > 5e-3
+    assert np.abs(scores - conf).min() > 2e-2
     above = np.argwhere(scores > conf)
     assert 2 <= len(above) <= 40
     for cls in np.unique(above[:, 1]):
@@ -1266,3 +1269,193 @@ def test_per_item_parts_run_every_item(sdk, tmp_path, monkeypatch):
     env = {"crops": np.zeros((0, 4, 4, 4), dtype=np.float32)}
     backend._run_per_item(backend._chain[2], backend._chain_models[2], [env], 2)
     assert env["y"].shape == (0, 2, 4, 4)
+
+
+def _toy_boxes(feat, *, boxes):
+    """Crops of ``feat`` at nested ``[y, x, h, w]`` integer boxes, stacked on the channel axis."""
+    return np.concatenate([feat[:, :, y : y + h, x : x + w] for y, x, h, w in boxes], axis=1).astype(np.float32)
+
+
+def test_host_params_may_nest_and_keep_their_integers(sdk, tmp_path, monkeypatch):
+    import torch
+
+    from libreyolo.export.axelera import export_axelera_parts
+
+    monkeypatch.setitem(axrt.HOST_OPS, "toy_boxes", _toy_boxes)
+    torch.manual_seed(2)
+    trunk, tail = torch.nn.Conv2d(3, 4, 3, padding=1), torch.nn.Conv2d(8, 2, 1)
+    trunk_onnx = _onnx(trunk, [torch.rand(1, 3, 8, 8)], ["images"], ["feat"], tmp_path / "trunk.onnx")
+    tail_onnx = _onnx(tail, [torch.rand(1, 8, 4, 4)], ["crops"], ["y"], tmp_path / "tail.onnx")
+    boxes = [[0, 0, 4, 4], [2, 3, 4, 4]]
+    rng = np.random.default_rng(3)
+    artifact = Path(export_axelera_parts(
+        parts=[
+            {"compile": trunk_onnx, "reference": _Named(trunk, ["feat"]), "input": "images"},
+            {"host": "toy_boxes", "input": "feat", "output": "crops", "boxes": boxes},
+            {"compile": tail_onnx, "reference": _Named(tail, ["y"]), "input": "crops"},
+        ],
+        output_path=str(tmp_path / "boxes_axelera_model"), stem="boxes",
+        metadata={"output_layout": "graph_outputs_v1", "graph_outputs": ["y"]},
+        calibration=[rng.random((1, 3, 8, 8), dtype=np.float32) for _ in range(2)], calibration_info={},
+    ))
+    meta = yaml.safe_load((artifact / "metadata.yaml").read_text())
+    assert meta["parts"][1]["boxes"] == boxes and all(isinstance(v, int) for box in meta["parts"][1]["boxes"] for v in box)
+    backend = _chain_backend(artifact, ["y"])
+    image = rng.random((1, 3, 8, 8), dtype=np.float32)
+    (y,) = backend._run_chain([image], batch=False)[0]
+    with torch.no_grad():
+        expected = tail(torch.from_numpy(_toy_boxes(trunk(torch.from_numpy(image)).numpy(), boxes=boxes))).numpy()
+    np.testing.assert_allclose(y, expected, rtol=1e-4, atol=1e-5)
+
+
+def test_fp32_chain_stops_at_the_requested_part(monkeypatch):
+    from libreyolo.export.axelera import _run_fp32_chain
+
+    calls = []
+    head = _Named(_identity_module(), ["a"])
+    host_ops = {"count": lambda a: calls.append(1) or a}
+    parts = [
+        {"compile": "unused.onnx", "reference": head, "input": "images"},
+        {"host": "count", "input": "a", "output": "b"},
+        {"compile": "unused.onnx", "reference": _Named(_identity_module(), ["c"]), "input": "b"},
+    ]
+    seen = []
+    image = np.ones((1, 3, 2, 2), dtype=np.float32)
+    _run_fp32_chain(parts, image, host_ops, {}, {}, lambda i, x: seen.append(i), stop=0)
+    assert seen == [0] and calls == []  # nothing after part 0 ran
+    _run_fp32_chain(parts, image, host_ops, {}, {}, lambda i, x: seen.append(i), stop=2)
+    assert seen == [0, 0, 2] and calls == [1]
+
+
+def _identity_module():
+    import torch
+
+    return torch.nn.Identity()
+
+
+def test_host_map_keeps_order_and_runs_single_items_inline(monkeypatch):
+    import threading
+
+    from libreyolo.backends import axelera as ax
+
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    assert ax._host_map(lambda x: x * x, list(range(9))) == [x * x for x in range(9)]
+    caller = threading.get_ident()
+    assert ax._host_map(lambda _: threading.get_ident(), [0]) == [caller]
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
+    assert set(ax._host_map(lambda _: threading.get_ident(), [0, 1, 2])) == {caller}
+
+
+def test_batched_decode_on_host_threads_equals_per_image_decode(exports, monkeypatch):
+    """A batch decodes its images on a thread pool; every output is bitwise the per-image result."""
+    from libreyolo import LibreYOLO
+
+    model, artifact = exports("yolo9")
+    backend = LibreYOLO(str(artifact))
+    rng = np.random.default_rng(3)
+    images = [rng.integers(0, 255, size=(96, 96, 3), dtype=np.uint8) for _ in range(4)]
+    blobs = [np.asarray(model._preprocess(image, input_size=96)[0]) for image in images]
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
+    single = [backend._run_inference(blob) for blob in blobs]
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    batched = backend._run_inference(np.concatenate(blobs, axis=0))
+    for index, outputs in enumerate(single):
+        for got, want in zip(batched, outputs):
+            np.testing.assert_array_equal(got[index : index + 1], want)
+
+
+def test_batched_predict_on_host_threads_equals_single_image_predict(exports, monkeypatch):
+    """predict(batch=4) pre-processes and decodes on host threads; Results equal one-at-a-time predict."""
+    from libreyolo import LibreYOLO
+    from libreyolo.backends.base import BaseBackend
+
+    model, artifact = exports("yolo9")
+    backend = LibreYOLO(str(artifact))
+    assert type(backend)._map_images is not BaseBackend._map_images
+    rng = np.random.default_rng(5)
+    images = [rng.integers(0, 255, size=(90 + 7 * i, 96, 3), dtype=np.uint8) for i in range(5)]
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
+    single = [backend(image, conf=0.01) for image in images]
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    batched = backend(images, batch=4, conf=0.01)
+    assert len(batched) == len(single)
+    for got, want in zip(batched, single):
+        for field in ("xyxy", "conf", "cls"):
+            np.testing.assert_array_equal(np.asarray(getattr(got.boxes, field)), np.asarray(getattr(want.boxes, field)))
+
+
+def test_host_map_items_see_the_callers_context_variables(monkeypatch):
+    from contextvars import ContextVar
+
+    from libreyolo.backends import axelera as ax
+
+    flag = ContextVar("flag", default="default")
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    token = flag.set("caller")
+    try:
+        assert ax._host_map(lambda _: flag.get(), list(range(6))) == ["caller"] * 6
+    finally:
+        flag.reset(token)
+
+
+def test_result_building_runs_on_host_threads_only_for_dense_tasks(exports, monkeypatch):
+    import threading
+
+    from libreyolo import LibreYOLO
+
+    _, artifact = exports("yolo9")
+    backend = LibreYOLO(str(artifact))
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    caller = threading.get_ident()
+    ident = lambda _: threading.get_ident()  # noqa: E731
+    assert set(backend._map_images(ident, [0, 1, 2], stage="results")) == {caller}
+    monkeypatch.setattr(backend, "task", "semantic")
+    assert len(backend._map_images(lambda _: threading.current_thread().name, [0, 1, 2], stage="results")) == 3
+    assert all(
+        name.startswith("libreyolo-axelera-host")
+        for name in backend._map_images(lambda _: threading.current_thread().name, [0, 1, 2], stage="results")
+    )
+
+
+def test_lists_directories_and_videos_run_batch_8_by_default_with_per_image_results(exports, tmp_path):
+    """On the Metis, predict() batches lists, directories and video files 8 at a time unless ``batch=1``;
+    every Result is bitwise the image-by-image one."""
+    cv2 = pytest.importorskip("cv2")
+    from PIL import Image
+
+    from libreyolo import LibreYOLO
+    from libreyolo.backends.base import BaseBackend
+
+    assert BaseBackend.default_predict_batch == 1
+    _, artifact = exports("yolo9")
+    backend = LibreYOLO(str(artifact))
+    assert backend.default_predict_batch == 8
+    rng = np.random.default_rng(11)
+    images = [rng.integers(0, 255, size=(96, 96, 3), dtype=np.uint8) for _ in range(10)]
+    folder = tmp_path / "images"
+    folder.mkdir()
+    for index, image in enumerate(images):
+        Image.fromarray(image).save(folder / f"{index:02d}.png")
+    video = str(tmp_path / "clip.mp4")
+    writer = cv2.VideoWriter(video, cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (96, 96))
+    for image in images:
+        writer.write(image)
+    writer.release()
+
+    def same(got, want):
+        assert len(got) == len(want) == len(images)
+        for a, b in zip(got, want):
+            assert a.path == b.path and getattr(a, "frame_idx", None) == getattr(b, "frame_idx", None)
+            for field in ("xyxy", "conf", "cls"):
+                np.testing.assert_array_equal(np.asarray(getattr(a.boxes, field)), np.asarray(getattr(b.boxes, field)))
+
+    for source in (images, str(folder), video):
+        backend._model.batches.clear()
+        default = list(backend(source, conf=0.01))
+        assert backend._model.batches == [8, 2], source if isinstance(source, str) else "list"
+        backend._model.batches.clear()
+        single = list(backend(source, conf=0.01, batch=1))
+        assert backend._model.batches == []
+        same(default, single)
+    with pytest.raises(ValueError, match="batch must be >= 1"):
+        backend(images, batch=0)

@@ -186,7 +186,145 @@ def _host_l2norm(x: np.ndarray, *, scale, eps: float = 1e-12) -> np.ndarray:
 #: parts, by the ``host`` name its metadata gives them. Each takes its input
 #: arrays positionally plus the step's parameters as keywords, and returns one
 #: array, or a tuple with one array per output.
-HOST_OPS: dict[str, Any] = {"l2norm": _host_l2norm}
+def _host_add(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Elementwise sum of two parts' outputs (Real-ESRGAN's trunk skip around the RRDB body)."""
+    return (np.asarray(a, dtype=np.float32) + np.asarray(b, dtype=np.float32)).astype(np.float32)
+
+
+def _host_pack_levels(*levels, boxes, canvas) -> np.ndarray:
+    """Place FPN levels on one zero canvas at their ``[y, x, h, w]`` boxes (1-pixel zero gutters between them)."""
+    first = np.asarray(levels[0])
+    out = np.zeros((first.shape[0], first.shape[1], int(canvas[0]), int(canvas[1])), dtype=np.float32)
+    for level, (y, x, h, w) in zip(levels, np.asarray(boxes, dtype=np.int64)):
+        out[:, :, y : y + h, x : x + w] = np.asarray(level, dtype=np.float32)
+    return out
+
+
+def _host_gn_relu_levels(x, *, boxes, groups, gamma, beta, eps=1e-5) -> np.ndarray:
+    """GroupNorm (per level box, ``groups`` groups) + affine + ReLU on a packed canvas; zero outside the boxes."""
+    x = np.asarray(x, dtype=np.float32)
+    n, c = x.shape[:2]
+    out = np.zeros_like(x)
+    gamma = np.asarray(gamma, dtype=np.float32).reshape(1, c, 1, 1)
+    beta = np.asarray(beta, dtype=np.float32).reshape(1, c, 1, 1)
+    g = int(groups)
+    for y, x0, h, w in np.asarray(boxes, dtype=np.int64):
+        region = x[:, :, y : y + h, x0 : x0 + w].reshape(n, g, c // g, h, w)
+        mean = region.mean(axis=(2, 3, 4), keepdims=True)
+        var = region.var(axis=(2, 3, 4), keepdims=True)
+        normed = ((region - mean) / np.sqrt(var + np.float32(eps))).reshape(n, c, h, w)
+        out[:, :, y : y + h, x0 : x0 + w] = np.maximum(normed * gamma + beta, 0.0)
+    return out
+
+
+def _host_fcos_decode(y, *, boxes, n_cls, anchors, class_indices) -> np.ndarray:
+    """FCOS's export tensor from the packed predictor canvas (``cls | reg | ctrness`` channels per level box).
+
+    Per level, flatten in (h, w) order, decode the distances against the fixed-canvas anchors and score
+    ``sqrt(sigmoid(cls) * sigmoid(ctrness))`` for the exported classes: ``(1, N, 4 + 1 + classes)`` with the
+    level id in column 4, as ``FCOSExportWrapper`` emits it.
+    """
+    y = np.asarray(y, dtype=np.float32)
+    n_cls = int(n_cls)
+    cls_rows, reg_rows, ctr_rows, lvl_rows = [], [], [], []
+    for level, (yy, x0, h, w) in enumerate(np.asarray(boxes, dtype=np.int64)):
+        crop = y[0, :, yy : yy + h, x0 : x0 + w].reshape(y.shape[1], -1).T
+        cls_rows.append(crop[:, :n_cls])
+        reg_rows.append(np.maximum(crop[:, n_cls : n_cls + 4], 0.0))
+        ctr_rows.append(crop[:, n_cls + 4 : n_cls + 5])
+        lvl_rows.append(np.full((crop.shape[0], 1), float(level), dtype=np.float32))
+    cls, reg, ctr, lvl = (np.concatenate(r, axis=0) for r in (cls_rows, reg_rows, ctr_rows, lvl_rows))
+    a = np.asarray(anchors, dtype=np.float32)
+    cx, cy = 0.5 * (a[:, 0] + a[:, 2]), 0.5 * (a[:, 1] + a[:, 3])
+    aw, ah = a[:, 2] - a[:, 0], a[:, 3] - a[:, 1]
+    d = reg * np.stack([aw, ah, aw, ah], axis=-1)
+    xyxy = np.stack([cx - d[:, 0], cy - d[:, 1], cx + d[:, 2], cy + d[:, 3]], axis=-1)
+    scores = np.sqrt(1.0 / (1.0 + np.exp(-cls)) * (1.0 / (1.0 + np.exp(-ctr))))
+    scores = scores[:, np.asarray(class_indices, dtype=np.int64)]
+    return np.concatenate([xyxy, lvl, scores], axis=-1)[None].astype(np.float32)
+
+
+def _bilinear_matrix(n: int, factor: int) -> np.ndarray:
+    """``[n * factor, n]`` weights of a bilinear upsample by ``factor`` with ``align_corners=False`` (as
+    ``F.interpolate(..., size=n * factor, mode="bilinear")``)."""
+    out = np.zeros((n * factor, n), dtype=np.float32)
+    src = np.maximum((np.arange(n * factor, dtype=np.float32) + 0.5) / factor - 0.5, 0.0)
+    i0 = np.floor(src).astype(np.int64)
+    i1 = np.minimum(i0 + 1, n - 1)
+    lam = (src - i0).astype(np.float32)
+    rows = np.arange(n * factor)
+    np.add.at(out, (rows, i0), 1.0 - lam)
+    np.add.at(out, (rows, i1), lam)
+    return out
+
+
+def _host_concat(*xs, upsample, mode: str = "nearest") -> np.ndarray:
+    """Channel concat of parts' outputs, each first upsampled by its integer factor (``mode`` nearest, as
+    ``nn.Upsample``, or bilinear with ``align_corners=False``, as PIDNet's pyramid pooling).
+
+    Pure data movement: RTMDet's PAFPN joins as ``cat([upsample(high), low])`` and ``cat([down, high])``.
+    """
+    if mode not in ("nearest", "bilinear"):
+        raise ValueError(f"concat upsample mode must be 'nearest' or 'bilinear', got {mode!r}")
+    arrays = []
+    for x, factor in zip(xs, upsample):
+        x = np.asarray(x, dtype=np.float32)
+        # One factor for both axes, or an (fh, fw) pair (DDRNet's 1x1 global branch on a 2:1 frame).
+        fh, fw = (int(factor[0]), int(factor[1])) if isinstance(factor, (list, tuple)) else (int(factor),) * 2
+        if max(fh, fw) > 1 and mode == "bilinear":
+            mh, mw = _bilinear_matrix(x.shape[2], fh), _bilinear_matrix(x.shape[3], fw)
+            x = np.einsum("oh,nchw,pw->ncop", mh, x, mw, optimize=True).astype(np.float32)
+        elif max(fh, fw) > 1:
+            x = x.repeat(fh, axis=2).repeat(fw, axis=3)
+        arrays.append(x)
+    return np.concatenate(arrays, axis=1)
+
+
+def _bilinear_resize_like_torch(x: np.ndarray, out_h: int, out_w: int) -> np.ndarray:
+    """``F.interpolate(x, (out_h, out_w), mode="bilinear", align_corners=False)`` in float32 numpy (NCHW)."""
+    _, _, in_h, in_w = x.shape
+
+    def axis(n_in, n_out):
+        scale = np.float32(n_in / n_out)
+        src = (np.arange(n_out, dtype=np.float32) + np.float32(0.5)) * scale - np.float32(0.5)
+        src = np.maximum(src, np.float32(0.0))
+        i0 = np.minimum(np.floor(src).astype(np.int64), n_in - 1)
+        i1 = np.minimum(i0 + 1, n_in - 1)
+        lam1 = (src - i0).astype(np.float32)
+        return i0, i1, (np.float32(1.0) - lam1), lam1
+
+    h0, h1, hl0, hl1 = axis(in_h, out_h)
+    w0, w1, wl0, wl1 = axis(in_w, out_w)
+    top = x[:, :, h0, :]
+    bottom = x[:, :, h1, :]
+    hl0, hl1 = hl0[None, None, :, None], hl1[None, None, :, None]
+    wl0, wl1 = wl0[None, None, None, :], wl1[None, None, None, :]
+    return (hl0 * (wl0 * top[..., w0] + wl1 * top[..., w1]) + hl1 * (wl0 * bottom[..., w0] + wl1 * bottom[..., w1])).astype(np.float32)
+
+
+def _host_resize_concat(*xs) -> np.ndarray:
+    """Channel concat of parts' outputs, each resized bilinearly (``align_corners=False``) to the first one's size.
+
+    Weight-free data movement: RTMDet-Ins's mask-feature module joins its three levels this way before its convs.
+    """
+    first = np.asarray(xs[0], dtype=np.float32)
+    out_h, out_w = first.shape[-2:]
+    arrays = [first]
+    for x in xs[1:]:
+        x = np.asarray(x, dtype=np.float32)
+        arrays.append(x if x.shape[-2:] == (out_h, out_w) else _bilinear_resize_like_torch(x, out_h, out_w))
+    return np.concatenate(arrays, axis=1)
+
+
+HOST_OPS: dict[str, Any] = {
+    "concat": _host_concat,
+    "resize_concat": _host_resize_concat,
+    "l2norm": _host_l2norm,
+    "add": _host_add,
+    "pack_levels": _host_pack_levels,
+    "gn_relu_levels": _host_gn_relu_levels,
+    "fcos_decode": _host_fcos_decode,
+}
 _HOST_STEP_KEYS = ("host", "input", "output", "inputs", "outputs")
 #: A host-operation parameter written as ``"@npz:<key>"`` is the array stored
 #: under ``<key>`` in the export's ``host_arrays`` file (an ``.npz``).
@@ -335,7 +473,16 @@ def _host_onnx_session(path: Path, step: ChainStep, axm: Path):
             f"{axm.parent} runs part of the model on the host CPU as ONNX ({path.name}), "
             "which needs ONNX Runtime: pip install onnxruntime"
         ) from exc
-    session = onnxruntime.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    options = onnxruntime.SessionOptions()
+    # Host steps run between device calls: no spin-waiting threads, and
+    # OMP_NUM_THREADS (when set) caps the pool like the other host math.
+    options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+    threads = os.environ.get("OMP_NUM_THREADS", "").strip()
+    if threads.isdigit() and int(threads) > 0:
+        options.intra_op_num_threads = int(threads)
+    session = onnxruntime.InferenceSession(
+        str(path), options, providers=["CPUExecutionProvider"]
+    )
     graph_inputs = sorted(i.name for i in session.get_inputs())
     graph_outputs = {o.name for o in session.get_outputs()}
     if graph_inputs != sorted(step.inputs) or not set(step.outputs) <= graph_outputs:
@@ -345,6 +492,42 @@ def _host_onnx_session(path: Path, step: ChainStep, axm: Path):
             f"its part lists {step.inputs} -> {step.outputs}",
         )
     return session
+
+
+_HOST_POOLS: dict[int, Any] = {}
+
+
+def _host_workers() -> int:
+    """Threads for per-image host steps: ``OMP_NUM_THREADS`` when set, else up to 4."""
+    threads = os.environ.get("OMP_NUM_THREADS", "").strip()
+    if threads.isdigit() and int(threads) > 0:
+        return int(threads)
+    return max(1, min(4, os.cpu_count() or 1))
+
+
+def _host_map(function, items: list) -> list:
+    """``[function(item) for item in items]``, spread over a shared thread pool.
+
+    Each item is processed exactly as in the sequential loop (NumPy releases
+    the GIL in its array kernels), so the results are identical; only the
+    wall time changes. One item, or one worker, stays on the calling thread.
+    """
+    workers = min(_host_workers(), len(items))
+    if workers <= 1:
+        return [function(item) for item in items]
+    pool = _HOST_POOLS.get(workers)
+    if pool is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        pool = _HOST_POOLS[workers] = ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="libreyolo-axelera-host"
+        )
+    # Each item runs in a copy of the caller's context, so context variables
+    # (e.g. agnostic NMS) read the same values as on the calling thread.
+    import contextvars
+
+    context = contextvars.copy_context()
+    return list(pool.map(lambda item: context.copy().run(function, item), items))
 
 
 def _as_list(outputs) -> list:
@@ -448,6 +631,10 @@ class AxeleraBackend(BaseBackend):
     # Compiled graphs have one input shape: restoration pads into that canvas
     # instead of running at the image's own size.
     fixed_input_shape = True
+    # Lists, directories and video files run 8 images per runtime call by
+    # default (``predict(batch=1)`` opts out): a batched submission keeps
+    # several AIPU cores busy and overlaps the host pre/post-processing.
+    default_predict_batch = 8
 
     def __init__(
         self,
@@ -656,14 +843,22 @@ class AxeleraBackend(BaseBackend):
             start = time.perf_counter()
             if step.kind == "host":
                 operation = HOST_OPS[step.source]
-                for env in envs:
-                    result = operation(*(env[name] for name in step.inputs), **step.params)
+                # Each image's host step runs exactly as in a sequential loop, spread over the host pool.
+                results = _host_map(
+                    lambda env, op=operation, st=step: op(*(env[name] for name in st.inputs), **st.params), envs
+                )
+                for env, result in zip(envs, results):
                     self._store(env, step, index, result if len(step.outputs) > 1 else (result,))
             elif step.kind == "onnx":
                 session = self._chain_sessions[index]
-                for env in envs:
-                    feeds = {name: _host_array(env[name]) for name in step.inputs}
-                    self._store(env, step, index, session.run(step.outputs, feeds))
+                results = _host_map(
+                    lambda env, se=session, st=step: se.run(
+                        st.outputs, {name: _host_array(env[name]) for name in st.inputs}
+                    ),
+                    envs,
+                )
+                for env, result in zip(envs, results):
+                    self._store(env, step, index, result)
             elif step.per_item:
                 self._run_per_item(step, model, envs, index)
             else:
@@ -733,6 +928,79 @@ class AxeleraBackend(BaseBackend):
             arrays = [a if a.ndim == 4 else a.reshape((1, *a.shape)) for a in arrays]
         return [arrays[index] for index in self._layout_order]
 
+    #: Tasks whose per-image result building (logit upsampling, argmax, dense
+    #: maps) is heavy enough to gain from host threads; box tasks stay
+    #: sequential, where dispatch would cost about what it saves.
+    _PARALLEL_RESULT_TASKS = frozenset(
+        {"semantic", "depth", "normal", "edge", "matte", "restore"}
+    )
+
+    def _map_images(self, function, images: list, stage: str = "preprocess") -> list:
+        # Per-image host steps of a batch on the host thread pool, while the
+        # device is otherwise idle; each image is processed as before.
+        if stage == "results" and self.task not in self._PARALLEL_RESULT_TASKS:
+            return [function(image) for image in images]
+        return _host_map(function, images)
+
+    def _process_in_batches(self, images, batch: int = 1, **kwargs):
+        # Pipeline a multi-image predict: while the device runs one step (an
+        # image, or a chunk of ``batch`` images) and its results are built, the
+        # next step is preprocessed on a prefetch thread (a chunk spreads over
+        # the host pool). Every step is processed exactly as before and in
+        # order, so the results are unchanged.
+        batched = (
+            batch > 1
+            and self._supports_batched_inference()
+            and not getattr(self, "_batched_inference_failed", False)
+        )
+        step = batch if batched else 1
+        # Multi-part exports run host steps between their compiled parts on the
+        # calling thread; a concurrent prefetch competes with them for the
+        # host cores (SSD-300 measured 0.85x), so they stay sequential.
+        if len(images) <= step or self._chain is not None:
+            return super()._process_in_batches(images, batch=batch, **kwargs)
+        import contextvars
+        from concurrent.futures import ThreadPoolExecutor
+
+        context = contextvars.copy_context()
+        imgsz, color_format = kwargs.get("imgsz"), kwargs.get("color_format", "auto")
+        start_idx = kwargs.pop("start_idx", 0)
+        steps = [images[i : i + step] for i in range(0, len(images), step)]
+        if batched:
+            prepare = lambda chunk: self._prepare_batch(chunk, imgsz, color_format)  # noqa: E731
+        else:
+            effective_imgsz = self._resolve_predict_imgsz(imgsz)
+            prepare = lambda chunk: self._preprocess(chunk[0], effective_imgsz, color_format)  # noqa: E731
+        results = []
+        with ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="libreyolo-axelera-prefetch"
+        ) as prefetch:
+            pending = prefetch.submit(context.copy().run, prepare, steps[0])
+            for index, chunk in enumerate(steps):
+                preprocessed = pending.result()
+                if index + 1 < len(steps):
+                    pending = prefetch.submit(context.copy().run, prepare, steps[index + 1])
+                offset = start_idx + index * step
+                if batched:
+                    results.extend(
+                        self._predict_batch(
+                            chunk, start_idx=offset, preprocessed=preprocessed, **kwargs
+                        )
+                    )
+                else:
+                    image = chunk[0]
+                    results.append(
+                        self._predict_single(
+                            image,
+                            save_stem=(
+                                None if isinstance(image, (str, Path)) else f"image{offset}"
+                            ),
+                            preprocessed=preprocessed,
+                            **kwargs,
+                        )
+                    )
+        return results
+
     def _supports_batched_inference(self) -> bool:
         # The compiled model takes one image; batched calls go through the
         # runtime's batch submission, which keeps several cores busy.
@@ -756,10 +1024,10 @@ class AxeleraBackend(BaseBackend):
                 for arrays, image in zip(raw, images)
             ]
         else:
-            decoded = [
-                decode_raw_heads(self._layout, arrays, **self._decode_params)
-                for arrays in raw
-            ]
+            decoded = _host_map(
+                lambda arrays: decode_raw_heads(self._layout, arrays, **self._decode_params),
+                raw,
+            )
         if len(decoded) == 1:
             return decoded[0]
         return [np.concatenate(parts, axis=0) for parts in zip(*decoded)]

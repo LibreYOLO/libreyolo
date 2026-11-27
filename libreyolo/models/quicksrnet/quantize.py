@@ -13,6 +13,13 @@ With ``1 <= s_i <= 1 / m_i``, where ``m_i`` is the channel's largest
 activation on the calibration images, the scaled channel still clips at 1
 only where the original exceeded ``m_i``, so outputs are unchanged on every
 input whose activations stay within the calibration maxima.
+
+:func:`learn_int8_rounding` then chooses, per weight, whether to round up or
+down on that per-channel INT8 grid (learned rounding in the style of AdaRound,
+one convolution at a time, matching each layer's FP32 output from the INT8
+network's inputs), writes the grid values into the weights so the compiler
+keeps them, and folds the remaining mean output shift into the bias. It is
+deterministic: a fixed seed drives its own generator.
 """
 
 from __future__ import annotations
@@ -25,6 +32,11 @@ from torch import nn
 INT8_EQUALIZATION_ALPHA = 0.5
 #: Fold the expected weight-rounding error into the biases after equalizing.
 INT8_BIAS_CORRECTION = True
+#: Learned rounding (opt-in per size: the ``learned_rounding`` key of
+#: ``AXELERA_SIZE_RECIPES``): optimisation steps per convolution and the seed
+#: of its sample draws.
+INT8_ROUNDING_STEPS = 300
+INT8_ROUNDING_SEED = 0
 
 
 def _hidden_pairs(net: nn.Module) -> list[tuple[nn.Conv2d, nn.Hardtanh, nn.Conv2d]]:
@@ -115,17 +127,97 @@ def correct_biases(net: nn.Module, samples) -> int:
     return len(convs)
 
 
-def prepare_for_int8(net: nn.Module, samples) -> dict:
-    """Equalize ``net`` in place, then correct its biases for INT8 weights; returns a summary."""
+def _activation_grid(x: torch.Tensor) -> torch.Tensor:
+    """The uint8 grid of a ``[0, 1]`` activation."""
+    return torch.round(x.clamp(0.0, 1.0) * 255.0) / 255.0
+
+
+def learn_int8_rounding(
+    net: nn.Module,
+    samples,
+    steps: int = INT8_ROUNDING_STEPS,
+    seed: int = INT8_ROUNDING_SEED,
+) -> int:
+    """Learn each weight's INT8 rounding direction in place; returns the number of convolutions.
+
+    Layer by layer, a soft up/down choice per weight on the symmetric
+    per-output-channel grid (the channel's largest weight stays at +-127, so the
+    compiler's scale is unchanged) is optimised to reproduce the layer's FP32
+    output from the already-rounded network's uint8 inputs, with a regulariser
+    that drives every choice to 0 or 1. The rounded weights are then written
+    back as grid values, and each bias absorbs the mean output shift of its
+    rounding over the calibration inputs of the FP32 network (as in
+    :func:`correct_biases`).
+    """
+    pairs = _hidden_pairs(net)
+    convs = [producer for producer, _, _ in pairs] + [pairs[-1][2]]
+    device = next(net.parameters()).device
+    x = torch.cat([torch.as_tensor(sample, dtype=torch.float32, device=device) for sample in samples])
+    if x.shape[0] == 0:
+        return 0
+    generator = torch.Generator().manual_seed(int(seed))
+    batch = min(16, int(x.shape[0]))
+    weights = [conv.weight.detach().clone() for conv in convs]
+    biases = [conv.bias.detach().clone() for conv in convs]
+    x_fp, x_q = x, _activation_grid(x)
+    rounded, means = [], []
+    for weight, bias in zip(weights, biases):
+        means.append(x_fp.mean(dim=(0, 2, 3)))
+        step = (weight.abs().reshape(weight.shape[0], -1).amax(1).clamp_min(1e-12) / 127.0).reshape(-1, 1, 1, 1)
+        floor = torch.floor(weight / step)
+        rest = (weight / step - floor).clamp(1e-4, 1.0 - 1e-4)
+        logits = nn.Parameter(torch.log(rest / (1.0 - rest)))
+        optimizer = torch.optim.Adam([logits], lr=1e-2)
+        with torch.no_grad():
+            target = nn.functional.conv2d(x_fp, weight, bias, padding=1).clamp(0.0, 1.0)
+        for it in range(int(steps)):
+            beta = 20.0 - 18.0 * it / max(1, int(steps) - 1)
+            soft = (torch.sigmoid(logits) * 1.2 - 0.1).clamp(0.0, 1.0)
+            candidate = torch.clamp(floor + soft, -127, 127) * step
+            index = torch.randint(0, x_q.shape[0], (batch,), generator=generator).to(device)
+            out = nn.functional.conv2d(x_q[index], candidate, bias, padding=1).clamp(0.0, 1.0)
+            loss = ((out - target[index]) ** 2).mean()
+            if it > int(steps) * 0.2:
+                loss = loss + 1e-4 * (1.0 - (2.0 * soft - 1.0).abs().pow(beta)).sum() / soft.numel()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        with torch.no_grad():
+            hard = ((torch.sigmoid(logits) * 1.2 - 0.1).clamp(0.0, 1.0) >= 0.5).to(weight.dtype)
+            grid = torch.clamp(floor + hard, -127, 127) * step
+            rounded.append(grid)
+            x_fp = nn.functional.conv2d(x_fp, weight, bias, padding=1).clamp(0.0, 1.0)
+            x_q = _activation_grid(nn.functional.conv2d(x_q, grid, bias, padding=1))
+    with torch.no_grad():
+        for conv, weight, grid, bias, mu in zip(convs, weights, rounded, biases, means):
+            conv.weight.copy_(grid)
+            conv.bias.copy_(bias - (grid - weight).sum(dim=(2, 3)) @ mu)
+    return len(convs)
+
+
+def prepare_for_int8(net: nn.Module, samples, *, learned_rounding: bool = False, rounding_samples=None) -> dict:
+    """Equalize ``net`` in place, then prepare its weights for INT8; returns a summary.
+
+    With ``learned_rounding`` the weights get :func:`learn_int8_rounding` (on
+    ``rounding_samples``, default ``samples``), otherwise only the bias
+    correction of :func:`correct_biases`.
+    """
     peaks = equalize_hardtanh_ranges(net, samples)
-    corrected = correct_biases(net, samples) if INT8_BIAS_CORRECTION and peaks else 0
-    return {"layer_min_peaks": peaks, "bias_corrected": corrected}
+    rounded = corrected = 0
+    if peaks and learned_rounding:
+        rounded = corrected = learn_int8_rounding(net, samples if rounding_samples is None else rounding_samples)
+    elif peaks and INT8_BIAS_CORRECTION:
+        corrected = correct_biases(net, samples)
+    return {"layer_min_peaks": peaks, "bias_corrected": corrected, "learned_rounding": rounded}
 
 
 __all__ = [
     "INT8_BIAS_CORRECTION",
     "INT8_EQUALIZATION_ALPHA",
+    "INT8_ROUNDING_SEED",
+    "INT8_ROUNDING_STEPS",
     "correct_biases",
     "equalize_hardtanh_ranges",
+    "learn_int8_rounding",
     "prepare_for_int8",
 ]

@@ -74,8 +74,22 @@ DEFAULT_QUANTIZATION_SCHEME_BY_MODEL = {
 #: ``quantization_scheme`` (wins over the per-model, depthwise and task
 #: defaults), ``output_windows`` (raw-head part -> (low, high), anchor heads),
 #: ``stream_transform`` (MobileNetV4 residual-stream equalization and bound,
-#: default on) and ``pose_bounded_towers`` (YOLO-NAS-pose towers whose input is
-#: bounded). Results with these recipes are in docs/axelera.md.
+#: default on), ``pose_bounded_towers`` (YOLO-NAS-pose towers whose input is
+#: bounded) and
+#: ``learned_rounding`` (QuickSRNet: learn each weight's INT8 rounding direction
+#: after the Hardtanh equalization, deterministic, see
+#: ``models/quicksrnet/quantize.learn_int8_rounding``) and
+#: ``weight_equalization`` (Real-ESRGAN compact trunk: exact cross-layer
+#: equalization through its PReLU activations,
+#: ``models/realesrgan/quantize.equalize_conv_activation_ranges``) and
+#: ``pointwise_learned_rounding`` (RTMDet: learned INT8 rounding of the CSPNeXt
+#: pointwise convolutions, ``models/rtmdet/quantize.learn_pointwise_int8_rounding``) and
+#: ``network_learned_rounding`` (learned INT8 rounding of every Conv2d/Linear of a
+#: single-part export, layer by layer against the FP32 network's own layer outputs,
+#: on this many calibration images; ``export/learned_rounding.learn_int8_rounding``). Results
+#: with these recipes are in docs/axelera.md. ``calibration_fraction`` (the measured share of
+#: the calibration dataset, used when ``export()`` gets no ``fraction``) is set per size from
+#: ``_MEASURED_CALIBRATION_FRACTION`` below.
 AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # EfficientDet-d1 at its native 640 finds no L1 tiling (3.42 MB needed at
     # one-row tiles, 2.82 MB available); at d0's 512 canvas it compiles. The
@@ -83,12 +97,84 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("efficientdet", "detect", "d1"): {"canvas": 512},
     # EfficientDet-d2 at its native 768: 3.15 MB needed, 2.54 MB available.
     ("efficientdet", "detect", "d2"): {"canvas": 512},
+    # Real-ESRGAN-x4 (RRDB): the whole graph's constants overflow the DDR pool;
+    # three compiled parts split at RRDB block 12 plus a host add fit.
+    ("realesrgan", "restore", "x4"): {"rrdb_split": 12, "quantization_scheme": "per_tensor_min_max"},
+    # FCOS-R50: the 800x800 canvas of PORTER E's measured multi-part gate.
+    ("fcos", "detect", "r50"): {"canvas": 800},
+    # U-Net-S at its 1024x2048 evaluation frame finds no L1 tiling (4.7 MB
+    # needed, 4.1 MB available); at its 512x1024 training crop it compiles.
+    # UNet-s: its 512x1024 training crop; histogram activation ranges (fidelity mIoU 0.856 vs 0.777 with min-max).
+    ("unet", "semantic", "s"): {"canvas": (512, 1024), "quantization_scheme": "hybrid_per_tensor_per_channel"},
+    # Real-ESRGAN-x2: the same RRDB body (its whole graph overflows the DDR pool too) after an exact
+    # one-hot pixel-unshuffle convolution; 128x128 canvas (a 64x64 trunk, as x4 at 64). Histogram
+    # activation ranges: -0.28 dB PSNR vs FP32 (min-max -0.34); the tail part then enters through a
+    # dense identity conv (a depthwise one fails the SDK's input-quantization pass under this scheme).
+    ("realesrgan", "restore", "x2"): {
+        "rrdb_split": 12,
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+        "canvas": 128,
+    },
     # RetinaNet-R50 resizes each image to a shorter side of 800 (longer up to
     # 1333); the fixed canvas fits the whole image inside, so at 800x800 most
     # images reach the network smaller (-2.25 end to end on 1000 COCO images).
     # A 1024x1024 canvas costs 1.64x the compute and recovers most of it
     # (-1.11); imgsz=800 stays available for speed.
     ("retinanet", "detect", "r50"): {"canvas": 1024},
+    # HRNet-w32: stage 4 drifts on the device compiled with the rest; as compiled parts (trunk to stage 3, one per
+    # stage-4 branch and module, heatmap layer) joined by host upsample + concat, every layer runs on the Metis.
+    ("hrnet", "pose", "w32"): {
+        "fusion_parts": True,
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
+    # HRNet-w48 (384x288): the w32 parts (supported, measured drop: SIZE_ACCURACY_NOTES).
+    ("hrnet", "pose", "w48"): {
+        "fusion_parts": True,
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
+    # PIDNet (1024): the whole graph collapses in INT8 (cosine ~0). As three compiled parts (branches through
+    # layer 5 with the pyramid pooling's per-branch layers; the pooling sums and compression; the branch fusion and
+    # head), sums folded into fixed 1x1 convs and joined on the host by bilinear upsample + concat only.
+    ("pidnet", "semantic", "s"): {
+        "pool_parts": True,
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
+    ("pidnet", "semantic", "m"): {
+        "pool_parts": True,
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
+    ("pidnet", "semantic", "l"): {
+        "pool_parts": True,
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
+    # DDRNet (native 1024x2048 frame): compiled whole the compiler did not finish in 3 h (s at 1024x1024, as
+    # PIDNet's whole graph). As PIDNet's three compiled parts (both branches + the DAPPM's per-branch layers; the
+    # DAPPM sums and compression; the head over spp + high-res sum), joined on the host by bilinear upsample +
+    # concat only. A square canvas is no option: FP32 at 1024x1024 agrees with the native frame on ~65% of pixels.
+    **{
+        ("ddrnet", "semantic", size): {
+            "pool_parts": True,
+            "quantization_scheme": "hybrid_per_tensor_per_channel",
+        }
+        for size in ("s", "m")
+    },
+    # RTMDet-x (640): compiled whole (or backbone + neck) the PAFPN finds no L1 tiling, while each of its blocks
+    # compiles alone; as four compiled parts (backbone + first reduce + first top-down block, then one per
+    # remaining PAFPN block with its level's output conv and head; "stem_td0") every layer runs on the Metis,
+    # joined on the host by upsample + concat only. Four parts stay resident on the AIPU (no reloads per call).
+    ("rtmdet", "detect", "x"): {
+        "neck_parts": "stem_td0",
+        "quantization_scheme": "hybrid_per_tensor_per_channel",
+    },
+    # DeepLabV3 r50/r101 at output stride 8: the ASPP convolutions (dilation up
+    # to 36 on a 65x65 map) find no L1 tiling; per-tap 1x1 convolutions plus
+    # zero-filled shifts are the same function and compile (the backbone alone
+    # compiles; one 1x1 with all nine taps stacked does not).
+    ("deeplabv3", "semantic", "r50"): {"aspp_shift": True},
+    # Whole graph on the Metis: -5.09 (R50) and -20.9 (R101) mIoU on 300 images;
+    # R101's rewritten ASPP diverges on the device (cosine 0.53 vs the
+    # CPU-quantized model).
+    ("deeplabv3", "semantic", "r101"): {"aspp_shift": True},
     # Histogram ranges recover most of the Mish backbone's loss (-6.8 -> -1.4);
     # the box-output window takes the rest of the way to -1.52 on 1000 images.
     ("yolo4", "detect", "b"): {
@@ -100,6 +186,8 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     ("mobilenetv4", "classify", "s"): {
         "quantization_scheme": "hybrid_per_tensor_per_channel",
         "stream_transform": False,
+        # Learned INT8 rounding of every layer: ImageNetV2 top-1 -0.7 (was -1.7).
+        "network_learned_rounding": 64,
     },
     ("mobilenetv4", "classify", "l"): {
         "quantization_scheme": "per_tensor_min_max",
@@ -113,8 +201,53 @@ AXELERA_SIZE_RECIPES: dict[tuple[str, str, str], dict] = {
     # take it from -2.9 to -0.2 top-1. VGG-19-BN does not follow (-6.0 vs -5.1
     # with min-max) and plain VGG-16/19 stay on min-max.
     ("vgg", "classify", "16bn"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
+    # QuickSRNet-m2: learned INT8 rounding of the equalized weights (plus bias
+    # correction) instead of nearest rounding + bias correction: PSNR -0.20 dB vs
+    # FP32 on 296 COCO crops (-0.17 held-out) instead of -0.46 dB.
+    ("quicksrnet", "restore", "m2"): {"learned_rounding": True},
+    # Real-ESRGAN-x4t (SRVGGNetCompact): exact cross-layer equalization of the
+    # conv+PReLU trunk before calibration: PSNR -0.19 dB vs FP32 on 296 COCO
+    # crops (-0.20 held-out) instead of -0.49 dB.
+    ("realesrgan", "restore", "x4t"): {"weight_equalization": True},
+    # RTMDet-s: learned INT8 rounding of the CSPNeXt pointwise convolutions
+    # after their input equalization (models/rtmdet/quantize).
+    ("rtmdet", "detect", "s"): {"pointwise_learned_rounding": True},
+    # RTMDet-Ins-s: the same learned rounding on the shared CSPNeXt trunk.
+    ("rtmdet", "segment", "s"): {"pointwise_learned_rounding": True},
+    # RTMDet-Ins-x: as RTMDet-x (neck_parts), plus the mask-feature module as a last compiled part on n3..n5
+    # joined on the host by a weight-free bilinear resize + concat.
+    ("rtmdet", "segment", "x"): {"neck_parts": True, "quantization_scheme": "hybrid_per_tensor_per_channel"},
+    # PP-YOLOE-x and -m: histogram activation ranges (x -1.08, was -1.71; m -0.84, was -1.22, on 1000 images).
+    # s keeps min-max (its screen gain did not hold on the device); l is validated with min-max.
+    ("ppyoloe", "detect", "x"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
+    ("ppyoloe", "detect", "m"): {"quantization_scheme": "hybrid_per_tensor_per_channel"},
 }
 
+
+#: ``calibration_fraction`` per size: the share of the calibration dataset that size's supported/validated
+#: measurement calibrated on (its tier ledger line), applied when ``export()`` is called without ``fraction``,
+#: so a default export reproduces the measured configuration. Every size listed here was measured on coco128.yaml
+#: (128 images): 0.5 = 64 images. PIDNet-m: 0.25 = 32 images (the SDK calibrates m at about a minute per image).
+#: Sizes not listed were measured on the whole dataset (fraction 1.0). An explicit ``fraction`` always wins.
+_MEASURED_CALIBRATION_FRACTION: dict[tuple[str, str, str], float] = {
+    **{("yolonas", "detect", size): 0.5 for size in ("s", "l")},
+    **{("yolo9", "detect", size): 0.5 for size in ("t", "s", "m", "c")},
+    **{("yolox", "detect", size): 0.5 for size in ("n", "t", "s", "m", "l", "x")},
+    **{("yolo3", "detect", size): 0.5 for size in ("t", "b", "spp")},
+    **{("yolo4", "detect", size): 0.5 for size in ("t", "b")},
+    ("yolo7", "detect", "b"): 0.5,
+    **{("ppyoloe", "detect", size): 0.5 for size in ("s", "m", "l", "x")},
+    **{("picodet", "detect", size): 0.5 for size in ("s", "m", "l")},
+    **{("rtmdet", "detect", size): 0.5 for size in ("t", "s", "m", "l", "x")},
+    **{("rtmdet", "segment", size): 0.5 for size in ("t", "s", "m", "l", "x")},
+    ("dexined", "edge", "b"): 0.5,
+    ("unet", "semantic", "s"): 0.5,
+    **{("ppliteseg", "semantic", size): 0.5 for size in ("t50", "b50", "t75", "b75")},
+    ("pidnet", "semantic", "m"): 0.25,
+}
+for _key, _fraction in _MEASURED_CALIBRATION_FRACTION.items():
+    AXELERA_SIZE_RECIPES.setdefault(_key, {})["calibration_fraction"] = _fraction
+del _key, _fraction
 
 def size_recipe(family: str, task: str, size: str) -> dict:
     """The per-size recipe for ``family``/``task``/``size`` (empty when the defaults apply)."""
@@ -1210,6 +1343,537 @@ def _gap_staged(model) -> int:
         _topological_sort(graph)
     return count
 
+#: Largest averaging window (kh * kw) the compiler takes for a pooling window
+#: that does not cover the whole map; PP-LiteSeg-t75's 12x24 window (288) fails.
+_AVGPOOL_MAX_WINDOW = 255
+#: Largest whole-map window measured to compile (PP-LiteSeg-t50's 16x32 pyramid bin).
+_AVGPOOL_MAX_GLOBAL_WINDOW = 512
+
+
+def _avgpool_staged(model) -> int:
+    """Split wide non-overlapping average pools into a 2x2 step chain.
+
+    PP-LiteSeg's pyramid pooling averages its stride-32 map over 2x2 bins; at
+    768x1536 one bin is a 12x24 window, more than the compiler's averaging
+    unit takes ("Input should be less than 256"). An ``AveragePool`` with
+    ``kernel == stride``, no padding and no ceil mode averages equal windows,
+    so first averaging 2x2 (or 2x1 / 1x2) blocks and then the remaining
+    window gives the same mean. Steps are added until the window is below
+    :data:`_AVGPOOL_MAX_WINDOW` (or, for a window that covers the whole map,
+    at most :data:`_AVGPOOL_MAX_GLOBAL_WINDOW`). Exact up to summation order.
+    Returns the number of rewritten pools.
+    """
+    from onnx import helper
+
+    shapes, _, _, _ = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "AveragePool"]:
+        attrs = _attributes(node)
+        shape = shapes.get(node.input[0])
+        kernel = list(attrs.get("kernel_shape", []))
+        if (
+            not shape
+            or len(shape) != 4
+            or len(kernel) != 2
+            or list(attrs.get("strides", [1, 1])) != kernel
+            or any(attrs.get("pads", [0, 0, 0, 0]))
+            or attrs.get("ceil_mode", 0)
+            or attrs.get("auto_pad", b"NOTSET") not in (b"NOTSET", "NOTSET")
+            or list(attrs.get("dilations", [1, 1])) != [1, 1]
+        ):
+            continue
+        height, width = shape[2], shape[3]
+        kh, kw = kernel
+        limit = (
+            _AVGPOOL_MAX_GLOBAL_WINDOW
+            if (kh, kw) == (height, width)
+            else _AVGPOOL_MAX_WINDOW
+        )
+        nodes, current = [], node.input[0]
+        while kh * kw > limit and (kh % 2 == 0 or kw % 2 == 0):
+            step = [2 if kh % 2 == 0 else 1, 2 if kw % 2 == 0 else 1]
+            out = f"{node.input[0]}_avgstep_{count}_{len(nodes)}"
+            nodes.append(
+                helper.make_node(
+                    "AveragePool",
+                    [current],
+                    [out],
+                    name=out,
+                    kernel_shape=step,
+                    strides=step,
+                )
+            )
+            current, kh, kw = out, kh // step[0], kw // step[1]
+        if not nodes:
+            continue
+        node.input[0] = current
+        for attr in [a for a in node.attribute if a.name in ("kernel_shape", "strides")]:
+            node.attribute.remove(attr)
+        node.attribute.extend(
+            [
+                helper.make_attribute("kernel_shape", [kh, kw]),
+                helper.make_attribute("strides", [kh, kw]),
+            ]
+        )
+        graph.node.extend(nodes)
+        count += 1
+    if count:
+        _topological_sort(graph)
+    return count
+
+
+def _channel_reduce_to_conv(model) -> int:
+    """``ReduceSum`` / ``ReduceMean`` over channels (keepdims) becomes a 1x1 conv.
+
+    PP-LiteSeg's and PIDNet's spatial attention reduce their features over
+    the channel axis, which the AIPU only reduces over H and W. A 1x1
+    convolution to one channel with weights 1 (or 1/C for the mean) computes
+    the same sum. Exact up to summation order. Returns the number of rewrites.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, _, _, weights = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type in ("ReduceSum", "ReduceMean")]:
+        shape = shapes.get(node.input[0])
+        if _attributes(node).get("keepdims", 1) != 1 or not shape or len(shape) != 4:
+            continue
+        if _reduce_axes(graph, weights, node) not in ([1], [-3]):
+            continue
+        channels = shape[1]
+        value = 1.0 if node.op_type == "ReduceSum" else 1.0 / channels
+        tag = node.name or node.output[0]
+        weight = f"{tag}_as_conv_w"
+        graph.initializer.append(
+            numpy_helper.from_array(
+                np.full((1, channels, 1, 1), value, np.float32), weight
+            )
+        )
+        index = list(graph.node).index(node)
+        graph.node.remove(node)
+        graph.node.insert(
+            index,
+            helper.make_node(
+                "Conv",
+                [node.input[0], weight],
+                list(node.output),
+                name=f"{tag}_as_conv",
+                kernel_shape=[1, 1],
+            ),
+        )
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+    return count
+
+
+def _channel_slice(nodes, constants, base, source, start, end, tag) -> str:
+    """Append a channel-axis Slice ``source[:, start:end]`` to ``nodes``."""
+    import numpy as np
+    from onnx import helper
+
+    out = f"{base}_{tag}"
+    constants[f"{out}_start"] = np.array([start], np.int64)
+    constants[f"{out}_end"] = np.array([end], np.int64)
+    nodes.append(
+        helper.make_node(
+            "Slice",
+            [source, f"{out}_start", f"{out}_end", f"{base}_axis"],
+            [out],
+            name=out,
+        )
+    )
+    return out
+
+
+def _channel_max_tree(model) -> int:
+    """``ReduceMax`` over channels (keepdims) becomes a halving tree of maxima.
+
+    ``max(a, b) = b + relu(a - b)`` on two channel slices, repeated until one
+    channel is left (an odd channel joins the next level). Slices, Mul by -1,
+    Add and Relu all run on the AIPU. Exact. Returns the number of rewrites.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, _, _, weights = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "ReduceMax"]:
+        shape = shapes.get(node.input[0])
+        if _attributes(node).get("keepdims", 1) != 1 or not shape or len(shape) != 4:
+            continue
+        if _reduce_axes(graph, weights, node) not in ([1], [-3]):
+            continue
+        base = f"{node.name or node.output[0]}_max_tree"
+        constants = {
+            f"{base}_neg_one": np.array(-1.0, np.float32),
+            f"{base}_axis": np.array([1], np.int64),
+        }
+        nodes = []
+        current, channels, level = node.input[0], shape[1], 0
+        while channels > 1:
+            half = channels // 2
+            a = _channel_slice(nodes, constants, base, current, 0, half, f"l{level}a")
+            b = _channel_slice(
+                nodes, constants, base, current, half, 2 * half, f"l{level}b"
+            )
+            names = [f"{base}_l{level}_{t}" for t in ("neg_b", "diff", "relu", "max")]
+            nodes += [
+                helper.make_node(
+                    "Mul", [b, f"{base}_neg_one"], [names[0]], name=names[0]
+                ),
+                helper.make_node("Add", [a, names[0]], [names[1]], name=names[1]),
+                helper.make_node("Relu", [names[1]], [names[2]], name=names[2]),
+                helper.make_node("Add", [b, names[2]], [names[3]], name=names[3]),
+            ]
+            merged = names[3]
+            if channels % 2:
+                odd = _channel_slice(
+                    nodes, constants, base, current, 2 * half, channels, f"l{level}odd"
+                )
+                merged = f"{base}_l{level}_cat"
+                nodes.append(
+                    helper.make_node(
+                        "Concat", [names[3], odd], [merged], name=merged, axis=1
+                    )
+                )
+                half += 1
+            current, channels, level = merged, half, level + 1
+        nodes.append(
+            helper.make_node("Identity", [current], list(node.output), name=base)
+        )
+        graph.initializer.extend(
+            numpy_helper.from_array(v, k) for k, v in constants.items()
+        )
+        index = list(graph.node).index(node)
+        graph.node.remove(node)
+        for offset, new in enumerate(nodes):
+            graph.node.insert(index + offset, new)
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+    return count
+
+
+def _broadcast_mul_expand(model) -> int:
+    """A one-channel map multiplied or added to a C-channel map is expanded first.
+
+    The AIPU combines a 4-D map only with a same-shape tensor, a per-channel
+    ``[1, C, 1, 1]`` constant or a scalar; an attention map ``[1, 1, H, W]``
+    against ``[1, C, H, W]`` is broadcast with a 1x1 convolution of ones to C
+    channels. Exact. Returns the number of expanded operands.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, _, _, _ = _graph_tables(model)
+    graph = model.graph
+    count = 0
+    for node in [n for n in graph.node if n.op_type in ("Mul", "Add")]:
+        if len(node.input) != 2:
+            continue
+        first, second = shapes.get(node.input[0]), shapes.get(node.input[1])
+        if not first or not second or len(first) != 4 or len(second) != 4:
+            continue
+        for slot, (small, full) in enumerate(((first, second), (second, first))):
+            if small[1] != 1 or full[1] <= 1 or small[2:] != full[2:]:
+                continue
+            channels = full[1]
+            tag = node.name or node.output[0]
+            weight = f"{tag}_expand_{slot}_w"
+            graph.initializer.append(
+                numpy_helper.from_array(
+                    np.ones((channels, 1, 1, 1), np.float32), weight
+                )
+            )
+            out = f"{node.input[slot]}_expand{channels}_{tag}"
+            graph.node.insert(
+                list(graph.node).index(node),
+                helper.make_node(
+                    "Conv",
+                    [node.input[slot], weight],
+                    [out],
+                    name=f"{tag}_expand_{slot}",
+                    kernel_shape=[1, 1],
+                ),
+            )
+            node.input[slot] = out
+            count += 1
+            break
+    return count
+
+
+def _resize_1x1_broadcast_add(model) -> int:
+    """Upsampling a 1x1 map into an addition becomes a broadcast addition.
+
+    Any resize of a 1x1 map is the same value everywhere, so when each
+    consumer adds it to a full-size map the per-channel ``[1, C, 1, 1]`` map
+    can be added directly. The compiler would otherwise lower the resize
+    (PP-LiteSeg's pyramid pooling, 1x1 to 16x32) to a depthwise window wider
+    than the core's scratchpad. Exact. Returns the number of removed resizes.
+    """
+    shapes, _, consumers, _ = _graph_tables(model)
+    graph = model.graph
+    outputs = {o.name for o in graph.output}
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "Resize"]:
+        source, target = shapes.get(node.input[0]), shapes.get(node.output[0])
+        if not source or not target or len(source) != 4 or source[2:] != [1, 1]:
+            continue
+        users = consumers.get(node.output[0], [])
+        if node.output[0] in outputs or not users:
+            continue
+        if any(u.op_type != "Add" or len(u.input) != 2 for u in users):
+            continue
+        partners = [u.input[1 - list(u.input).index(node.output[0])] for u in users]
+        if any(shapes.get(other) != target for other in partners):
+            continue
+        for user, other in zip(users, partners):
+            user.input[0], user.input[1] = other, node.input[0]
+        graph.node.remove(node)
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+    return count
+
+
+#: Largest bilinear factor a resize keeps in one piece: the compiler lowers a
+#: factor-F upsampling to a depthwise window about 2F wide, and F = 16 (window
+#: 32) already overflows the DWPU scratchpad.
+_RESIZE_MAX_FACTOR = 4
+
+
+def _factor_steps(factor: int) -> list[int] | None:
+    """``factor`` as resize steps of 3 and 2 (largest first), or None."""
+    steps, rest = [], int(factor)
+    for prime in (3, 2):
+        while rest % prime == 0 and rest > 1:
+            steps.append(prime)
+            rest //= prime
+    return steps if rest == 1 and steps else None
+
+
+def _resize_corner_chain(model) -> int:
+    """Bilinear upsampling with a large or unequal factor becomes factor-2 steps.
+
+    The compiler takes a bilinear resize only with the same whole factor on
+    both axes, and only small factors fit its depthwise unit; PP-LiteSeg's
+    pyramid pooling upsamples 2x2 and 4x4 maps to the 16x32 map of its
+    512x1024 canvas (factors 8x16 and 4x8). For half-pixel sampling with
+    factors ``(f, r * f)``, ``f`` even, ``F = r * f``:
+
+    - the source is padded by one replicated pixel per side (a Concat of
+      three distinct tensors per axis);
+    - align-corners factor-2 and factor-3 resizes (n -> 2n - 1, n -> 3n - 2;
+      ``F`` must be a product of 2s and 3s) build the corner-aligned factor-F
+      samples: piecewise-linear interpolation through every source pixel,
+      which such steps reproduce exactly, and constant across the replicated
+      border;
+    - a crop keeps the samples from half a source pixel before the first
+      centre to half a pixel after the last;
+    - a 2x2 average with stride 1 gives the half-pixel factor-F samples (each
+      is the midpoint of two corner samples on one linear piece);
+    - an ``r x 1`` average gives the smaller factor on its axis;
+    - a 1x1 identity convolution ends the chain (see the comment there).
+
+    Exact up to float rounding. A resize that is a graph output (the final
+    upsampling the host runs) is left alone. Returns the number of rewrites.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, _, _, _ = _graph_tables(model)
+    graph = model.graph
+    outputs = {o.name for o in graph.output}
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "Resize"]:
+        attrs = _attributes(node)
+        mode = attrs.get("mode", b"nearest")
+        transform = attrs.get("coordinate_transformation_mode", b"half_pixel")
+        mode = mode.decode() if isinstance(mode, bytes) else mode
+        transform = transform.decode() if isinstance(transform, bytes) else transform
+        if mode != "linear" or transform not in ("half_pixel", "pytorch_half_pixel"):
+            continue
+        source, target = shapes.get(node.input[0]), shapes.get(node.output[0])
+        if node.output[0] in outputs or not source or not target:
+            continue
+        if len(source) != 4 or len(target) != 4:
+            continue
+        (height, width), (out_h, out_w) = source[2:], target[2:]
+        if min(height, width) < 2 or out_h % height or out_w % width:
+            continue
+        factor_h, factor_w = out_h // height, out_w // width
+        large, small = max(factor_h, factor_w), min(factor_h, factor_w)
+        steps = _factor_steps(large)
+        if large % small or small % 2 or steps is None:
+            continue
+        if factor_h == factor_w and large <= _RESIZE_MAX_FACTOR:
+            continue
+        tag = f"{node.name or node.output[0]}_corner_chain"
+        constants, nodes, current = {}, [], node.input[0]
+        for axis, size in ((2, height), (3, width)):
+            constants[f"{tag}_axis{axis}"] = np.array([axis], np.int64)
+            ends = (("first", 0, 1), ("last", size - 1, size))
+            names = []
+            for side, start, end in ends:
+                name = f"{tag}_{side}{axis}"
+                constants[f"{name}_start"] = np.array([start], np.int64)
+                constants[f"{name}_end"] = np.array([end], np.int64)
+                nodes.append(
+                    helper.make_node(
+                        "Slice",
+                        [current, f"{name}_start", f"{name}_end", f"{tag}_axis{axis}"],
+                        [name],
+                        name=name,
+                    )
+                )
+                names.append(name)
+            padded = f"{tag}_pad{axis}"
+            nodes.append(
+                helper.make_node(
+                    "Concat",
+                    [names[0], current, names[1]],
+                    [padded],
+                    name=padded,
+                    axis=axis,
+                )
+            )
+            current = padded
+        rows, cols = height + 2, width + 2
+        for step, factor in enumerate(steps):
+            rows, cols = factor * (rows - 1) + 1, factor * (cols - 1) + 1
+            sizes = f"{tag}_sizes{step}"
+            constants[sizes] = np.array([source[0], source[1], rows, cols], np.int64)
+            out = f"{tag}_x{factor}_{step}"
+            nodes.append(
+                helper.make_node(
+                    "Resize",
+                    [current, "", "", sizes],
+                    [out],
+                    name=out,
+                    mode="linear",
+                    coordinate_transformation_mode="align_corners",
+                )
+            )
+            current = out
+        first = large - large // 2
+        crop = f"{tag}_crop"
+        constants[f"{crop}_start"] = np.array([first, first], np.int64)
+        constants[f"{crop}_end"] = np.array(
+            [first + height * large + 1, first + width * large + 1], np.int64
+        )
+        constants[f"{crop}_axes"] = np.array([2, 3], np.int64)
+        nodes.append(
+            helper.make_node(
+                "Slice",
+                [current, f"{crop}_start", f"{crop}_end", f"{crop}_axes"],
+                [crop],
+                name=crop,
+            )
+        )
+        ratio = large // small
+        averaged = f"{tag}_average"
+        nodes.append(
+            helper.make_node(
+                "AveragePool",
+                [crop],
+                [averaged],
+                name=f"{tag}_average",
+                kernel_shape=[2, 2],
+                strides=[1, 1],
+            )
+        )
+        if ratio > 1:
+            kernel = [ratio, 1] if factor_h < factor_w else [1, ratio]
+            nodes.append(
+                helper.make_node(
+                    "AveragePool",
+                    [averaged],
+                    [f"{tag}_ratio"],
+                    name=f"{tag}_ratio",
+                    kernel_shape=kernel,
+                    strides=kernel,
+                )
+            )
+            averaged = f"{tag}_ratio"
+        # A 1x1 identity convolution ends the chain: two pooled chains merging
+        # into an Add that feeds a convolution (PP-LiteSeg's pyramid pooling)
+        # otherwise stop lowering ("Expecting all blocks to have the same
+        # iter_values"). Exact.
+        channels = int(source[1])
+        constants[f"{tag}_identity"] = np.eye(channels, dtype=np.float32).reshape(
+            channels, channels, 1, 1
+        )
+        nodes.append(
+            helper.make_node(
+                "Conv",
+                [averaged, f"{tag}_identity"],
+                list(node.output),
+                name=f"{tag}_identity",
+                kernel_shape=[1, 1],
+            )
+        )
+        graph.initializer.extend(
+            numpy_helper.from_array(v, k) for k, v in constants.items()
+        )
+        index = list(graph.node).index(node)
+        graph.node.remove(node)
+        for offset, new in enumerate(nodes):
+            graph.node.insert(index + offset, new)
+        count += 1
+    if count:
+        _drop_unused_initializers(graph)
+    return count
+
+
+def _stem_residual_skip_conv(model) -> int:
+    """A residual ``Add`` at the stem's resolution reads its skip through a 1x1 identity convolution.
+
+    EfficientNetV2-b1/b2/b3 open with two stage-0 FusedMBConv blocks, the second
+    adding its input back at the stem's stride-2 resolution. Compiled as is, the
+    skip operand's buffer stays listed as a second graph output (pool
+    ``pool_ddr_input``), so the compiled model has two output buffers for one
+    output. With the skip read through an identity 1x1 convolution (identity
+    weights, zero bias: exact) it compiles with one. Adds at other resolutions
+    (b0 has no stage-0 residual) are left alone. Returns the number of rewrites.
+    """
+    import numpy as np
+    from onnx import helper, numpy_helper
+
+    shapes, producers, _, weights = _graph_tables(model)
+    graph = model.graph
+    image = graph.input[0].name
+    stem = next((n for n in graph.node if n.op_type == "Conv" and n.input[0] == image), None)
+    if stem is None or len(shapes.get(stem.output[0], [])) != 4:
+        return 0
+    stem_hw = shapes[stem.output[0]][2:]
+    count = 0
+    for node in [n for n in graph.node if n.op_type == "Add"]:
+        if len(node.input) != 2 or any(name in weights for name in node.input):
+            continue
+        a, b = (shapes.get(name, []) for name in node.input)
+        if len(a) != 4 or a != b or a[2:] != stem_hw:
+            continue
+        channels = int(b[1])
+        weight = np.eye(channels, dtype=np.float32).reshape(channels, channels, 1, 1)
+        w_name, b_name = f"stem_skip_identity_w{count}", f"stem_skip_identity_b{count}"
+        graph.initializer.append(numpy_helper.from_array(weight, w_name))
+        graph.initializer.append(numpy_helper.from_array(np.zeros(channels, np.float32), b_name))
+        out = f"{node.input[1]}_stem_skip_identity{count}"
+        conv = helper.make_node(
+            "Conv", [node.input[1], w_name, b_name], [out],
+            name=f"stem_skip_identity_conv{count}", kernel_shape=[1, 1],
+        )
+        graph.node.insert(list(graph.node).index(node), conv)
+        node.input[1] = out
+        count += 1
+    return count
+
+
 _DATA_PASSES = {"dw_channel_groups"}
 
 #: Named exact ONNX rewrites an export may request (``graph_passes``); each
@@ -1224,6 +1888,13 @@ GRAPH_PASSES = {
     "stack_sum_to_add": _stack_sum_to_add,
     "mean_hw_to_gap": _mean_hw_to_gap,
     "gap_staged": _gap_staged,
+    "channel_reduce_to_conv": _channel_reduce_to_conv,
+    "channel_max_tree": _channel_max_tree,
+    "broadcast_mul_expand": _broadcast_mul_expand,
+    "resize_1x1_broadcast_add": _resize_1x1_broadcast_add,
+    "resize_corner_chain": _resize_corner_chain,
+    "avgpool_staged": _avgpool_staged,
+    "stem_residual_skip_conv": _stem_residual_skip_conv,
 }
 
 
@@ -1463,7 +2134,11 @@ def device_output_order(quantized, reference_model, sample) -> list[str]:
     names = list(reference_model.output_names)
     tensor = torch.from_numpy(np.ascontiguousarray(sample, dtype=np.float32))
     with torch.no_grad():
-        reference = [t.detach().cpu().numpy() for t in reference_model(tensor)]
+        expected = reference_model(tensor)
+        if isinstance(expected, torch.Tensor):
+            # One output: iterating a bare tensor would yield its batch rows.
+            expected = (expected,)
+        reference = [t.detach().cpu().numpy() for t in expected]
         produced = quantized(tensor)
     if isinstance(produced, torch.Tensor):
         produced = (produced,)
@@ -1680,16 +2355,30 @@ def _part_names(spec: Mapping[str, Any], single: str, plural: str) -> list[str]:
 
 
 def _host_value(value):
-    """A host-operation parameter as YAML: lists of numbers as floats, of names as strings."""
+    """A host-operation parameter as YAML: names as strings, integers as ints, other numbers as floats.
+
+    Lists may nest (e.g. one ``[y, x, h, w]`` box per pyramid level).
+    """
+    import numpy as np
+
     if isinstance(value, (list, tuple)):
-        if all(isinstance(v, str) for v in value):
-            return [str(v) for v in value]
-        return [float(v) for v in value]
+        return [_host_value(v) for v in value]
+    if isinstance(value, str):
+        return str(value)
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        return float(value)
     return _plain(value)
 
 
-def _run_fp32_chain(parts: list[Mapping[str, Any]], sample, host_ops, host_arrays, onnx_refs, keep):
-    """Run one image through the FP32 chain; ``keep(part_index, array)`` gets each compiled part's input."""
+def _run_fp32_chain(parts: list[Mapping[str, Any]], sample, host_ops, host_arrays, onnx_refs, keep, stop=None):
+    """Run one image through the FP32 chain; ``keep(part_index, array)`` gets each compiled part's input.
+
+    With ``stop`` the chain ends once part ``stop`` has its input (nothing after it runs).
+    """
     import numpy as np
     import torch
 
@@ -1698,6 +2387,8 @@ def _run_fp32_chain(parts: list[Mapping[str, Any]], sample, host_ops, host_array
         if "compile" in spec:
             source = env[spec["input"]]
             keep(index, source)
+            if index == stop:
+                return env
             reference = spec["reference"]
             with torch.no_grad():
                 outputs = reference(torch.from_numpy(np.ascontiguousarray(source, dtype=np.float32)))
@@ -1782,32 +2473,34 @@ def export_axelera_parts(
     stems = {index: stem if k == 0 else f"{stem}_part{k + 1}" for k, index in enumerate(compiled)}
     onnx_refs = {i: OnnxReference(spec["host_onnx"]) for i, spec in enumerate(parts) if "host_onnx" in spec}
 
-    def propagate(images, limit):
-        inputs: dict[int, list] = {i: [] for i in compiled}
+    def part_inputs(images, part):
+        """What compiled part ``part`` sees for each image: the FP32 chain run up to it.
+
+        Computed for one part at a time, right before it compiles, so only that
+        part's inputs are held in memory (a packed 512-channel canvas is tens of
+        MB per image; holding every part's at once does not fit).
+        """
+        inputs: list = []
 
         def keep(index, array):
+            if index != part:
+                return
             if parts[index].get("per_item"):
-                inputs[index].extend(array[i : i + 1] for i in range(min(len(array), limit)))
+                inputs.extend(array[i : i + 1] for i in range(min(len(array), item_limit)))
             else:
-                inputs[index].append(array)
+                inputs.append(array)
 
         for image in images:
-            _run_fp32_chain(parts, image, HOST_OPS, host_arrays, onnx_refs, keep)
+            _run_fp32_chain(parts, image, HOST_OPS, host_arrays, onnx_refs, keep, stop=part)
         return inputs
 
     samples = list(calibration)
     if len(samples) < 2:
         raise ValueError("A multi-part Axelera export needs at least 2 calibration images.")
-    part_samples = propagate(samples, item_limit)
-    for index in compiled:
-        if len(part_samples[index]) < 2:
-            raise ValueError(
-                f"Part {index} of the multi-part export got {len(part_samples[index])} "
-                "calibration inputs from the calibration images; it needs at least 2."
-            )
-    part_verify = propagate(list(verify_samples or []), item_limit) if verify else {}
-    if verify and not any(part_verify.values()):
+    held_out = list(verify_samples or []) if verify else []
+    if verify and not held_out:
         logger.warning("Axelera verify: no held-out images for the multi-part export; run val on the device.")
+    first_inputs: dict[int, Any] = {}
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
@@ -1828,7 +2521,7 @@ def export_axelera_parts(
                 config, part_overrides = build_compiler_config(
                     stems[index],
                     build_dir=part_dir / "build",
-                    quantization_scheme=quantization_scheme,
+                    quantization_scheme=spec.get("quantization_scheme", quantization_scheme),
                     resources_used=resources_used,
                     overrides=compiler_overrides,
                 )
@@ -1836,11 +2529,19 @@ def export_axelera_parts(
                     overrides = part_overrides
                 configs.append(config)
                 reference = spec["reference"]
+                calibration_inputs = part_inputs(samples, index)
+                if len(calibration_inputs) < 2:
+                    raise ValueError(
+                        f"Part {index} of the multi-part export got {len(calibration_inputs)} "
+                        "calibration inputs from the calibration images; it needs at least 2."
+                    )
+                first_inputs[index] = calibration_inputs[0]
+                verify_inputs = part_inputs(held_out, index) if held_out else []
 
-                def before_compile(quantized, index=index, reference=reference):
-                    output_names[index] = device_output_order(quantized, reference, part_samples[index][0])
-                    if part_verify.get(index):
-                        collected[index] = collect_quantized_outputs(quantized, reference, part_verify[index])
+                def before_compile(quantized, index=index, reference=reference, verify_inputs=verify_inputs):
+                    output_names[index] = device_output_order(quantized, reference, first_inputs[index])
+                    if verify_inputs:
+                        collected[index] = collect_quantized_outputs(quantized, reference, verify_inputs)
 
                 model_input = str(spec["compile"])
                 if spec.get("merge_pad", k == 0):
@@ -1848,11 +2549,12 @@ def export_axelera_parts(
                 passes = list(spec.get("graph_passes") or ())
                 if passes:
                     model_input = apply_graph_passes(
-                        model_input, part_dir, passes, samples=part_samples[index][:16]
+                        model_input, part_dir, passes, samples=calibration_inputs[:16]
                     )
                 axm, _ = compile_to_axm(
-                    model_input, part_samples[index], config, part_dir, before_compile=before_compile
+                    model_input, calibration_inputs, config, part_dir, before_compile=before_compile
                 )
+                del calibration_inputs, verify_inputs
                 shutil.copy2(axm, staging / f"{stems[index]}.axm")
                 suffix = "" if k == 0 else f".part{k + 1}"
                 (staging / f"compiler_config_final{suffix}.toml").write_text(
@@ -1875,7 +2577,7 @@ def export_axelera_parts(
                         name: [int(d) for d in np.asarray(out).shape[1:]]
                         for name, out in zip(
                             spec["reference"].output_names,
-                            _reference_outputs(spec["reference"], part_samples[index][0]),
+                            _reference_outputs(spec["reference"], first_inputs[index]),
                         )
                         if name in output_names[index]
                     }

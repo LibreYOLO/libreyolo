@@ -12,14 +12,23 @@ from PIL import Image
 
 def preprocess_numpy(
     image_rgb_hwc: np.ndarray,
-    input_size: int,
+    input_size: int | Tuple[int, int],
 ) -> Tuple[np.ndarray, float]:
-    """Stretch RGB input to a square and return canonical float32 CHW ``[0,1]``."""
+    """Stretch RGB input to a square and return canonical float32 CHW ``[0,1]``.
+
+    ``input_size`` is one side or a square ``(h, w)`` pair (export verify
+    passes the canvas as a pair).
+    """
     image = np.asarray(image_rgb_hwc)
     if image.ndim != 3 or image.shape[-1] != 3:
         raise ValueError(
             f"edge preprocessing expects RGB HWC input, got shape {image.shape}"
         )
+    if isinstance(input_size, (tuple, list)):
+        height, width = (int(v) for v in input_size)
+        if height != width:
+            raise ValueError(f"edge preprocessing needs a square size, got {input_size}")
+        input_size = height
     size = int(input_size)
     if size <= 0:
         raise ValueError(f"input_size must be positive, got {input_size}")

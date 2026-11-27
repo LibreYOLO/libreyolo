@@ -458,7 +458,17 @@ class SSDValPreprocessor(BaseValPreprocessor):
 
 
 class FCOSValPreprocessor(BaseValPreprocessor):
-    """Torchvision FCOS aspect resize, ImageNet normalization, and stride pad."""
+    """Torchvision FCOS aspect resize, ImageNet normalization, and stride pad.
+
+    ``fixed_canvas`` fits each image into one ``img_size`` square instead
+    (fixed-shape exports such as Axelera).
+    """
+
+    def __init__(
+        self, img_size: Tuple[int, int], max_labels: int = 120, fixed_canvas: bool = False
+    ):
+        super().__init__(img_size, max_labels)
+        self.fixed_canvas = bool(fixed_canvas)
 
     @property
     def normalize(self) -> bool:
@@ -485,7 +495,7 @@ class FCOSValPreprocessor(BaseValPreprocessor):
             if len(imgsz) != 2 or int(imgsz[0]) != int(imgsz[1]):
                 raise ValueError(f"FCOS requires a scalar/square imgsz, got {imgsz}")
             imgsz = int(imgsz[0])
-        _, _, scale = resize_dimensions(orig_h, orig_w, int(imgsz))
+        _, _, scale = resize_dimensions(orig_h, orig_w, int(imgsz), self.fixed_canvas)
         return scale, 0.0, 0.0
 
     def __call__(
@@ -501,7 +511,9 @@ class FCOSValPreprocessor(BaseValPreprocessor):
             )
 
         rgb = np.ascontiguousarray(img[:, :, ::-1])
-        image_chw, scale = preprocess_numpy(rgb, input_size=target_h)
+        image_chw, scale = preprocess_numpy(
+            rgb, input_size=target_h, fixed_canvas=self.fixed_canvas
+        )
 
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
         if len(targets):

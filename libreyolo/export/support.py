@@ -74,7 +74,7 @@ _add("available", ("gtr",), ("detect", "pose"), ("onnx", "torchscript"),
      constraint="FP32; static square input; no custom CUDA plugin")
 
 _add("blocked", ("gtr",), ("detect", "pose"),
-     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript", "axelera")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 
 _add("available", ("gtr",), ("obb",), ("onnx", "torchscript"),
@@ -82,7 +82,7 @@ _add("available", ("gtr",), ("obb",), ("onnx", "torchscript"),
      constraint="FP32; static square input; no custom CUDA plugin")
 
 _add("blocked", ("gtr",), ("obb",),
-     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript", "axelera")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 
 _add("available", ("gtr",), ("depth",), ("onnx", "torchscript"),
@@ -90,7 +90,7 @@ _add("available", ("gtr",), ("depth",), ("onnx", "torchscript"),
      constraint="FP32; static square input; batch 1; no custom CUDA plugin")
 
 _add("blocked", ("gtr",), ("depth",),
-     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript", "axelera")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 
 _add("available", ("gtr",), ("semantic",), ("onnx", "torchscript"),
@@ -98,7 +98,7 @@ _add("available", ("gtr",), ("semantic",), ("onnx", "torchscript"),
      constraint="FP32; static 1024x2048 canvas; images are letterboxed into it")
 
 _add("blocked", ("gtr",), ("semantic",),
-     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript", "axelera")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 
 _add("available", ("gtr",), ("segment",), ("onnx", "torchscript"),
@@ -106,8 +106,18 @@ _add("available", ("gtr",), ("segment",), ("onnx", "torchscript"),
      constraint="FP32; static square input; no custom CUDA plugin")
 
 _add("blocked", ("gtr",), ("segment",),
-     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript", "axelera")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
+
+_add("blocked", ("gtr",), ("detect", "pose", "obb", "depth", "semantic", "segment"), ("axelera",),
+     reason=(
+         "Out of scope for Metis: GTR's backbone is a ViT (host only), and its "
+         "multi-scale neck (the only convolutional share, at most ~48% of GTR-s "
+         "detect's MACs) puts a channel LayerNorm after every convolution "
+         "(GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize "
+         "with SDK 1.9, so a hybrid would need ~30 single-convolution parts with "
+         "the host in between."
+     ))
 
 # Existing parity-backed paths. New validated rows must land with a parity test.
 _add(
@@ -1548,6 +1558,43 @@ _add(
 )
 _add(
     "validated",
+    ("ddrnet",),
+    ("semantic",),
+    ("onnx",),
+    since="1.8",
+    constraint=(
+        "FP32 dense logits at a fixed canvas (stride 8; the backend resizes "
+        "them bilinearly to the source and takes the argmax, as predict())"
+    ),
+)
+_add(
+    "available",
+    ("ddrnet",),
+    ("semantic",),
+    ("openvino",),
+    reason=(
+        "OpenVINO CPU FP32 IR from the ONNX graph; predict() labels matched "
+        "the native model on COCO images (s at 1024x1024, m at 1024x2048), "
+        "not yet in the runtime parity suite."
+    ),
+    constraint="FP32, fixed canvas",
+)
+_add(
+    "validated",
+    ("unet",),
+    ("semantic",),
+    ("onnx",),
+    since="1.7",
+    constraint=(
+        "fixed rectangle. Measured at the 512x1024 training crop: UNet-s "
+        "exported and run through the factory reload at batch 1 gives raw-logit "
+        "cosine 1.000000 vs eager and identical semantic masks on 3 COCO "
+        "val2017 images. The 1024x2048 frame exports the same graph at a "
+        "larger canvas but was not run here (host memory)"
+    ),
+)
+_add(
+    "validated",
     ("ppliteseg",),
     ("semantic",),
     ("onnx", "torchscript", "openvino", "tensorrt"),
@@ -1785,11 +1832,33 @@ _add(
     constraint="raw fixed-96 ROI contract: roi_image -> mask_logits",
 )
 _add(
+    "available",
+    ("picosam3",),
+    ("segment",),
+    ("axelera",),
+    since="1.7",
+    reason=(
+        "INT8 export of the raw ROI CNN compiled with Axelera's toolchain, under the "
+        "same contract as ONNX (roi_image [1,3,96,96] -> mask_logits [1,1,96,96]); "
+        "cutting the ROI from a box and pasting the logits back stay in Python. The "
+        "stem's depthwise 3x3 on the image runs as an exact dense 3->3 conv. "
+        "Supported, not validated: there are no ground-truth masks in the pairing, so "
+        "the device is measured against FP32 (fidelity): on 2360 ground-truth-box "
+        "ROIs of 297 COCO val2017 images, mask IoU vs FP32 0.968 and pixel "
+        "agreement 0.992 (docs/axelera.md)."
+    ),
+    constraint=(
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 96x96 ROI input; calibration ROIs cut from the dataset's "
+        "ground-truth boxes (2 per image, 128 in total)"
+    ),
+)
+_add(
     "blocked",
     ("picosam3",),
     ("segment",),
-    tuple(fmt for fmt in EXPORT_FORMATS if fmt != "onnx"),
-    reason="PicoSAM3 currently exports its raw ROI CNN through ONNX only.",
+    tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "axelera")),
+    reason="PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.",
 )
 _add(
     "validated",
@@ -2738,7 +2807,7 @@ _add(
     "blocked",
     ("mask_rcnn",),
     ("detect", "segment"),
-    tuple(fmt for fmt in EXPORT_FORMATS if fmt != "onnx"),
+    tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "axelera")),
     reason=(
         "Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, "
         "RoIAlign, variable-length detection, and full-image mask graph."
@@ -4048,35 +4117,38 @@ _add(
         "INT8 export compiled with Axelera's toolchain; LibreYOLO equalizes and "
         "bounds MobileNetV4's residual streams before export, calibrates with "
         "histogram activation ranges, and the whole classifier runs on the "
-        "Metis AIPU. On a Metis M.2 Max, MobileNetV4-m is within 1.0 top-1 "
-        "point of FP32 on a paired 1000-image ImageNetV2 set when calibrated on "
-        "images from its own domain (docs/axelera.md)."
+        "Metis AIPU. On a Metis M.2 Max, MobileNetV4-m, and -s with learned "
+        "INT8 rounding of every layer, are within 1.0 top-1 point of FP32 on a "
+        "paired 1000-image ImageNetV2 set when calibrated on images from their "
+        "own domain (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "validated sizes: m; s and l are supported with a measured drop "
-        "(SIZE_ACCURACY_NOTES, docs/axelera.md), "
+        "validated sizes: m, s (learned INT8 rounding, AXELERA_SIZE_RECIPES); l "
+        "is supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md), "
         "calibrated with in-domain images (data=). axelera-devkit / axelera-rt "
         "1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input"
     ),
 )
 _add(
-    "available",
+    "validated",
     ("efficientnetv2",),
     ("classify",),
     ("axelera",),
     reason=(
         "INT8 export compiled with Axelera's toolchain; the whole classifier runs "
-        "on the Metis AIPU with histogram activation ranges. Supported, not "
-        "validated: on a Metis M.2 Max EfficientNetV2-b0 keeps top-1 1.0-1.1 "
-        "points below FP32 on a paired 1000-image ImageNetV2 set "
-        "(docs/axelera.md)."
+        "on the Metis AIPU. For b1, b2 and b3 an exact graph pass reads the "
+        "stage-0 residual's skip through an identity 1x1 convolution (without "
+        "it the compiled model lists the skip buffer as a second output). On a "
+        "Metis M.2 Max, at their native sizes on a paired 1000-image ImageNetV2 "
+        "set, b1 and b3 are within 1.0 top-1 point of FP32; b0 and b2 are "
+        "supported with measured drops (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1, b2 and b3 "
-        "do not compile with SDK 1.9.0 (BLOCKED_SIZES). axelera-devkit / "
-        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input"
+        "validated sizes: b1, b3; supported sizes: b0, b2 (measured drops, "
+        "SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "compile, INT8, batch 1, fixed input (b0 224, b1 240, b2 260, b3 300 px)"
     ),
 )
 _add(
@@ -4121,43 +4193,53 @@ _add(
     ),
 )
 _add(
-    "available",
+    "validated",
     ("quicksrnet",),
     ("restore",),
     ("axelera",),
     reason=(
         "INT8 export compiled with Axelera's toolchain; the whole super-resolution "
         "graph runs on the Metis AIPU after its hidden channels are equalized "
-        "through their Hardtanh bounds and its biases corrected for INT8 weight "
-        "rounding. Supported, not validated: QuickSRNet-m2 keeps PSNR 0.46 dB "
-        "below FP32 on 296 COCO crops, 2x from 128 px (docs/axelera.md)."
+        "through their Hardtanh bounds and each weight's INT8 rounding direction "
+        "is learned on the calibration images (biases corrected). QuickSRNet-m2 "
+        "keeps PSNR 0.20 dB below FP32 on 296 COCO crops, 2x from 128 px, and "
+        "0.17 dB on a held-out half of them (docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: m2 (measured drop, SIZE_ACCURACY_NOTES). "
+        "validated sizes: m2 (learned INT8 rounding, AXELERA_SIZE_RECIPES). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed input canvas (smaller images are padded)"
     ),
 )
 _add(
-    "available",
+    "validated",
     ("realesrgan",),
     ("restore",),
     ("axelera",),
     reason=(
-        "INT8 export compiled with Axelera's toolchain; the compact network's "
-        "convolution trunk runs on the Metis AIPU and the host applies the pixel "
-        "shuffle and the nearest-upsampled input skip (layout "
-        "restore_shuffle_skip_v1). Supported, not validated: Real-ESRGAN-x4t "
-        "keeps PSNR 0.49 dB below FP32 on 296 COCO crops, 4x from 64 px "
-        "(docs/axelera.md)."
+        "INT8 export compiled with Axelera's toolchain. Real-ESRGAN-x4 (RRDB) runs "
+        "as three compiled parts with the trunk skip added on the host (its whole "
+        "graph's constants overflow the Metis DDR pool) and keeps PSNR within "
+        "0.06 dB of FP32 on 296 COCO crops, 4x from 64 px (the library export "
+        "gives the same 22.44 dB as the first measurement). For the compact "
+        "network (x4t) the convolution "
+        "trunk runs on the Metis AIPU and the host applies the pixel shuffle and "
+        "the nearest-upsampled input skip (layout restore_shuffle_skip_v1); with "
+        "its conv+PReLU trunk equalized before calibration (exact) it keeps PSNR "
+        "0.19 dB below FP32. Real-ESRGAN-x2 runs the same three "
+        "parts after an exact pixel-unshuffle convolution and, with histogram "
+        "activation ranges, keeps PSNR 0.28 dB below FP32 on 296 COCO crops, 2x "
+        "from 128 px (0.34 dB with min-max ranges; docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: x4t (measured drop, SIZE_ACCURACY_NOTES); x4 and x2 are "
-        "not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / "
-        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 64x64 input "
-        "canvas (smaller images are padded)"
+        "validated sizes: x4 (three compiled parts), x4t (equalized trunk, "
+        "AXELERA_SIZE_RECIPES) and x2 (three compiled parts, histogram "
+        "activation ranges). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed input canvas, 64x64 for x4/x4t and 128x128 for x2 (smaller images "
+        "are padded)"
     ),
 )
 _add(
@@ -4186,17 +4268,19 @@ _add(
     ("axelera",),
     reason=(
         "INT8 export compiled with Axelera's toolchain; the whole DeepLabV3 graph "
-        "runs on the Metis AIPU after two exact graph rewrites (the ASPP "
+        "runs on the Metis AIPU after exact graph rewrites (the ASPP "
         "image-pooling branch becomes a broadcast add, oversized ASPP "
-        "convolutions are split by channels), and the host upsamples the class "
-        "logits. Supported, not validated: DeepLabV3-MobileNetV3 keeps mIoU 3.77 "
-        "points below FP32 on a paired 300-image COCO val2017 set with VOC-21 "
-        "masks (docs/axelera.md)."
+        "convolutions are split by channels, and for R50/R101 each dilated ASPP "
+        "convolution runs as per-tap 1x1 convolutions plus zero-filled shifts), "
+        "and the host upsamples the class logits. Supported, not validated: on a "
+        "paired 300-image COCO val2017 set with VOC-21 masks mIoU stays below "
+        "FP32 by 3.77 points (MobileNetV3), 5.09 (R50) and 20.93 (R101; "
+        "docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: mv3 (measured drop, SIZE_ACCURACY_NOTES); r50 and r101 "
-        "do not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux "
+        "supported sizes: mv3, r50, r101 (measured drops, SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux "
         "x86_64 compile, INT8, batch 1, fixed 520x520 input"
     ),
 )
@@ -4210,15 +4294,17 @@ _add(
         "each level's box and class convolutions, CSPNeXt pointwise-conv inputs "
         "are equalized on the export copy (FP32 outputs unchanged), and "
         "LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 "
-        "Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 6.75, "
-        "RTMDet-m 2.66 and RTMDet-l 1.87 on a paired 1000-image COCO val2017 "
-        "subset (docs/axelera.md)."
+        "Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 4.40 "
+        "(with learned INT8 rounding of its pointwise convolutions), RTMDet-m "
+        "2.66, RTMDet-l 1.87 and RTMDet-x 3.72 (four compiled parts: its PAFPN "
+        "does not fit compiled whole) on a paired 1000-image COCO val2017 subset "
+        "(docs/axelera.md)."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does "
-        "not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
-        "compile, INT8, batch 1, fixed input size"
+        "supported sizes: t, s, m, l, x (measured drop, SIZE_ACCURACY_NOTES; x as "
+        "four compiled parts, AXELERA_SIZE_RECIPES). axelera-devkit / axelera-rt 1.9.0, "
+        "Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
 _add(
@@ -4232,14 +4318,17 @@ _add(
         "feature, and LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS, "
         "dynamic-kernel mask decode) runs on the host. Supported, not "
         "validated: on a Metis M.2 Max the mask / box mAP50-95 drops below FP32 "
-        "are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 5.80 / 7.26, RTMDet-Ins-m "
-        "0.79 / 3.96 and RTMDet-Ins-l 0.50 / 5.34 on a paired 1000-image COCO "
-        "val2017 subset (docs/axelera.md)."
+        "are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 3.27 / 5.02 (with learned INT8 rounding of its pointwise convolutions), RTMDet-Ins-m "
+        "0.79 / 3.96, RTMDet-Ins-l 0.50 / 5.34 and RTMDet-Ins-x 1.50 / 4.48 on a "
+        "paired 1000-image COCO val2017 subset (docs/axelera.md). RTMDet-Ins-x "
+        "runs as six compiled parts (backbone + first reduce, one per PAFPN "
+        "block with its level's heads, the mask-feature module); host: "
+        "resize+concat between parts, no weights."
     ),
     since="1.7",
     constraint=(
-        "supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does "
-        "not compile (BLOCKED_SIZES). axelera-devkit / "
+        "supported sizes: t, s, m, l, x (measured drop, SIZE_ACCURACY_NOTES; x "
+        "as six compiled parts). axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
@@ -4374,7 +4463,7 @@ _add(
     ),
     since="1.7",
     constraint=(
-        "validated sizes: l; s, m and x are supported with a measured drop "
+        "validated sizes: l, m (m with histogram activation ranges); s and x are supported with a measured drop "
         "(SIZE_ACCURACY_NOTES, docs/axelera.md). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
         "batch 1, fixed input size"
@@ -4398,6 +4487,19 @@ _add(
         "supported sizes: s, m, l (measured drop, SIZE_ACCURACY_NOTES). "
         "axelera-devkit / "
         "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
+    ),
+)
+_add(
+    "blocked",
+    ("l2cs",),
+    ("gaze",),
+    ("axelera",),
+    reason=(
+        "L2CS's published checkpoint is trained on Gaze360, whose licence forbids "
+        "redistributing models trained on it: LibreYOLO cannot mirror it, only "
+        "fetch it from the authors, so no Axelera export is measured or shipped "
+        "for it (non-redistributable weights; non-commercial ones would be "
+        "fine)."
     ),
 )
 _add(
@@ -4465,38 +4567,54 @@ _add(
     since="1.7",
     constraint=(
         "supported sizes: d0, d1 and d2 (d1 and d2 at a fixed 512x512 canvas; "
-        "measured drops, SIZE_ACCURACY_NOTES); d3 does not compile "
-        "(BLOCKED_SIZES); d4 is not measured on a Metis yet (UNMEASURED_SIZES). "
+        "measured drops, SIZE_ACCURACY_NOTES); d3 and d4 do not compile "
+        "(BLOCKED_SIZES). "
         "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
         "fixed input size"
     ),
 )
 _add(
-    "blocked",
+    "validated",
     ("yolo1",),
     ("detect",),
     ("axelera",),
     reason=(
-        "YOLOv1's head runs a [local] locally connected layer (every one of the "
-        "7x7 output positions has its own 3x3 filter bank), which exports as an "
-        "Einsum; Axelera's 1.9 quantizer does not support Einsum, so "
-        "quantization of YOLOv1-b (the only published size) stops on that "
-        "layer. Running it on Metis would need the layer rewritten as "
-        "convolutions."
+        "INT8 export compiled with Axelera's toolchain; the whole YOLOv1 graph "
+        "runs on the Metis AIPU after exact rewrites: the [local] locally "
+        "connected layer (an Einsum) as one convolution per 7x7 output "
+        "position, every Darknet batch norm folded into its convolution, and "
+        "the [connected] layer as row convolutions; the dense-grid decode "
+        "runs on the host. YOLOv1-b on a Metis M.2 Max is within 0.3 "
+        "mAP50-95 of FP32 on a paired 1000-image COCO val2017 subset limited "
+        "to the 20 VOC classes (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: b (t has no published weights). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
     ),
 )
 _add(
-    "blocked",
+    "available",
     ("fcos",),
     ("detect",),
     ("axelera",),
     reason=(
-        "FCOS's detection head normalizes every convolution with GroupNorm, "
-        "which divides each image's features by statistics computed from that "
-        "image; Axelera's INT8 toolchain has no form for it. Measured with the "
-        "1.9 SDK: quantization stops on the head's 40 InstanceNormalization "
-        "ops (at opset 18 it stops earlier, on Resize). Running FCOS on Metis "
-        "needs a head with batch norm or no norm, i.e. a retrained model."
+        "INT8 multi-part export compiled with Axelera's toolchain. FCOS's head "
+        "normalizes every convolution with GroupNorm (per-image statistics), "
+        "which the INT8 toolchain has no form for, so the ResNet-FPN trunk, the "
+        "four head convolutions (classification and regression towers stacked, "
+        "on all five levels packed onto one canvas) and the predictor run on "
+        "the Metis AIPU as six compiled parts, and the host applies each "
+        "GroupNorm + ReLU and decodes the boxes. Supported, not validated: on a "
+        "Metis M.2 Max FCOS-R50 loses 4.13 mAP50-95 points against FP32 on 1000 "
+        "COCO val2017 images at its 800x800 canvas (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES); fixed "
+        "800x800 canvas by default. axelera-devkit / axelera-rt 1.9.0, Linux "
+        "x86_64 compile, INT8, batch 1"
     ),
 )
 _add(
@@ -4520,16 +4638,96 @@ _add(
     ),
 )
 _add(
+    "validated",
+    ("yolo9_p2",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; YOLO9-P2 keeps YOLO9's "
+        "head towers and adds a stride-4 level, so the graph is cut after the "
+        "four levels' head convolutions with the YOLO9 output windows and "
+        "LibreYOLO decodes on the host. YOLO9-P2-s (the VisDrone research "
+        "preview, non-commercial) on a Metis M.2 Max is within 0.3 mAP50-95 "
+        "of FP32 on 448 VisDrone2019-DET val images, calibrated on 100 other "
+        "val images (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: s (t has no published checkpoint). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size"
+    ),
+)
+_add(
+    "validated",
+    ("yolo9_e2e",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the graph is cut after "
+        "the one-to-one head convolutions (the branch YOLO9-E2E's NMS-free "
+        "inference decodes), with the YOLO9 output windows and class-tower "
+        "bound, and LibreYOLO decodes on the host. YOLO9-E2E-t, -s, -m and -c "
+        "on a Metis M.2 Max are within 0.8 mAP50-95 of FP32 on a paired "
+        "1000-image COCO val2017 subset (docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: t, s, m, c (on-device results in docs/axelera.md). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed input size"
+    ),
+)
+_add(
+    "blocked",
+    ("dekr",),
+    ("pose",),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
+    ),
+)
+_add(
+    "validated",
+    ("hrnet",),
+    ("pose",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain as 14 compiled parts: the trunk "
+        "to stage 3, one part per branch of each stage-4 module, and the heatmap "
+        "layer; between parts the host only upsamples (nearest) and concatenates "
+        "channels, and each fusion's sum runs in the next part as a fixed 1x1 conv. "
+        "Compiled as one graph, the device output drifts from the quantized model "
+        "through stage 4's fusion modules. On a Metis M.2 Max, HRNet-w32 is within "
+        "1.0 keypoint mAP50-95 of FP32 on 1172 COCO val2017 person crops "
+        "(docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "validated sizes: w32 (256x192 person crops; slower than the FP32 CPU at "
+        "batch 1 with 4 host threads, 4.02 vs 4.98 img/s, 2.6x faster batched); w48 "
+        "(384x288) is supported with a measured drop (SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, fixed crop input"
+    ),
+)
+_add(
+    "blocked",
+    ("zipdepth",),
+    ("depth",),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
+    ),
+)
+_add(
     "blocked",
     ("centernet",),
     ("detect",),
     ("axelera",),
     reason=(
-        "Both CenterNet sizes (ResDCN-18 and DLA-34) upsample with modulated "
-        "deformable convolutions, which sample the feature map at learned "
-        "per-pixel offsets (exported as grid_sample); Axelera's 1.9 quantizer "
-        "has no converter for GridSample, and the host can only run operators "
-        "before or after the accelerated graph."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4539,9 +4737,15 @@ _add(
     ("axelera",),
     reason=(
         "ConvNeXt normalizes every block with a per-pixel LayerNorm (each pixel "
-        "divided by the standard deviation of its own channels), which needs a "
-        "data-dependent division and square root that the AIPU does not run; "
-        "with SDK 1.9 quantization stops on the stem's channel ReduceMean."
+        "divided by the standard deviation of its own channels). The channel "
+        "mean and variance have exact AIPU forms, but the reciprocal square "
+        "root of that per-pixel variance has none, and it sits right before "
+        "the block's GELU, so it cannot be folded into a convolution; with SDK "
+        "1.9 quantization stops on the stem's channel ReduceMean. Running each "
+        "LayerNorm on the host between accelerated parts would need about 23 "
+        "parts for ConvNeXt-t (18 blocks, stem and three downsampling layers). "
+        "A hybrid export (convolutions on the Metis, LayerNorms on the host) "
+        "is the route if it is ever needed."
     ),
 )
 _add(
@@ -4555,18 +4759,6 @@ _add(
         "norm over the mean of those norms), data-dependent divisions and "
         "square roots that the AIPU does not run; with SDK 1.9 quantization "
         "stops on the first LayerNorm."
-    ),
-)
-_add(
-    "blocked",
-    ("faster_rcnn",),
-    ("detect",),
-    ("axelera",),
-    reason=(
-        "Faster R-CNN is two-stage: the region proposals pick boxes at run time "
-        "(If, NonZero, TopK) and RoIAlign crops them before the second network "
-        "runs. Axelera's host can only run operators before or after one "
-        "accelerated graph; with SDK 1.9 the graph cleaner rejects the export."
     ),
 )
 _add(
@@ -4587,9 +4779,8 @@ _add(
     ("detect",),
     ("axelera",),
     reason=(
-        "TinyFormer's decoder uses the same gather-based deformable attention "
-        "as EC (bounds masks, data-dependent Gather) and LayerNorm; with SDK "
-        "1.9 quantization has no converter for its GreaterOrEqual masks."
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4598,11 +4789,56 @@ _add(
     ("restore",),
     ("axelera",),
     reason=(
-        "NAFNet adds the input image to the network output (a skip around the "
-        "whole graph, which the compiler's graph cleaner rejects) and "
-        "normalizes every block with a per-pixel LayerNorm (a data-dependent "
-        "division); no trained LibreYOLO weights are published to measure an "
-        "exported model against."
+        "Not available yet: no trained LibreYOLO NAFNet weights are published, "
+        "so there is no model to export and measure on a Metis. Known work for "
+        "when weights exist: the input skip around the whole graph runs on the "
+        "host (as for Real-ESRGAN), and every block's per-pixel LayerNorm has "
+        "the same reciprocal square root as ConvNeXt's."
+    ),
+)
+_add(
+    "available",
+    ("dexined",),
+    ("edge",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole DexiNed graph "
+        "runs on the Metis AIPU and the host resizes the fused edge probability "
+        "map. Supported, not validated: measured as fidelity to FP32 (no BIPED "
+        "ground truth was used): on 300 COCO val2017 images at 352 px the device "
+        "edge maps keep cosine 0.997 and edge-pixel F1 0.965 at 0.5 against FP32 "
+        "(docs/axelera.md). Weights: LibreYOLO neither hosts nor downloads the "
+        "upstream checkpoint (MIT code; trained on BIPED, whose terms are "
+        "non-commercial); the user supplies it and converts it locally."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: b (measured fidelity, SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, "
+        "fixed 352x352 input"
+    ),
+)
+_add(
+    "blocked",
+    ("feynobg",),
+    ("matte",),
+    ("axelera",),
+    reason=(
+        "Out of scope: FeyNobg (BiRefNet) runs a Swin-L transformer backbone; "
+        "Axelera Metis support covers CNN backbones (docs/axelera.md section 11)."
+    ),
+)
+_add(
+    "blocked",
+    ("fomo",),
+    ("point",),
+    ("axelera",),
+    reason=(
+        "Not available yet: the published LibreFOMO checkpoints (s, m, l) are "
+        "architecture-only, randomly initialised weights, so there is no trained "
+        "model to export and measure on a Metis. The network is a small "
+        "MobileNetV2-style CNN with a 1x1 head, with no operator known to block "
+        "the Axelera toolchain."
     ),
 )
 _add(
@@ -4617,30 +4853,193 @@ _add(
     ),
 )
 _add(
-    "blocked",
+    "available",
+    ("ddrnet",),
+    ("semantic",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; DDRNet runs on the Metis "
+        "AIPU as three compiled parts at its native 1024x2048 frame, as PIDNet "
+        "(both branches with the DAPPM's per-branch layers; the DAPPM sums and "
+        "compression; the head), joined on the host by bilinear upsampling and "
+        "channel concatenation only. Compiled whole, the compiler did not finish "
+        "in 3 hours. Supported, not validated: DDRNet is trained on Cityscapes, "
+        "so the paired measurement is fidelity to FP32 at the same frame on COCO "
+        "val2017 images (s: mIoU 0.791, 94.0% of pixels agree on 300; m: 0.810, "
+        "94.5% on 300; docs/axelera.md); the loss is in the high-resolution "
+        "branch. Faster than the FP32 CPU at 4 host threads (its best run, batch "
+        "1): s 3.04 / 7.46 img/s at batch 1 / 8 vs 1.90; m 1.46 / 4.61 vs 0.57."
+    ),
+    since="1.8",
+    constraint=(
+        "supported sizes: s, m (measured fidelity, SIZE_ACCURACY_NOTES); l has "
+        "no published Cityscapes checkpoint (UNMEASURED_SIZES). axelera-devkit / "
+        "axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1 per part call, "
+        "fixed 1024x2048 input (the native frame; height and width multiples of "
+        "64, width a multiple of height)"
+    ),
+)
+_add(
+    "available",
     ("pidnet",),
     ("semantic",),
     ("axelera",),
     reason=(
-        "Not available yet: the SDK 1.9 compile of PIDNet-s did not finish "
-        "within 90 minutes at 1024x1024 or at 512x512 (both stopped in the "
-        "compiler's first lowering step, midend_to_tir); no structural error "
-        "was seen. Its spatial attention needs exact graph rewrites "
-        "(channel reductions as 1x1 convolutions, broadcast gating), which "
-        "quantize."
+        "INT8 export compiled with Axelera's toolchain; PIDNet runs on the Metis AIPU "
+        "as three compiled parts (the branches through layer 5 with the pyramid "
+        "pooling's per-branch layers, the pooling sums, then the branch fusion and the "
+        "head), joined on the host by bilinear upsampling and channel concatenation "
+        "only. Compiled whole it collapses in INT8 (logit cosine about 0). Supported, "
+        "not validated: PIDNet is trained on Cityscapes, so the paired measurement is "
+        "fidelity to FP32 on COCO val2017 images at 1024x1024 (s: mIoU 0.864, 95.0% "
+        "of pixels agree on 300; m: 0.825, 95.3% on 96; l: 0.820, 95.1% on 100; "
+        "docs/axelera.md). Faster than the FP32 CPU (4 host threads): s 7.36 vs "
+        "2.93 img/s batched, 5.17 vs 2.89 at batch 1; m 3.48 vs 0.56 and 1.75 vs "
+        "0.50; l 4.07 vs 0.49 and 1.92 vs 0.48. PIDNet-m calibrates slowly in the "
+        "SDK (about a minute per image): it was measured with fraction=0.25 (32 "
+        "coco128 images), its default when fraction is left unset."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: s, m, l (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1 per part call, fixed 1024x1024 input (a multiple of 64)"
     ),
 )
 _add(
-    "blocked",
+    "available",
+    ("ppliteseg",),
+    ("semantic",),
+    ("axelera",),
+    reason=(
+        "INT8 export compiled with Axelera's toolchain; the whole PP-LiteSeg "
+        "graph runs on the Metis AIPU after exact graph rewrites (channel "
+        "reductions as 1x1 convolutions, pyramid-pool resizes as factor-2/3 "
+        "steps, wide pool windows staged, and each UAFM blend as "
+        "x * sigmoid(z) + skip * sigmoid(-z): the native 1 - sigmoid(z) breaks "
+        "under INT8) and the host upsamples the class logits. Supported, not "
+        "validated: PP-LiteSeg is trained on Cityscapes, so the paired "
+        "measurement is fidelity to FP32 on 1000 COCO val2017 images (device "
+        "labels against FP32 labels: mIoU t50 0.850, b50 0.857, t75 0.807, "
+        "b75 0.848; docs/axelera.md)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: t50, b50, t75, b75 (measured fidelity, "
+        "SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 "
+        "compile, INT8, batch 1, fixed 512x1024 (t50, b50) or 768x1536 (t75, "
+        "b75) input"
+    ),
+)
+_add(
+    "available",
     ("unet",),
     ("semantic",),
     ("axelera",),
     reason=(
-        "Not available yet: UNet has no ONNX semantic export contract in "
-        "LibreYOLO yet, and the SDK 1.9 compile of UNet-s at its 512x1024 crop "
-        "did not finish within 3 hours (quantization takes about 20 minutes); "
-        "no structural error was seen there. At the full 1024x2048 frame "
+        "INT8 export compiled with Axelera's toolchain; the whole UNet-s graph "
+        "runs on the Metis AIPU at its 512x1024 training crop and the host "
+        "upsamples the class logits. Supported, not validated: UNet is trained "
+        "on Cityscapes, so the paired measurement is fidelity to FP32 on 1000 "
+        "COCO val2017 images (device labels against FP32 labels: mIoU 0.856, "
+        "95.3% of pixels agree, with histogram activation ranges; docs/axelera.md). "
+        "The SDK 1.9 compile takes about 11-13 hours; at the full 1024x2048 frame "
         "lowering finds no L1 tiling (4.7 MB needed, 4.1 MB available)."
+    ),
+    since="1.7",
+    constraint=(
+        "supported sizes: s (measured fidelity, SIZE_ACCURACY_NOTES). "
+        "axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, "
+        "batch 1, fixed 512x1024 input"
+    ),
+)
+_add(
+    "blocked",
+    ("rtdetr", "rtdetrv2", "dfine", "deim", "deimv2", "rtdetrv4"),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
+    ),
+)
+_add(
+    "blocked",
+    ("faster_rcnn",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
+    ),
+)
+_add(
+    "blocked",
+    ("ppdoclayoutv3",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
+    ),
+)
+_add(
+    "blocked",
+    ("mask_rcnn",),
+    ("detect", "segment"),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
+    ),
+)
+_add(
+    "blocked",
+    ("rtdetrv2", "riodetrv2"),
+    ("obb",),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
+    ),
+)
+_add(
+    "blocked",
+    ("dinodetr",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
+    ),
+)
+_add(
+    "blocked",
+    ("deformable_detr",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
+    ),
+)
+_add(
+    "blocked",
+    ("dfine",),
+    ("segment",),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
+    ),
+)
+_add(
+    "blocked",
+    ("detr",),
+    ("detect",),
+    ("axelera",),
+    reason=(
+        "not supported on Metis: part of the network would run on the host CPU, and "
+        "Axelera support means the whole network runs on the Metis."
     ),
 )
 _add(
@@ -4758,12 +5157,14 @@ def iter_blocked() -> Iterator[tuple[tuple[str, str, str], SupportEntry]]:
 #: measured with the recipe the library uses for that size
 #: (``libreyolo.export.axelera.AXELERA_SIZE_RECIPES``).
 SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
-    ("mobilenetv4", "classify", "axelera"): {
-        "s": (
-            "measured top-1 drop 1.7 points vs FP32 (0.607 vs 0.624 on a paired "
-            "1000-image ImageNetV2 set; histogram ranges, no residual-stream "
-            "transform)"
+    ("fcos", "detect", "axelera"): {
+        "r50": (
+            "measured mAP50-95 drop 4.13 points vs FP32 (0.3405 vs 0.3818 on 1000 "
+            "COCO val2017 images at the 800x800 canvas; -3.43 on 300; six compiled "
+            "parts with GroupNorm on the host)"
         ),
+    },
+    ("mobilenetv4", "classify", "axelera"): {
         "l": (
             "measured top-1 drop 1.7 points vs FP32 (0.710 vs 0.727 on a paired "
             "1000-image ImageNetV2 set; min-max ranges with the residual-stream "
@@ -4775,19 +5176,16 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "measured top-1 drop 1.1 points vs FP32 (0.656 vs 0.667 on a paired "
             "1000-image ImageNetV2 set; 1.0 on a second compile)"
         ),
-    },
-    ("quicksrnet", "restore", "axelera"): {
-        "m2": (
-            "measured PSNR drop 0.46 dB vs FP32 (28.66 vs 29.12 dB, SSIM 0.866 vs "
-            "0.877, on 296 COCO crops upscaled 2x from 128 px; the validated bar "
-            "for restoration is 0.3 dB)"
+        "b2": (
+            "measured top-1 drop 1.3 points vs FP32 (0.693 vs 0.706 on a paired "
+            "1000-image ImageNetV2 set at 260 px)"
         ),
     },
-    ("realesrgan", "restore", "axelera"): {
-        "x4t": (
-            "measured PSNR drop 0.49 dB vs FP32 (22.00 vs 22.49 dB, SSIM 0.606 vs "
-            "0.658, on 296 COCO crops upscaled 4x from 64 px; the validated bar "
-            "for restoration is 0.3 dB)"
+    ("dexined", "edge", "axelera"): {
+        "b": (
+            "measured edge-pixel F1 0.965 vs FP32 edges at 0.5 (cosine 0.997, MAE "
+            "0.013 on 300 COCO val2017 images at 352 px; fidelity, no BIPED ground "
+            "truth)"
         ),
     },
     ("midas", "depth", "axelera"): {
@@ -4811,11 +5209,104 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "1000 COCO val2017 images)"
         ),
     },
+    ("ppliteseg", "semantic", "axelera"): {
+        "t50": (
+            "measured fidelity mIoU 0.850 vs FP32 labels (94.7% of pixels agree on "
+            "1000 COCO val2017 images at 512x1024; PP-LiteSeg is Cityscapes-trained "
+            "and no Cityscapes masks were used)"
+        ),
+        "b50": (
+            "measured fidelity mIoU 0.857 vs FP32 labels (96.0% of pixels agree on "
+            "1000 COCO val2017 images at 512x1024; PP-LiteSeg is Cityscapes-trained "
+            "and no Cityscapes masks were used)"
+        ),
+        "t75": (
+            "measured fidelity mIoU 0.807 vs FP32 labels (93.8% of pixels agree on "
+            "1000 COCO val2017 images at 768x1536; PP-LiteSeg is Cityscapes-trained "
+            "and no Cityscapes masks were used)"
+        ),
+        "b75": (
+            "measured fidelity mIoU 0.848 vs FP32 labels (95.5% of pixels agree on "
+            "1000 COCO val2017 images at 768x1536; PP-LiteSeg is Cityscapes-trained "
+            "and no Cityscapes masks were used)"
+        ),
+    },
+    ("ddrnet", "semantic", "axelera"): {
+        "s": (
+            "measured fidelity mIoU 0.791 vs FP32 labels (94.0% of pixels agree on "
+            "300 COCO val2017 images at the native 1024x2048, three compiled parts; "
+            "DDRNet is Cityscapes-trained and no Cityscapes masks were used)"
+        ),
+        "m": (
+            "measured fidelity mIoU 0.810 vs FP32 labels (94.5% of pixels agree on "
+            "300 COCO val2017 images at the native 1024x2048, three compiled parts; "
+            "DDRNet is Cityscapes-trained and no Cityscapes masks were used)"
+        ),
+    },
+    ("pidnet", "semantic", "axelera"): {
+        "s": (
+            "measured fidelity mIoU 0.864 vs FP32 labels (95.0% of pixels agree on "
+            "300 COCO val2017 images at 1024x1024, three compiled parts; PIDNet is "
+            "Cityscapes-trained and no Cityscapes masks were used)"
+        ),
+        "m": (
+            "measured fidelity mIoU 0.825 vs FP32 labels (95.3% of pixels agree on "
+            "96 COCO val2017 images at 1024x1024, three compiled parts, calibrated "
+            "on 32 coco128 images; PIDNet is Cityscapes-trained and no Cityscapes "
+            "masks were used)"
+        ),
+        "l": (
+            "measured fidelity mIoU 0.820 vs FP32 labels (95.1% of pixels agree on "
+            "100 COCO val2017 images at 1024x1024, three compiled parts; PIDNet is "
+            "Cityscapes-trained and no Cityscapes masks were used)"
+        ),
+    },
+    ("picosam3", "segment", "axelera"): {
+        "pico": (
+            "measured fidelity mask IoU 0.968 vs FP32 (pixel agreement 0.992 on 2360 "
+            "ground-truth-box ROIs of 297 COCO val2017 images; no ground-truth masks "
+            "in the pairing; picosam3/segment/pico/2026-11-19)"
+        ),
+    },
+    ("unet", "semantic", "axelera"): {
+        "s": (
+            "measured fidelity mIoU 0.856 vs FP32 labels (95.3% of pixels agree "
+            "on 1000 COCO val2017 images at 512x1024, histogram activation ranges; "
+            "UNet is Cityscapes-trained and no Cityscapes masks were used)"
+        ),
+    },
     ("deeplabv3", "semantic", "axelera"): {
         "mv3": (
             "measured mIoU drop 3.77 points vs FP32 (0.4853 vs 0.5230 on 300 COCO "
             "val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
             "through the same path)"
+        ),
+        "r50": (
+            "measured mIoU drop 5.09 points vs FP32 (0.4734 vs 0.5243 on 300 COCO "
+            "val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
+            "through the same path; ASPP as per-tap 1x1 convolutions plus shifts)"
+        ),
+        "r101": (
+            "measured mIoU drop 20.93 points vs FP32 (0.3795 vs 0.5888 on 300 "
+            "COCO val2017 images with VOC-21 masks at 520 px, the FP32 ONNX export "
+            "through the same path; ASPP as per-tap 1x1 convolutions plus shifts). "
+            "The loss happens on the device (device vs CPU-quantized output "
+            "cosine 0.895; the CPU-quantized model itself stays within 0.4 mIoU "
+            "of FP32 on 100 of those images, so no quantization recipe recovers "
+            "it): check accuracy on your data, or use r50 or mv3"
+        ),
+    },
+    ("vgg", "classify", "axelera"): {
+        "19bn": (
+            "measured top-1 drop 5.1 points vs FP32 (0.593 vs 0.644 on 1000 "
+            "ImageNetV2 images, 250 ImageNetV2 calibration images, min-max "
+            "ranges; histogram ranges gave -6.0)"
+        ),
+    },
+    ("hrnet", "pose", "axelera"): {
+        "w48": (
+            "measured keypoint mAP50-95 drop 1.28 points vs FP32 (0.7727 vs 0.7855 "
+            "on 1172 COCO val2017 person crops at 384x288; 14 compiled parts, as w32)"
         ),
     },
     ("rtmdet", "detect", "axelera"): {
@@ -4825,9 +5316,11 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "depthwise ranges and balanced CSPNeXt pointwise equalization)"
         ),
         "s": (
-            "measured mAP50-95 drop 6.75 points vs FP32 (0.3446 vs 0.4121 on 1000 "
-            "COCO val2017 images, 64 coco128 calibration images, per-channel "
-            "depthwise ranges and balanced CSPNeXt pointwise equalization)"
+            "measured mAP50-95 drop 4.40 points vs FP32 (0.3681 vs 0.4121 on 1000 "
+            "COCO val2017 images; -5.43 on 300, -5.15 on 1000 held-out images; 64 "
+            "coco128 calibration images, per-channel depthwise ranges, balanced "
+            "CSPNeXt pointwise equalization and learned INT8 rounding of the "
+            "pointwise convolutions)"
         ),
         "m": (
             "measured mAP50-95 drop 2.66 points vs FP32 (0.4461 vs 0.4727 on 1000 "
@@ -4840,6 +5333,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "COCO val2017 images; -1.92 on 300; 64 coco128 calibration images, "
             "per-channel depthwise ranges and balanced CSPNeXt pointwise "
             "equalization)"
+        ),
+        "x": (
+            "measured mAP50-95 drop 3.72 points vs FP32 (0.4756 vs 0.5128 on 1000 "
+            "COCO val2017 images; -3.48 on 300; 64 coco128 calibration images, "
+            "per-channel depthwise ranges and balanced CSPNeXt pointwise "
+            "equalization; four compiled parts joined on the host by nearest "
+            "upsampling and channel concatenation)"
         ),
     },
     ("efficientdet", "detect", "axelera"): {
@@ -4880,10 +5380,11 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "balanced CSPNeXt pointwise equalization)"
         ),
         "s": (
-            "measured mask mAP50-95 drop 5.80 points vs FP32 (0.3139 vs 0.3719 "
-            "on 1000 COCO val2017 images; box 0.3445 vs 0.4171, -7.26; 64 "
-            "coco128 calibration images, per-channel depthwise ranges and "
-            "balanced CSPNeXt pointwise equalization)"
+            "measured mask mAP50-95 drop 3.27 points vs FP32 (0.3392 vs 0.3719 "
+            "on 1000 COCO val2017 images; box 0.3669 vs 0.4171, -5.02; 64 "
+            "coco128 calibration images, per-channel depthwise ranges, "
+            "balanced CSPNeXt pointwise equalization and learned INT8 rounding "
+            "of the pointwise convolutions)"
         ),
         "m": (
             "measured box mAP50-95 drop 3.96 points vs FP32 (box 0.4149 vs 0.4545, "
@@ -4897,12 +5398,13 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "coco128 calibration images, per-channel depthwise ranges and "
             "balanced CSPNeXt pointwise equalization)"
         ),
-    },
-    ("vgg", "classify", "axelera"): {
-        "19bn": (
-            "measured top-1 drop 5.1 points vs FP32 (0.593 vs 0.644 on 1000 "
-            "ImageNetV2 images, 250 ImageNetV2 calibration images, min-max "
-            "ranges; histogram ranges gave -6.0)"
+        "x": (
+            "measured mask mAP50-95 drop 1.50 points vs FP32 (0.4077 vs 0.4227 "
+            "on 1000 COCO val2017 images; box 0.4394 vs 0.4842, -4.48; 64 "
+            "coco128 calibration images, per-channel depthwise ranges). Six "
+            "compiled parts: backbone + first reduce, one per PAFPN block with "
+            "its level's heads, and the mask-feature module; host: resize+concat "
+            "between parts, no weights"
         ),
     },
     ("ppyoloe", "detect", "axelera"): {
@@ -4910,13 +5412,9 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
             "measured mAP50-95 drop 1.23 points vs FP32 (0.396 vs 0.409 on 1000 "
             "COCO val2017 images)"
         ),
-        "m": (
-            "measured mAP50-95 drop 1.22 points vs FP32 (0.442 vs 0.454 on 1000 "
-            "COCO val2017 images)"
-        ),
         "x": (
-            "measured mAP50-95 drop 1.71 points vs FP32 (0.475 vs 0.492 on 1000 "
-            "COCO val2017 images)"
+            "measured mAP50-95 drop 1.08 points vs FP32 (0.481 vs 0.492 on 1000 "
+            "COCO val2017 images; histogram activation ranges)"
         ),
     },
     ("yolo4", "detect", "axelera"): {
@@ -4950,13 +5448,58 @@ SIZE_ACCURACY_NOTES: dict[tuple[str, str, str], dict[str, str]] = {
 #: format, each with its structural reason. Accuracy never lands a size here
 #: (that is SIZE_ACCURACY_NOTES); the export raises for these.
 BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("retinanet", "detect", "axelera"): {
+        "r50v2": (
+            "does not run usefully on Metis with the 1.9 SDK: its head normalizes "
+            "every convolution with GroupNorm (per-image statistics), which the "
+            "INT8 toolchain has no form for. Measured multi-part route (as FCOS): "
+            "trunk and head convolutions as six compiled parts with GroupNorm on "
+            "the host compile and run, but score 0.033 mAP50-95 against FP32's "
+            "0.396 on 300 COCO val2017 images; its ResNet-50 v2 trunk does not "
+            "survive INT8 (CPU-quantized cosine vs FP32 0.56-0.78 per-tensor, "
+            "0.93-0.97 hybrid; cross-layer equalization does not help); use "
+            "RetinaNet-r50"
+            "; running part of the network on the host CPU is not supported"
+        ),
+    },
     ("efficientdet", "detect", "axelera"): {
         "d3": (
             "does not compile for Metis with the 1.9 SDK: lowering finds no L1 "
             "tiling even with one-row tiles, at its native 896 (2.52 MB needed, "
             "2.15 MB available) and at a 512 canvas (2.58 vs 2.14 MB); its "
-            "160-channel BiFPN and heads set the need, not the canvas; use d2"
+            "160-channel BiFPN and heads set the need, not the canvas, and "
+            "compiler tiling options (force_oc_tiling, resources_used=1.0) do "
+            "not help. Each BiFPN node compiles alone, so d3 does run entirely "
+            "on the Metis as 54 compiled parts (one per BiFPN node; the host only "
+            "upsamples and concatenates between them and decodes the anchors), "
+            "at -1.35 mAP50-95 vs FP32, but end to end it is slower than FP32 "
+            "on the CPU at the same 512 input (1.09 vs 4.64 img/s at batch 1, "
+            "3.50 vs 4.48 at batch 8), so it is parked for speed (branch "
+            "axelera-effdet-parts); use d2"
+            "; running part of the network on the host CPU is not supported"
         ),
+        "d4": (
+            "does not compile for Metis with the 1.9 SDK: lowering finds no L1 "
+            "tiling even with one-row tiles, at its native 1024 (2.69 MB needed, "
+            "0.94 MB available) and at a 512 canvas (2.10 vs 1.22 MB). Prefix "
+            "cuts at 512 put the overflow in the EfficientNet-B4 backbone: its "
+            "first five stages compile, the 272-channel stage (blocks.5) alone "
+            "needs 3.12 MB of L1 against 2.47 MB; use d2"
+            "; running part of the network on the host CPU is not supported"
+        ),
+    },
+    ("dinodetr", "detect", "axelera"): {
+        "swinl": (
+            "out of scope: its backbone is a Swin-L vision transformer, so a hybrid "
+            "export would leave almost nothing on the Metis (docs/axelera.md section 11)"
+        ),
+    },
+    ("deimv2", "detect", "axelera"): {
+        size: (
+            "out of scope: its backbone is a DINOv3 vision transformer, so a hybrid "
+            "export would leave almost nothing on the Metis (docs/axelera.md section 11)"
+        )
+        for size in ("s", "m", "l", "x")
     },
     ("midas", "depth", "axelera"): {
         "l": (
@@ -4966,70 +5509,23 @@ BLOCKED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
             "value type'), after 6 min and an 18 GB peak; use MiDaS-s"
         ),
     },
-    ("efficientnetv2", "classify", "axelera"): {
-        "b1": (
-            "does not compile with Axelera's SDK 1.9.0: at 224 and 240 px the "
-            "compiled model has two output buffers for its one output, and at "
-            "256 px the squeeze-excitation pooling exceeds a reduction limit"
-        ),
-        "b2": (
-            "does not compile with Axelera's SDK 1.9.0: the compiled model has "
-            "two output buffers for its one output"
-        ),
-        "b3": (
-            "does not compile with Axelera's SDK 1.9.0: at its native 300 px and "
-            "at 224 px the compiled model has two output buffers for its one output"
-        ),
-    },
-    ("deeplabv3", "semantic", "axelera"): {
-        size: (
-            f"does not compile for Metis with the 1.9 SDK: it quantizes, but at "
-            "output stride 8 its ASPP convolutions (dilation up to 36) need the "
-            "whole 64x64 feature map at once and lowering finds no L1 tiling that "
-            "fits"
-        )
-        for size in ("r50", "r101")
-    },
-    ("retinanet", "detect", "axelera"): {
-        "r50v2": (
-            "does not quantize for Metis with the 1.9 SDK: like FCOS, its head "
-            "normalizes every convolution with GroupNorm (per-image statistics) "
-            "and quantization stops on the head's InstanceNormalization ops; use "
-            "RetinaNet-r50"
-        ),
-    },
-    ("rtmdet", "segment", "axelera"): {
-        "x": (
-            "does not compile for Metis at 640x640 with the 1.9 SDK: lowering "
-            "fails in AssignTilingFactors (ScheduleMemory, LowerTIR) because no "
-            "tiling factor fits L1 (3.99 MB needed, 3.32 MB available; after 2 h "
-            "08 min, 8.1 GB peak RSS); use RTMDet-Ins-l"
-        ),
-    },
-    ("rtmdet", "detect", "axelera"): {
-        "x": (
-            "does not compile for Metis at 640x640 with the 1.9 SDK: the "
-            "compiler's LowerTIR pass still overflows its on-chip buffers after 4 "
-            "iterations (after 2 h 21 min, 7 GB peak RSS); use RTMDet-l"
-        ),
-    },
+
 }
 
 #: Sizes not exportable yet because nobody has measured them on a Metis. This
 #: is not a block (nothing is known to fail); the export raises until a
 #: measurement moves the size to SIZE_ACCURACY_NOTES or to validated.
 UNMEASURED_SIZES: dict[tuple[str, str, str], dict[str, str]] = {
-    ("efficientdet", "detect", "axelera"): {
-        "d4": "has not been measured on a Metis yet"
-    },
-    ("realesrgan", "restore", "axelera"): {
-        "x4": (
-            "has not been measured on a Metis yet: its whole-graph compile at 64 px "
-            "with SDK 1.9.0 did not finish within 4 h (no error seen)"
+    ("ddrnet", "semantic", "axelera"): {
+        "l": (
+            "has not been measured on a Metis yet: no Cityscapes DDRNet-39 "
+            "checkpoint is published (upstream released only its ImageNet backbone)"
         ),
-        "x2": (
-            "has not been measured on a Metis yet: its whole-graph compile at 128 px "
-            "with SDK 1.9.0 did not finish within 3.5 h (no error seen)"
+    },
+    ("yolo9_p2", "detect", "axelera"): {
+        "t": (
+            "has not been measured on a Metis yet: no trained YOLO9-P2-t "
+            "checkpoint is published"
         ),
     },
 }
@@ -5046,6 +5542,8 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("yolonas", "pose"),
             ("yolonas", "obb"),
             ("yolo9", "detect"),
+            ("yolo9_p2", "detect"),
+            ("yolo9_e2e", "detect"),
             ("resnet", "classify"),
             ("mobilenetv4", "classify"),
             ("efficientnetv2", "classify"),
@@ -5054,9 +5552,11 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("quicksrnet", "restore"),
             ("realesrgan", "restore"),
             ("midas", "depth"),
+            ("dexined", "edge"),
             ("deeplabv3", "semantic"),
             ("fcn", "semantic"),
             ("yolox", "detect"),
+            ("yolo1", "detect"),
             ("yolo2", "detect"),
             ("yolo4", "detect"),
             ("yolo3", "detect"),
@@ -5064,10 +5564,12 @@ INT8_EXPORTS: dict[str, frozenset[tuple[str, str]]] = {
             ("ppyoloe", "detect"),
             ("picodet", "detect"),
             ("rtmdet", "detect"),
+            ("fcos", "detect"),
             ("retinanet", "detect"),
             ("ssd", "detect"),
             ("efficientdet", "detect"),
             ("rtmdet", "segment"),
+            ("rtdetr", "detect"),
         }
     ),
 }

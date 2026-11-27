@@ -171,6 +171,10 @@ _RECTANGULAR_BACKEND_FAMILIES = {
     # Every PP-LiteSeg size is natively rectangular (512x1024 / 768x1536), so
     # its exported artifacts always carry a rectangular imgsz_h/imgsz_w pair.
     "ppliteseg",
+    # U-Net exports at its 1024x2048 frame or its 512x1024 training crop.
+    "unet",
+    # DDRNet evaluates whole 1024x2048 frames (direct resize, no padding).
+    "ddrnet",
     "realesrgan",
     "quicksrnet",
 }
@@ -891,7 +895,13 @@ class BaseBackend(ABC):
                 color_format=color_format,
             )
         elif self.model_family == "fcos":
-            return self._preprocess_fcos(image, effective_imgsz, color_format)
+            return self._preprocess_fcos(
+                image,
+                effective_imgsz,
+                color_format,
+                # Fixed-shape artifacts (Axelera) take one square canvas.
+                fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,
+            )
         elif self.model_family in {"deformable_detr", "dinodetr"}:
             tensor, img, size = self._preprocess_deformable_detr(
                 image, effective_imgsz, color_format
@@ -1332,7 +1342,7 @@ class BaseBackend(ABC):
         return torch.from_numpy(chw).unsqueeze(0), img.copy(), original_size, 1.0
 
     @staticmethod
-    def _preprocess_fcos(image, input_size, color_format):
+    def _preprocess_fcos(image, input_size, color_format, fixed_canvas=False):
         """Apply the out-of-graph torchvision FCOS transform."""
         from ..models.fcos.utils import preprocess_image
 
@@ -1343,6 +1353,7 @@ class BaseBackend(ABC):
             image,
             input_size=input_h,
             color_format=color_format,
+            fixed_canvas=fixed_canvas,
         )
 
     @staticmethod
@@ -2543,7 +2554,9 @@ class BaseBackend(ABC):
             raise ValueError(
                 f"FCOS backend parsing requires a scalar/square imgsz, got {effective_imgsz}"
             )
-        resized_h, resized_w, _ = resize_dimensions(orig_h, orig_w, input_h)
+        resized_h, resized_w, _ = resize_dimensions(
+            orig_h, orig_w, input_h, getattr(self, "_fixed_input_hw", None) is not None
+        )
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, resized_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, resized_h)
         boxes[:, [0, 2]] *= orig_w / resized_w
@@ -4628,7 +4641,7 @@ class BaseBackend(ABC):
             # normalization, stride pad; the parser undoes that geometry.
             "fcos": FCOSValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
-        if preprocessor_cls is RetinaNetValPreprocessor:
+        if preprocessor_cls in (RetinaNetValPreprocessor, FCOSValPreprocessor):
             return preprocessor_cls(
                 img_size=_imgsz_hw(img_size),
                 fixed_canvas=getattr(self, "_fixed_input_hw", None) is not None,
@@ -4982,6 +4995,16 @@ class BaseBackend(ABC):
     # =========================================================================
     # Inference pipeline
     # =========================================================================
+    #: ``predict(batch=None)`` for list, directory and video-file sources: images per
+    #: inference call. Backends whose runtime gains from a batched submission raise it.
+    default_predict_batch: int = 1
+
+    def _resolve_predict_batch(self, batch: Optional[int]) -> int:
+        if batch is None:
+            return int(self.default_predict_batch)
+        if int(batch) < 1:
+            raise ValueError(f"batch must be >= 1, got {batch}")
+        return int(batch)
 
     @staticmethod
     def _keep_source(result, original_img, source=None):
@@ -5000,18 +5023,20 @@ class BaseBackend(ABC):
         max_det: int = 300,
         color_format: str = "auto",
         save_stem: Optional[str] = None,
+        preprocessed: Optional[tuple] = None,
     ) -> Results:
         """Run inference on a single image.
 
         ``save_stem`` overrides the saved filename stem for in-memory images
-        (which have no path to derive one from).
+        (which have no path to derive one from). ``preprocessed`` is this
+        image's ``_preprocess`` result when the caller already computed it.
         """
         image_path = image if isinstance(image, (str, Path)) else None
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
-        input_tensor, original_img, original_size, ratio = self._preprocess(
-            image, effective_imgsz, color_format
-        )
+        if preprocessed is None:
+            preprocessed = self._preprocess(image, effective_imgsz, color_format)
+        input_tensor, original_img, original_size, ratio = preprocessed
 
         blob = _to_blob(input_tensor)
 
@@ -5310,6 +5335,34 @@ class BaseBackend(ABC):
                 **kwargs,
             )
 
+    def _map_images(self, function, images: List, stage: str = "preprocess") -> List:
+        """``[function(image) for image in images]``, in order.
+
+        ``stage`` is ``"preprocess"`` or ``"results"``. Sequential here; a
+        backend whose host steps run between device calls may spread the
+        per-image work over threads (results are unchanged).
+        """
+        return [function(image) for image in images]
+
+    def _prepare_batch(
+        self, chunk: List, imgsz: Optional[ImageSize], color_format: str
+    ) -> List:
+        """Preprocess a chunk for :meth:`_predict_batch` (``preprocessed=``).
+
+        One ``(input_tensor, original_img, original_size, ratio, image_path)``
+        tuple per image, in order.
+        """
+        effective_imgsz = self._resolve_predict_imgsz(imgsz)
+
+        def prepare(image):
+            input_tensor, original_img, original_size, ratio = self._preprocess(
+                image, effective_imgsz, color_format
+            )
+            image_path = image if isinstance(image, (str, Path)) else None
+            return (input_tensor, original_img, original_size, ratio, image_path)
+
+        return self._map_images(prepare, list(chunk))
+
     def _predict_batch(
         self,
         chunk: List,
@@ -5323,6 +5376,7 @@ class BaseBackend(ABC):
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         color_format: str = "auto",
+        preprocessed: Optional[List] = None,
     ) -> List[Results]:
         """Run one stacked forward pass over a chunk of images.
 
@@ -5334,16 +5388,8 @@ class BaseBackend(ABC):
         rejects the batched call.
         """
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
-
-        preprocessed = []
-        for image in chunk:
-            input_tensor, original_img, original_size, ratio = self._preprocess(
-                image, effective_imgsz, color_format
-            )
-            image_path = image if isinstance(image, (str, Path)) else None
-            preprocessed.append(
-                (input_tensor, original_img, original_size, ratio, image_path)
-            )
+        if preprocessed is None:
+            preprocessed = self._prepare_batch(chunk, imgsz, color_format)
 
         tensors = [item[0] for item in preprocessed]
         all_outputs = None
@@ -5384,16 +5430,11 @@ class BaseBackend(ABC):
                 for offset, image in enumerate(chunk)
             ]
 
-        results = []
-        for offset, (_, original_img, original_size, ratio, image_path) in enumerate(
-            preprocessed
-        ):
+        def finish(item):
+            offset, (_, original_img, original_size, ratio, image_path) = item
             per_image = [
                 np.asarray(output)[offset : offset + 1] for output in all_outputs
             ]
-            save_name = (
-                image_path if image_path is not None else f"image{start_idx + offset}"
-            )
             orig_w, orig_h = original_size
             orig_shape = (orig_h, orig_w)
 
@@ -5497,7 +5538,16 @@ class BaseBackend(ABC):
                     reading_order=self._parsed_reading_order(parsed),
                 )
 
+            return result
+
+        built = self._map_images(finish, list(enumerate(preprocessed)), stage="results")
+        results = []
+        for offset, result in enumerate(built):
+            _, original_img, _, _, image_path = preprocessed[offset]
             if save:
+                save_name = (
+                    image_path if image_path is not None else f"image{start_idx + offset}"
+                )
                 self._save_annotated(result, original_img, save_name, output_path)
             results.append(self._keep_source(result, original_img, image_path))
         return results
@@ -5526,7 +5576,7 @@ class BaseBackend(ABC):
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         save: bool = False,
-        batch: int = 1,
+        batch: Optional[int] = None,
         # video parameters
         stream: bool = False,
         stream_buffer: bool = False,
@@ -5542,7 +5592,14 @@ class BaseBackend(ABC):
         ``agnostic_nms`` keeps only the highest-scoring box among boxes that
         overlap above ``iou``, whatever their classes, exactly as native
         ``predict()`` does (detect, segment, pose and OBB).
+
+        ``batch`` is how many images of a list, a directory or a video file
+        run per inference call. ``None`` takes the backend's default
+        (:attr:`default_predict_batch`: 1, or 8 on the Axelera Metis, whose
+        runtime keeps several cores busy on a batch); ``batch=1`` runs image
+        by image. Results do not depend on it.
         """
+        batch = self._resolve_predict_batch(batch)
         if agnostic_nms and check_agnostic_nms(True, getattr(self, "task", None)):
             # Re-enter with the request held in a context variable instead of
             # an argument (see _AGNOSTIC_NMS).
@@ -5600,6 +5657,7 @@ class BaseBackend(ABC):
                 show=show,
                 vid_stride=vid_stride,
                 output_path=output_path,
+                batch=batch,
             )
             if stream:
                 return gen
@@ -5793,8 +5851,13 @@ class BaseBackend(ABC):
         vid_stride: int = 1,
         output_path: Optional[str] = None,
         source_label: Optional[str] = None,
+        batch: int = 1,
     ) -> Generator[Results, None, None]:
-        """Run inference on a video file, yielding per-frame Results."""
+        """Run inference on a video file, yielding per-frame Results.
+
+        With ``batch > 1`` and a runtime that takes batched calls, frames run
+        ``batch`` at a time through :meth:`_process_in_batches` (same results).
+        """
         source_label = str(source) if source_label is None else source_label
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
@@ -5908,6 +5971,27 @@ class BaseBackend(ABC):
         def predict_frame(pil_img):
             return self._keep_source(predict_frame_result(pil_img), pil_img)
 
+        predict_frames = None
+        if batch > 1 and self._supports_batched_inference():
+
+            def predict_frames(pil_imgs):
+                results = list(
+                    self._process_in_batches(
+                        pil_imgs,
+                        batch=len(pil_imgs),
+                        conf=conf,
+                        iou=iou,
+                        imgsz=imgsz,
+                        classes=classes,
+                        max_det=max_det,
+                        color_format="rgb",
+                    )
+                )
+                for result, pil_img in zip(results, pil_imgs):
+                    result.path = source_label
+                    self._keep_source(result, pil_img)
+                return results
+
         yield from run_video_inference(
             source,
             predict_frame,
@@ -5915,6 +5999,8 @@ class BaseBackend(ABC):
             save=save,
             show=show,
             output_path=output_path,
+            predict_frames_fn=predict_frames,
+            batch=batch,
         )
 
     def _predict_screen(

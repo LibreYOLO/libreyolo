@@ -73,7 +73,7 @@ def preprocess_image(
 
 def preprocess_numpy_stretch(
     img_rgb_hwc: np.ndarray,
-    input_size: int = 448,
+    input_size: int | Tuple[int, int] = 448,
 ) -> Tuple[np.ndarray, float]:
     """Stretch (non-aspect-preserving) resize to ``input_size`` and normalize.
 
@@ -85,9 +85,15 @@ def preprocess_numpy_stretch(
     trained on, wrecking accuracy. So YOLOv1 stretches the whole image onto the
     square canvas. The returned ratio is ``1.0`` (unused; the inverse transform
     is independent x/y scaling done in post-processing, ``letterbox=False``).
+    ``input_size`` is an int or a ``(height, width)`` pair (the form export
+    calibration and verify loaders pass).
     """
+    if isinstance(input_size, (tuple, list)):
+        height, width = (int(v) for v in input_size)
+    else:
+        height = width = int(input_size)
     img_resized = Image.fromarray(img_rgb_hwc).resize(
-        (input_size, input_size), Image.Resampling.BILINEAR
+        (width, height), Image.Resampling.BILINEAR
     )
     arr = np.array(img_resized, dtype=np.float32) / 255.0
     return arr.transpose(2, 0, 1), 1.0

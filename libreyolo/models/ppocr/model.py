@@ -12,9 +12,11 @@ the checkpoint metadata (see ``docs/checkpoint_schema.md``):
 text quads with transcripts covering Simplified/Traditional Chinese, English,
 Japanese, and pinyin with one dictionary and one model.
 
-Inference and validation only in v1: training/fine-tuning and export are out
-of scope (export raises a clear error; the pipeline is two networks with
-dynamic shapes). Document-orientation classification, image unwarping, and
+Inference and validation only in v1: training/fine-tuning is out of scope.
+Export: only ``format="axelera"``, which compiles the detection network for an
+Axelera Metis (``axelera_detector.py``; recognition stays on the host); other
+formats go through the generic exporter, which does not support the
+two-network pipeline. Document-orientation classification, image unwarping, and
 the 0/180 textline rotator are optional upstream pipeline components that are
 also out of scope; the checkpoint metadata reserves a ``components`` mapping
 so they can be added without a schema break.
@@ -128,9 +130,17 @@ class LibrePPOCR(BaseModel):
         nb_classes: int = 1,
         device: str = "auto",
         task: str | None = None,
+        text_detector: str | Path | None = None,
         **kwargs,
     ) -> None:
         self.charset: Optional[List[str]] = None
+        # An Axelera Metis text detector (``export(format="axelera")``); when
+        # set, the pipeline's detection stage runs on the Metis.
+        self.text_detector = None
+        if text_detector is not None:
+            from .axelera_detector import AxeleraTextDetector
+
+            self.text_detector = AxeleraTextDetector(text_detector)
         self.pipeline_config: Dict[str, Any] = dict(_DEFAULT_PIPELINE)
         super().__init__(
             model_path=model_path,
@@ -252,6 +262,38 @@ class LibrePPOCR(BaseModel):
         raise NotImplementedError(
             "LibrePPOCR does not use the detection-shaped _postprocess hook; "
             "the two-stage pipeline lives in models/ppocr/inference.py."
+        )
+
+    # ====================================================================
+    # Export: only the detection network compiles for Axelera Metis
+    # ====================================================================
+
+    def export(self, format: str = "onnx", **kwargs) -> str:
+        """Export. ``format="axelera"`` compiles the detection network for a Metis.
+
+        Recognition stays on the host: its SVTR neck (LayerNorm and attention)
+        has no Metis form. Load the result with
+        ``LibrePPOCR(weights, text_detector="<dir>")``. Arguments: ``output_path``,
+        ``data`` (an OCR dataset YAML or a detection dataset YAML for the
+        calibration images), ``fraction``, ``imgsz`` (canvas, int or (h, w);
+        default 960x960), ``quantization_scheme``, ``verify``.
+        """
+        if str(format).lower() != "axelera":
+            return super().export(format=format, **kwargs)
+        from .axelera_detector import DEFAULT_CANVAS, DEFAULT_QUANTIZATION_SCHEME, export_ppocr_det_axelera
+
+        allowed = {"output_path", "data", "fraction", "imgsz", "quantization_scheme", "verify"}
+        unknown = sorted(set(kwargs) - allowed)
+        if unknown:
+            raise TypeError(f"Unsupported PP-OCR Axelera export arguments: {', '.join(unknown)}")
+        return export_ppocr_det_axelera(
+            self,
+            kwargs.get("output_path"),
+            data=kwargs.get("data") or "coco128.yaml",
+            fraction=float(kwargs.get("fraction", 1.0)),
+            canvas=kwargs.get("imgsz") or DEFAULT_CANVAS,
+            quantization_scheme=kwargs.get("quantization_scheme") or DEFAULT_QUANTIZATION_SCHEME,
+            verify=bool(kwargs.get("verify", False)),
         )
 
     # ====================================================================

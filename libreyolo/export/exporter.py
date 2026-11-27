@@ -263,6 +263,8 @@ _RECTANGULAR_EXPORT_FAMILIES = {
     # Every PP-LiteSeg size is natively rectangular (512x1024 / 768x1536);
     # a square export would not be the model the checkpoint was trained as.
     "ppliteseg",
+    # DDRNet evaluates whole 1024x2048 Cityscapes frames (direct resize, no padding).
+    "ddrnet",
     "unet",
     "realesrgan",
     "quicksrnet",
@@ -496,6 +498,11 @@ class _YOLO9RawHeadsWrapper(torch.nn.Module):
     ``output_windows`` works as in :class:`_YOLONASRawHeadsWrapper`; the
     default is ``YOLO9_RAW_OUTPUT_WINDOWS``.
 
+    ``towers`` names the head's box and class tower lists: YOLO9-E2E cuts at
+    its one-to-one towers (``one_to_one_anchor_convs`` /
+    ``one_to_one_class_convs``), the branch its NMS-free inference decodes,
+    so the host decode rebuilds the same tensor as its ONNX export.
+
     ``class_activation_bound`` caps the pre-activation of each class tower's
     second convolution at +-bound (:func:`_bounded_conv_bn_act`). Its SiLU
     output reaches about +540 on YOLO9-t while 99.9% of values stay below
@@ -515,6 +522,7 @@ class _YOLO9RawHeadsWrapper(torch.nn.Module):
         task: str = "detect",
         output_windows: dict[str, tuple[float, float]] | None = None,
         class_activation_bound: float | None = _YOLO9_CLASS_ACTIVATION_BOUND,
+        towers: tuple[str, str] = ("anchor_convs", "class_convs"),
     ):
         super().__init__()
         from ..postprocess.yolonas_raw import (
@@ -539,12 +547,14 @@ class _YOLO9RawHeadsWrapper(torch.nn.Module):
                 f"class_activation_bound must be positive, got {class_activation_bound!r}."
             )
         self.class_activation_bound = class_activation_bound
+        self.towers = tuple(towers)
 
     def forward(self, x):
         feats = self.model.neck(*self.model.backbone(x))
         head = self.model.head
+        box_towers, class_towers = (getattr(head, name) for name in self.towers)
         outputs = []
-        for box_tower, class_tower, feat in zip(head.anchor_convs, head.class_convs, feats):
+        for box_tower, class_tower, feat in zip(box_towers, class_towers, feats):
             outputs.append(self._final_conv("reg", box_tower[-1], box_tower[:-1](feat)))
             hidden = class_tower[0](feat)
             if self.class_activation_bound is None:
@@ -1272,6 +1282,57 @@ def _reorg_layers_to_conv(net: torch.nn.Module) -> int:
     return len(targets)
 
 
+class _LocalAsConvs(torch.nn.Module):
+    """Darknet's ``[local]`` layer (YOLOv1) as one convolution per output position.
+
+    ``[local]`` gives every output position its own filter bank and exports as
+    an Einsum, which the Axelera quantizer does not support. Position ``(i, j)``
+    is a ``size x size`` convolution (no padding) on its own patch of the
+    padded input, with weights ``weight[i * out_w + j]`` viewed as
+    ``(out, C, k, k)`` (``F.unfold``'s channel-major, kernel-row, kernel-col
+    order, as in Darknet's im2col) and bias ``bias[:, i * out_w + j]``. The
+    1x1 results are concatenated along W, then H: the same tensor as the
+    reference layer up to float summation order.
+    """
+
+    def __init__(self, local: torch.nn.Module):
+        super().__init__()
+        k = int(local.size)
+        self.size, self.stride, self.pad = k, int(local.stride), int(local.pad)
+        self.out_h, self.out_w = int(local.out_h), int(local.out_w)
+        weight = local.weight.detach().reshape(
+            self.out_h * self.out_w, local.out_channels, local.in_channels, k, k
+        )
+        self.weight = torch.nn.Parameter(weight.clone(), requires_grad=False)
+        self.bias = torch.nn.Parameter(local.bias.detach().t().clone(), requires_grad=False)
+        self.act = local.act
+
+    def forward(self, x):
+        k, s = self.size, self.stride
+        x = torch.nn.functional.pad(x, (self.pad,) * 4)
+        rows = []
+        for i in range(self.out_h):
+            cols = []
+            for j in range(self.out_w):
+                loc = i * self.out_w + j
+                patch = x[:, :, i * s : i * s + k, j * s : j * s + k]
+                cols.append(torch.nn.functional.conv2d(patch, self.weight[loc], self.bias[loc]))
+            rows.append(torch.cat(cols, dim=3))
+        return self.act(torch.cat(rows, dim=2))
+
+
+def _local_layers_to_convs(net: torch.nn.Module) -> int:
+    """Replace every Darknet ``[local]`` layer of ``net`` by :class:`_LocalAsConvs`, in place."""
+    from libreyolo.models.darknet.blocks import DarknetLocal
+
+    count = 0
+    for i, layer in enumerate(net.layers):
+        if isinstance(layer, DarknetLocal):
+            net.layers[i] = _LocalAsConvs(layer)
+            count += 1
+    return count
+
+
 def _darknet_raw_heads_wrapper(
     holder: torch.nn.Module, task: str = "detect", output_windows=None
 ):
@@ -1509,6 +1570,208 @@ class _RTMDetRawHeadsWrapper(torch.nn.Module):
         if window is None:
             return conv(x)
         return _relu6_window(conv, x, *window)
+
+
+class _RTMDetStemPart(torch.nn.Module):
+    """Part 1 of RTMDet's multi-part export (recipe ``neck_parts``): CSPNeXt backbone and the neck's first reduce.
+
+    Returns ``c3``, ``c4`` (backbone levels, each through an identity 1x1 conv: they also feed later backbone
+    stages, and the SDK's graph cleaner rejects a part output that also feeds another node) and ``r5``
+    (``reduce_layers[0]`` on the stride-32 level). Compiled whole, RTMDet-x's PAFPN finds no L1 tiling although
+    each of its blocks compiles alone in about a minute; the neck therefore runs as one compiled part per CSP
+    block (:class:`_RTMDetNeckPart`), joined on the host by nearest upsampling and channel concatenation only.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module, with_td0: bool = False):
+        super().__init__()
+        self.model, self.with_td0 = model, bool(with_td0)
+        c3, c4, c5 = (int(c) for c in model.neck.in_channels)
+        # with_td0: the first top-down block (its two inputs both come from this part) and reduce_layers[1] run
+        # here too, so the chain has one compiled part fewer; the outputs become c3, r4, r5 (r5 also feeds
+        # the in-part upsample, so it leaves through an identity conv as well).
+        self.output_names = ("c3", "r4", "r5") if self.with_td0 else ("c3", "c4", "r5")
+        self.identity = torch.nn.ModuleList(
+            [_ChannelScale(torch.ones(c3), as_conv=True), _ChannelScale(torch.ones(c4), as_conv=True)]
+        )
+        if self.with_td0:
+            self.identity_r5 = _ChannelScale(torch.ones(c4), as_conv=True)
+
+    def forward(self, x):
+        neck = self.model.neck
+        c3, c4, c5 = self.model.backbone(x)
+        r5 = neck.reduce_layers[0](c5)
+        if not self.with_td0:
+            return self.identity[0](c3), self.identity[1](c4), r5
+        t4 = neck.top_down_blocks[0](torch.cat([neck.upsample(r5), c4], dim=1))
+        return self.identity[0](c3), neck.reduce_layers[1](t4), self.identity_r5(r5)
+
+
+#: RTMDet ``neck_parts`` run order after the stem part: (host concat inputs, upsample factors, its output, the
+#: compiled part reading it). Matches CSPNeXtPAFPN.forward for three levels.
+_RTMDET_NECK_STEPS = (
+    (("r5", "c4"), (2, 1), "cat_td0", "td0"),
+    (("r4", "c3"), (2, 1), "cat_td1", "td1"),
+    (("d3", "r4"), (1, 1), "cat_bu0", "bu0"),
+    (("d4", "r5"), (1, 1), "cat_bu1", "bu1"),
+)
+
+
+def _csp_merged_entry(csp: torch.nn.Module) -> torch.nn.Module:
+    """``main_conv`` and ``short_conv`` of a CSP layer as ONE 1x1 ConvBNAct (outputs stacked, main first; exact).
+
+    A compiled part's graph input that fans out into two convolutions is cut into two AIPU functions, and an
+    identity depthwise entry gets per-channel input ranges under the depthwise scheme, which the SDK cannot
+    strip from a graph input; one merged convolution is the single entry op and costs nothing extra.
+    """
+    from ..models.rtmdet.nn import ConvBNAct
+
+    main, short = csp.main_conv, csp.short_conv
+    merged = ConvBNAct(main.conv.in_channels, 2 * main.conv.out_channels, 1)
+    with torch.no_grad():
+        merged.conv.weight.copy_(torch.cat([main.conv.weight, short.conv.weight]))
+        for name in ("weight", "bias", "running_mean", "running_var"):
+            getattr(merged.bn, name).copy_(torch.cat([getattr(main.bn, name), getattr(short.bn, name)]))
+        merged.bn.eps = main.bn.eps
+    return merged.eval()
+
+
+def _csp_forward(csp: torch.nn.Module, merged: torch.nn.Module, x: torch.Tensor) -> torch.Tensor:
+    """CSPLayer.forward with the merged entry conv."""
+    both = merged(x)
+    mid = both.shape[1] // 2
+    out = torch.cat((csp.blocks(both[:, :mid]), both[:, mid:]), dim=1)
+    if csp.channel_attention:
+        out = csp.attention(out)
+    return csp.final_conv(out)
+
+
+class _RTMDetNeckPart(torch.nn.Module):
+    """One compiled part of RTMDet's ``neck_parts`` export: a PAFPN CSP block on its host-joined input.
+
+    ``td0``: top-down block 0 + ``reduce_layers[1]`` -> ``r4``. ``td1``: top-down block 1, then ``downsamples[0]``
+    -> ``d3`` and ``out_convs[0]`` + the stride-8 head -> ``p3_reg``, ``p3_cls``. ``bu0``: bottom-up block 0, then
+    ``downsamples[1]`` -> ``d4`` and the stride-16 output conv + head. ``bu1``: bottom-up block 1, the stride-32
+    output conv + head. The CSP block's ``main_conv`` and ``short_conv`` both read the input; they run as one
+    merged 1x1 conv (:func:`_csp_merged_entry`), the part's single entry op.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, raw: "_RTMDetRawHeadsWrapper", stage: str):
+        super().__init__()
+        self.raw, self.stage = raw, stage
+        neck = raw.model.neck
+        c3, c4, c5 = (int(c) for c in neck.in_channels)
+        self.output_names = {
+            "td0": ("r4",),
+            "td1": ("d3", "p3_reg", "p3_cls"),
+            "bu0": ("d4", "p4_reg", "p4_cls"),
+            "bu1": ("p5_reg", "p5_cls"),
+        }[stage]
+        self.block = {
+            "td0": neck.top_down_blocks[0],
+            "td1": neck.top_down_blocks[1],
+            "bu0": neck.bottom_up_blocks[0],
+            "bu1": neck.bottom_up_blocks[1],
+        }[stage]
+        self.entry = _csp_merged_entry(self.block)
+
+    def _head(self, idx, feat):
+        head = self.raw.model.head
+        cls_feat = reg_feat = feat
+        for layer in head.cls_convs[idx]:
+            cls_feat = layer(cls_feat)
+        for layer in head.reg_convs[idx]:
+            reg_feat = layer(reg_feat)
+        return (
+            self.raw._final_conv("reg", head.rtm_reg[idx], reg_feat),
+            self.raw._final_conv("cls", head.rtm_cls[idx], cls_feat),
+        )
+
+    def forward(self, x):
+        neck = self.raw.model.neck
+        y = _csp_forward(self.block, self.entry, x)
+        if self.stage == "td0":
+            return (neck.reduce_layers[1](y),)
+        if self.stage == "td1":
+            return (neck.downsamples[0](y), *self._head(0, neck.out_convs[0](y)))
+        if self.stage == "bu0":
+            return (neck.downsamples[1](y), *self._head(1, neck.out_convs[1](y)))
+        return self._head(2, neck.out_convs[2](y))
+
+
+class _RTMDetInsNeckPart(_RTMDetNeckPart):
+    """RTMDet-Ins's ``neck_parts`` compiled parts: as :class:`_RTMDetNeckPart`, with each level's kernel tower and
+    the level's neck output ``n<k>`` (through an identity 1x1 conv: it also feeds the heads in the same part) for
+    the mask-feature module, which runs as its own part (:class:`_RTMDetInsMaskPart`)."""
+
+    def __init__(self, raw: "_RTMDetInsRawHeadsWrapper", stage: str):
+        super().__init__(raw, stage)
+        self.output_names = {
+            "td0": ("r4",),
+            "td1": ("d3", "n3", "p3_reg", "p3_cls", "p3_kernel"),
+            "bu0": ("d4", "n4", "p4_reg", "p4_cls", "p4_kernel"),
+            "bu1": ("n5", "p5_reg", "p5_cls", "p5_kernel"),
+        }[stage]
+        if stage != "td0":
+            width = int(raw.model.neck.out_convs[0].conv.out_channels)
+            self.neck_out = _ChannelScale(torch.ones(width), as_conv=True)
+
+    def _head(self, idx, feat):
+        head = self.raw.model.head
+        cls_feat = reg_feat = kernel_feat = feat
+        for layer in head.cls_convs[idx]:
+            cls_feat = layer(cls_feat)
+        for layer in head.reg_convs[idx]:
+            reg_feat = layer(reg_feat)
+        for layer in head.kernel_convs[idx]:
+            kernel_feat = layer(kernel_feat)
+        reg_window = self.raw.output_windows.get("reg")
+        if reg_window is None:
+            reg = torch.nn.functional.relu(head.rtm_reg[idx](reg_feat))
+        else:
+            reg = _relu6_window(head.rtm_reg[idx], reg_feat, *reg_window)
+        return (
+            reg,
+            self.raw._final_conv("cls", head.rtm_cls[idx], cls_feat),
+            self.raw._final_conv("kernel", head.rtm_kernel[idx], kernel_feat),
+        )
+
+    def forward(self, x):
+        neck = self.raw.model.neck
+        y = _csp_forward(self.block, self.entry, x)
+        if self.stage == "td0":
+            return (neck.reduce_layers[1](y),)
+        if self.stage == "td1":
+            n3 = neck.out_convs[0](y)
+            return (neck.downsamples[0](y), self.neck_out(n3), *self._head(0, n3))
+        if self.stage == "bu0":
+            n4 = neck.out_convs[1](y)
+            return (neck.downsamples[1](y), self.neck_out(n4), *self._head(1, n4))
+        n5 = neck.out_convs[2](y)
+        return (self.neck_out(n5), *self._head(2, n5))
+
+
+class _RTMDetInsMaskPart(torch.nn.Module):
+    """RTMDet-Ins's mask-feature module as a compiled part, on the host-joined input: ``n3`` with ``n4`` and ``n5``
+    resized bilinearly to its size and concatenated (``resize_concat``, weight-free) -> fusion conv, stacked convs,
+    projection -> ``mask_feat``."""
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("mask_feat",)
+
+    def __init__(self, raw: "_RTMDetInsRawHeadsWrapper"):
+        super().__init__()
+        self.mask = raw.model.head.mask_head
+
+    def forward(self, x):
+        # A tuple, as every compiled part returns: the export's output-order probe iterates the outputs.
+        return (self.mask.projection(self.mask.stacked_convs(self.mask.fusion_conv(x))),)
 
 
 class _RTMDetInsRawHeadsWrapper(torch.nn.Module):
@@ -1783,7 +2046,7 @@ class BaseExporter(ABC):
         batch: int = 1,
         device: Optional[str] = None,
         data: Optional[str] = None,
-        fraction: float = 1.0,
+        fraction: Optional[float] = None,
         allow_download_scripts: bool = False,
         verbose: bool = False,
         quantize: Optional[Union[int, str]] = None,
@@ -1803,7 +2066,9 @@ class BaseExporter(ABC):
             batch: Batch size for the model (default: 1).
             device: Device to trace on (default: model's current device).
             data: Path to data.yaml for INT8 calibration dataset.
-            fraction: Fraction of calibration dataset to use (default: 1.0).
+            fraction: Fraction of calibration dataset to use (default: the
+                format's measured default, 1.0 unless an Axelera size recipe
+                sets ``calibration_fraction``).
             allow_download_scripts: Allow embedded Python in dataset YAML downloads.
             verbose: Enable verbose logging (default: False).
             quantize: Precision as the ecosystem spells it: 16 (FP16, as
@@ -1819,6 +2084,9 @@ class BaseExporter(ABC):
         # (reconstructing fp32 masters, enabling export mode) also wait for
         # every request rejection.
         pre_trace_hook = kwargs.pop("_pre_trace_hook", None)
+        self._fraction_from_recipe = False
+        if fraction is None:
+            fraction = self._default_calibration_fraction()
         unknown = sorted(set(kwargs) - self._accepted_export_kwargs())
         if unknown:
             warnings.warn(
@@ -2794,6 +3062,10 @@ class BaseExporter(ABC):
                         module._export = False
             for m, orig_fwd in rfdetr_layernorm_patches:
                 m.forward = orig_fwd
+
+    def _default_calibration_fraction(self) -> float:
+        """Calibration fraction used when ``export()`` is not given one: the whole dataset."""
+        return 1.0
 
     def _load_calibration(
         self,
@@ -3909,10 +4181,75 @@ _AXELERA_GRAPH_OUTPUTS = {
     ("quicksrnet", "restore"): ("restored",),
     ("midas", "depth"): ("depth",),
     ("deeplabv3", "semantic"): ("semantic_logits",),
+    ("ppliteseg", "semantic"): ("semantic_logits",),
+    ("pidnet", "semantic"): ("semantic_logits",),
+    ("ddrnet", "semantic"): ("semantic_logits",),
+    ("unet", "semantic"): ("semantic_logits",),
+    # DexiNed: the fused edge probability map (sigmoid in the graph).
+    ("dexined", "edge"): ("edges",),
     # EfficientDet's decoded export; the top-candidate decode (TopK, Gather,
     # Exp) lands in the compiled model's host postamble.
     ("efficientdet", "detect"): ("output",),
+    # YOLOv1's decoded export (dense 7x7 grid, two boxes per cell); the decode
+    # lands in the compiled model's host postamble.
+    ("yolo1", "detect"): ("output",),
 }
+
+
+class _ShiftedDilatedConv(torch.nn.Module):
+    """A dilated 3x3 convolution as per-tap 1x1 convolutions plus zero-filled shifts (exact).
+
+    Tap ``(a, b)`` of a 3x3 kernel with dilation ``d`` reads the input shifted
+    by ``((a - 1) d, (b - 1) d)``; a 1x1 convolution commutes with that shift,
+    so the convolution is the sum over taps of ``shift(conv1x1(x, w[:, :, a, b]))``
+    with zeros shifted in. Taps that only read padding are dropped. DeepLabV3's
+    ASPP convolutions (dilation up to 36 at output stride 8) find no L1 tiling
+    on the Metis AIPU as dilated convolutions; as 1x1 convolutions and shifts
+    they compile.
+    """
+
+    def __init__(self, conv: torch.nn.Conv2d):
+        super().__init__()
+        out_channels, in_channels, kh, kw = conv.weight.shape
+        if (kh, kw) != (3, 3) or conv.groups != 1 or tuple(conv.stride) != (1, 1):
+            raise ValueError("Only stride-1, ungrouped 3x3 convolutions are rewritten.")
+        if tuple(conv.dilation) != (conv.dilation[0],) * 2 or tuple(conv.padding) != tuple(conv.dilation):
+            raise ValueError("Only 'same'-padded convolutions with equal dilations are rewritten.")
+        self.dilation = int(conv.dilation[0])
+        self.out_channels = int(out_channels)
+        weight = conv.weight.detach().permute(2, 3, 0, 1).reshape(9 * out_channels, in_channels, 1, 1)
+        self.weight = torch.nn.Parameter(weight.clone(), requires_grad=False)
+        self.bias = (
+            torch.nn.Parameter(conv.bias.detach().clone(), requires_grad=False)
+            if conv.bias is not None
+            else None
+        )
+
+    def forward(self, x):
+        h, w, d = x.shape[-2], x.shape[-1], self.dilation
+        out = None
+        for k in range(9):
+            dy, dx = (k // 3 - 1) * d, (k % 3 - 1) * d
+            if abs(dy) >= h or abs(dx) >= w:
+                continue  # this tap reads only zero padding
+            tap = torch.nn.functional.conv2d(x, self.weight[k * self.out_channels : (k + 1) * self.out_channels])
+            shifted = torch.nn.functional.pad(tap, (d, d, d, d))[:, :, d + dy : d + dy + h, d + dx : d + dx + w]
+            out = shifted if out is None else out + shifted
+        if self.bias is not None:
+            out = out + self.bias.reshape(1, -1, 1, 1)
+        return out
+
+
+def _aspp_shift(model: torch.nn.Module) -> int:
+    """Rewrite every DeepLabV3 ASPP dilated convolution in ``model`` in place; returns the count."""
+    from ..models.deeplabv3.nn import ASPPConv
+
+    count = 0
+    for module in model.modules():
+        if isinstance(module, ASPPConv):
+            module[0] = _ShiftedDilatedConv(module[0])
+            count += 1
+    return count
 
 
 class _GraphOutputsWrapper(torch.nn.Module):
@@ -3945,9 +4282,35 @@ class _GraphOutputsWrapper(torch.nn.Module):
 #: than the compiler accepts.
 _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
     "picodet": ("channel_shuffle_to_conv",),
+    # EfficientNetV2-b1/b2/b3's stage-0 residual reads its skip through an
+    # identity 1x1 conv (else the skip buffer is a 2nd compiled output; b0 has none).
+    "efficientnetv2": ("stem_residual_skip_conv",),
     "deeplabv3": ("pooled_branch_split", "conv_reduction_split"),
     # VGG's fc6 (Gemm over 7x7x512) as row convolutions.
     "vgg": ("fc_rowconv",),
+    # Spatial attention (channel mean/max, broadcast gating) in AIPU form; the
+    # pyramid pooling's 1x1 branch as a broadcast add and its 2x2 and 4x4
+    # upsampling to the 16x32 map (unequal factors up to 16) as factor-2 steps.
+    "ppliteseg": (
+        "channel_reduce_to_conv",
+        "channel_max_tree",
+        "broadcast_mul_expand",
+        "conv_reduction_split",
+        "resize_1x1_broadcast_add",
+        "resize_corner_chain",
+        "avgpool_staged",
+    ),
+    # PIDNet: the same attention rewrites; its DAPPM adds a 1x1 pooled branch
+    # upsampled by 16 (a 32x32 depthwise window: too wide, F75).
+    "pidnet": (
+        "channel_reduce_to_conv",
+        "broadcast_mul_expand",
+        "resize_1x1_broadcast_add",
+    ),
+    # DDRNet: PIDNet's DAPPM; its global pooled branch is upsampled from 1x1 (a broadcast add, F75).
+    "ddrnet": ("resize_1x1_broadcast_add",),
+    # YOLOv1's [connected] layer (Gemm over 7x7x256 after its [local] layer).
+    "yolo1": ("fc_rowconv",),
     # BiFPN weighted fusion and squeeze-excite averages in AIPU-runnable form.
     "efficientdet": (
         "float_div_to_mul",
@@ -3956,6 +4319,194 @@ _AXELERA_GRAPH_PASSES: dict[str, tuple[str, ...]] = {
         "gap_staged",
     ),
 }
+
+
+def _identity_entry(t: torch.Tensor) -> torch.Tensor:
+    """A 1x1 identity depthwise convolution: lets one tensor be a part output that also feeds a node, or a part
+    input that fans out (the SDK's graph cleaner rejects both as plain tensors)."""
+    return torch.nn.functional.conv2d(
+        t, torch.ones(t.shape[1], 1, 1, 1, dtype=t.dtype, device=t.device), groups=t.shape[1]
+    )
+
+
+def _dense_identity_entry(t: torch.Tensor) -> torch.Tensor:
+    """A dense 1x1 identity convolution: ``_identity_entry`` for a part input under the hybrid scheme, which
+    gives a depthwise conv's input per-channel ranges (the SDK then cannot strip the input quantization)."""
+    c = t.shape[1]
+    return torch.nn.functional.conv2d(t, torch.eye(c, dtype=t.dtype, device=t.device).reshape(c, c, 1, 1))
+
+
+class _RRDBPart(torch.nn.Module):
+    """One compiled part of Real-ESRGAN's RRDB network (x4) on Metis (``graph_outputs_v1``).
+
+    The whole x4 graph's constants overflow the Metis DDR pool, so it runs as three compiled parts and one host
+    step: ``head`` = ``conv_first`` + RRDB blocks ``[:split]`` -> (``skip``, ``mid``); ``tail`` = blocks
+    ``[split:]`` + ``conv_body`` -> ``body``; the host adds ``skip + body``; ``upsample`` = the two nearest 2x
+    upsampling convolutions, ``conv_hr`` and ``conv_last`` -> ``restored``. Exact: the parts compose to the
+    network's own forward.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    _NAMES = {"head": ("skip", "mid"), "tail": ("body",), "upsample": ("restored",)}
+
+    def __init__(self, net: torch.nn.Module, role: str, split: int, dense_entry: bool = False):
+        super().__init__()
+        # ``holder``: the attribute name becomes the ONNX initializer prefix (holder.conv_first.weight, ...),
+        # the names of the graphs that were compiled and measured.
+        self.holder, self.role, self.split = net, role, int(split)
+        # Under the hybrid scheme a depthwise identity entry on the tail's graph input gets per-channel ranges
+        # and fails the SDK's input-quantization pass; a dense identity 1x1 conv is the same function.
+        self.dense_entry = bool(dense_entry)
+        self.output_names = self._NAMES[role]
+        self.upscale = int(getattr(net, "scale", 4))
+        # x2 (and x1) checkpoints pixel-unshuffle the input first (factor 2 / 4): an exact one-hot
+        # stride-s convolution (output channel c*s*s + i*s + j reads input channel c at offset (i, j)).
+        self.unshuffle = {4: 1, 2: 2, 1: 4}[self.upscale]
+        if role == "head" and self.unshuffle > 1:
+            s, c = self.unshuffle, int(net.conv_first.in_channels) // (self.unshuffle**2)
+            weight = torch.zeros(c * s * s, c, s, s)
+            for ch in range(c):
+                for i in range(s):
+                    for j in range(s):
+                        weight[ch * s * s + i * s + j, ch, i, j] = 1.0
+            self.register_buffer("unshuffle_weight", weight, persistent=False)
+
+    def forward(self, x):
+        net, F = self.holder, torch.nn.functional
+        if self.role == "head":
+            if self.unshuffle > 1:
+                x = F.conv2d(x, self.unshuffle_weight.to(x.dtype), stride=self.unshuffle)
+            skip = net.conv_first(x)
+            return _identity_entry(skip), net.body[: self.split](skip)
+        if self.role == "tail":
+            entry = _dense_identity_entry(x) if self.dense_entry else _identity_entry(x)
+            return (net.conv_body(net.body[self.split :](entry)),)
+        feat = net.lrelu(net.conv_up1(F.interpolate(x, scale_factor=2, mode="nearest")))
+        feat = net.lrelu(net.conv_up2(F.interpolate(feat, scale_factor=2, mode="nearest")))
+        return (net.conv_last(net.lrelu(net.conv_hr(feat))),)
+
+
+class _NamedPart(torch.nn.Module):
+    """A compiled part of a multi-part export: ``module`` with named outputs (``graph_outputs_v1``)."""
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, module: torch.nn.Module, names):
+        super().__init__()
+        self.module, self.output_names = module.eval(), tuple(names)
+
+    def forward(self, x):
+        out = self.module(x)
+        return (out,) if isinstance(out, torch.Tensor) else tuple(out)
+
+
+class _FCOSTrunk(torch.nn.Module):
+    """FCOS part 1 on Metis: the ResNet-FPN backbone's five levels (``lvl0`` .. ``lvl4``).
+
+    P5 also feeds P6, so its output ends in an identity 1x1 convolution: the SDK's graph cleaner rejects a
+    part output that also feeds another node.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = tuple(f"lvl{i}" for i in range(5))
+
+    def __init__(self, net: torch.nn.Module):
+        super().__init__()
+        self.net = net
+
+    def forward(self, x):
+        outs = list(self.net.backbone(x).values())
+        c = outs[2].shape[1]
+        outs[2] = torch.nn.functional.conv2d(outs[2], torch.eye(c, dtype=outs[2].dtype, device=outs[2].device)[:, :, None, None])
+        return tuple(outs)
+
+
+def _fcos_level_boxes(shapes):
+    """``[y, x, h, w]`` boxes for FPN level shapes on one canvas: level 0 on top, the rest side by side below,
+    1-pixel zero gutters (a padded 3x3 convolution on the canvas then equals the per-level convolution)."""
+    (h0, w0), rest = shapes[0], shapes[1:]
+    boxes, x = [[0, 0, int(h0), int(w0)]], 0
+    y = int(h0) + 1
+    for h, w in rest:
+        boxes.append([y, x, int(h), int(w)])
+        x += int(w) + 1
+    return boxes, [max(b[0] + b[2] for b in boxes), max(int(w0), x - 1)]
+
+
+def _unfreeze_batchnorms(module: torch.nn.Module) -> None:
+    """Replace FrozenBatchNorm2d by an equal eval-mode BatchNorm2d (folded into the convolution by the export)."""
+    for name, child in list(module.named_children()):
+        if type(child).__name__ == "FrozenBatchNorm2d":
+            bn = torch.nn.BatchNorm2d(child.weight.numel(), eps=float(getattr(child, "eps", 1e-5)))
+            with torch.no_grad():
+                bn.weight.copy_(child.weight)
+                bn.bias.copy_(child.bias)
+                bn.running_mean.copy_(child.running_mean)
+                bn.running_var.copy_(child.running_var)
+            setattr(module, name, bn.eval())
+        else:
+            _unfreeze_batchnorms(child)
+
+
+def _fcos_parts(net: torch.nn.Module, canvas: int):
+    """Split FCOS (GroupNorm head) into Metis parts and host steps.
+
+    The four head convolutions of the classification and regression towers run on Metis as one conv each
+    (classification and regression stacked; grouped after the first), on all five levels packed onto one
+    canvas; GroupNorm + ReLU per level runs on the host; one block-diagonal predictor conv gives
+    ``cls | reg | ctrness``; the host decodes FCOSExportWrapper's tensor. Returns
+    ``(trunk, layers, final, arrays, canvas_hw, groups, eps, n_cls)``.
+    """
+    from ..models.fcos.nn import FCOSExportWrapper
+
+    _unfreeze_batchnorms(net.backbone)
+    for p in net.parameters():
+        p.requires_grad_(False)
+    cls_h, reg_h = net.head.classification_head, net.head.regression_head
+    convs = lambda h: [m for m in h.conv if isinstance(m, torch.nn.Conv2d)]  # noqa: E731
+    norms = lambda h: [m for m in h.conv if isinstance(m, torch.nn.GroupNorm)]  # noqa: E731
+    cc, rc, cg, rg = convs(cls_h), convs(reg_h), norms(cls_h), norms(reg_h)
+    if not (len(cc) == len(rc) == len(cg) == len(rg) == 4):
+        raise ValueError("FCOS Axelera export expects four conv + GroupNorm layers per head tower.")
+    n_cls = int(cls_h.cls_logits.out_channels)
+    width = int(cc[0].out_channels)
+
+    def conv(cin, cout, groups=1):
+        return torch.nn.Conv2d(cin, cout, 3, padding=1, groups=groups, bias=True)
+
+    with torch.no_grad():
+        layers = []
+        for k in range(4):
+            layer = conv(width if k == 0 else 2 * width, 2 * width, groups=1 if k == 0 else 2)
+            layer.weight.copy_(torch.cat([cc[k].weight, rc[k].weight], 0))
+            layer.bias.copy_(torch.cat([cc[k].bias, rc[k].bias], 0))
+            layers.append(layer.eval())
+        final = conv(2 * width, n_cls + 5)
+        final.weight.zero_()
+        final.weight[:n_cls, :width] = cls_h.cls_logits.weight
+        final.weight[n_cls : n_cls + 4, width:] = reg_h.bbox_reg.weight
+        final.weight[n_cls + 4 :, width:] = reg_h.bbox_ctrness.weight
+        final.bias.copy_(torch.cat([cls_h.cls_logits.bias, reg_h.bbox_reg.bias, reg_h.bbox_ctrness.bias]))
+        final.eval()
+    arrays = {}
+    for k in range(4):
+        arrays[f"g{k + 1}"] = torch.cat([cg[k].weight, rg[k].weight]).numpy().astype("float32")
+        arrays[f"b{k + 1}"] = torch.cat([cg[k].bias, rg[k].bias]).numpy().astype("float32")
+    x0 = torch.zeros(1, 3, int(canvas), int(canvas))
+    with torch.no_grad():
+        feats = list(net.backbone(x0).values())
+        anchors = net.anchor_generator.grid_anchors(x0, feats)
+    anchors = anchors[0] if isinstance(anchors, (list, tuple)) else anchors
+    boxes, canvas_hw = _fcos_level_boxes([tuple(t.shape[-2:]) for t in feats])
+    import numpy as np
+
+    arrays["boxes"] = np.asarray(boxes, dtype=np.int64)
+    arrays["anchors"] = np.asarray(anchors, dtype=np.float32).reshape(-1, 4)
+    arrays["class_indices"] = FCOSExportWrapper(net).class_indices.numpy().astype(np.int64)
+    return _FCOSTrunk(net).eval(), layers, final, arrays, canvas_hw, int(cg[0].num_groups), float(cg[0].eps), n_cls, width
 
 
 class _RestoreBodyWrapper(torch.nn.Module):
@@ -4049,6 +4600,605 @@ class _SSDPartBWrapper(torch.nn.Module):
             head.regression_head.module_list[0](features),
             head.classification_head.module_list[0](features),
         )
+
+
+def _hrnet_branches(transition, cfg, y):
+    """HRNet's stage input: each branch through its transition (the new branch from the last one)."""
+    return [transition[i](y[-1]) if transition[i] is not None else y[i] for i in range(cfg["NUM_BRANCHES"])]
+
+
+def _hrnet_eye_conv(channels: int, copies: int = 1) -> torch.nn.Conv2d:
+    """A fixed 1x1 conv summing ``copies`` stacked ``channels``-wide inputs (identity for one copy; exact)."""
+    conv = torch.nn.Conv2d(channels * copies, channels, 1, bias=False)
+    with torch.no_grad():
+        conv.weight.copy_(torch.eye(channels).repeat(1, copies).view(channels, channels * copies, 1, 1))
+    return conv.requires_grad_(False).eval()
+
+
+class _HRNetTrunkPart(torch.nn.Module):
+    """Part 1 of HRNet's ``fusion_parts`` export: stem to stage 3 and the transition into stage 4.
+
+    Returns stage 4's four branch inputs (``s4in0``..``s4in3``), each through an identity 1x1 conv (exact): the
+    first three also feed the new branch's transition, and a part output may not feed another node.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        n = model.stage4_cfg["NUM_BRANCHES"]
+        self.output_names = tuple(f"s4in{i}" for i in range(n))
+        self.identity = torch.nn.ModuleList(
+            [_hrnet_eye_conv(c) for c in model._expanded_channels(model.stage4_cfg)]
+        )
+
+    def forward(self, x):
+        m = self.model
+        x = m.layer1(m.relu(m.bn2(m.conv2(m.relu(m.bn1(m.conv1(x)))))))
+        y = m.stage2([t(x) if t is not None else x for t in m.transition1])
+        y = m.stage3(_hrnet_branches(m.transition2, m.stage3_cfg, y))
+        return tuple(conv(t) for conv, t in zip(self.identity, _hrnet_branches(m.transition3, m.stage4_cfg, y)))
+
+
+class _HRNetBranchPart(torch.nn.Module):
+    """One branch of one stage-4 module of HRNet as a compiled part (``fusion_parts``).
+
+    Input: module 0 -> the trunk's ``s4in<j>``; later modules -> the host's channel concat of every branch's
+    contribution to this resolution (nearest-upsampled where it comes from a coarser branch), summed by a fixed
+    1x1 conv (identity blocks; exact) and ReLU'd, which is the previous module's fuse. Then the branch's
+    residual blocks and, per output resolution i of this module, its fuse transform toward i: the 1x1 conv + BN
+    (the 2^(j-i) nearest upsample is left to the host), the strided 3x3 chain, or the branch itself (identity).
+    Outputs ``m<k>_b<j>_to<i>``. The entry op (identity or sum conv) is dense: every branch block reads its input
+    twice (residual), and a part's graph input may not fan out.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+
+    def __init__(self, model: torch.nn.Module, module: int, branch: int):
+        super().__init__()
+        self.model, self.k, self.j = model, int(module), int(branch)
+        stage = model.stage4
+        mod = stage[self.k]
+        channels = mod.num_inchannels[self.j]
+        self.entry = _hrnet_eye_conv(channels, 1 if self.k == 0 else stage[self.k - 1].num_branches)
+        if self.k == 0 and channels < _HRNET_MIN_PART_INPUT:
+            # A narrow (32-channel) part input feeding a 1x1 conv fails the compiler's InCoreReplication type
+            # check; the host hands it over twice (concat with itself) and the entry reads the first copy only.
+            self.entry = _hrnet_eye_conv(channels, 2)
+            with torch.no_grad():
+                self.entry.weight[:, channels:] = 0.0
+        self.outputs = list(range(mod.num_branches if mod.multi_scale_output else 1))
+        self.output_names = tuple(f"m{self.k}_b{self.j}_to{i}" for i in self.outputs)
+        self.identity = _hrnet_eye_conv(int(mod.num_inchannels[self.j]))
+
+    def forward(self, x):
+        mod = self.model.stage4[self.k]
+        x = self.entry(x)
+        if self.k > 0:
+            x = torch.relu(x)
+        x = mod.branches[self.j](x)
+        outs = []
+        for i in self.outputs:
+            if i == self.j:
+                outs.append(self.identity(x))
+            elif self.j > i:
+                outs.append(mod.fuse_layers[i][self.j][1](mod.fuse_layers[i][self.j][0](x)))
+            else:
+                outs.append(mod.fuse_layers[i][self.j](x))
+        return tuple(outs)
+
+
+class _HRNetFinalPart(torch.nn.Module):
+    """Last part of HRNet's ``fusion_parts`` export: the last module's fuse (sum conv + ReLU) and the heatmap layer."""
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("heatmaps",)
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        last = model.stage4[len(model.stage4) - 1]
+        self.entry = _hrnet_eye_conv(int(last.num_inchannels[0]), last.num_branches)
+
+    def forward(self, x):
+        return (self.model.final_layer(torch.relu(self.entry(x))),)
+
+
+#: Narrowest compiled-part input HRNet's ``fusion_parts`` hands over as is (narrower inputs travel twice).
+_HRNET_MIN_PART_INPUT = 64
+
+
+def _hrnet_fusion_steps(model: torch.nn.Module):
+    """Run order of HRNet's ``fusion_parts`` export after the trunk: (host concat or None, compiled part)."""
+    steps = []
+    stage = model.stage4
+    for k in range(len(stage)):
+        mod = stage[k]
+        for j in range(mod.num_branches):
+            if k == 0 and mod.num_inchannels[j] < _HRNET_MIN_PART_INPUT:
+                source = f"m0_in{j}"
+                join = ([f"s4in{j}", f"s4in{j}"], [1, 1], source)
+            elif k == 0:
+                join = None
+                source = f"s4in{j}"
+            else:
+                prev = stage[k - 1]
+                inputs = [f"m{k - 1}_b{b}_to{j}" for b in range(prev.num_branches)]
+                factors = [2 ** (b - j) if b > j else 1 for b in range(prev.num_branches)]
+                source = f"m{k}_in{j}"
+                join = (inputs, factors, source)
+            steps.append((join, source, _HRNetBranchPart(model, k, j).eval()))
+    last = stage[len(stage) - 1]
+    inputs = [f"m{len(stage) - 1}_b{b}_to0" for b in range(last.num_branches)]
+    steps.append(((inputs, [2 ** b for b in range(last.num_branches)], "final_in"), "final_in", _HRNetFinalPart(model).eval()))
+    return steps
+
+
+def _ones_conv(cin: int, cout: int, value: float = 1.0) -> torch.nn.Conv2d:
+    conv = torch.nn.Conv2d(cin, cout, 1, bias=False)
+    with torch.no_grad():
+        conv.weight.fill_(value)
+    return conv
+
+
+def _pidnet_pag_forward(self, x, y):
+    """PIDNet PagFM, exact INT8-friendly form: ``sigmoid(-z) * x + sigmoid(z) * y``.
+
+    ``1 - sigmoid(z)`` is ``sigmoid(-z)``, so the blend needs neither a
+    constant minus a tensor (the quantized model flips its sign: cosine -0.84
+    vs FP32) nor ``x + sim * (y - x)`` (its two near-cancelling addends lose
+    the result: 0.80). The channel sum and its negation are 1x1 convolutions
+    of ones and minus ones; one-channel gates are repeated to every channel by
+    a 1x1 convolution of ones. With this form the fusion keeps cosine 0.996.
+    """
+    import torch.nn.functional as F
+
+    size = x.size()
+    if self.after_relu:
+        y = self.relu(y)
+        x = self.relu(x)
+    y_q = F.interpolate(self.f_y(y), size=[size[2], size[3]], mode="bilinear", align_corners=False)
+    prod = self.f_x(x) * y_q
+    if self.with_channel:
+        z = self.up(prod)
+        gate, gate_neg = torch.sigmoid(z), torch.sigmoid(self._int8_negate(z))
+    else:
+        gate = self._int8_expand(torch.sigmoid(self._int8_sum(prod)))
+        gate_neg = self._int8_expand(torch.sigmoid(self._int8_sum_neg(prod)))
+    y = F.interpolate(y, size=[size[2], size[3]], mode="bilinear", align_corners=False)
+    return gate_neg * x + gate * y
+
+
+def _ppliteseg_uafm_forward(self, x, skip):
+    """PP-LiteSeg UAFM, exact INT8-friendly form: ``x * sigmoid(z) + skip * sigmoid(-z)``.
+
+    The native blend ``x * a + skip * (1 - a)`` with ``a = sigmoid(z)`` needs a
+    constant minus a tensor, which the quantized model gets wrong (the three
+    UAFM outputs of PP-LiteSeg-t50 keep cosine 0.59-0.78 vs FP32 and the
+    logits' argmax agrees on 56% of pixels, as on the device). ``1 - sigmoid(z)``
+    is ``sigmoid(-z)``, the negation is a 1x1 convolution of -1, and the UAFM
+    outputs keep 0.99 (argmax agreement 95%).
+    """
+    x = self.up_x(x)
+    skip = self.proj_skip(skip)
+    atten = torch.cat([*self._avg_max_spatial_reduce(x), *self._avg_max_spatial_reduce(skip)], dim=1)
+    z = self.conv_atten(atten)
+    return self.conv_out(x * torch.sigmoid(z) + skip * torch.sigmoid(self._int8_negate(z)))
+
+
+def _ppliteseg_int8_blend(model: torch.nn.Module) -> int:
+    """Rewrite every PP-LiteSeg UAFM of ``model`` (a copy the caller owns) to the exact blend above; returns how many."""
+    import types
+
+    count = 0
+    for module in model.modules():
+        if type(module).__name__ != "UAFM":
+            continue
+        negate = torch.nn.Conv2d(1, 1, 1, bias=False)
+        with torch.no_grad():
+            negate.weight.fill_(-1.0)
+        module._int8_negate = negate
+        module.forward = types.MethodType(_ppliteseg_uafm_forward, module)
+        count += 1
+    return count
+
+
+class _PIDNetBodyWrapper(torch.nn.Module):
+    """PIDNet's stem and P, I and D branches through layer 5, with both PagFM fusions in their exact INT8 form.
+
+    INT8 breaks PIDNet twice: in its PagFM fusions (exact rewrite above) and
+    in the PAPPM pooling module's upsample-and-add sums (cosine 0.3-0.5 while
+    their inputs keep 0.994 or better). This wrapper runs the branches with the
+    rewritten fusions on its private copy; ``_PIDNetTrunkPart`` extends it with
+    the pooling module's per-branch layers for the ``pool_parts`` export.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("i_layer5", "p_layer5", "d_layer5")
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        import types
+
+        self.model = copy.deepcopy(model)
+        for mod in self.model.modules():
+            if type(mod).__name__ != "PagFM":
+                continue
+            if mod.with_channel:
+                c = [m for m in mod.up.modules() if isinstance(m, torch.nn.Conv2d)][-1].out_channels
+                neg = torch.nn.Conv2d(c, c, 1, groups=c, bias=False)
+                with torch.no_grad():
+                    neg.weight.fill_(-1.0)
+                mod._int8_negate = neg
+            else:
+                c = [m for m in mod.f_x.modules() if isinstance(m, torch.nn.Conv2d)][-1].out_channels
+                cx = [m for m in mod.f_x.modules() if isinstance(m, torch.nn.Conv2d)][0].in_channels
+                mod._int8_sum = _ones_conv(c, 1)
+                mod._int8_sum_neg = _ones_conv(c, 1, -1.0)
+                mod._int8_expand = _ones_conv(1, cx)
+            mod.forward = types.MethodType(_pidnet_pag_forward, mod)
+        m = self.model
+        widths = [_conv_out(m.layer5), _conv_out(m.layer5_), _conv_out(m.layer5_d)]
+        self.identity = torch.nn.ModuleList()
+        for c in widths:
+            conv = torch.nn.Conv2d(c, c, 1, bias=False)
+            with torch.no_grad():
+                conv.weight.copy_(torch.eye(c).view(c, c, 1, 1))
+            self.identity.append(conv)
+
+    def forward(self, x):
+        import torch.nn.functional as F
+
+        m = self.model
+        x = (x - m.pixel_mean.to(dtype=x.dtype)) / m.pixel_std.to(dtype=x.dtype)
+        ho, wo = x.shape[-2] // 8, x.shape[-1] // 8
+        x = m.layer1(m.conv1(x))
+        x = m.relu(m.layer2(m.relu(x)))
+        x_ = m.layer3_(x)
+        x_d = m.layer3_d(x)
+        x = m.relu(m.layer3(x))
+        x_ = m.pag3(x_, m.compression3(x))
+        x_d = x_d + F.interpolate(m.diff3(x), size=[ho, wo], mode="bilinear", align_corners=False)
+        x = m.relu(m.layer4(x))
+        x_ = m.layer4_(m.relu(x_))
+        x_d = m.layer4_d(m.relu(x_d))
+        x_ = m.pag4(x_, m.compression4(x))
+        x_d = x_d + F.interpolate(m.diff4(x), size=[ho, wo], mode="bilinear", align_corners=False)
+        feats = (m.layer5(x), m.layer5_(m.relu(x_)), m.layer5_d(m.relu(x_d)))
+        return tuple(conv(t) for conv, t in zip(self.identity, feats))
+
+
+def _conv_out(module: torch.nn.Module) -> int:
+    """Output channels of a block: its last convolution's (or last BatchNorm's) width."""
+    width = None
+    for m in module.modules():
+        if isinstance(m, torch.nn.Conv2d):
+            width = m.out_channels
+        elif isinstance(m, torch.nn.BatchNorm2d):
+            width = m.num_features
+    return int(width)
+
+
+class _PIDNetPool(torch.nn.Module):
+    """A pyramid pooling branch's average pool in a form the compiler takes (exact).
+
+    Windows up to 255 elements stay one ``AvgPool2d``. A larger one (the 17x17 / 8 pool, 289) runs as an explicit
+    zero pad and a (k, 1) pool, then a pad and a (1, k) pool: a box average is the product of two 1-D ones, and the
+    explicit pad is ``count_include_pad``. The global pool (``hw`` window) averages 2x2 blocks down to 4x4 first
+    (equal windows). Depthwise convolutions are no option: the compiler takes only square depthwise kernels.
+    """
+
+    def __init__(self, kernel, stride, padding, global_hw=None):
+        super().__init__()
+        self.k, self.s, self.p = _pair(kernel), _pair(stride), _pair(padding)
+        self.global_hw = global_hw
+
+    def forward(self, x):
+        import torch.nn.functional as F
+
+        if self.global_hw is not None:
+            while x.shape[-2] > 4 and x.shape[-1] > 4 and x.shape[-2] % 2 == 0 and x.shape[-1] % 2 == 0:
+                x = F.avg_pool2d(x, 2, 2)
+            return F.adaptive_avg_pool2d(x, 1)
+        (kh, kw), (sh, sw), (ph, pw) = self.k, self.s, self.p
+        if kh * kw <= 255:
+            return F.avg_pool2d(x, (kh, kw), (sh, sw), (ph, pw), count_include_pad=True)
+        x = F.avg_pool2d(F.pad(x, (0, 0, ph, ph)), (kh, 1), (sh, 1))
+        return F.avg_pool2d(F.pad(x, (pw, pw, 0, 0)), (1, kw), (1, sw))
+
+
+def _pair(v):
+    return (int(v), int(v)) if isinstance(v, int) else (int(v[0]), int(v[1]))
+
+
+def _ddrnet_dappm_pools(model: torch.nn.Module) -> int:
+    """Swap every DAPPM's average pools for ``_PIDNetPool`` (same function); returns the number swapped."""
+    count = 0
+    for module in model.modules():
+        if not all(hasattr(module, f"scale{i}") for i in range(1, 5)):
+            continue
+        for i in range(1, 4):
+            pool = getattr(module, f"scale{i}")[0]
+            if isinstance(pool, torch.nn.AvgPool2d):
+                getattr(module, f"scale{i}")[0] = _PIDNetPool(pool.kernel_size, pool.stride, pool.padding)
+                count += 1
+        if isinstance(module.scale4[0], torch.nn.AdaptiveAvgPool2d):
+            module.scale4[0] = _PIDNetPool(1, 1, 0, global_hw=True)
+            count += 1
+    return count
+
+
+def _block_select_conv(widths, rows) -> torch.nn.Conv2d:
+    """A fixed 1x1 conv over a channel concat of blocks ``widths``: output block ``r`` is the sum of the input blocks
+    ``rows[r]`` (``(block, sign)`` pairs, all the same width). Exact: weights are 0 and +-1."""
+    offsets = [0]
+    for w in widths:
+        offsets.append(offsets[-1] + int(w))
+    outs = [int(widths[r[0][0]]) for r in rows]
+    conv = torch.nn.Conv2d(offsets[-1], sum(outs), 1, bias=False)
+    with torch.no_grad():
+        conv.weight.zero_()
+        o = 0
+        for row, width in zip(rows, outs):
+            for block, sign in row:
+                conv.weight[o : o + width, offsets[block] : offsets[block] + width, 0, 0] += float(sign) * torch.eye(width)
+            o += width
+    return conv.requires_grad_(False).eval()
+
+
+def _pidnet_pool_sizes(spp, hw):
+    """Spatial sizes of the pyramid pooling module's four pooled branches for an ``hw`` input."""
+    sizes = []
+    for scale in (spp.scale1, spp.scale2, spp.scale3):
+        pool = scale[0]
+        k, s, p = _pair(pool.kernel_size), _pair(pool.stride), _pair(pool.padding)
+        sizes.append(tuple((hw[i] + 2 * p[i] - k[i]) // s[i] + 1 for i in range(2)))
+    sizes.append((1, 1))
+    return sizes
+
+
+class _PIDNetTrunkPart(_PIDNetBodyWrapper):
+    """Part 1 of PIDNet's ``pool_parts`` export: stem, P/I/D branches through layer 5 (PagFM in the exact
+    ``sigmoid(-z) * x + sigmoid(z) * y`` form) and the pyramid pooling module's per-branch layers.
+
+    Outputs the four pooled branches (each average pool in a compiler-friendly exact form, then BN, ReLU and the
+    1x1 conv; ``pp1``..``pp4`` at 1/2, 1/4, 1/8 and 1x1 of the I map), the unpooled branch ``pp0``, the shortcut
+    ``ppsc`` and the P and D maps (``p5``, ``d5``). The host upsamples the pooled branches (bilinear, as the module
+    does) and concatenates them for part 2.
+    """
+
+    output_names = ("pp1", "pp2", "pp3", "pp4", "pp0", "ppsc", "p5", "d5")
+
+    def __init__(self, model: torch.nn.Module, imgsz):
+        super().__init__(model)
+        spp = self.model.spp
+        hw = (int(imgsz[0]) // 64, int(imgsz[1]) // 64)
+        self.pools = torch.nn.ModuleList(
+            [_PIDNetPool(s[0].kernel_size, s[0].stride, s[0].padding) for s in (spp.scale1, spp.scale2, spp.scale3)]
+            + [_PIDNetPool(1, 1, 0, global_hw=hw)]
+        )
+        self.identity = torch.nn.ModuleList(list(self.identity)[1:])  # P and D only
+
+    def forward(self, x):
+        import torch.nn.functional as F
+
+        m = self.model
+        x = (x - m.pixel_mean.to(dtype=x.dtype)) / m.pixel_std.to(dtype=x.dtype)
+        ho, wo = x.shape[-2] // 8, x.shape[-1] // 8
+        x = m.layer1(m.conv1(x))
+        x = m.relu(m.layer2(m.relu(x)))
+        x_ = m.layer3_(x)
+        x_d = m.layer3_d(x)
+        x = m.relu(m.layer3(x))
+        x_ = m.pag3(x_, m.compression3(x))
+        x_d = x_d + F.interpolate(m.diff3(x), size=[ho, wo], mode="bilinear", align_corners=False)
+        x = m.relu(m.layer4(x))
+        x_ = m.layer4_(m.relu(x_))
+        x_d = m.layer4_d(m.relu(x_d))
+        x_ = m.pag4(x_, m.compression4(x))
+        x_d = x_d + F.interpolate(m.diff4(x), size=[ho, wo], mode="bilinear", align_corners=False)
+        x5 = m.layer5(x)
+        spp = m.spp
+        pooled = [
+            scale[3](scale[2](scale[1](pool(x5))))
+            for pool, scale in zip(self.pools, (spp.scale1, spp.scale2, spp.scale3, spp.scale4))
+        ]
+        p5 = self.identity[0](m.layer5_(m.relu(x_)))
+        d5 = self.identity[1](m.layer5_d(m.relu(x_d)))
+        return (*pooled, spp.scale0(x5), spp.shortcut(x5), p5, d5)
+
+
+class _PIDNetPoolMergePart(torch.nn.Module):
+    """Part 2 of PIDNet's ``pool_parts`` export: the pyramid pooling module's sums, processing and compression.
+
+    Input: the host's concat of the upsampled pooled branches ``up1``..``up4``, ``pp0`` and ``ppsc`` (I map size).
+    Every ``upsample + x`` sum and the final ``+ shortcut`` run as fixed 1x1 convs over channel concats (identity
+    blocks; exact), PAPPM's four sums in one conv, DAPPM's chained ones one per stage. Output ``spp``.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("spp",)
+
+    def __init__(self, spp: torch.nn.Module):
+        super().__init__()
+        self.spp = spp
+        self.dappm = hasattr(spp, "process1")
+        b = int(spp.scale0[2].out_channels)
+        o = int(spp.shortcut[2].out_channels)
+        widths = [b, b, b, b, b, o]
+        self.entry = _block_select_conv(widths, [[(i, 1)] for i in range(6)])
+        if self.dappm:
+            self.first = _block_select_conv(widths, [[(0, 1), (4, 1)]])
+            self.take = torch.nn.ModuleList([_block_select_conv(widths, [[(i, 1)]]) for i in (1, 2, 3)])
+            self.chain = _block_select_conv([b, b], [[(0, 1), (1, 1)]])
+        else:
+            self.sums = _block_select_conv(widths, [[(i, 1), (4, 1)] for i in range(4)])
+        self.x0 = _block_select_conv(widths, [[(4, 1)]])
+        self.short = _block_select_conv(widths, [[(5, 1)]])
+        self.out = _block_select_conv([o, o], [[(0, 1), (1, 1)]])
+
+    def forward(self, x):
+        spp = self.spp
+        e = self.entry(x)
+        x0 = self.x0(e)
+        if self.dappm:
+            ys = [x0, spp.process1(self.first(e))]
+            for take, process in zip(self.take, (spp.process2, spp.process3, spp.process4)):
+                ys.append(process(self.chain(torch.cat([take(e), ys[-1]], dim=1))))
+            comp = spp.compression(torch.cat(ys, dim=1))
+        else:
+            comp = spp.compression(torch.cat([x0, spp.scale_process(self.sums(e))], dim=1))
+        return (self.out(torch.cat([comp, self.short(e)], dim=1)),)
+
+
+class _DDRNetTrunkPart(torch.nn.Module):
+    """Part 1 of DDRNet's ``pool_parts`` export: stem, both branches with their bilateral fusions, layer 5 of each
+    branch and the DAPPM's per-branch layers (as PIDNet's part 1).
+
+    Outputs the four pooled branches ``pp1``..``pp4`` (pools in ``_PIDNetPool``'s exact form, then BN, ReLU and
+    the 1x1 conv), the unpooled branch ``pp0``, the shortcut ``ppsc`` and the high-resolution branch ``h5``
+    (through a dense identity conv: the graph cleaner rejects a part output that also feeds another node).
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("pp1", "pp2", "pp3", "pp4", "pp0", "ppsc", "h5")
+
+    def __init__(self, model: torch.nn.Module, imgsz):
+        super().__init__()
+        self.model = model
+        spp = model.spp
+        hw = (int(imgsz[0]) // 64, int(imgsz[1]) // 64)
+        self.pools = torch.nn.ModuleList(
+            [_PIDNetPool(s[0].kernel_size, s[0].stride, s[0].padding) for s in (spp.scale1, spp.scale2, spp.scale3)]
+            + [_PIDNetPool(1, 1, 0, global_hw=hw)]
+        )
+        c = _conv_out(model.layer5_)
+        self.identity = torch.nn.Conv2d(c, c, 1, bias=False)
+        with torch.no_grad():
+            self.identity.weight.copy_(torch.eye(c).view(c, c, 1, 1))
+        self.requires_grad_(False)
+
+    def forward(self, x):
+        m = self.model
+        x = (x - m.pixel_mean.to(dtype=x.dtype)) / m.pixel_std.to(dtype=x.dtype)
+        size = [x.shape[-2] // 8, x.shape[-1] // 8]
+        x = m.layer1(m.conv1(x))
+        stage2 = m.layer2(m.relu(x))
+        if m.split_stage3:
+            x = m.layer3_1(m.relu(stage2))
+            x_ = m.layer3_1_(m.relu(stage2))
+            x, x_ = m._fuse(x, x_, m.down3_1, m.compression3_1, x, size)
+            x = m.layer3_2(m.relu(x))
+            x_ = m.layer3_2_(m.relu(x_))
+            x, x_ = m._fuse(x, x_, m.down3_2, m.compression3_2, x, size)
+        else:
+            x = m.layer3(m.relu(stage2))
+            x_ = m.layer3_(m.relu(stage2))
+            x, x_ = m._fuse(x, x_, m.down3, m.compression3, x, size)
+        x = m.layer4(m.relu(x))
+        x_ = m.layer4_(m.relu(x_))
+        x, x_ = m._fuse(x, x_, m.down4, m.compression4, x, size)
+        h5 = self.identity(m.layer5_(m.relu(x_)))
+        x5 = m.layer5(m.relu(x))
+        spp = m.spp
+        pooled = [
+            scale[3](scale[2](scale[1](pool(x5))))
+            for pool, scale in zip(self.pools, (spp.scale1, spp.scale2, spp.scale3, spp.scale4))
+        ]
+        return (*pooled, spp.scale0(x5), spp.shortcut(x5), h5)
+
+
+class _DDRNetHeadPart(torch.nn.Module):
+    """Part 3 of DDRNet's ``pool_parts`` export: ``final_layer(spp + h5)``.
+
+    Input: the host's concat of ``h5`` and ``spp`` upsampled 8x (bilinear, as the network), entered through a
+    dense identity 1x1 conv; the sum runs as a fixed 1x1 conv over the concat (exact). Output ``semantic_logits``.
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("semantic_logits",)
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.head = model.final_layer
+        c = _conv_out(model.layer5_)
+        self.entry = torch.nn.Conv2d(2 * c, 2 * c, 1, bias=False)
+        with torch.no_grad():
+            self.entry.weight.copy_(torch.eye(2 * c).view(2 * c, 2 * c, 1, 1))
+        self.sum = _block_select_conv([c, c], [[(0, 1), (1, 1)]])
+        self.requires_grad_(False)
+
+    def forward(self, x):
+        return (self.head(self.sum(self.entry(x))),)
+
+
+class _PIDNetFusionHeadPart(torch.nn.Module):
+    """Part 3 of PIDNet's ``pool_parts`` export: the boundary-attention fusion (LightBag or Bag) and the head.
+
+    Input: the host's concat of ``p5``, ``spp`` upsampled to the P map (bilinear) and ``d5``, entered through a
+    dense identity 1x1 conv and split. ``1 - sigmoid(d)`` runs as ``sigmoid(-d)``; LightBag's two
+    convs and three sums fold into one 1x1 conv over ``cat[sigmoid(-d) * i, p, i, sigmoid(d) * p]`` (BN folded),
+    and Bag's sum + BN into a fixed per-channel conv over ``cat[sigmoid(d) * p, sigmoid(-d) * i]``. Output
+    ``semantic_logits`` (stride 8, as the network's own output).
+    """
+
+    output_layout = "graph_outputs_v1"
+    output_windows: ClassVar[dict] = {}
+    output_names = ("semantic_logits",)
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+        dfm = model.dfm
+        self.light = hasattr(dfm, "conv_p")
+        c = int(dfm.conv_p[0].in_channels if self.light else dfm.conv[0].num_features)
+        self.c = c
+        # Dense: a grouped or depthwise conv on a part's graph input fails the compiler's input-quantization pass
+        # under the hybrid scheme ("can only convert an array of size 1").
+        self.entry = torch.nn.Conv2d(3 * c, 3 * c, 1, bias=False)
+        self.negate = torch.nn.Conv2d(c, c, 1, groups=c, bias=False)
+        with torch.no_grad():
+            self.entry.weight.copy_(torch.eye(3 * c).view(3 * c, 3 * c, 1, 1))
+            self.negate.weight.fill_(-1.0)
+        if self.light:
+            def folded(seq):
+                conv, bn = seq[0], seq[1]
+                s = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+                return conv.weight[:, :, 0, 0] * s[:, None], bn.bias - bn.running_mean * s
+
+            with torch.no_grad():
+                wp, bp = folded(dfm.conv_p)
+                wi, bi = folded(dfm.conv_i)
+                out = wp.shape[0]
+                self.fuse = torch.nn.Conv2d(4 * c, out, 1, bias=True)
+                self.fuse.weight.copy_(torch.cat([wp, wp, wi, wi], dim=1).view(out, 4 * c, 1, 1))
+                self.fuse.bias.copy_(bp + bi)
+        else:
+            bn = dfm.conv[0]
+            with torch.no_grad():
+                s = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+                self.fuse = torch.nn.Conv2d(2 * c, c, 1, bias=True)
+                self.fuse.weight.copy_(torch.cat([torch.diag(s), torch.diag(s)], dim=1).view(c, 2 * c, 1, 1))
+                self.fuse.bias.copy_(bn.bias - bn.running_mean * s)
+        self.requires_grad_(False)
+
+    def forward(self, x):
+        p, i, d = torch.split(self.entry(x), self.c, dim=1)
+        gate, gate_neg = torch.sigmoid(d), torch.sigmoid(self.negate(d))
+        if self.light:
+            z = self.fuse(torch.cat([gate_neg * i, p, i, gate * p], dim=1))
+        else:
+            conv = self.model.dfm.conv
+            z = conv[2](conv[1](self.fuse(torch.cat([gate * p, gate_neg * i], dim=1))))
+        return (self.model.final_layer(z),)
 
 
 def _efficientdet_at_canvas(model, canvas: int):
@@ -4163,6 +5313,18 @@ class AxeleraExporter(BaseExporter):
         return task if isinstance(task, str) else "detect"
 
 
+    def _default_calibration_fraction(self) -> float:
+        """The measured size's calibration fraction (recipe ``calibration_fraction``), else the whole dataset.
+
+        Applied only when the caller leaves ``fraction`` unset, so a default export calibrates on the images the
+        size's supported/validated measurement used; an explicit ``fraction`` always wins.
+        """
+        value = self._size_recipe().get("calibration_fraction")
+        if value is None:
+            return 1.0
+        self._fraction_from_recipe = True
+        return float(value)
+
     def _size_recipe(self) -> dict:
         """The per-size recipe (``AXELERA_SIZE_RECIPES``) for this model, if any."""
         from .axelera import size_recipe
@@ -4247,16 +5409,17 @@ class AxeleraExporter(BaseExporter):
     def _resolve_params(self, output_path, imgsz, device, half, int8):
         canvas = self._size_recipe().get("canvas")
         if imgsz is None and canvas:
-            # The measured per-size canvas (e.g. RetinaNet-R50 at 1024x1024);
-            # an explicit imgsz= still wins.
-            imgsz = int(canvas)
+            # The measured per-size canvas (e.g. RetinaNet-R50 at 1024x1024,
+            # U-Net at its 512x1024 crop); an explicit imgsz= still wins.
+            imgsz = tuple(int(v) for v in canvas) if isinstance(canvas, (tuple, list)) else int(canvas)
+            height, width = imgsz if isinstance(imgsz, tuple) else (imgsz, imgsz)
             logger.info(
                 "Axelera: %s-%s exports at its measured %dx%d canvas; pass imgsz= "
                 "to choose another (docs/axelera.md).",
                 self.model._get_model_name(),
                 getattr(self.model, "size", ""),
-                imgsz,
-                imgsz,
+                height,
+                width,
             )
         imgsz, device, output_path = super()._resolve_params(
             output_path, imgsz, device, half, int8
@@ -4284,9 +5447,11 @@ class AxeleraExporter(BaseExporter):
         return imgsz, device, output_path
 
     def _rectangular_imgsz_supported(self) -> bool:
-        # Whole-graph dense exports (HRNet's 256x192 person crop) keep their
-        # canvas; the YOLO-NAS raw-head path stays square.
-        return bool(self._graph_outputs())
+        # Whole-graph dense exports and HRNet's fusion parts keep their canvas (HRNet's
+        # 256x192 person crop); the YOLO-NAS raw-head path stays square.
+        return bool(self._graph_outputs()) or (
+            self.model._get_model_name() == "hrnet" and bool(self._size_recipe().get("fusion_parts"))
+        )
 
     def _shuffle_skip_restore(self) -> bool:
         """Real-ESRGAN's compact network (x4t): trunk on Metis, tail on the host."""
@@ -4296,6 +5461,292 @@ class AxeleraExporter(BaseExporter):
             and self._task() == "restore"
             and all(hasattr(net, name) for name in ("body", "upsampler", "upscale"))
         )
+
+    def _rrdb_network(self):
+        """Real-ESRGAN's RRDB network (x4/x2 checkpoints), else ``None``."""
+        if self.model._get_model_name() != "realesrgan" or self._task() != "restore":
+            return None
+        for module in self.model.model.modules():
+            if all(hasattr(module, n) for n in ("conv_first", "body", "conv_body", "conv_up1", "conv_hr")):
+                return module
+        return None
+
+    def _rrdb_parts_restore(self) -> bool:
+        """Real-ESRGAN-x4/x2's RRDB network as three compiled parts + a host add (recipe ``rrdb_split``)."""
+        net = self._rrdb_network()
+        return net is not None and bool(self._size_recipe().get("rrdb_split")) and int(getattr(net, "scale", 4)) in (2, 4)
+
+    def _export_rrdb_parts_onnx(self, out: Path, imgsz, opset) -> str:
+        """Export the three RRDB parts (``_RRDBPart``) and keep their run order in ``_part_steps``.
+
+        The parts are traced with plain ``torch.onnx.export`` (opset 17, no simplification): the graphs that
+        were compiled and measured on a Metis (docs/axelera.md).
+        """
+        split = int(self._size_recipe()["rrdb_split"])
+        net = copy.deepcopy(self._rrdb_network()).eval()
+        from .axelera import DEPTHWISE_QUANTIZATION_SCHEME
+
+        dense = self._size_recipe().get("quantization_scheme") == DEPTHWISE_QUANTIZATION_SCHEME
+        head, tail, upsample = (
+            _RRDBPart(net, role, split, dense_entry=dense).eval() for role in ("head", "tail", "upsample")
+        )
+        x = torch.zeros(1, 3, *imgsz)
+        paths = [str(out.with_name(f"{out.name}.export_intermediate{tag}.onnx")) for tag in ("", ".part2", ".part3")]
+        self._intermediate_paths = list(paths)
+        with torch.no_grad():
+            skip, mid = head(x)
+            feat = skip + tail(mid)[0]
+        logger.info(
+            "Step 1/2: Exporting Real-ESRGAN-%s as three parts (RRDB blocks split at %d; the host adds the trunk "
+            "skip) (%s)",
+            self.model.size,
+            split,
+            paths[0],
+        )
+        for module, sample, path, names in (
+            (head, x, paths[0], ["images"]),
+            (tail, mid, paths[1], ["mid"]),
+            (upsample, feat, paths[2], ["feat"]),
+        ):
+            torch.onnx.export(
+                module,
+                (sample,),
+                path,
+                input_names=names,
+                output_names=list(module.output_names),
+                opset_version=17,
+                dynamo=False,
+            )
+        self._raw_wrapper = head
+        self._part_steps = [
+            {"compile": paths[1], "reference": tail, "input": "mid", "merge_pad": False},
+            {"host": "add", "inputs": ["skip", "body"], "output": "feat"},
+            {"compile": paths[2], "reference": upsample, "input": "feat", "merge_pad": False},
+        ]
+        return paths[0]
+
+    def _export_fcos_parts_onnx(self, out: Path, imgsz) -> str:
+        """FCOS as a multi-part export (GroupNorm on the host); the run order goes to ``_part_steps``."""
+        if int(imgsz[0]) != int(imgsz[1]):
+            raise ValueError(f"FCOS exports for Axelera at a square canvas, got {imgsz[0]}x{imgsz[1]}.")
+        net = copy.deepcopy(self.model.model).eval()
+        trunk, layers, final, arrays, canvas, groups, eps, n_cls, width = _fcos_parts(net, int(imgsz[0]))
+        work = out.with_name(f"{out.name}.export_intermediate")
+        self._intermediate_paths = []
+
+        def onnx_of(module, x, tag, in_name):
+            path = f"{work}.{tag}.onnx"
+            self._intermediate_paths.append(path)
+            torch.onnx.export(
+                module.eval(),
+                (x,),
+                path,
+                input_names=[in_name],
+                output_names=list(module.output_names),
+                opset_version=17,
+                dynamic_axes=None,
+                dynamo=False,
+            )
+            return path
+
+        logger.info(
+            "Step 1/2: Exporting FCOS as %d compiled parts (trunk, 4 head convolutions on the packed %dx%d level "
+            "canvas, predictor); GroupNorm and the decode run on the host",
+            6,
+            canvas[0],
+            canvas[1],
+        )
+        first = onnx_of(trunk, torch.zeros(1, 3, *imgsz), "trunk", "images")
+        steps = [
+            {
+                "host": "pack_levels",
+                "inputs": list(trunk.output_names),
+                "output": "packed",
+                "boxes": "@npz:boxes",
+                "canvas": [int(v) for v in canvas],
+            }
+        ]
+        src = "packed"
+        for k in range(4):
+            named = _NamedPart(layers[k], [f"h{k + 1}raw"])
+            sample = torch.zeros(1, width if k == 0 else 2 * width, *canvas)
+            steps.append(
+                {"compile": onnx_of(named, sample, f"l{k + 1}", src), "reference": named, "input": src, "merge_pad": False}
+            )
+            steps.append(
+                {
+                    "host": "gn_relu_levels",
+                    "input": f"h{k + 1}raw",
+                    "output": f"h{k + 1}",
+                    "boxes": "@npz:boxes",
+                    "groups": 2 * groups,
+                    "gamma": f"@npz:g{k + 1}",
+                    "beta": f"@npz:b{k + 1}",
+                    "eps": eps,
+                }
+            )
+            src = f"h{k + 1}"
+        named = _NamedPart(final, ["headraw"])
+        steps.append(
+            {
+                "compile": onnx_of(named, torch.zeros(1, 2 * width, *canvas), "final", src),
+                "reference": named,
+                "input": src,
+                "merge_pad": False,
+            }
+        )
+        steps.append(
+            {
+                "host": "fcos_decode",
+                "input": "headraw",
+                "output": "detections",
+                "boxes": "@npz:boxes",
+                "n_cls": n_cls,
+                "anchors": "@npz:anchors",
+                "class_indices": "@npz:class_indices",
+            }
+        )
+        self._raw_wrapper = trunk
+        self._part_steps = steps
+        self._part_host_arrays = arrays
+        return first
+
+    def _export_hrnet_fusion_parts_onnx(self, out: Path, imgsz, dummy, onnx_output, opset, simplify) -> str:
+        """HRNet pose as compiled parts (recipe ``fusion_parts``): trunk to stage 3, then one part per branch of
+        each stage-4 module and the heatmap layer; between parts the host only upsamples (nearest) and
+        concatenates channels, and each module's fuse sum runs in the next part as a fixed 1x1 conv."""
+        from ..backends.axelera import HOST_OPS
+        from .onnx import _export_onnx_graph
+
+        net = copy.deepcopy(self.model.model).eval()
+        trunk = _HRNetTrunkPart(net).eval()
+        steps_plan = _hrnet_fusion_steps(net)
+        logger.info(
+            "Step 1/2: Exporting HRNet as %d compiled parts (trunk, one per stage-4 branch and module, heatmap "
+            "layer); the host only upsamples and concatenates between them",
+            1 + len(steps_plan),
+        )
+        first = _export_onnx_graph(
+            trunk,
+            dummy,
+            output_path=onnx_output,
+            opset=opset,
+            simplify=simplify,
+            half=False,
+            metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+            input_names=["images"],
+            output_names=list(trunk.output_names),
+            dynamic_axes=None,
+        )
+        self._intermediate_paths = [onnx_output]
+        with torch.no_grad():
+            values = dict(zip(trunk.output_names, (t.numpy() for t in trunk(dummy))))
+        steps = []
+        for join, source, part in steps_plan:
+            if join is not None:
+                inputs, factors, joined = join
+                values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors)
+                steps.append({"host": "concat", "inputs": list(inputs), "output": joined, "upsample": list(factors)})
+            sample = torch.from_numpy(values[source])
+            path = str(out.with_name(f"{out.name}.export_intermediate.{part.output_names[0]}.onnx"))
+            self._intermediate_paths.append(path)
+            _export_onnx_graph(
+                part,
+                torch.zeros_like(sample),
+                output_path=path,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=[source],
+                output_names=list(part.output_names),
+                dynamic_axes=None,
+            )
+            with torch.no_grad():
+                values.update(zip(part.output_names, (t.numpy() for t in part(sample))))
+            steps.append({"compile": path, "reference": part, "input": source, "merge_pad": False})
+        self._metadata_wrapper = _GraphOutputsWrapper(net, ("heatmaps",)).eval()
+        self._raw_wrapper = trunk
+        self._part_steps = steps
+        return first
+
+    def _export_pidnet_pool_parts_onnx(self, out: Path, imgsz, dummy, onnx_output, opset, simplify) -> str:
+        """PIDNet as three compiled parts (recipe ``pool_parts``): the branches through layer 5 with the pyramid
+        pooling module's per-branch layers, the pooling module's sums and compression, then the branch fusion and
+        the head; between parts the host only upsamples (bilinear, as the network) and concatenates channels."""
+        from ..backends.axelera import HOST_OPS
+        from .onnx import _export_onnx_graph
+
+        if int(imgsz[0]) % 64 or int(imgsz[1]) % 64:
+            raise ValueError(f"{self.model._get_model_name()} pool_parts exports at a multiple of 64, got {imgsz[0]}x{imgsz[1]}.")
+        net = copy.deepcopy(self.model.model).eval().requires_grad_(False)
+        ddrnet = self.model._get_model_name() == "ddrnet"
+        trunk = (_DDRNetTrunkPart if ddrnet else _PIDNetTrunkPart)(net, imgsz).eval().requires_grad_(False)
+        merge = _PIDNetPoolMergePart(trunk.model.spp).eval()
+        head = (_DDRNetHeadPart if ddrnet else _PIDNetFusionHeadPart)(trunk.model).eval()
+        i_hw = (int(imgsz[0]) // 64, int(imgsz[1]) // 64)
+        pool_hw = _pidnet_pool_sizes(trunk.model.spp, i_hw)
+        pool_factors = [i_hw[0] // h for h, _ in pool_hw]
+        if pool_hw[3] == (1, 1) and i_hw[0] != i_hw[1]:
+            # The 1x1 global branch on a non-square map (DDRNet's 1024x2048): a per-axis factor pair; bilinear
+            # upsampling of a 1x1 map is a broadcast, so it stays exact.
+            pool_factors[3] = [i_hw[0], i_hw[1]]
+        for (h, w), f in zip(pool_hw, pool_factors):
+            fh, fw = (f[0], f[1]) if isinstance(f, list) else (f, f)
+            if h * fh != i_hw[0] or w * fw != i_hw[1]:
+                raise ValueError(f"pool_parts needs integer pooling ratios at {imgsz[0]}x{imgsz[1]}.")
+        logger.info(
+            "Step 1/2: Exporting %s as 3 compiled parts (branches + pooling layers, pooling sums, fusion + head);"
+            " the host only upsamples (bilinear) and concatenates between them",
+            "DDRNet" if ddrnet else "PIDNet",
+        )
+        first = _export_onnx_graph(
+            trunk,
+            dummy,
+            output_path=onnx_output,
+            opset=opset,
+            simplify=simplify,
+            half=False,
+            metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+            input_names=["images"],
+            output_names=list(trunk.output_names),
+            dynamic_axes=None,
+        )
+        self._intermediate_paths = [onnx_output]
+        with torch.no_grad():
+            values = dict(zip(trunk.output_names, (t.numpy() for t in trunk(dummy))))
+        joins = (
+            (["pp1", "pp2", "pp3", "pp4", "pp0", "ppsc"], [*pool_factors, 1, 1], "pool_in", merge),
+            (["h5", "spp"], [1, 8], "fuse_in", head) if ddrnet else (["p5", "spp", "d5"], [1, 8, 1], "fuse_in", head),
+        )
+        steps = []
+        for inputs, factors, joined, part in joins:
+            values[joined] = HOST_OPS["concat"](*(values[n] for n in inputs), upsample=factors, mode="bilinear")
+            steps.append(
+                {"host": "concat", "inputs": list(inputs), "output": joined, "upsample": list(factors), "mode": "bilinear"}
+            )
+            sample = torch.from_numpy(values[joined])
+            path = str(out.with_name(f"{out.name}.export_intermediate.{part.output_names[0]}.onnx"))
+            self._intermediate_paths.append(path)
+            _export_onnx_graph(
+                part,
+                torch.zeros_like(sample),
+                output_path=path,
+                opset=opset,
+                simplify=simplify,
+                half=False,
+                metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                input_names=[joined],
+                output_names=list(part.output_names),
+                dynamic_axes=None,
+            )
+            with torch.no_grad():
+                values.update(zip(part.output_names, (t.numpy() for t in part(sample))))
+            steps.append({"compile": path, "reference": part, "input": joined, "merge_pad": False})
+        self._metadata_wrapper = _GraphOutputsWrapper(net, ("semantic_logits",)).eval()
+        self._raw_wrapper = trunk
+        self._part_steps = steps
+        return first
 
     def _graph_outputs(self) -> tuple[str, ...]:
         """ONNX output names when the whole dense graph runs on Metis, else ``()``."""
@@ -4333,10 +5784,10 @@ class AxeleraExporter(BaseExporter):
 
             return restore
         preprocess = self.model._get_preprocess_numpy()
-        if self.model._get_model_name() == "retinanet":
-            # RetinaNet's own preprocessing gives every image its own shape;
-            # the compiled graph takes one square canvas, so images are fitted
-            # into it (the backend does the same for fixed-shape artifacts).
+        if self.model._get_model_name() in ("retinanet", "fcos"):
+            # RetinaNet's and FCOS's own preprocessing give every image its own
+            # shape; the compiled graph takes one square canvas, so images are
+            # fitted into it (the backend does the same for fixed-shape artifacts).
             import functools
 
             return functools.partial(preprocess, fixed_canvas=True)
@@ -4349,12 +5800,15 @@ class AxeleraExporter(BaseExporter):
         samples = [torch.as_tensor(x) for x in self._equalization_samples()]
         if not samples:
             return
-        summary = prepare_for_int8(net, samples)
+        learned = bool(self._size_recipe().get("learned_rounding"))
+        rounding = [torch.as_tensor(x) for x in self._equalization_samples(limit=128)] if learned else None
+        summary = prepare_for_int8(net, samples, learned_rounding=learned, rounding_samples=rounding)
         logger.info(
             "Axelera: QuickSRNet hidden channels equalized through their Hardtanh "
-            "bounds (smallest calibration peak per layer %s); %d biases corrected "
-            "for INT8 weight rounding.",
+            "bounds (smallest calibration peak per layer %s); %s; %d biases corrected.",
             ", ".join(f"{v:.3f}" for v in summary["layer_min_peaks"]),
+            f"INT8 rounding learned for {summary['learned_rounding']} convolutions on "
+            f"{len(rounding)} calibration images" if learned else "nearest INT8 rounding",
             summary["bias_corrected"],
         )
 
@@ -4384,6 +5838,30 @@ class AxeleraExporter(BaseExporter):
             return CSPNEXT_POINTWISE_EQUALIZATION_METHOD
         return CSPNEXT_POINTWISE_EQUALIZATION_METHOD_BY_TASK.get(self._task(), "act")
 
+    def _apply_network_learned_rounding(self, net: torch.nn.Module) -> int:
+        """Per-size recipe ``network_learned_rounding``: learned INT8 rounding of every layer of ``net``.
+
+        ``net`` is the export copy, after any exact transform. The value is the
+        number of calibration images to learn on (``True`` = 64). See
+        :mod:`libreyolo.export.learned_rounding`.
+        """
+        images = self._size_recipe().get("network_learned_rounding")
+        if not images:
+            self._network_rounded = 0
+            return 0
+        from . import learned_rounding
+
+        samples = self._equalization_samples(64 if images is True else int(images))
+        self._network_rounded = learned_rounding.learn_int8_rounding(
+            net, samples, steps=learned_rounding.LEARNED_ROUNDING_STEPS
+        )
+        logger.info(
+            "Axelera: INT8 rounding learned for %d layers on %d calibration images.",
+            self._network_rounded,
+            len(samples),
+        )
+        return self._network_rounded
+
     def _equalization_samples(self, limit: int = 32) -> list:
         """Up to ``limit`` calibration images (``[1, C, H, W]``), or ``[]``."""
         loader = getattr(self, "_calibration_loader", None)
@@ -4408,6 +5886,24 @@ class AxeleraExporter(BaseExporter):
         )
         self._calibration_loader = loader
         count = int(loader.num_samples)
+        if count < 2 and getattr(self, "_fraction_from_recipe", False):
+            # The size's measured share of a tiny dataset rounds below the 2-image minimum: keep 2 images
+            # (a user-given fraction is never adjusted).
+            loader = CalibrationDataLoader(
+                data,
+                imgsz=imgsz,
+                batch=getattr(self, "_calibration_batch", 1),
+                fraction=1.0,
+                samples=2,
+                preprocess_fn=self._calibration_preprocess(),
+                allow_download_scripts=allow_download_scripts,
+            )
+            logger.info(
+                "Axelera calibration: the size recipe's fraction %s of %s gives %d image(s); using %d",
+                fraction, data, count, int(loader.num_samples),
+            )
+            self._calibration_loader = loader
+            count = int(loader.num_samples)
         low, high = self._RECOMMENDED_CALIBRATION
         if count < 2:
             raise ValueError(
@@ -4445,6 +5941,15 @@ class AxeleraExporter(BaseExporter):
         part2_output = str(out.with_name(f"{out.name}.export_intermediate.part2.onnx"))
         self._intermediate_paths = [onnx_output, part2_output]
         if self._shuffle_skip_restore():
+            if self._size_recipe().get("weight_equalization"):
+                from ..models.realesrgan.quantize import equalize_conv_activation_ranges
+
+                nn_model = copy.deepcopy(nn_model).eval()
+                logger.info(
+                    "Axelera: %d convolution pairs of the compact trunk equalized through "
+                    "their activations (exact; docs/axelera.md).",
+                    equalize_conv_activation_ranges(nn_model),
+                )
             self._raw_wrapper = _RestoreBodyWrapper(nn_model).eval()
             logger.info("Step 1/2: Exporting restore trunk ONNX (%s)", onnx_output)
             return _export_onnx_graph(
@@ -4459,12 +5964,50 @@ class AxeleraExporter(BaseExporter):
                 output_names=list(self._raw_wrapper.output_names),
                 dynamic_axes=None,
             )
+        if self._rrdb_parts_restore():
+            return self._export_rrdb_parts_onnx(out, imgsz, opset)
+        if self.model._get_model_name() == "fcos" and self._task() == "detect":
+            return self._export_fcos_parts_onnx(out, imgsz)
+        if self.model._get_model_name() == "hrnet" and self._size_recipe().get("fusion_parts"):
+            return self._export_hrnet_fusion_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
+        if self.model._get_model_name() in ("pidnet", "ddrnet") and self._size_recipe().get("pool_parts"):
+            return self._export_pidnet_pool_parts_onnx(out, imgsz, dummy, onnx_output, opset, simplify)
         graph_outputs = self._graph_outputs()
         if graph_outputs:
             if self.model._get_model_name() == "quicksrnet":
                 nn_model = copy.deepcopy(nn_model).eval()
                 self._prepare_quicksrnet(nn_model)
+            if self.model._get_model_name() == "yolo1":
+                nn_model = copy.deepcopy(nn_model).eval()
+                logger.info(
+                    "Axelera: %d Darknet batch norms folded into their convolutions, "
+                    "%d [local] layers as per-position convolutions (exact; docs/axelera.md).",
+                    _fuse_darknet_batchnorms(nn_model.net),
+                    _local_layers_to_convs(nn_model.net),
+                )
+            if self.model._get_model_name() == "ppliteseg":
+                nn_model = copy.deepcopy(nn_model).eval()
+                logger.info(
+                    "Axelera: %d UAFM blends as x * sigmoid(z) + skip * sigmoid(-z) "
+                    "(exact; docs/axelera.md).",
+                    _ppliteseg_int8_blend(nn_model),
+                )
+            if self.model._get_model_name() == "ddrnet":
+                nn_model = copy.deepcopy(nn_model).eval()
+                logger.info(
+                    "Axelera: %d DAPPM average pools in the compiler's form (17x17 as two 1-D pools, the "
+                    "global pool in 2x2 steps; exact, docs/axelera.md).",
+                    _ddrnet_dappm_pools(nn_model),
+                )
+            if self._size_recipe().get("aspp_shift"):
+                nn_model = copy.deepcopy(nn_model).eval()
+                logger.info(
+                    "Axelera: %d ASPP dilated convolutions run as per-tap 1x1 "
+                    "convolutions plus zero-filled shifts (exact; docs/axelera.md).",
+                    _aspp_shift(nn_model),
+                )
             self._raw_wrapper = _GraphOutputsWrapper(nn_model, graph_outputs).eval()
+            self._apply_network_learned_rounding(self._raw_wrapper)
             logger.info("Step 1/2: Exporting %s ONNX (%s)", self._task(), onnx_output)
             return _export_onnx_graph(
                 self._raw_wrapper,
@@ -4484,6 +6027,7 @@ class AxeleraExporter(BaseExporter):
                 "stream_transform", True
             ):
                 self._prepare_mobilenetv4(net, dummy)
+            self._apply_network_learned_rounding(net)
             self._raw_wrapper = _ClassifyLogitsWrapper(net).eval()
             logger.info("Step 1/2: Exporting classifier ONNX (%s)", onnx_output)
             return _export_onnx_graph(
@@ -4529,12 +6073,18 @@ class AxeleraExporter(BaseExporter):
                 )
             self._pose_bounds = {}
             self._raw_wrapper = _PicoDetRawHeadsWrapper(live).eval()
-        elif self.model._get_model_name() == "yolo9":
+        elif self.model._get_model_name() in ("yolo9", "yolo9_e2e", "yolo9_p2"):
             # No reparameterization step; BatchNorm folds into the convs
-            # during the ONNX export.
+            # during the ONNX export. YOLO9-E2E decodes its one-to-one branch;
+            # YOLO9-P2 adds a stride-4 level (the strides travel in metadata).
             self._pose_bounds = {}
+            towers = (
+                ("one_to_one_anchor_convs", "one_to_one_class_convs")
+                if self.model._get_model_name() == "yolo9_e2e"
+                else ("anchor_convs", "class_convs")
+            )
             self._raw_wrapper = _YOLO9RawHeadsWrapper(
-                copy.deepcopy(live).eval(), self._task()
+                copy.deepcopy(live).eval(), self._task(), towers=towers
             ).eval()
         elif self.model._get_model_name() == "yolox":
             self._pose_bounds = {}
@@ -4552,12 +6102,41 @@ class AxeleraExporter(BaseExporter):
                 CSPNEXT_POINTWISE_EQUALIZATION,
                 self._pointwise_method(),
             )
+            self._pointwise_rounded = 0
+            if self._size_recipe().get("pointwise_learned_rounding"):
+                from ..models.rtmdet.quantize import learn_pointwise_int8_rounding
+
+                samples = self._equalization_samples()
+                self._pointwise_rounded = learn_pointwise_int8_rounding(copy_, samples)
+                logger.info(
+                    "Axelera: INT8 rounding learned for %d CSPNeXt pointwise convolutions "
+                    "on %d calibration images.",
+                    self._pointwise_rounded,
+                    len(samples),
+                )
             wrapper_cls = (
                 _RTMDetInsRawHeadsWrapper
                 if self._task() == "segment"
                 else _RTMDetRawHeadsWrapper
             )
             self._raw_wrapper = wrapper_cls(copy_, self._task()).eval()
+            if self._size_recipe().get("neck_parts"):
+                # Multi-part: backbone + first reduce, then one compiled part per PAFPN CSP
+                # block (output convs and heads ride with their level); the host only
+                # upsamples (nearest) and concatenates channels between them. RTMDet-Ins adds
+                # its mask-feature module as a last part on the bilinearly resized levels.
+                segment = self._task() == "segment"
+                neck_cls = _RTMDetInsNeckPart if segment else _RTMDetNeckPart
+                self._metadata_wrapper = self._raw_wrapper
+                with_td0 = self._size_recipe().get("neck_parts") == "stem_td0"
+                self._rtmdet_neck_parts = {
+                    stage: neck_cls(self._raw_wrapper, stage).eval()
+                    for *_, stage in _RTMDET_NECK_STEPS
+                    if not (with_td0 and stage == "td0")
+                }
+                if segment:
+                    self._rtmdet_mask_part = _RTMDetInsMaskPart(self._raw_wrapper).eval()
+                self._raw_wrapper = _RTMDetStemPart(copy_, with_td0=with_td0).eval()
         else:
             fused = _fused_yolonas_copy(live, full_fusion=True)
             samples = self._equalization_samples() if self._task() == "pose" else []
@@ -4579,6 +6158,8 @@ class AxeleraExporter(BaseExporter):
             self._raw_wrapper = _YOLONASRawHeadsWrapper(fused, self._task()).eval()
         out = Path(output_path)
         onnx_output = str(out.with_name(f"{out.name}.export_intermediate.onnx"))
+        if self._chain_tail is None:
+            self._apply_network_learned_rounding(self._raw_wrapper)
         logger.info("Step 1/2: Exporting raw-head ONNX (%s)", onnx_output)
         exported = _export_onnx_graph(
             self._raw_wrapper,
@@ -4592,6 +6173,64 @@ class AxeleraExporter(BaseExporter):
             output_names=list(self._raw_wrapper.output_names),
             dynamic_axes=None,
         )
+        if getattr(self, "_rtmdet_neck_parts", None):
+            from ..backends.axelera import HOST_OPS
+
+            with torch.no_grad():
+                values = dict(zip(self._raw_wrapper.output_names, (t.numpy() for t in self._raw_wrapper(dummy))))
+            steps = []
+            for inputs, factors, joined, stage in _RTMDET_NECK_STEPS:
+                if stage not in self._rtmdet_neck_parts:
+                    continue
+                part = self._rtmdet_neck_parts[stage]
+                values[joined] = HOST_OPS["concat"](*(values[name] for name in inputs), upsample=factors)
+                path = str(out.with_name(f"{out.name}.export_intermediate.{stage}.onnx"))
+                self._intermediate_paths = [*getattr(self, "_intermediate_paths", []), path]
+                sample = torch.from_numpy(values[joined])
+                _export_onnx_graph(
+                    part,
+                    torch.zeros_like(sample),
+                    output_path=path,
+                    opset=opset,
+                    simplify=simplify,
+                    half=False,
+                    metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                    input_names=[joined],
+                    output_names=list(part.output_names),
+                    dynamic_axes=None,
+                )
+                with torch.no_grad():
+                    values.update(zip(part.output_names, (t.numpy() for t in part(sample))))
+                steps.append(
+                    {"host": "concat", "inputs": list(inputs), "output": joined, "upsample": list(factors)}
+                )
+                steps.append({"compile": path, "reference": part, "input": joined, "merge_pad": False})
+            mask_part = getattr(self, "_rtmdet_mask_part", None)
+            if mask_part is not None:
+                inputs, joined = ("n3", "n4", "n5"), "mask_in"
+                values[joined] = HOST_OPS["resize_concat"](*(values[name] for name in inputs))
+                path = str(out.with_name(f"{out.name}.export_intermediate.mask.onnx"))
+                self._intermediate_paths = [*getattr(self, "_intermediate_paths", []), path]
+                _export_onnx_graph(
+                    mask_part,
+                    torch.zeros_like(torch.from_numpy(values[joined])),
+                    output_path=path,
+                    opset=opset,
+                    simplify=simplify,
+                    half=False,
+                    metadata=self._build_onnx_metadata(dynamic=False, half=False, imgsz=imgsz),
+                    input_names=[joined],
+                    output_names=list(mask_part.output_names),
+                    dynamic_axes=None,
+                )
+                steps.append({"host": "resize_concat", "inputs": list(inputs), "output": joined})
+                steps.append({"compile": path, "reference": mask_part, "input": joined, "merge_pad": False})
+            self._part_steps = steps
+            logger.info(
+                "Axelera: RTMDet as %d compiled parts (backbone + first reduce, then one per PAFPN block with "
+                "its level's output conv and head); the host only upsamples and concatenates between them",
+                1 + len(self._rtmdet_neck_parts),
+            )
         if self._chain_tail is not None:
             with torch.no_grad():
                 tail_input = torch.zeros_like(self._raw_wrapper(dummy)[0])
@@ -4611,7 +6250,7 @@ class AxeleraExporter(BaseExporter):
 
     def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
         meta = super()._build_metadata("int8", False, None, imgsz=imgsz)
-        wrapper = self._raw_wrapper
+        wrapper = getattr(self, "_metadata_wrapper", None) or self._raw_wrapper
         if isinstance(wrapper, _RestoreBodyWrapper):
             meta.update(
                 {
@@ -4622,6 +6261,33 @@ class AxeleraExporter(BaseExporter):
                     "output_layout": wrapper.output_layout,
                     "output_names": list(wrapper.output_names),
                     "upscale": wrapper.upscale,
+                }
+            )
+            return meta
+        if isinstance(wrapper, _RRDBPart):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": ["restored"],
+                    "graph_outputs": ["restored"],
+                    "upscale": wrapper.upscale,
+                }
+            )
+            return meta
+        if isinstance(wrapper, _FCOSTrunk):
+            meta.update(
+                {
+                    "format": "axelera",
+                    "precision": "int8",
+                    "dynamic": False,
+                    "batch": 1,
+                    "output_layout": wrapper.output_layout,
+                    "output_names": ["detections"],
+                    "graph_outputs": ["detections"],
                 }
             )
             return meta
@@ -4638,6 +6304,8 @@ class AxeleraExporter(BaseExporter):
                     "graph_outputs": list(wrapper.output_names),
                 }
             )
+            if getattr(self, "_network_rounded", 0):
+                meta["network_learned_rounding"] = {"layers": int(self._network_rounded)}
             return meta
         if isinstance(wrapper, _ClassifyLogitsWrapper):
             meta.update(
@@ -4650,6 +6318,8 @@ class AxeleraExporter(BaseExporter):
                     "output_names": list(wrapper.output_names),
                 }
             )
+            if getattr(self, "_network_rounded", 0):
+                meta["network_learned_rounding"] = {"layers": int(self._network_rounded)}
             return meta
         heads = (  # YOLO-NAS heads
             wrapper.model.heads if isinstance(wrapper, _YOLONASRawHeadsWrapper) else None
@@ -4687,6 +6357,10 @@ class AxeleraExporter(BaseExporter):
                 "mode": str(CSPNEXT_POINTWISE_EQUALIZATION),
                 "method": self._pointwise_method(),
             }
+        if getattr(self, "_pointwise_rounded", 0):
+            meta["pointwise_learned_rounding"] = {"convs": int(self._pointwise_rounded)}
+        if getattr(self, "_network_rounded", 0):
+            meta["network_learned_rounding"] = {"layers": int(self._network_rounded)}
         if getattr(wrapper, "anchor_sizes", None) is not None:  # RetinaNet
             meta["anchor_sizes"] = [list(sizes) for sizes in wrapper.anchor_sizes]
             meta["aspect_ratios"] = [list(r) for r in wrapper.aspect_ratios]
@@ -4748,6 +6422,35 @@ class AxeleraExporter(BaseExporter):
         else:
             quantization_scheme = default_quantization_scheme(family, task)
 
+        if getattr(self, "_part_steps", None):
+            from .axelera import export_axelera_parts
+
+            compiled = 1 + sum("compile" in part for part in self._part_steps)
+            logger.info(
+                "Step 2/2: Quantizing and compiling for Axelera Metis (%d compiled parts)",
+                compiled,
+            )
+            return export_axelera_parts(
+                parts=[
+                    {
+                        "compile": onnx_path,
+                        "reference": self._raw_wrapper,
+                        "input": "images",
+                    },
+                    *self._part_steps,
+                ],
+                output_path=output_path,
+                stem=Path(output_path).name.removesuffix(self.suffix) or "model",
+                metadata=metadata,
+                calibration=calibration_data,
+                quantization_scheme=quantization_scheme,
+                calibration_info=getattr(self, "_calibration_info", {}),
+                compiler_overrides=getattr(self, "_compiler_overrides", {}),
+                devkit_version=getattr(self, "_devkit_version", None),
+                verify=bool(verify),
+                verify_samples=self._verify_samples(dummy.shape[-2:]) if verify else None,
+                host_arrays=getattr(self, "_part_host_arrays", None),
+            )
         if getattr(self, "_chain_tail", None) is not None:
             from .axelera import export_axelera_chain
 

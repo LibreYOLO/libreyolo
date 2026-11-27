@@ -62,34 +62,39 @@ def _parse_regions(entry: dict, source: str) -> List[Dict]:
     return regions
 
 
+def resolve_ocr_root(data) -> Tuple[Path, str, str]:
+    """``(root, images_dirname, labels_dirname)`` of an OCR dataset root or YAML.
+
+    A YAML's ``path`` is relative to the YAML's folder, and defaults to it;
+    ``images`` and ``labels`` default to ``images`` and ``labels``.
+    """
+    data_path = Path(str(data))
+    if data_path.suffix.lower() in (".yaml", ".yml") and data_path.is_file():
+        import yaml
+
+        with open(data_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        root = data_path.parent / Path(str(cfg.get("path", ".")))
+        return (
+            root.resolve(),
+            str(cfg.get("images", "images")),
+            str(cfg.get("labels", "labels")),
+        )
+    if data_path.is_dir():
+        return data_path, "images", "labels"
+    raise ValueError(
+        f"OCR data not found: {data} (expected a dataset root "
+        "directory or a dataset YAML; see docs/dataset_schema.md)."
+    )
+
+
 def resolve_ocr_samples(data, split: str = "val") -> List[Tuple[Path, List[Dict]]]:
     """Resolve ``data`` (a root directory or dataset YAML) to labelled samples.
 
     Returns a sorted list of ``(image_path, regions)`` where each region is
     ``{"polygon": (4, 2) float32 array, "text": str}``.
     """
-    data_path = Path(str(data))
-    images_dirname = "images"
-    labels_dirname = "labels"
-
-    if data_path.suffix.lower() in (".yaml", ".yml") and data_path.is_file():
-        import yaml
-
-        with open(data_path, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-        root = Path(cfg.get("path", data_path.parent))
-        if not root.is_absolute():
-            root = (data_path.parent / root).resolve()
-        images_dirname = cfg.get("images", images_dirname)
-        labels_dirname = cfg.get("labels", labels_dirname)
-    elif data_path.is_dir():
-        root = data_path
-    else:
-        raise ValueError(
-            f"OCR validation data not found: {data} (expected a dataset root "
-            "directory or a dataset YAML; see docs/dataset_schema.md)."
-        )
-
+    root, images_dirname, labels_dirname = resolve_ocr_root(data)
     image_dir = root / images_dirname / split
     label_file = root / labels_dirname / f"{split}.jsonl"
     if not image_dir.is_dir():

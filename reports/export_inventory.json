@@ -2130,7 +2130,7 @@
       "l": 960
     },
     "task_sizes": {},
-    "export_override": "none",
+    "export_override": "custom",
     "optional_extra": null,
     "available": true,
     "group": "g3"

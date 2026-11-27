@@ -32,7 +32,7 @@ in preflight.
 | depth_anything3 | depth | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | detany3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | detr | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
-| dexined | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |  |  |
+| dexined | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available |  | ✓ |  |  |
 | dfine | detect | ✓ | ✓ |  | available | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |
 | dfine | segment | ✓ | ✓ |  | available | ✓ |  |  |  |  |  |  |  |  |
 | diffusion_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -47,7 +47,7 @@ in preflight.
 | ec | segment | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  |  |  |  |  |  |
 | edgetam | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | efficientdet | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available | available |  |  |  |
-| efficientnetv2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
+| efficientnetv2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |  | ✓ |
 | eomt | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | eomt | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | eomt | panoptic |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -56,7 +56,7 @@ in preflight.
 | falconperception | segment |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | faster_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | fcn | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | ✓ |  |  |  |  |
-| fcos | detect | ✓ | ✓ |  |  | available |  |  |  |  |  |  |  |  |
+| fcos | detect | ✓ | ✓ |  |  | available |  |  |  | available |  |  |  |  |
 | fcos3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | feynobg | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | florence2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -75,7 +75,7 @@ in preflight.
 | gtr | obb | available | available |  |  |  |  |  |  |  |  |  |  |  |
 | gtr | depth | available | available |  |  |  |  |  |  |  |  |  |  |  |
 | gtr | semantic | available | available |  |  |  |  |  |  |  |  |  |  |  |
-| hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  | ✓ |  |  |  |  |
 | hvi_cidnet | restore |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | instanthmr | mesh | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
 | internvl3 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -118,20 +118,20 @@ in preflight.
 | pe | classify | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | pe | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | available | ✓ |  |  | ✓ |
-| picosam3 | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |
-| pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  | ✓ | ✓ |  | ✓ |
-| ddrnet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| picosam3 | segment | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
+| pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
+| ddrnet | semantic | ✓ |  |  |  | available |  |  |  | available |  |  |  |  |
 | ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
-| ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | available |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | ppyoloe | detect | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | prx | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | prxpixel | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  | available | available |  |  |  |
+| quicksrnet | restore | ✓ | ✓ | available | available | available |  |  |  | ✓ | available |  |  |  |
 | qwen3vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | qwen3vl_embedding | embed |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | raft | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
+| realesrgan | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |  | ✓ |
 | resnet | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ |  | ✓ |
 | retinanet | detect | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
 | rfdetr | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ |  |  |  |  | available | ✓ |
@@ -177,7 +177,7 @@ in preflight.
 | triposplat | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposr | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | direct3d_s2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| unet | semantic | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
 | unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | video_depth_anything | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -192,14 +192,14 @@ in preflight.
 | wevisonevl | matte |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | wevisonevl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | wilddet3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| yolo1 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  | ✓ |
+| yolo1 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo2 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  |  | ✓ |
 | yolo3 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo4 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo7 | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ |  |  | ✓ |
 | yolo9 | detect | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ |
-| yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available |  | ✓ | ✓ | available | ✓ |
-| yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  | available |  | available | ✓ |
+| yolo9_e2e | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ |
+| yolo9_p2 | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ | available |  | available | ✓ |
 | yolonas | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  | ✓ |
 | yolonas | pose | ✓ | ✓ | ✓ | available | ✓ | ✓ |  |  | ✓ | ✓ |  |  |  |
 | yolonas | obb | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
@@ -325,6 +325,7 @@ A check mark applies only under any constraint listed here.
 - `efficientnetv2` / `classify` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `efficientnetv2` / `classify` / `tensorrt`: FP32 with fixed family-native input resolution
 - `efficientnetv2` / `classify` / `openvino`: fixed family-native input resolution
+- `efficientnetv2` / `classify` / `axelera`: validated sizes: b1, b3; supported sizes: b0, b2 (measured drops, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input (b0 224, b1 240, b2 260, b3 300 px)
 - `efficientnetv2` / `classify` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 at the family-native input resolution; two-input raw parity, factory reload, metadata, and public predict parity
 - `efficientnetv2` / `classify` / `coreai`: fixed export canvas; a representative published trained ImageNet checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
 - `eomt` / `semantic` / `onnx`: fixed 512x512 input
@@ -349,6 +350,7 @@ A check mark applies only under any constraint listed here.
 - `hrnet` / `pose` / `torchscript`: PyTorch 2.11, ONNX 1.20.1 / ONNX Runtime 1.26 or TorchScript, CPU FP32, batch 1, fixed checkpoint-native 256x192 (W32) or 384x288 (W48) person-crop input; the full-image person detector is not in-graph
 - `hrnet` / `pose` / `tensorrt`: TensorRT 10.16.1.11, CUDA 12.8, RTX 5070 Ti, FP32, batch 1, fixed checkpoint-native 256x192 (W32) or 384x288 (W48) person-crop input; the full-image person detector is not in-graph
 - `hrnet` / `pose` / `openvino`: OpenVINO 2026.2.1 CPU FP32, batch 1, fixed checkpoint-native 256x192 (W32) or 384x288 (W48) person-crop input; the full-image person detector is not in-graph
+- `hrnet` / `pose` / `axelera`: validated sizes: w32 (256x192 person crops; slower than the FP32 CPU at batch 1 with 4 host threads, 4.02 vs 4.98 img/s, 2.6x faster batched); w48 (384x288) is supported with a measured drop (SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, fixed crop input
 - `instanthmr` / `mesh` / `onnx`: raw fixed-288 person-crop contract: image, cliff_cond -> mhr_params, shape_params, cam_trans, joints_2d, joints_3d, vertices; mesh faces in metadata
 - `l2cs` / `gaze` / `onnx`: head-only contract: each input image is one face crop
 - `l2cs` / `gaze` / `torchscript`: head-only contract: each input image is one face crop
@@ -370,7 +372,7 @@ A check mark applies only under any constraint listed here.
 - `mobilenetv4` / `classify` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `mobilenetv4` / `classify` / `tensorrt`: FP32 with fixed family-native input resolution
 - `mobilenetv4` / `classify` / `openvino`: fixed family-native input resolution
-- `mobilenetv4` / `classify` / `axelera`: validated sizes: m; s and l are supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md), calibrated with in-domain images (data=). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
+- `mobilenetv4` / `classify` / `axelera`: validated sizes: m, s (learned INT8 rounding, AXELERA_SIZE_RECIPES); l is supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md), calibrated with in-domain images (data=). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `mobilenetv4` / `classify` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 at the family-native input resolution; two-input raw parity, factory reload, metadata, and public predict parity
 - `mobilenetv4` / `classify` / `coreai`: fixed export canvas; a representative published trained ImageNet checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
 - `moge2` / `normal` / `onnx`: fixed square batch-1 export canvas divisible by 14; exported inference rejects non-square sources rather than stretching image-plane geometry; the official MIT ViT-S/B/L normal checkpoints are covered by FP32 same-canvas native-versus-ONNX angular parity below 0.1 degree
@@ -401,6 +403,7 @@ A check mark applies only under any constraint listed here.
 - `pidnet` / `semantic` / `openvino`: fixed square input
 - `pidnet` / `semantic` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with a fixed export canvas; two-input raw parity, factory reload, metadata, and public predict parity
 - `pidnet` / `semantic` / `coreai`: fixed family-native canvases (PIDNet 1024, LingBotVision 512); trained LibrePIDNets-sem and LibreLingBotVisions-sem checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; exported backends already implement the shared dense-logit resize and argmax contract
+- `ddrnet` / `semantic` / `onnx`: FP32 dense logits at a fixed canvas (stride 8; the backend resizes them bilinearly to the source and takes the argmax, as predict())
 - `ppdoclayoutv3` / `detect` / `onnx`: FP32, fixed 800x800 input, ONNX opset 17
 - `ppdoclayoutv3` / `detect` / `torchscript`: FP32, fixed 800x800 input
 - `ppliteseg` / `semantic` / `onnx`: fixed native rectangle per size (512x1024 for t50/b50, 768x1536 for t75/b75). All four sizes were exported and run in each format: raw-logit cosine vs eager >= 0.999994 at batch 1 and batch 2 (ONNX is exact to 8e-05 max abs diff), and original-canvas semantic-mask agreement >= 99.6% through the factory reload. TensorRT 10.x FP32 engines were built and executed, not just parsed
@@ -411,14 +414,16 @@ A check mark applies only under any constraint listed here.
 - `ppyoloe` / `detect` / `torchscript`: Fixed 640 canvas, FP32, batch 1 and 2
 - `ppyoloe` / `detect` / `tensorrt`: TensorRT 10.16, FP32 engine (half=False), fixed 640 canvas, fixed batch 1
 - `ppyoloe` / `detect` / `openvino`: OpenVINO CPU FP32, fixed 640 canvas, batch 1 and 2
-- `ppyoloe` / `detect` / `axelera`: validated sizes: l; s, m and x are supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `ppyoloe` / `detect` / `axelera`: validated sizes: l, m (m with histogram activation ranges); s and x are supported with a measured drop (SIZE_ACCURACY_NOTES, docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `quicksrnet` / `restore` / `onnx`: FP32, dynamic spatial input
 - `quicksrnet` / `restore` / `torchscript`: FP32, fixed-resolution export canvas
+- `quicksrnet` / `restore` / `axelera`: validated sizes: m2 (learned INT8 rounding, AXELERA_SIZE_RECIPES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (smaller images are padded)
 - `realesrgan` / `restore` / `onnx`: dynamic spatial input
 - `realesrgan` / `restore` / `torchscript`: fixed-resolution export canvas
 - `realesrgan` / `restore` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `realesrgan` / `restore` / `tensorrt`: FP32 with a fixed-resolution export canvas
 - `realesrgan` / `restore` / `openvino`: fixed-resolution export canvas
+- `realesrgan` / `restore` / `axelera`: validated sizes: x4 (three compiled parts), x4t (equalized trunk, AXELERA_SIZE_RECIPES) and x2 (three compiled parts, histogram activation ranges). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas, 64x64 for x4/x4t and 128x128 for x2 (smaller images are padded)
 - `realesrgan` / `restore` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with a fixed-resolution export canvas; two-input raw parity, factory reload, metadata, and public predict parity
 - `realesrgan` / `restore` / `tflite`: fixed-resolution export canvas
 - `realesrgan` / `restore` / `coreai`: fixed export canvas; permissively licensed trained restoration checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
@@ -497,6 +502,7 @@ A check mark applies only under any constraint listed here.
 - `teed` / `edge` / `tensorrt`: TensorRT 10.16 FP32, batch 1, fixed input shape
 - `teed` / `edge` / `openvino`: OpenVINO 2026.2 CPU FP32, batch 1, fixed input shape
 - `teed` / `edge` / `tflite`: LiteRT 2.1.2 CPU FP32, batch 1, fixed input shape
+- `unet` / `semantic` / `onnx`: fixed rectangle. Measured at the 512x1024 training crop: UNet-s exported and run through the factory reload at batch 1 gives raw-logit cosine 1.000000 vs eager and identical semantic masks on 3 COCO val2017 images. The 1024x2048 frame exports the same graph at a larger canvas but was not run here (host memory)
 - `vgg` / `classify` / `onnx`: FP32, batch 1, fixed 224x224 input
 - `vgg` / `classify` / `torchscript`: FP32, batch 1, fixed 224x224 input
 - `vgg` / `classify` / `tensorrt`: FP32, batch 1, fixed 224x224 input
@@ -508,6 +514,7 @@ A check mark applies only under any constraint listed here.
 - `yolo1` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolo1` / `detect` / `tensorrt`: TensorRT 10.16 FP32 with a fixed canvas; YOLO1 requires 448x448
 - `yolo1` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
+- `yolo1` / `detect` / `axelera`: validated sizes: b (t has no published weights). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolo1` / `detect` / `ncnn`: fixed 448x448 input; PNNX/NCNN 20260526 CPU FP32 with a public-domain trained checkpoint; two-input raw parity, factory reload, metadata, and public predict parity
 - `yolo1` / `detect` / `coreai`: fixed family-native canvases (YOLO1 448, YOLO2 608, YOLO3 416, YOLO4 608); representative published trained checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; Core AI graph preparation exactly folds Darknet inference batch normalization into the preceding convolutions because Core AI 0.4.1 does not preserve Darknet's epsilon-after-square-root formula
 - `yolo2` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
@@ -542,6 +549,7 @@ A check mark applies only under any constraint listed here.
 - `yolo9_e2e` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
 - `yolo9_e2e` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolo9_e2e` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
+- `yolo9_e2e` / `detect` / `axelera`: validated sizes: t, s, m, c (on-device results in docs/axelera.md). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolo9_e2e` / `detect` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with permissively licensed trained checkpoints; two-input raw parity, factory reload, metadata, and public predict parity
 - `yolo9_e2e` / `detect` / `tflite`: onnx2tf 2.6.9 or newer, LiteRT 2.1.2, fixed 128x128 export canvas
 - `yolo9_e2e` / `detect` / `coreai`: fixed export canvas; a representative published trained checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; RT-DETRv2 permits one shared whole-query permutation across its box and logit outputs because DETR query rows are an unordered set
@@ -549,6 +557,7 @@ A check mark applies only under any constraint listed here.
 - `yolo9_p2` / `detect` / `openvino`: fixed export canvas; YOLO1 requires 448x448
 - `yolo9_p2` / `detect` / `paddle`: X2Paddle 1.6.0, PaddlePaddle 2.6.2 CPU on Python 3.11 or earlier, ONNX 1.17/opset 15, FP32, batch 1, fixed square input; WSL2 Ubuntu 22.04
 - `yolo9_p2` / `detect` / `mnn`: MNN 3.6.1, CPU, FP32, batch 1, fixed NCHW input shape
+- `yolo9_p2` / `detect` / `axelera`: validated sizes: s (t has no published checkpoint). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `yolo9_p2` / `detect` / `coreai`: fixed 640x640 export canvas; a deterministic YOLO9-P2-T model initialized from the SHA-256-pinned, permissively licensed trained LibreYOLO9t checkpoint is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; this validates conversion, not P2 task accuracy, and does not depend on the restricted VisDrone research-preview checkpoint
 - `yolonas` / `detect` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `yolonas` / `detect` / `openvino`: fixed export canvas
@@ -598,7 +607,7 @@ These converter paths are callable with the recorded validation context.
 - `convnextv2` / `classify` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `convnextv2` / `classify` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `convnextv2` / `classify` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
-- `deeplabv3` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole DeepLabV3 graph runs on the Metis AIPU after two exact graph rewrites (the ASPP image-pooling branch becomes a broadcast add, oversized ASPP convolutions are split by channels), and the host upsamples the class logits. Supported, not validated: DeepLabV3-MobileNetV3 keeps mIoU 3.77 points below FP32 on a paired 300-image COCO val2017 set with VOC-21 masks (docs/axelera.md). Constraint: supported sizes: mv3 (measured drop, SIZE_ACCURACY_NOTES); r50 and r101 do not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 520x520 input
+- `deeplabv3` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole DeepLabV3 graph runs on the Metis AIPU after exact graph rewrites (the ASPP image-pooling branch becomes a broadcast add, oversized ASPP convolutions are split by channels, and for R50/R101 each dilated ASPP convolution runs as per-tap 1x1 convolutions plus zero-filled shifts), and the host upsamples the class logits. Supported, not validated: on a paired 300-image COCO val2017 set with VOC-21 masks mIoU stays below FP32 by 3.77 points (MobileNetV3), 5.09 (R50) and 20.93 (R101; docs/axelera.md). Constraint: supported sizes: mv3, r50, r101 (measured drops, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 520x520 input
 - `deformable_detr` / `detect` / `torchscript`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `deformable_detr` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `deformable_detr` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
@@ -614,6 +623,7 @@ These converter paths are callable with the recorded validation context.
 - `detr` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `detr` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `detr` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
+- `dexined` / `edge` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole DexiNed graph runs on the Metis AIPU and the host resizes the fused edge probability map. Supported, not validated: measured as fidelity to FP32 (no BIPED ground truth was used): on 300 COCO val2017 images at 352 px the device edge maps keep cosine 0.997 and edge-pixel F1 0.965 at 0.5 against FP32 (docs/axelera.md). Weights: LibreYOLO neither hosts nor downloads the upstream checkpoint (MIT code; trained on BIPED, whose terms are non-commercial); the user supplies it and converts it locally. Constraint: supported sizes: b (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 352x352 input
 - `dfine` / `detect` / `tensorrt`: A published Apache-2.0 trained checkpoint exports and reloads, but public top-k class membership changes after TensorRT 10.16 FP32 conversion.
 - `dfine` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes after TensorRT 10.16 FP32 conversion.
 - `dinodetr` / `detect` / `torchscript`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -630,10 +640,10 @@ These converter paths are callable with the recorded validation context.
 - `ec` / `pose` / `openvino`: Raw parity passes after Hungarian query alignment, but trained public boxes fall to 0.916 matched IoU.
 - `ec` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes.
 - `efficientdet` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
-- `efficientdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole EfficientDet graph runs on the Metis AIPU after exact rewrites of the BiFPN fusion (division by a constant as a multiplication, the stacked weighted sum as additions) and of the squeeze-excite averages (staged 2x2 pools), and the host decodes the boxes in float. Supported, not validated: on a Metis M.2 Max with per-channel activation ranges EfficientDet-d0 loses 1.78 mAP50-95 points against FP32 on 1000 COCO val2017 images; EfficientDet-d1 and -d2 run at d0's 512x512 canvas (their native 640 and 768 do not compile), which costs 3.10 and 5.31 points in FP32 and INT8 1.64 and 1.38 more (docs/axelera.md). Constraint: supported sizes: d0, d1 and d2 (d1 and d2 at a fixed 512x512 canvas; measured drops, SIZE_ACCURACY_NOTES); d3 does not compile (BLOCKED_SIZES); d4 is not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `efficientdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole EfficientDet graph runs on the Metis AIPU after exact rewrites of the BiFPN fusion (division by a constant as a multiplication, the stacked weighted sum as additions) and of the squeeze-excite averages (staged 2x2 pools), and the host decodes the boxes in float. Supported, not validated: on a Metis M.2 Max with per-channel activation ranges EfficientDet-d0 loses 1.78 mAP50-95 points against FP32 on 1000 COCO val2017 images; EfficientDet-d1 and -d2 run at d0's 512x512 canvas (their native 640 and 768 do not compile), which costs 3.10 and 5.31 points in FP32 and INT8 1.64 and 1.38 more (docs/axelera.md). Constraint: supported sizes: d0, d1 and d2 (d1 and d2 at a fixed 512x512 canvas; measured drops, SIZE_ACCURACY_NOTES); d3 and d4 do not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `efficientdet` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
-- `efficientnetv2` / `classify` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole classifier runs on the Metis AIPU with histogram activation ranges. Supported, not validated: on a Metis M.2 Max EfficientNetV2-b0 keeps top-1 1.0-1.1 points below FP32 on a paired 1000-image ImageNetV2 set (docs/axelera.md). Constraint: supported sizes: b0 (measured drop, SIZE_ACCURACY_NOTES); b1, b2 and b3 do not compile with SDK 1.9.0 (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 224 input
 - `fcos` / `detect` / `openvino`: FP32 dynamic-shape conversion and high-confidence public predictions pass, but small score/box drift can change low-confidence NMS ordering. Constraint: OpenVINO CPU, FP32, batch 1, dynamic padded H/W
+- `fcos` / `detect` / `axelera`: INT8 multi-part export compiled with Axelera's toolchain. FCOS's head normalizes every convolution with GroupNorm (per-image statistics), which the INT8 toolchain has no form for, so the ResNet-FPN trunk, the four head convolutions (classification and regression towers stacked, on all five levels packed onto one canvas) and the predictor run on the Metis AIPU as six compiled parts, and the host applies each GroupNorm + ReLU and decodes the boxes. Supported, not validated: on a Metis M.2 Max FCOS-R50 loses 4.13 mAP50-95 points against FP32 on 1000 COCO val2017 images at its 800x800 canvas (docs/axelera.md). Constraint: supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES); fixed 800x800 canvas by default. axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1
 - `feynobg` / `matte` / `onnx`: The opset-19 DeformConv graph exports, but ONNX Runtime's CPU provider has no DeformConv implementation for runtime parity.
 - `gtr` / `detect` / `onnx`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
 - `gtr` / `detect` / `torchscript`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
@@ -667,18 +677,21 @@ These converter paths are callable with the recorded validation context.
 - `pe` / `embed` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `picodet` / `detect` / `rknn`: Exact small variants passed RKNN Toolkit2 2.3.2 compilation, RK3588 PC-simulator raw-output gates, and matched post-NMS detections on a real image. Support is limited to YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s; on-device latency and parity have not been measured. Constraint: RKNN Toolkit2 2.3.2, RK3588 PC simulator, vendor floating build, batch 1, fixed square input
 - `picodet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the graph stops after each level's box-distribution and class convolutions, ESNet's channel shuffles become fixed permutation convolutions, and LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 Max against FP32 on a paired 1000-image COCO val2017 subset PicoDet-s loses 2.3, PicoDet-m 2.9 and PicoDet-l 1.7 mAP50-95 (docs/axelera.md). Constraint: supported sizes: s, m, l (measured drop, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `picosam3` / `segment` / `axelera`: INT8 export of the raw ROI CNN compiled with Axelera's toolchain, under the same contract as ONNX (roi_image [1,3,96,96] -> mask_logits [1,1,96,96]); cutting the ROI from a box and pasting the logits back stay in Python. The stem's depthwise 3x3 on the image runs as an exact dense 3->3 conv. Supported, not validated: there are no ground-truth masks in the pairing, so the device is measured against FP32 (fidelity): on 2360 ground-truth-box ROIs of 297 COCO val2017 images, mask IoU vs FP32 0.968 and pixel agreement 0.992 (docs/axelera.md). Constraint: axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 96x96 ROI input; calibration ROIs cut from the dataset's ground-truth boxes (2 per image, 128 in total)
 - `pidnet` / `semantic` / `tensorrt`: TensorRT 10.16 FP32 exports and runs, but repeated builds produced raw-logit cosine as low as 0.9970, below the 0.999 promotion gate.
+- `pidnet` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; PIDNet runs on the Metis AIPU as three compiled parts (the branches through layer 5 with the pyramid pooling's per-branch layers, the pooling sums, then the branch fusion and the head), joined on the host by bilinear upsampling and channel concatenation only. Compiled whole it collapses in INT8 (logit cosine about 0). Supported, not validated: PIDNet is trained on Cityscapes, so the paired measurement is fidelity to FP32 on COCO val2017 images at 1024x1024 (s: mIoU 0.864, 95.0% of pixels agree on 300; m: 0.825, 95.3% on 96; l: 0.820, 95.1% on 100; docs/axelera.md). Faster than the FP32 CPU (4 host threads): s 7.36 vs 2.93 img/s batched, 5.17 vs 2.89 at batch 1; m 3.48 vs 0.56 and 1.75 vs 0.50; l 4.07 vs 0.49 and 1.92 vs 0.48. PIDNet-m calibrates slowly in the SDK (about a minute per image): it was measured with fraction=0.25 (32 coco128 images), its default when fraction is left unset. Constraint: supported sizes: s, m, l (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1 per part call, fixed 1024x1024 input (a multiple of 64)
+- `ddrnet` / `semantic` / `openvino`: OpenVINO CPU FP32 IR from the ONNX graph; predict() labels matched the native model on COCO images (s at 1024x1024, m at 1024x2048), not yet in the runtime parity suite. Constraint: FP32, fixed canvas
+- `ddrnet` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; DDRNet runs on the Metis AIPU as three compiled parts at its native 1024x2048 frame, as PIDNet (both branches with the DAPPM's per-branch layers; the DAPPM sums and compression; the head), joined on the host by bilinear upsampling and channel concatenation only. Compiled whole, the compiler did not finish in 3 hours. Supported, not validated: DDRNet is trained on Cityscapes, so the paired measurement is fidelity to FP32 at the same frame on COCO val2017 images (s: mIoU 0.791, 94.0% of pixels agree on 300; m: 0.810, 94.5% on 300; docs/axelera.md); the loss is in the high-resolution branch. Faster than the FP32 CPU at 4 host threads (its best run, batch 1): s 3.04 / 7.46 img/s at batch 1 / 8 vs 1.90; m 1.46 / 4.61 vs 0.57. Constraint: supported sizes: s, m (measured fidelity, SIZE_ACCURACY_NOTES); l has no published Cityscapes checkpoint (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1 per part call, fixed 1024x2048 input (the native frame; height and width multiples of 64, width a multiple of height)
 - `ppdoclayoutv3` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppdoclayoutv3` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `ppdoclayoutv3` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
+- `ppliteseg` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole PP-LiteSeg graph runs on the Metis AIPU after exact graph rewrites (channel reductions as 1x1 convolutions, pyramid-pool resizes as factor-2/3 steps, wide pool windows staged, and each UAFM blend as x * sigmoid(z) + skip * sigmoid(-z): the native 1 - sigmoid(z) breaks under INT8) and the host upsamples the class logits. Supported, not validated: PP-LiteSeg is trained on Cityscapes, so the paired measurement is fidelity to FP32 on 1000 COCO val2017 images (device labels against FP32 labels: mIoU t50 0.850, b50 0.857, t75 0.807, b75 0.848; docs/axelera.md). Constraint: supported sizes: t50, b50, t75, b75 (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 512x1024 (t50, b50) or 768x1536 (t75, b75) input
 - `ppyoloe` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppyoloe` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `quicksrnet` / `restore` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `quicksrnet` / `restore` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `quicksrnet` / `restore` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
-- `quicksrnet` / `restore` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole super-resolution graph runs on the Metis AIPU after its hidden channels are equalized through their Hardtanh bounds and its biases corrected for INT8 weight rounding. Supported, not validated: QuickSRNet-m2 keeps PSNR 0.46 dB below FP32 on 296 COCO crops, 2x from 128 px (docs/axelera.md). Constraint: supported sizes: m2 (measured drop, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input canvas (smaller images are padded)
 - `quicksrnet` / `restore` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
-- `realesrgan` / `restore` / `axelera`: INT8 export compiled with Axelera's toolchain; the compact network's convolution trunk runs on the Metis AIPU and the host applies the pixel shuffle and the nearest-upsampled input skip (layout restore_shuffle_skip_v1). Supported, not validated: Real-ESRGAN-x4t keeps PSNR 0.49 dB below FP32 on 296 COCO crops, 4x from 64 px (docs/axelera.md). Constraint: supported sizes: x4t (measured drop, SIZE_ACCURACY_NOTES); x4 and x2 are not measured on a Metis yet (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 64x64 input canvas (smaller images are padded)
 - `retinanet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain on one fixed square canvas (the image fitted inside, padded bottom-right; 1024x1024 by default for R50); the graph stops after the box-delta and class convolutions and LibreYOLO rebuilds the anchors on the host. Supported, not validated: on a Metis M.2 Max RetinaNet-R50 scores 1.11 mAP50-95 below the PyTorch model's own val() on 1000 COCO val2017 images (0.3410 vs 0.3521): 0.49 from the canvas (FP32 0.3472) and 0.62 from INT8. The 1024 canvas is about 1.64x the device compute of 800; imgsz=800 is faster and scores 2.25 below (0.3296; docs/axelera.md). Constraint: supported sizes: r50 (measured drop, SIZE_ACCURACY_NOTES), fixed 1024x1024 canvas by default (imgsz=800 for speed); r50v2 is blocked (GroupNorm head, BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1
 - `rfdetr` / `detect` / `coreml`: Conversion is available, but runtime parity requires a macOS runner.
 - `rfdetr` / `segment` / `tensorrt`: A published Apache-2.0 trained segmentation checkpoint exports and reloads, but public top-k class membership changes.
@@ -699,8 +712,8 @@ These converter paths are callable with the recorded validation context.
 - `rtdetrv2` / `obb` / `openvino`: The official N checkpoint exports, reloads, and preserves the top public OBB within 0.041 pixels, but the complete decoder query set does not meet raw-output parity after matching. Constraint: OpenVINO 2026.2 CPU, FP32, batch 1, fixed 1024x1024 input canvas; export the ONNX intermediate on CPU
 - `rtdetrv4` / `detect` / `tensorrt`: A deterministic synthetic fixture exports, reloads, and predicts, but repeated TensorRT 10.16 FP32 builds change public top-k class membership or box geometry; a measured reconstruction reached 0 IoU with 50.4-pixel coordinate drift.
 - `rtmdet` / `detect` / `executorch`: The export-only graph unshares RTMDet's cross-level head convolutions to avoid duplicate XNNPACK batch-norm fusion parameter names. Full conversion, runtime execution, input sensitivity, deterministic random-weight raw parity, and detection parsing are covered. Constraint: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
-- `rtmdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the graph stops after each level's box and class convolutions, CSPNeXt pointwise-conv inputs are equalized on the export copy (FP32 outputs unchanged), and LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 6.75, RTMDet-m 2.66 and RTMDet-l 1.87 on a paired 1000-image COCO val2017 subset (docs/axelera.md). Constraint: supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
-- `rtmdet` / `segment` / `axelera`: INT8 export compiled with Axelera's toolchain; the device returns each level's box, class and dynamic-kernel outputs plus the stride-8 mask feature, and LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS, dynamic-kernel mask decode) runs on the host. Supported, not validated: on a Metis M.2 Max the mask / box mAP50-95 drops below FP32 are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 5.80 / 7.26, RTMDet-Ins-m 0.79 / 3.96 and RTMDet-Ins-l 0.50 / 5.34 on a paired 1000-image COCO val2017 subset (docs/axelera.md). Constraint: supported sizes: t, s, m, l (measured drop, SIZE_ACCURACY_NOTES); x does not compile (BLOCKED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `rtmdet` / `detect` / `axelera`: INT8 export compiled with Axelera's toolchain; the graph stops after each level's box and class convolutions, CSPNeXt pointwise-conv inputs are equalized on the export copy (FP32 outputs unchanged), and LibreYOLO decodes on the host. Supported, not validated: on a Metis M.2 Max the mAP50-95 drops below FP32 are RTMDet-t 2.29, RTMDet-s 4.40 (with learned INT8 rounding of its pointwise convolutions), RTMDet-m 2.66, RTMDet-l 1.87 and RTMDet-x 3.72 (four compiled parts: its PAFPN does not fit compiled whole) on a paired 1000-image COCO val2017 subset (docs/axelera.md). Constraint: supported sizes: t, s, m, l, x (measured drop, SIZE_ACCURACY_NOTES; x as four compiled parts, AXELERA_SIZE_RECIPES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
+- `rtmdet` / `segment` / `axelera`: INT8 export compiled with Axelera's toolchain; the device returns each level's box, class and dynamic-kernel outputs plus the stride-8 mask feature, and LibreYOLO's own RTMDet-Ins postprocess (box decode, NMS, dynamic-kernel mask decode) runs on the host. Supported, not validated: on a Metis M.2 Max the mask / box mAP50-95 drops below FP32 are RTMDet-Ins-t 1.44 / 2.51, RTMDet-Ins-s 3.27 / 5.02 (with learned INT8 rounding of its pointwise convolutions), RTMDet-Ins-m 0.79 / 3.96, RTMDet-Ins-l 0.50 / 5.34 and RTMDet-Ins-x 1.50 / 4.48 on a paired 1000-image COCO val2017 subset (docs/axelera.md). RTMDet-Ins-x runs as six compiled parts (backbone + first reduce, one per PAFPN block with its level's heads, the mask-feature module); host: resize+concat between parts, no weights. Constraint: supported sizes: t, s, m, l, x (measured drop, SIZE_ACCURACY_NOTES; x as six compiled parts). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed input size
 - `swin` / `classify` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `swin` / `classify` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `tinyformer` / `detect` / `onnx`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -708,6 +721,7 @@ These converter paths are callable with the recorded validation context.
 - `tinyformer` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `tinyformer` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `tinyformer` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
+- `unet` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole UNet-s graph runs on the Metis AIPU at its 512x1024 training crop and the host upsamples the class logits. Supported, not validated: UNet is trained on Cityscapes, so the paired measurement is fidelity to FP32 on 1000 COCO val2017 images (device labels against FP32 labels: mIoU 0.856, 95.3% of pixels agree, with histogram activation ranges; docs/axelera.md). The SDK 1.9 compile takes about 11-13 hours; at the full 1024x2048 frame lowering finds no L1 tiling (4.7 MB needed, 4.1 MB available). Constraint: supported sizes: s (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 512x1024 input
 - `vgg` / `classify` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `vgg` / `classify` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `vit` / `classify` / `torchscript`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -796,7 +810,7 @@ These converter paths are callable with the recorded validation context.
 - `centernet` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `centernet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `centernet` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `centernet` / `detect` / `axelera`: Both CenterNet sizes (ResDCN-18 and DLA-34) upsample with modulated deformable convolutions, which sample the feature map at learned per-pixel offsets (exported as grid_sample); Axelera's 1.9 quantizer has no converter for GridSample, and the host can only run operators before or after the accelerated graph.
+- `centernet` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `centernet` / `detect` / `ncnn`: NCNN cannot lower CenterNet's portable deformable sampling plus baked top-k decode contract. Use ONNX or TorchScript.
 - `centernet` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `centernet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -819,7 +833,7 @@ These converter paths are callable with the recorded validation context.
 - `convnext` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `convnext` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `convnext` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `convnext` / `classify` / `axelera`: ConvNeXt normalizes every block with a per-pixel LayerNorm (each pixel divided by the standard deviation of its own channels), which needs a data-dependent division and square root that the AIPU does not run; with SDK 1.9 quantization stops on the stem's channel ReduceMean.
+- `convnext` / `classify` / `axelera`: ConvNeXt normalizes every block with a per-pixel LayerNorm (each pixel divided by the standard deviation of its own channels). The channel mean and variance have exact AIPU forms, but the reciprocal square root of that per-pixel variance has none, and it sits right before the block's GELU, so it cannot be folded into a convolution; with SDK 1.9 quantization stops on the stem's channel ReduceMean. Running each LayerNorm on the host between accelerated parts would need about 23 parts for ConvNeXt-t (18 blocks, stem and three downsampling layers). A hybrid export (convolutions on the Metis, LayerNorms on the host) is the route if it is ever needed.
 - `convnext` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `convnextv2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `convnextv2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
@@ -878,20 +892,20 @@ These converter paths are callable with the recorded validation context.
 - `deformable_detr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `deformable_detr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `deformable_detr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `deformable_detr` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `deformable_detr` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `deformable_detr` / `detect` / `ncnn`: NCNN export is not supported for Deformable DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deformable_detr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deformable_detr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `deformable_detr` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
 - `deim` / `detect` / `executorch`: The trained nano model captures, lowers, and serializes, but ExecuTorch 1.2 runtime execution fails with an invalid delegated tensor dimension order.
 - `deim` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `deim` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `deim` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `deim` / `detect` / `ncnn`: NCNN export is not supported for DEIM: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deim` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deim` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `deimv2` / `detect` / `executorch`: The trained atto model captures, lowers, and serializes, but the ExecuTorch 1.2 runtime process terminates while executing forward.
 - `deimv2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `deimv2` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `deimv2` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `deimv2` / `detect` / `ncnn`: NCNN export is not supported for DEIMv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `deimv2` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `deimv2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -906,7 +920,7 @@ These converter paths are callable with the recorded validation context.
 - `dekr` / `pose` / `paddle`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `mnn`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `rknn`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
-- `dekr` / `pose` / `axelera`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
+- `dekr` / `pose` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `dekr` / `pose` / `ncnn`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `tflite`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `dekr` / `pose` / `coreml`: The raw two-output DEKR pose graph export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
@@ -942,7 +956,7 @@ These converter paths are callable with the recorded validation context.
 - `detr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `detr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `detr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `detr` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `detr` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `detr` / `detect` / `ncnn`: NCNN export is not supported for DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `detr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `detr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -950,13 +964,12 @@ These converter paths are callable with the recorded validation context.
 - `dexined` / `edge` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dexined` / `edge` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dexined` / `edge` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dexined` / `edge` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `dexined` / `edge` / `ncnn`: PNNX 20260526 leaves an unsupported Tensor.index channel-reversal node, so the generated NCNN network has no runnable input.
 - `dexined` / `edge` / `coreml`: This edge runtime has no parity-valid artifact for the requested format.
 - `dexined` / `edge` / `coreai`: This edge runtime has no parity-valid artifact for the requested format.
 - `dfine` / `detect` / `executorch`: Strict capture reaches an unsupported ContextVar read in deformable attention. Forcing the manual exported grid-sample path permits serialization, but ExecuTorch 1.2 runtime execution still fails with an invalid delegated tensor dimension order.
 - `dfine` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dfine` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `dfine` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `dfine` / `detect` / `ncnn`: NCNN export is not supported for D-FINE: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dfine` / `detect` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError.
 - `dfine` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -964,7 +977,7 @@ These converter paths are callable with the recorded validation context.
 - `dfine` / `segment` / `paddle`: The trained LibreDFINEn segmentation graph converts and reloads, but mask-logit relative RMS error is 3.52% and minimum matched-mask IoU is only 0.582.
 - `dfine` / `segment` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dfine` / `segment` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dfine` / `segment` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `dfine` / `segment` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `dfine` / `segment` / `ncnn`: NCNN export is not supported for D-FINE: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dfine` / `segment` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError.
 - `dfine` / `segment` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -985,7 +998,7 @@ These converter paths are callable with the recorded validation context.
 - `dinodetr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dinodetr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dinodetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `dinodetr` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `dinodetr` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `dinodetr` / `detect` / `ncnn`: NCNN export is not supported for DINO-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `dinodetr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `dinodetr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1161,7 +1174,7 @@ These converter paths are callable with the recorded validation context.
 - `faster_rcnn` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `faster_rcnn` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `faster_rcnn` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `faster_rcnn` / `detect` / `axelera`: Faster R-CNN is two-stage: the region proposals pick boxes at run time (If, NonZero, TopK) and RoIAlign crops them before the second network runs. Axelera's host can only run operators before or after one accelerated graph; with SDK 1.9 the graph cleaner rejects the export.
+- `faster_rcnn` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `faster_rcnn` / `detect` / `ncnn`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
 - `faster_rcnn` / `detect` / `tflite`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
 - `faster_rcnn` / `detect` / `coreml`: This runtime has no parity evidence for Faster R-CNN's proposal, RoIAlign, variable-length output, and embedded-NMS graph.
@@ -1179,7 +1192,6 @@ These converter paths are callable with the recorded validation context.
 - `fcos` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `fcos` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `fcos` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `fcos` / `detect` / `axelera`: FCOS's detection head normalizes every convolution with GroupNorm, which divides each image's features by statistics computed from that image; Axelera's INT8 toolchain has no form for it. Measured with the 1.9 SDK: quantization stops on the head's 40 InstanceNormalization ops (at opset 18 it stops earlier, on Resize). Running FCOS on Metis needs a head with batch norm or no norm, i.e. a retrained model.
 - `fcos` / `detect` / `ncnn`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `tflite`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `coreml`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
@@ -1203,7 +1215,7 @@ These converter paths are callable with the recorded validation context.
 - `feynobg` / `matte` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `feynobg` / `matte` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `feynobg` / `matte` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `feynobg` / `matte` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `feynobg` / `matte` / `axelera`: Out of scope: FeyNobg (BiRefNet) runs a Swin-L transformer backbone; Axelera Metis support covers CNN backbones (docs/axelera.md section 11).
 - `feynobg` / `matte` / `ncnn`: BiRefNet's decoder requires torchvision deformable convolution, which PNNX/NCNN cannot lower to a runnable graph.
 - `feynobg` / `matte` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `feynobg` / `matte` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1263,7 +1275,7 @@ These converter paths are callable with the recorded validation context.
 - `fomo` / `point` / `paddle`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `mnn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `rknn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
-- `fomo` / `point` / `axelera`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `fomo` / `point` / `axelera`: Not available yet: the published LibreFOMO checkpoints (s, m, l) are architecture-only, randomly initialised weights, so there is no trained model to export and measure on a Metis. The network is a small MobileNetV2-style CNN with a 1x1 head, with no operator known to block the Axelera toolchain.
 - `fomo` / `point` / `tflite`: LiteRT 2.1.2 cannot invoke the onnx2tf 2.6.7 graph because a DEPTHWISE_CONV_2D reports 16 filter channels versus zero input channels.
 - `fomo` / `point` / `coreml`: The CoreML wrapper does not implement the raw point-heatmap contract.
 - `gemma4` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
@@ -1337,7 +1349,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `detect` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `detect` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `detect` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `detect` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1348,7 +1360,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `segment` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `segment` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `segment` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1359,7 +1371,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `pose` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `pose` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `pose` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `pose` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1370,7 +1382,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `obb` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `obb` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `obb` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1381,7 +1393,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `depth` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `depth` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `depth` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1392,7 +1404,7 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `semantic` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
-- `gtr` / `semantic` / `axelera`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `axelera`: Out of scope for Metis: GTR's backbone is a ViT (host only), and its multi-scale neck (the only convolutional share, at most ~48% of GTR-s detect's MACs) puts a channel LayerNorm after every convolution (GTR-s: 30 convolutions, 30 LayerNorm2d). LayerNorm does not quantize with SDK 1.9, so a hybrid would need ~30 single-convolution parts with the host in between.
 - `gtr` / `semantic` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `semantic` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
@@ -1401,7 +1413,6 @@ These converter paths are callable with the recorded validation context.
 - `hrnet` / `pose` / `paddle`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `mnn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `rknn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
-- `hrnet` / `pose` / `axelera`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `ncnn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `tflite`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `coreml`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
@@ -1460,7 +1471,7 @@ These converter paths are callable with the recorded validation context.
 - `l2cs` / `gaze` / `paddle`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `mnn`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `rknn`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
-- `l2cs` / `gaze` / `axelera`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
+- `l2cs` / `gaze` / `axelera`: L2CS's published checkpoint is trained on Gaze360, whose licence forbids redistributing models trained on it: LibreYOLO cannot mirror it, only fetch it from the authors, so no Axelera export is measured or shipped for it (non-redistributable weights; non-commercial ones would be fine).
 - `l2cs` / `gaze` / `ncnn`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `tflite`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
 - `l2cs` / `gaze` / `coreml`: The L2CS gaze export contract supports ONNX, TorchScript, ExecuTorch, TensorRT, and OpenVINO only.
@@ -1651,7 +1662,7 @@ These converter paths are callable with the recorded validation context.
 - `mask_rcnn` / `detect` / `paddle`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `mnn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `rknn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
-- `mask_rcnn` / `detect` / `axelera`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
+- `mask_rcnn` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `mask_rcnn` / `detect` / `ncnn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `tflite`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `coreml`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
@@ -1663,7 +1674,7 @@ These converter paths are callable with the recorded validation context.
 - `mask_rcnn` / `segment` / `paddle`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `mnn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `rknn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
-- `mask_rcnn` / `segment` / `axelera`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
+- `mask_rcnn` / `segment` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `mask_rcnn` / `segment` / `ncnn`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `tflite`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `segment` / `coreml`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
@@ -1777,7 +1788,7 @@ These converter paths are callable with the recorded validation context.
 - `nafnet` / `restore` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `nafnet` / `restore` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `nafnet` / `restore` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `nafnet` / `restore` / `axelera`: NAFNet adds the input image to the network output (a skip around the whole graph, which the compiler's graph cleaner rejects) and normalizes every block with a per-pixel LayerNorm (a data-dependent division); no trained LibreYOLO weights are published to measure an exported model against.
+- `nafnet` / `restore` / `axelera`: Not available yet: no trained LibreYOLO NAFNet weights are published, so there is no model to export and measure on a Metis. Known work for when weights exist: the input skip around the whole graph runs on the host (as for Real-ESRGAN), and every block's per-pixel LayerNorm has the same reciprocal square root as ConvNeXt's.
 - `nafnet` / `restore` / `tflite`: onnx2tf 2.6.7 converts the fixed-canvas graph, but LiteRT 2.1.2 fails at invoke time because input tensor 4539 lacks data.
 - `nafnet` / `restore` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `neuflowv2` / `flow` / `onnx`: Optical flow export is blocked until the two-input graph (image1, image2) and the backend vector-rescale contract of ADR 0032 are implemented for a family.
@@ -1878,32 +1889,27 @@ These converter paths are callable with the recorded validation context.
 - `picodet` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `picodet` / `detect` / `tflite`: LiteRT 2.1.2 cannot prepare the onnx2tf 2.6.7 artifact because a RESHAPE maps 19,200 input elements to 9,600 output elements.
 - `picodet` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
-- `picosam3` / `segment` / `torchscript`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `executorch`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `tensorrt`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `openvino`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `paddle`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `mnn`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `rknn`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `axelera`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `ncnn`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `tflite`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `coreml`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
-- `picosam3` / `segment` / `coreai`: PicoSAM3 currently exports its raw ROI CNN through ONNX only.
+- `picosam3` / `segment` / `torchscript`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `executorch`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `tensorrt`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `openvino`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `paddle`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `mnn`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `rknn`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `ncnn`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `tflite`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `coreml`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
+- `picosam3` / `segment` / `coreai`: PicoSAM3 exports its raw ROI CNN through ONNX and Axelera only.
 - `pidnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `pidnet` / `semantic` / `axelera`: Not available yet: the SDK 1.9 compile of PIDNet-s did not finish within 90 minutes at 1024x1024 or at 512x512 (both stopped in the compiler's first lowering step, midend_to_tir); no structural error was seen. Its spatial attention needs exact graph rewrites (channel reductions as 1x1 convolutions, broadcast gating), which quantize.
 - `pidnet` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
-- `ddrnet` / `semantic` / `onnx`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `tensorrt`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `openvino`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `axelera`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ddrnet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -1911,7 +1917,7 @@ These converter paths are callable with the recorded validation context.
 - `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ppdoclayoutv3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `ppdoclayoutv3` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `ppdoclayoutv3` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `ppdoclayoutv3` / `detect` / `ncnn`: NCNN export is not supported for PP-DocLayoutV3: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `ppdoclayoutv3` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `ppdoclayoutv3` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -1920,7 +1926,6 @@ These converter paths are callable with the recorded validation context.
 - `ppliteseg` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ppliteseg` / `semantic` / `axelera`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppliteseg` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -2066,32 +2071,32 @@ These converter paths are callable with the recorded validation context.
 - `riodetrv2` / `obb` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `riodetrv2` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `riodetrv2` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `riodetrv2` / `obb` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `riodetrv2` / `obb` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `riodetrv2` / `obb` / `ncnn`: NCNN export is not supported for RiO-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `riodetrv2` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `riodetrv2` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `riodetrv2` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
 - `rtdetr` / `detect` / `paddle`: The trained graphs require ONNX GridSample at opset 16 or newer, while X2Paddle 1.6.0 accepts opset 15 or lower.
 - `rtdetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtdetr` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `rtdetr` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `rtdetr` / `detect` / `ncnn`: NCNN export is not supported for RT-DETR: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetr` / `detect` / `tflite`: LiteRT 2.1.2 rejects the onnx2tf 2.6.7 graph because a CONCATENATION receives incompatible 256 and 1 dimensions.
 - `rtdetrv2` / `detect` / `paddle`: The trained graphs require ONNX GridSample at opset 16 or newer, while X2Paddle 1.6.0 accepts opset 15 or lower.
 - `rtdetrv2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtdetrv2` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `rtdetrv2` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `rtdetrv2` / `detect` / `ncnn`: NCNN export is not supported for RT-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv2` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rtdetrv2` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rtdetrv2` / `obb` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `rtdetrv2` / `obb` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `rtdetrv2` / `obb` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtdetrv2` / `obb` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `rtdetrv2` / `obb` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `rtdetrv2` / `obb` / `ncnn`: NCNN export is not supported for RT-DETRv2: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv2` / `obb` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `rtdetrv2` / `obb` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `rtdetrv2` / `obb` / `coreai`: This family and task have not been validated for Core AI export.
 - `rtdetrv4` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `rtdetrv4` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `rtdetrv4` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `rtdetrv4` / `detect` / `ncnn`: NCNN export is not supported for RT-DETRv4: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `rtdetrv4` / `detect` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError at the native 640x640 canvas.
 - `rtdetrv4` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2430,7 +2435,7 @@ These converter paths are callable with the recorded validation context.
 - `tinyformer` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `tinyformer` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `tinyformer` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `tinyformer` / `detect` / `axelera`: TinyFormer's decoder uses the same gather-based deformable attention as EC (bounds masks, data-dependent Gather) and LayerNorm; with SDK 1.9 quantization has no converter for its GreaterOrEqual masks.
+- `tinyformer` / `detect` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `tinyformer` / `detect` / `ncnn`: NCNN export is not supported for TinyFormer: the model requires decoder or sampling operations unavailable in NCNN. Use ONNX, OpenVINO, TorchScript, or TensorRT instead.
 - `tinyformer` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `tinyformer` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
@@ -2487,7 +2492,6 @@ These converter paths are callable with the recorded validation context.
 - `direct3d_s2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `direct3d_s2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `direct3d_s2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `unet` / `semantic` / `onnx`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `tensorrt`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -2495,7 +2499,6 @@ These converter paths are callable with the recorded validation context.
 - `unet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `unet` / `semantic` / `axelera`: Not available yet: UNet has no ONNX semantic export contract in LibreYOLO yet, and the SDK 1.9 compile of UNet-s at its 512x1024 crop did not finish within 3 hours (quantization takes about 20 minutes); no structural error was seen there. At the full 1024x2048 frame lowering finds no L1 tiling (4.7 MB needed, 4.1 MB available).
 - `unet` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -2662,7 +2665,6 @@ These converter paths are callable with the recorded validation context.
 - `yolo1` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo1` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo1` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo1` / `detect` / `axelera`: YOLOv1's head runs a [local] locally connected layer (every one of the 7x7 output positions has its own 3x3 filter bank), which exports as an Einsum; Axelera's 1.9 quantizer does not support Einsum, so quantization of YOLOv1-b (the only published size) stops on that layer. Running it on Metis would need the layer rewritten as convolutions.
 - `yolo1` / `detect` / `tflite`: onnx2tf 2.6.7 emits an ONNX_EINSUM custom operation that LiteRT 2.1.2 cannot prepare at the native 448x448 canvas.
 - `yolo1` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolo2` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
@@ -2686,9 +2688,7 @@ These converter paths are callable with the recorded validation context.
 - `yolo7` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `yolo7` / `detect` / `tflite`: The converted LiteRT graph changes decoded box coordinates beyond the detector parity tolerance.
 - `yolo7` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
-- `yolo9_e2e` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `yolo9_p2` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `yolo9_p2` / `detect` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
 - `yolo9_p2` / `detect` / `tflite`: onnx2tf 2.6.9 exports a runnable artifact, but public top-k class membership changes after LiteRT 2.1.2 conversion.
 - `yolonas` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `yolonas` / `pose` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
@@ -2708,7 +2708,7 @@ These converter paths are callable with the recorded validation context.
 - `zipdepth` / `depth` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `zipdepth` / `depth` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `zipdepth` / `depth` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
-- `zipdepth` / `depth` / `axelera`: This family and task have not been compiled or measured on Axelera Metis; docs/axelera.md lists the supported ones.
+- `zipdepth` / `depth` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `zipdepth` / `depth` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct conversion does not support the edge-mode Pad operation in ZipDepth's convex upsampler.
 - `zipdepth` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `trellis2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
