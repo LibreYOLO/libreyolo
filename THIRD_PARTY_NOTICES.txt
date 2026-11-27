@@ -1170,6 +1170,24 @@ Weights: Original COCO defaults retain their Apache-2.0 notices. Optional
          See weights/LICENSE_NOTICE.txt for the separate weight terms.
 
 --------------------------------------------------------------------
+LoopDVR (Intellindust-AI-Lab / Great Bay University)
+--------------------------------------------------------------------
+Source: https://github.com/Intellindust-AI-Lab/LoopDVR
+Commit: f2aba1f122029e4db757b69cd37fc5a4909db34e
+Paper:  arXiv:2611.32067 ("LoopDVR: Looped Transformer for Efficient Dense
+        Visual Recognition", 2026)
+License: Apache License 2.0 (with MIT components from Raptor and SReT,
+         and 2D RoPE in backbone.py adapted from Meta DINOv3 under the
+         DINOv3 License Agreement; see libreyolo/models/loopdvr/NOTICE).
+Copyright (c) 2026 The LoopDVR Authors.
+Used for: LoopDVR model family (LoopDet, LoopSeg, LoopPose) inference
+          architecture and postprocessing (libreyolo/models/loopdvr/,
+          libreyolo/postprocess/loopdvr.py).
+Weights: Official v1.0 COCO release checkpoints from
+         https://github.com/Siruuui/LoopDVR/releases/tag/v1.0 are
+         licensed under Apache License 2.0. See weights/LICENSE_NOTICE.txt.
+
+--------------------------------------------------------------------
 D-FINE-seg (ArgoHA)
 --------------------------------------------------------------------
 Source: https://github.com/ArgoHA/D-FINE-seg

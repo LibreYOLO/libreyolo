@@ -1,0 +1,34 @@
+LibreLoopDVR (LoopDVR)
+----------------------
+
+This package ports the LoopDVR architecture for object detection (LoopDet),
+instance segmentation (LoopSeg), and human pose estimation (LoopPose) from:
+
+  Intellindust-AI-Lab/LoopDVR
+  https://github.com/Intellindust-AI-Lab/LoopDVR
+  Pinned commit: f2aba1f122029e4db757b69cd37fc5a4909db34e
+  Copyright (c) 2026 The LoopDVR Authors
+  Licensed under the Apache License, Version 2.0 (see licenses/Apache-2.0.txt).
+
+Upstream source files also incorporate and attribute the following components:
+
+  - LoopAdapter (loop_adapter.py): adapted from SReT (Sliced Recursive
+    Transformer, https://github.com/szq0214/SReT), Copyright (c) 2021
+    Zhiqiang Shen, MIT License.
+  - LoopedViT recurrent block structure (backbone.py): adapted from Raptor
+    (https://github.com/KempnerInstitute/raptor), Copyright (c) 2025
+    mozesjacobs, MIT License.
+  - 2D Rotary Position Embedding (RopePositionEmbedding in backbone.py):
+    derived from DINOv3 (https://github.com/facebookresearch/dinov3),
+    Copyright (c) Meta Platforms, Inc. and affiliates, via EdgeCrafter ECViT.
+    Distributed under Meta's DINOv3 License Agreement; see the root NOTICE
+    and libreyolo/models/deimv2/engine/backbone/dinov3/LICENSE.md.
+  - HybridEncoder, DetectionDecoder, SegmentationHead, and PoseDecoder
+    (encoder.py, decoder.py): derived from EdgeCrafter (Copyright (c) 2026
+    The EdgeCrafter Authors), D-FINE (Copyright (c) 2024 D-FINE Authors,
+    Apache-2.0), RT-DETR (Copyright (c) 2023 lyuwenyu, Apache-2.0), RF-DETR
+    (Copyright (c) 2025 Roboflow, Apache-2.0), DETRPose
+    (https://github.com/SebastianJanampa/DETRPose, Apache-2.0), Conditional
+    DETR (Copyright (c) 2021 Microsoft, Apache-2.0), DETR (Copyright (c)
+    Facebook, Inc. and its affiliates, Apache-2.0), and Deformable DETR
+    (Copyright (c) 2020 SenseTime, Apache-2.0).

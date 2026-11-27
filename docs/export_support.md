@@ -21,6 +21,7 @@ in preflight.
 | convnextv2 | classify | ✓ | ✓ | available | available | available |  |  |  |  | available |  |  |  |
 | crm | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | ddcolor | restore |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| ddrnet | semantic | ✓ |  |  |  | available |  |  |  | available |  |  |  |  |
 | deeplabv3 | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | available |  |  |  |  |
 | deepseekocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | deformable_detr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |  |
@@ -30,6 +31,7 @@ in preflight.
 | dekr | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | depth_anything | depth | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  | ✓ |
 | depth_anything3 | depth | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
+| depthpro2 | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | detany3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | detr | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | dexined | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available |  | ✓ |  |  |
@@ -40,6 +42,7 @@ in preflight.
 | dinov2 | semantic | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |  |
 | dinov2 | classify | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  |  | available |
 | dinov2 | embed | ✓ | ✓ | available | available | available |  |  |  |  |  | ✓ |  |  |
+| direct3d_s2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | domedetr | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | dpflow | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | ec | detect | ✓ | ✓ | ✓ | available | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |
@@ -62,7 +65,6 @@ in preflight.
 | florence2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | flowseek | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | flux2_klein | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| open_vision_banana | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | fomo | point | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  | ✓ |
 | gemma4 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | glmocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -92,6 +94,9 @@ in preflight.
 | lingbotvision | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  |  | ✓ |
 | locateanything | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | locateanything | point |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| loopdvr | detect | ✓ | ✓ |  |  |  |  |  |  |  |  |  |  |  |
+| loopdvr | pose | ✓ | ✓ |  |  |  |  |  |  |  |  |  |  |  |
+| loopdvr | segment | ✓ | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | lwdetr | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | marigold_v2 | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | marigold_v2 | normal |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -112,6 +117,7 @@ in preflight.
 | neuflowv2 | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | northmicrovision | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | omdet_turbo | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| open_vision_banana | generate |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | ov_deim | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | owlv2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | paddleocrvl | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -120,7 +126,6 @@ in preflight.
 | picodet | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  | available | available | ✓ |  |  | ✓ |
 | picosam3 | segment | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
 | pidnet | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  | available | ✓ | ✓ |  | ✓ |
-| ddrnet | semantic | ✓ |  |  |  | available |  |  |  | available |  |  |  |  |
 | ppdoclayoutv3 | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |  |
 | ppliteseg | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  | available |  |  |  |  |
 | ppocr | ocr |  |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -174,9 +179,9 @@ in preflight.
 | teed | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  | ✓ |  |  |
 | tinyformer | detect | available | available | available | available | available |  |  |  |  |  |  |  |  |
 | trellis | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| trellis2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposplat | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | triposr | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| direct3d_s2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | unet | semantic | ✓ |  |  |  |  |  |  |  | available |  |  |  |  |
 | unimatch | flow |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
@@ -205,8 +210,6 @@ in preflight.
 | yolonas | obb | ✓ | ✓ | available | ✓ | ✓ |  |  |  | ✓ | available |  |  |  |
 | yolox | detect | ✓ | ✓ | ✓ | available | ✓ |  |  |  | ✓ | ✓ | ✓ | available | ✓ |
 | zipdepth | depth | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  | ✓ |  |  | ✓ |
-| trellis2 | generate3d |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| depthpro2 | depth |  |  |  |  |  |  |  |  |  |  |  |  |  |
 
 ## Parity thresholds
 
@@ -250,6 +253,7 @@ A check mark applies only under any constraint listed here.
 - `convnext` / `classify` / `coreai`: fixed export canvas; a representative published trained ImageNet checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
 - `convnextv2` / `classify` / `onnx`: FP32; 224px ImageNet-1K classifiers; Atto CPU runtime parity
 - `convnextv2` / `classify` / `torchscript`: FP32; 224px ImageNet-1K classifiers; Atto CPU runtime parity
+- `ddrnet` / `semantic` / `onnx`: FP32 dense logits at a fixed canvas (stride 8; the backend resizes them bilinearly to the source and takes the argmax, as predict())
 - `deeplabv3` / `semantic` / `onnx`: FP32, batch 1, fixed 520x520 input
 - `deeplabv3` / `semantic` / `torchscript`: FP32, batch 1, fixed 520x520 input
 - `deeplabv3` / `semantic` / `tensorrt`: TensorRT 10.16 FP32, RTX 5070 Ti, batch 1, fixed 520x520 input
@@ -363,6 +367,12 @@ A check mark applies only under any constraint listed here.
 - `lingbotvision` / `semantic` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
 - `lingbotvision` / `semantic` / `openvino`: fixed family-native export canvas
 - `lingbotvision` / `semantic` / `coreai`: fixed family-native canvases (PIDNet 1024, LingBotVision 512); trained LibrePIDNets-sem and LibreLingBotVisions-sem checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; exported backends already implement the shared dense-logit resize and argmax contract
+- `loopdvr` / `detect` / `onnx`: FP32; static square input; no custom CUDA plugin
+- `loopdvr` / `detect` / `torchscript`: FP32; static square input; no custom CUDA plugin
+- `loopdvr` / `pose` / `onnx`: FP32; static square input; no custom CUDA plugin
+- `loopdvr` / `pose` / `torchscript`: FP32; static square input; no custom CUDA plugin
+- `loopdvr` / `segment` / `onnx`: FP32; static square input; no custom CUDA plugin
+- `loopdvr` / `segment` / `torchscript`: FP32; static square input; no custom CUDA plugin
 - `mask_rcnn` / `detect` / `onnx`: ONNX Runtime, FP32, opset 18, batch 1, dynamic source H/W; upstream aspect resize, class-wise NMS, RoIAlign, and mask paste are embedded
 - `mask_rcnn` / `segment` / `onnx`: ONNX Runtime, FP32, opset 18, batch 1, dynamic source H/W; upstream aspect resize, class-wise NMS, RoIAlign, and mask paste are embedded
 - `midas` / `depth` / `onnx`: FP32, batch 1, fixed square canvas: 256 for s and 384 for l; backend inference follows the ADR 0006 stretch-resize contract; TensorRT 10.16 engines target the build GPU and OpenVINO evidence uses 2026.2
@@ -403,7 +413,6 @@ A check mark applies only under any constraint listed here.
 - `pidnet` / `semantic` / `openvino`: fixed square input
 - `pidnet` / `semantic` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 with a fixed export canvas; two-input raw parity, factory reload, metadata, and public predict parity
 - `pidnet` / `semantic` / `coreai`: fixed family-native canvases (PIDNet 1024, LingBotVision 512); trained LibrePIDNets-sem and LibreLingBotVisions-sem checkpoints are covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin; exported backends already implement the shared dense-logit resize and argmax contract
-- `ddrnet` / `semantic` / `onnx`: FP32 dense logits at a fixed canvas (stride 8; the backend resizes them bilinearly to the source and takes the argmax, as predict())
 - `ppdoclayoutv3` / `detect` / `onnx`: FP32, fixed 800x800 input, ONNX opset 17
 - `ppdoclayoutv3` / `detect` / `torchscript`: FP32, fixed 800x800 input
 - `ppliteseg` / `semantic` / `onnx`: fixed native rectangle per size (512x1024 for t50/b50, 768x1536 for t75/b75). All four sizes were exported and run in each format: raw-logit cosine vs eager >= 0.999994 at batch 1 and batch 2 (ONNX is exact to 8e-05 max abs diff), and original-canvas semantic-mask agreement >= 99.6% through the factory reload. TensorRT 10.x FP32 engines were built and executed, not just parsed
@@ -607,6 +616,8 @@ These converter paths are callable with the recorded validation context.
 - `convnextv2` / `classify` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `convnextv2` / `classify` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `convnextv2` / `classify` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `ddrnet` / `semantic` / `openvino`: OpenVINO CPU FP32 IR from the ONNX graph; predict() labels matched the native model on COCO images (s at 1024x1024, m at 1024x2048), not yet in the runtime parity suite. Constraint: FP32, fixed canvas
+- `ddrnet` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; DDRNet runs on the Metis AIPU as three compiled parts at its native 1024x2048 frame, as PIDNet (both branches with the DAPPM's per-branch layers; the DAPPM sums and compression; the head), joined on the host by bilinear upsampling and channel concatenation only. Compiled whole, the compiler did not finish in 3 hours. Supported, not validated: DDRNet is trained on Cityscapes, so the paired measurement is fidelity to FP32 at the same frame on COCO val2017 images (s: mIoU 0.791, 94.0% of pixels agree on 300; m: 0.810, 94.5% on 300; docs/axelera.md); the loss is in the high-resolution branch. Faster than the FP32 CPU at 4 host threads (its best run, batch 1): s 3.04 / 7.46 img/s at batch 1 / 8 vs 1.90; m 1.46 / 4.61 vs 0.57. Constraint: supported sizes: s, m (measured fidelity, SIZE_ACCURACY_NOTES); l has no published Cityscapes checkpoint (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1 per part call, fixed 1024x2048 input (the native frame; height and width multiples of 64, width a multiple of height)
 - `deeplabv3` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; the whole DeepLabV3 graph runs on the Metis AIPU after exact graph rewrites (the ASPP image-pooling branch becomes a broadcast add, oversized ASPP convolutions are split by channels, and for R50/R101 each dilated ASPP convolution runs as per-tap 1x1 convolutions plus zero-filled shifts), and the host upsamples the class logits. Supported, not validated: on a paired 300-image COCO val2017 set with VOC-21 masks mIoU stays below FP32 by 3.77 points (MobileNetV3), 5.09 (R50) and 20.93 (R101; docs/axelera.md). Constraint: supported sizes: mv3, r50, r101 (measured drops, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 520x520 input
 - `deformable_detr` / `detect` / `torchscript`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `deformable_detr` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
@@ -680,8 +691,6 @@ These converter paths are callable with the recorded validation context.
 - `picosam3` / `segment` / `axelera`: INT8 export of the raw ROI CNN compiled with Axelera's toolchain, under the same contract as ONNX (roi_image [1,3,96,96] -> mask_logits [1,1,96,96]); cutting the ROI from a box and pasting the logits back stay in Python. The stem's depthwise 3x3 on the image runs as an exact dense 3->3 conv. Supported, not validated: there are no ground-truth masks in the pairing, so the device is measured against FP32 (fidelity): on 2360 ground-truth-box ROIs of 297 COCO val2017 images, mask IoU vs FP32 0.968 and pixel agreement 0.992 (docs/axelera.md). Constraint: axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1, fixed 96x96 ROI input; calibration ROIs cut from the dataset's ground-truth boxes (2 per image, 128 in total)
 - `pidnet` / `semantic` / `tensorrt`: TensorRT 10.16 FP32 exports and runs, but repeated builds produced raw-logit cosine as low as 0.9970, below the 0.999 promotion gate.
 - `pidnet` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; PIDNet runs on the Metis AIPU as three compiled parts (the branches through layer 5 with the pyramid pooling's per-branch layers, the pooling sums, then the branch fusion and the head), joined on the host by bilinear upsampling and channel concatenation only. Compiled whole it collapses in INT8 (logit cosine about 0). Supported, not validated: PIDNet is trained on Cityscapes, so the paired measurement is fidelity to FP32 on COCO val2017 images at 1024x1024 (s: mIoU 0.864, 95.0% of pixels agree on 300; m: 0.825, 95.3% on 96; l: 0.820, 95.1% on 100; docs/axelera.md). Faster than the FP32 CPU (4 host threads): s 7.36 vs 2.93 img/s batched, 5.17 vs 2.89 at batch 1; m 3.48 vs 0.56 and 1.75 vs 0.50; l 4.07 vs 0.49 and 1.92 vs 0.48. PIDNet-m calibrates slowly in the SDK (about a minute per image): it was measured with fraction=0.25 (32 coco128 images), its default when fraction is left unset. Constraint: supported sizes: s, m, l (measured fidelity, SIZE_ACCURACY_NOTES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1 per part call, fixed 1024x1024 input (a multiple of 64)
-- `ddrnet` / `semantic` / `openvino`: OpenVINO CPU FP32 IR from the ONNX graph; predict() labels matched the native model on COCO images (s at 1024x1024, m at 1024x2048), not yet in the runtime parity suite. Constraint: FP32, fixed canvas
-- `ddrnet` / `semantic` / `axelera`: INT8 export compiled with Axelera's toolchain; DDRNet runs on the Metis AIPU as three compiled parts at its native 1024x2048 frame, as PIDNet (both branches with the DAPPM's per-branch layers; the DAPPM sums and compression; the head), joined on the host by bilinear upsampling and channel concatenation only. Compiled whole, the compiler did not finish in 3 hours. Supported, not validated: DDRNet is trained on Cityscapes, so the paired measurement is fidelity to FP32 at the same frame on COCO val2017 images (s: mIoU 0.791, 94.0% of pixels agree on 300; m: 0.810, 94.5% on 300; docs/axelera.md); the loss is in the high-resolution branch. Faster than the FP32 CPU at 4 host threads (its best run, batch 1): s 3.04 / 7.46 img/s at batch 1 / 8 vs 1.90; m 1.46 / 4.61 vs 0.57. Constraint: supported sizes: s, m (measured fidelity, SIZE_ACCURACY_NOTES); l has no published Cityscapes checkpoint (UNMEASURED_SIZES). axelera-devkit / axelera-rt 1.9.0, Linux x86_64 compile, INT8, batch 1 per part call, fixed 1024x2048 input (the native frame; height and width multiples of 64, width a multiple of height)
 - `ppdoclayoutv3` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `ppdoclayoutv3` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `ppdoclayoutv3` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
@@ -868,6 +877,16 @@ These converter paths are callable with the recorded validation context.
 - `ddcolor` / `restore` / `tflite`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `ddcolor` / `restore` / `coreml`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `ddcolor` / `restore` / `coreai`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
+- `ddrnet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `tensorrt`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `ddrnet` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `deeplabv3` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -940,6 +959,19 @@ These converter paths are callable with the recorded validation context.
 - `depth_anything3` / `depth` / `tflite`: Depth Anything 3 currently rejects export for every format; its depth graph has not been added to the exported-runtime contract.
 - `depth_anything3` / `depth` / `coreml`: Depth Anything 3 currently rejects export for every format; its depth graph has not been added to the exported-runtime contract.
 - `depth_anything3` / `depth` / `coreai`: The model raises NotImplementedError for every format: depth export is out of scope per ADR 0006, the depth task contract. Depth Anything V2 exports and validates at 5.2e-06, so this is specific to the V3 family and not a Core AI limitation.
+- `depthpro2` / `depth` / `onnx`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `torchscript`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `executorch`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `tensorrt`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `openvino`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `paddle`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `mnn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `rknn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `axelera`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `ncnn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `tflite`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `coreml`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
+- `depthpro2` / `depth` / `coreai`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
 - `detany3d` / `detect3d` / `onnx`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `detany3d` / `detect3d` / `torchscript`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `detany3d` / `detect3d` / `executorch`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
@@ -1025,6 +1057,19 @@ These converter paths are callable with the recorded validation context.
 - `dinov2` / `embed` / `ncnn`: PNNX 20260526 cannot lower the DINOv2 attention graph's batch-axis broadcasts and leaves an unsupported pnnx.Expression node.
 - `dinov2` / `embed` / `coreml`: No parity-valid embedding artifact is available for this runtime.
 - `dinov2` / `embed` / `coreai`: No parity-valid embedding artifact is available for this runtime.
+- `direct3d_s2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `tensorrt`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `openvino`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `paddle`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `mnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `rknn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `axelera`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `ncnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `direct3d_s2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `domedetr` / `detect` / `onnx`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `domedetr` / `detect` / `torchscript`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
 - `domedetr` / `detect` / `executorch`: Dome-DETR rejects export for every format. PAQI sets the query count per image, so a traced graph is only valid for the image it was traced on; a static formulation would need the greedy density-adaptive NMS unrolled over all 250-1500 candidates. Use D-FINE for an exportable DETR.
@@ -1259,19 +1304,6 @@ These converter paths are callable with the recorded validation context.
 - `flux2_klein` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `flux2_klein` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `tensorrt`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `openvino`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `paddle`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `mnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `rknn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `axelera`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `ncnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
-- `open_vision_banana` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `fomo` / `point` / `paddle`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `mnn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `fomo` / `point` / `rknn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
@@ -1608,6 +1640,39 @@ These converter paths are callable with the recorded validation context.
 - `locateanything` / `point` / `tflite`: Generative VLM export is out of scope for v1.
 - `locateanything` / `point` / `coreml`: Generative VLM export is out of scope for v1.
 - `locateanything` / `point` / `coreai`: Generative VLM export is out of scope for v1.
+- `loopdvr` / `detect` / `executorch`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `detect` / `tensorrt`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `detect` / `openvino`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `detect` / `paddle`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `detect` / `mnn`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `detect` / `rknn`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `detect` / `axelera`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `detect` / `ncnn`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `detect` / `tflite`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `detect` / `coreml`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `detect` / `coreai`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `executorch`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `tensorrt`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `openvino`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `paddle`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `mnn`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `rknn`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `axelera`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `ncnn`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `tflite`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `coreml`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `pose` / `coreai`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `executorch`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `tensorrt`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `openvino`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `paddle`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `mnn`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `rknn`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `axelera`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `ncnn`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `tflite`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `coreml`: LoopDVR currently implements only portable ONNX and TorchScript export.
+- `loopdvr` / `segment` / `coreai`: LoopDVR currently implements only portable ONNX and TorchScript export.
 - `lwdetr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `lwdetr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `lwdetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -1830,6 +1895,19 @@ These converter paths are callable with the recorded validation context.
 - `omdet_turbo` / `detect` / `tflite`: Open-vocabulary runtime export is out of scope for v1.
 - `omdet_turbo` / `detect` / `coreml`: Open-vocabulary runtime export is out of scope for v1.
 - `omdet_turbo` / `detect` / `coreai`: Open-vocabulary runtime export is out of scope for v1.
+- `open_vision_banana` / `generate` / `onnx`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `torchscript`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `executorch`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `tensorrt`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `openvino`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `paddle`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `mnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `rknn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `axelera`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `ncnn`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `tflite`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `coreml`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
+- `open_vision_banana` / `generate` / `coreai`: Image generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0030).
 - `ov_deim` / `detect` / `onnx`: Open-vocabulary runtime export is out of scope for v1.
 - `ov_deim` / `detect` / `torchscript`: Open-vocabulary runtime export is out of scope for v1.
 - `ov_deim` / `detect` / `executorch`: Open-vocabulary runtime export is out of scope for v1.
@@ -1904,16 +1982,6 @@ These converter paths are callable with the recorded validation context.
 - `pidnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `pidnet` / `semantic` / `coreml`: The CoreML wrapper does not implement the dense semantic-logits contract.
-- `ddrnet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `tensorrt`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
-- `ddrnet` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `ppdoclayoutv3` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `ppdoclayoutv3` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `ppdoclayoutv3` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -2453,6 +2521,19 @@ These converter paths are callable with the recorded validation context.
 - `trellis` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `trellis` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `tensorrt`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `openvino`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `paddle`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `mnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `rknn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `axelera`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `ncnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
+- `trellis2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposplat` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
@@ -2479,19 +2560,6 @@ These converter paths are callable with the recorded validation context.
 - `triposr` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposr` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `triposr` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `tensorrt`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `openvino`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `paddle`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `mnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `rknn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `axelera`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `ncnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `direct3d_s2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
 - `unet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `unet` / `semantic` / `tensorrt`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
@@ -2711,29 +2779,3 @@ These converter paths are callable with the recorded validation context.
 - `zipdepth` / `depth` / `axelera`: not supported on Metis: part of the network would run on the host CPU, and Axelera support means the whole network runs on the Metis.
 - `zipdepth` / `depth` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct conversion does not support the edge-mode Pad operation in ZipDepth's convex upsampler.
 - `zipdepth` / `depth` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
-- `trellis2` / `generate3d` / `onnx`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `torchscript`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `executorch`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `tensorrt`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `openvino`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `paddle`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `mnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `rknn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `axelera`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `ncnn`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `tflite`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `coreml`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `trellis2` / `generate3d` / `coreai`: 3D generation export is blocked until a sampling loop over several networks has an exportable graph and backend runtime contract (ADR 0031).
-- `depthpro2` / `depth` / `onnx`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `torchscript`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `executorch`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `tensorrt`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `openvino`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `paddle`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `mnn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `rknn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `axelera`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `ncnn`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `tflite`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `coreml`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.
-- `depthpro2` / `depth` / `coreai`: Depth Pro 2 rejects export for every format: the network uses dynamic multi-frame cross-attention with host-side window streaming and an auxiliary variable-resolution FoV estimator, which the single-image depth export contract does not describe.

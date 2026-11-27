@@ -47,6 +47,7 @@ _METADATA_CONVERSION_HELP = (
 # one2one_cv2 / one2one_cv3, current one_to_one_anchor_convs /
 # one_to_one_class_convs) must win first.
 from .ec.model import LibreEC  # noqa: E402
+from .loopdvr.model import LibreLoopDVR  # noqa: E402
 from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402
 from .yolo9_p2.model import LibreYOLO9P2  # noqa: E402  (must precede LibreYOLO9: P2 checkpoints also match the base backbone/neck patterns)
@@ -775,7 +776,7 @@ def LibreYOLO(
         # and DEIMv2 legitimately match D-FINE/DEIM-ish decoder keys and should
         # be allowed to win via their more-specific detectors.
         if {"dfine", "deim"}.issubset(matching_families) and not (
-            matching_families & {"ec", "deimv2", "tinyformer"}
+            matching_families & {"ec", "loopdvr", "deimv2", "tinyformer"}
         ):
             raise ValueError(
                 "Ambiguous D-FINE/DEIM checkpoint: both families share the same "

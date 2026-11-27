@@ -62,6 +62,7 @@ MODEL_GROUPS: dict[str, str] = {
     "pe": "s",
     # g3 - inference-only specialists
     "levjepa": "g3",
+    "loopdvr": "g3",
     "lwdetr": "g3",
     "riodetrv2": "g3",
     "detr": "g3",

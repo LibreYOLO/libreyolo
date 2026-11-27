@@ -1566,6 +1566,23 @@ The August 20 replacement is commit e0656d44b80ecb97ba96bb8a804a741169431e0f;
 August 24 commit 124cb0922ebe4af55c025af448312c2374210815 only renamed the file.
 See docs/provenance/edgecrafter.md for links and the chronology.
 
+
+LoopDVR COCO weights (detection, segmentation and pose; s/m/l/x)
+----------------------------------------------------------------
+License: Apache-2.0, reproduced in licenses/Apache-2.0.txt.
+Code:   https://github.com/Intellindust-AI-Lab/LoopDVR
+        (commit f2aba1f122029e4db757b69cd37fc5a4909db34e)
+Source: https://github.com/Siruuui/LoopDVR/releases/tag/v1.0
+        (formerly linked as Siruuui/LoopDVR_Weights; GitHub redirects to
+        Siruuui/LoopDVR, which carries Apache-2.0 in LICENSE)
+Assets: loopdet-{s,m,l,x}.pth, loopseg-{s,m,l,x}.pth, looppose-{s,m,l,x}.pth.
+Copyright (c) 2026 The LoopDVR Authors (Great Bay University / Intellindust AI Lab).
+
+All 12 checkpoints are COCO-trained (not Objects365). Conversion adds
+LibreYOLO v1.0 metadata without modifying learned tensors. Backbone
+distillation follows EdgeCrafter's COCO recipe from a frozen DINOv3 teacher;
+upstream releases the resulting LoopDVR checkpoints under Apache-2.0.
+
 GTR detection and pose (s/m/l/x)
 Upstream: https://huggingface.co/Phoenix8125/GTR
 Code: https://github.com/Intellindust-AI-Lab/GTR

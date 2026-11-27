@@ -16,7 +16,7 @@ from .loss import ValidationLossMixin
 
 logger = logging.getLogger(__name__)
 
-COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "tinyformer", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
+COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "tinyformer", "ec", "loopdvr", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
 BEST_CONF_KEY = "metrics/best_conf"
 BEST_CONF_F1_KEY = "metrics/best_conf_f1"
 

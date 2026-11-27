@@ -242,6 +242,46 @@
     "available": true,
     "group": "g3"
   },
+  "ddrnet": {
+    "class": "libreyolo.models.ddrnet.model.LibreDDRNet",
+    "tasks": [
+      "semantic"
+    ],
+    "default_task": "semantic",
+    "sizes": {
+      "s": [
+        1024,
+        2048
+      ],
+      "m": [
+        1024,
+        2048
+      ],
+      "l": [
+        1024,
+        2048
+      ]
+    },
+    "default_imgsz": {
+      "s": [
+        1024,
+        2048
+      ],
+      "m": [
+        1024,
+        2048
+      ],
+      "l": [
+        1024,
+        2048
+      ]
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g2"
+  },
   "deeplabv3": {
     "class": "libreyolo.models.deeplabv3.model.LibreDeepLabv3",
     "tasks": [
@@ -450,6 +490,30 @@
     "available": true,
     "group": "g3"
   },
+  "depthpro2": {
+    "class": "libreyolo.models.depthpro2.model.LibreDepthPro2",
+    "tasks": [
+      "depth"
+    ],
+    "default_task": "depth",
+    "sizes": {
+      "s": 512,
+      "b": 512,
+      "l": 512,
+      "h": 512
+    },
+    "default_imgsz": {
+      "s": 512,
+      "b": 512,
+      "l": 512,
+      "h": 512
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "detany3d": {
     "class": "libreyolo.models.detany3d.model.LibreDetAny3D",
     "tasks": [
@@ -631,6 +695,25 @@
     "optional_extra": "rfdetr",
     "available": true,
     "group": "g2"
+  },
+  "direct3d_s2": {
+    "class": "libreyolo.models.gen.direct3d_s2.model.LibreDirect3DS2",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "v11": 518
+    },
+    "default_imgsz": {
+      "v11": 518
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
   },
   "domedetr": {
     "class": "libreyolo.models.domedetr.model.LibreDOMEDETR",
@@ -1024,27 +1107,6 @@
     },
     "default_imgsz": {
       "4b": 1024
-    },
-    "task_sizes": {},
-    "export_override": "blocked",
-    "optional_extra": "gen",
-    "available": false,
-    "group": "s",
-    "cli_command": "generate"
-  },
-  "open_vision_banana": {
-    "class": "libreyolo.models.gen.open_vision_banana.LibreOpenVisionBanana",
-    "tasks": [
-      "generate"
-    ],
-    "default_task": "generate",
-    "sizes": {
-      "4b": 1024,
-      "9b": 1024
-    },
-    "default_imgsz": {
-      "4b": 1024,
-      "9b": 1024
     },
     "task_sizes": {},
     "export_override": "blocked",
@@ -1544,6 +1606,51 @@
     "available": true,
     "group": "s"
   },
+  "loopdvr": {
+    "class": "libreyolo.models.loopdvr.model.LibreLoopDVR",
+    "tasks": [
+      "detect",
+      "pose",
+      "segment"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "s": 640,
+      "m": 640,
+      "l": 640,
+      "x": 640
+    },
+    "default_imgsz": {
+      "s": 640,
+      "m": 640,
+      "l": 640,
+      "x": 640
+    },
+    "task_sizes": {
+      "detect": {
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640
+      },
+      "pose": {
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640
+      },
+      "segment": {
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640
+      }
+    },
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "lwdetr": {
     "class": "libreyolo.models.lwdetr.model.LibreLWDETR",
     "tasks": [
@@ -1860,6 +1967,27 @@
     "available": true,
     "group": "s"
   },
+  "open_vision_banana": {
+    "class": "libreyolo.models.gen.open_vision_banana.LibreOpenVisionBanana",
+    "tasks": [
+      "generate"
+    ],
+    "default_task": "generate",
+    "sizes": {
+      "4b": 1024,
+      "9b": 1024
+    },
+    "default_imgsz": {
+      "4b": 1024,
+      "9b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": false,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "ov_deim": {
     "class": "libreyolo.models.openvocab.ov_deim.LibreOVDEIM",
     "tasks": [
@@ -2008,46 +2136,6 @@
     "optional_extra": null,
     "available": true,
     "group": "g3"
-  },
-  "ddrnet": {
-    "class": "libreyolo.models.ddrnet.model.LibreDDRNet",
-    "tasks": [
-      "semantic"
-    ],
-    "default_task": "semantic",
-    "sizes": {
-      "s": [
-        1024,
-        2048
-      ],
-      "m": [
-        1024,
-        2048
-      ],
-      "l": [
-        1024,
-        2048
-      ]
-    },
-    "default_imgsz": {
-      "s": [
-        1024,
-        2048
-      ],
-      "m": [
-        1024,
-        2048
-      ],
-      "l": [
-        1024,
-        2048
-      ]
-    },
-    "task_sizes": {},
-    "export_override": "none",
-    "optional_extra": null,
-    "available": true,
-    "group": "g2"
   },
   "ppdoclayoutv3": {
     "class": "libreyolo.models.ppdoclayoutv3.model.LibrePPDocLayoutV3",
@@ -3027,6 +3115,25 @@
     "group": "s",
     "cli_command": "generate"
   },
+  "trellis2": {
+    "class": "libreyolo.models.gen.trellis2.model.LibreTRELLIS2",
+    "tasks": [
+      "generate3d"
+    ],
+    "default_task": "generate3d",
+    "sizes": {
+      "4b": 1024
+    },
+    "default_imgsz": {
+      "4b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "gen",
+    "available": true,
+    "group": "s",
+    "cli_command": "generate"
+  },
   "triposplat": {
     "class": "libreyolo.models.gen.triposplat.model.LibreTripoSplat",
     "tasks": [
@@ -3057,25 +3164,6 @@
     },
     "default_imgsz": {
       "": 512
-    },
-    "task_sizes": {},
-    "export_override": "blocked",
-    "optional_extra": "gen",
-    "available": false,
-    "group": "s",
-    "cli_command": "generate"
-  },
-  "direct3d_s2": {
-    "class": "libreyolo.models.gen.direct3d_s2.model.LibreDirect3DS2",
-    "tasks": [
-      "generate3d"
-    ],
-    "default_task": "generate3d",
-    "sizes": {
-      "v11": 518
-    },
-    "default_imgsz": {
-      "v11": 518
     },
     "task_sizes": {},
     "export_override": "blocked",
@@ -3581,49 +3669,6 @@
     },
     "task_sizes": {},
     "export_override": "none",
-    "optional_extra": null,
-    "available": true,
-    "group": "g3"
-  },
-  "trellis2": {
-    "class": "libreyolo.models.gen.trellis2.model.LibreTRELLIS2",
-    "tasks": [
-      "generate3d"
-    ],
-    "default_task": "generate3d",
-    "sizes": {
-      "4b": 1024
-    },
-    "default_imgsz": {
-      "4b": 1024
-    },
-    "task_sizes": {},
-    "export_override": "blocked",
-    "optional_extra": "gen",
-    "available": true,
-    "group": "s",
-    "cli_command": "generate"
-  },
-  "depthpro2": {
-    "class": "libreyolo.models.depthpro2.model.LibreDepthPro2",
-    "tasks": [
-      "depth"
-    ],
-    "default_task": "depth",
-    "sizes": {
-      "s": 512,
-      "b": 512,
-      "l": 512,
-      "h": 512
-    },
-    "default_imgsz": {
-      "s": 512,
-      "b": 512,
-      "l": 512,
-      "h": 512
-    },
-    "task_sizes": {},
-    "export_override": "blocked",
     "optional_extra": null,
     "available": true,
     "group": "g3"
