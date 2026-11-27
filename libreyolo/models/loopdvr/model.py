@@ -27,12 +27,12 @@ from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import ECValPreprocessor
 from ..base import BaseModel
+from .config import LoopDVRConfig, LoopDVRPoseConfig, LoopDVRSegConfig
 from .nn import (
     LibreLoopDVRModel,
     LibreLoopDVRPoseModel,
     LibreLoopDVRSegModel,
 )
-from .trainer import LoopDVRConfig, LoopDVRPoseConfig, LoopDVRSegConfig
 
 _POSE_HEAD_KEY = "decoder.keypoint_embedding.weight"
 _SEG_HEAD_KEY = "decoder.decoder.segmentation_head.bias"
